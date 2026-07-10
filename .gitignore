@@ -1,0 +1,46 @@
+# Gradle
+.gradle/
+gradle-user/
+**/build/
+local.properties
+
+# Android / Studio
+*.iml
+.idea/
+.cxx/
+captures/
+.externalNativeBuild
+
+# Kotlin
+.kotlin/
+
+# Native
+*.so.bak
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+logcat*.txt
+
+# Local dev
+.claude/
+.mcp.json
+.vscode/
+.tmp/
+dist/
+
+# Signing
+*.jks
+*.keystore
+signing.properties
+
+# Python tooling
+__pycache__/
+*.pyc
+
+# Large build artifacts (rootfs / proton wcp)
+*.txz
+*.tzst
+!docs/**
