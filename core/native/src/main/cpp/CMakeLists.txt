@@ -6,9 +6,12 @@
 #   - libwinlator.so : Vulkan X-server renderer + X compositor (48 JNI exports)
 #   - libfakeinput.so : LD_PRELOAD evdev input shim (no JNI)
 #
-# Trim vs upstream (RFC §7 optional裁剪): `native_content_io.cpp` is excluded
-# (MVP does no native download) which drops the curl + zstd + xz dependencies
-# entirely -- that file was the sole consumer of all three.
+# Trim vs upstream (RFC §7): `native_content_io.cpp` is included for asset
+# extraction (zstd + xz), but its HTTP download path (curl) is stubbed out --
+# MVP bundles fixed binaries and does no remote fetch (RFC §10 D4). The two
+# download JNI symbols are retained as no-op stubs so NativeContentIO.java's
+# native decls resolve without UnsatisfiedLinkError; restore the curl-backed
+# bodies from WinNative upstream when v0.3 adds RemoteContentSource download.
 #
 # adrenotools is vendored as a git submodule (pinned 8483dfd, recursive ->
 # linkernsbypass b10d485) and statically linked via add_subdirectory.
@@ -20,6 +23,44 @@ project(amphora_native LANGUAGES C CXX)
 # -Wimplicit-function-declaration as an error by default in newer C modes; the
 # explicit flag keeps it a warning so the verbatim C sources compile untouched.
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wno-unused-function -Wimplicit-function-declaration")
+
+include(FetchContent)
+
+# ----------------------------------------------------------------------------
+# zstd + liblzma (xz) -- statically linked for asset archive extraction
+# (.tzst / .txz) in winlator/native_content_io.cpp (RFC §7 / §11). HTTP download
+# (curl) is intentionally NOT added: MVP bundles binaries (D4) and the download
+# JNIs are stubbed. Pattern verbatim from WinNative cpp/CMakeLists.txt.
+# ----------------------------------------------------------------------------
+FetchContent_Declare(
+    zstd
+    GIT_REPOSITORY https://github.com/facebook/zstd.git
+    GIT_TAG        v1.5.6
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  build/cmake
+)
+set(ZSTD_BUILD_STATIC    ON  CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_SHARED    OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_PROGRAMS  OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_TESTS     OFF CACHE BOOL "" FORCE)
+set(ZSTD_LEGACY_SUPPORT  OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(zstd)
+
+FetchContent_Declare(
+    xz
+    GIT_REPOSITORY https://github.com/tukaani-project/xz.git
+    GIT_TAG        v5.4.6
+    GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties(xz)
+if(NOT xz_POPULATED)
+    FetchContent_Populate(xz)
+    set(_amphora_saved_bsl "${BUILD_SHARED_LIBS}")
+    set(BUILD_SHARED_LIBS OFF)
+    set(XZ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${xz_SOURCE_DIR} ${xz_BINARY_DIR} EXCLUDE_FROM_ALL)
+    set(BUILD_SHARED_LIBS "${_amphora_saved_bsl}")
+endif()
 
 # ----------------------------------------------------------------------------
 # adrenotools (GPU driver loading) -- statically linked into libwinlator.so.
@@ -118,6 +159,7 @@ add_custom_target(winlator_shaders DEPENDS ${SHADER_HEADERS})
 # ----------------------------------------------------------------------------
 add_library(winlator SHARED
         winlator/drawable.c
+        winlator/native_content_io.cpp
         winlator/gpu_image.c
         winlator/sync_fence.c
         winlator/sysvshared_memory.c
@@ -136,6 +178,7 @@ target_compile_definitions(winlator PRIVATE
         VK_USE_PLATFORM_ANDROID_KHR
 )
 target_include_directories(winlator PRIVATE
+        ${xz_SOURCE_DIR}/src/liblzma/api
         winlator/vk
         ${CMAKE_CURRENT_BINARY_DIR}
 )
@@ -148,6 +191,8 @@ target_link_libraries(winlator
         jnigraphics
         vulkan
         adrenotools
+        libzstd_static
+        liblzma
 )
 
 # Fake evdev input shim used by the pb_controller_fix controller path.

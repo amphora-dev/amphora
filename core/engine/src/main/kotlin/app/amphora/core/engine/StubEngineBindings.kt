@@ -7,18 +7,16 @@ import app.amphora.core.engine.model.AudioSink
 import app.amphora.core.engine.model.InputSink
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.PointerButton
-import app.amphora.core.rootfs.RootfsInstaller
-import app.amphora.core.rootfs.model.RootfsSpec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Temporary scaffold bindings (P1). `:core:engine` is the only Hilt-equipped
- * module right now, so sibling-interface stubs live here and are @Provides-bound
- * in [app.amphora.core.engine.di.EngineModule]. When P2/P4 add Hilt + real impls
- * to `:core:rootfs` / `:core:container`, move those bindings there and delete the
- * corresponding @Provides lines in EngineModule (see `docs/03-TRACKING.md`).
+ * Temporary scaffold bindings. `:core:engine` is the only Hilt-equipped module,
+ * so the remaining sibling-interface stubs ([StubContainerManager] P4 /
+ * [StubWineSessionPreparer] P2-P3) live here and are @Provides-bound in
+ * [app.amphora.core.engine.di.EngineModule]. [RootfsInstaller] graduated to its
+ * real concretion ([ImageFsRootfsInstaller]) in P2.
  *
  * All method bodies are `TODO` tagged with the owning phase + the XSDA source
  * line / port target, so the next agent can grep straight to the work.
@@ -45,13 +43,6 @@ internal class StubContainerManager : ContainerManager {
         TODO("P4: ContainerManager.list")
     override suspend fun delete(id: ContainerId): Boolean =
         TODO("P4: ContainerManager.delete")
-}
-
-internal class StubRootfsInstaller : RootfsInstaller {
-    override suspend fun ensureInstalled(spec: RootfsSpec): Boolean =
-        TODO("P2: imagefs install/extract/version -> :core:rootfs (winlator-imagefs, termuxfs rpath)")
-    override suspend fun currentVersion(): String? =
-        TODO("P2: RootfsInstaller.currentVersion")
 }
 
 /**
