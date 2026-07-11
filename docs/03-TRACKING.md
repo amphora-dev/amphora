@@ -1,7 +1,7 @@
 # 03 - 进度跟踪 / Handoff
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-07-11 · HEAD `9e0929f` · 阶段: **P0 native 移植完成, 进入 P1**
+> 最后更新: 2026-07-11 · HEAD `92b00ef` · 阶段: **P1 内核移植 + facade skeleton 完成; XSDA body 抽取延后 P2/P3**
 > 必读: [`00-RESEARCH.md`](00-RESEARCH.md) · [`01-RFC.md`](01-RFC.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
 
 ---
@@ -10,8 +10,9 @@
 
 - ✅ scaffold 已落地并提交 (`fc14357`)。
 - ✅ P0 已落地并提交 (`9e0929f`): `:core:native` 真实 `libwinlator.so`+`libfakeinput.so` (62 JNI 导出 + JNI_OnLoad, adrenotools 静态链入, 19 shader 编入)。`./gradlew :app:assembleDebug` 绿, APK `lib/arm64-v8a/` 含真 `.so`。
+- ✅ P1 已落地并提交 (`dee877e`+`92b00ef`): `:core:engine` runtime Java 内核 (221 .java + 3 .kt) + 11 JNI 绑定 + AdrenotoolsManager 精简 (D8) + cut 类 stub; `WineEngineImpl` facade skeleton (注入 ContainerManager/RootfsInstaller/WineSessionPreparer, launch 编排骨架委托 com.winlator.cmod, 每步 TODO 标 P-phase) + `WineSessionPreparer` 接口 (6 方法, compile-only)。`./gradlew :app:assembleDebug` 绿, APK 31.9MB 含 libwinlator.so 964K。
 - ✅ 技术栈对齐 Google `android/compose-samples` 当前参考 (比 `android/nowinandroid` 新一档)。详见 [02-SCAFFOLD.md §1](02-SCAFFOLD.md)。
-- ⏭ 下一步: P1 -- 移植 `runtime/` Java 内核到 `:core:engine` + 13 个 JNI 绑定类 + `AdrenotoolsManager` 精简 (D8)。
+- ⏭ 下一步: P2 rootfs (clone `winlator-imagefs` + `:core:rootfs` `RootfsInstaller` 真实现); `WineSessionPreparer` body 抽取 (XSDA 6 方法) 随 P2/P3。
 
 | 项 | 值 |
 |---|---|
@@ -68,9 +69,10 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [x] 依赖 (版本取自 WinNative catalog 保源码兼容): `androidx.appcompat`1.7.1 · `androidx.preference`1.2.1 · `com.google.android.material`1.14.0 · `zstd-jni`1.5.7-9@aar · `commons-compress`1.28.0 · `tukaani-xz`1.12。加 `:core:engine/build.gradle.kts`。
 - [x] `R`+`BuildConfig` stub (内核 import `com.winlator.cmod.{R,BuildConfig}`; 引擎 namespace=`app.amphora.core.engine` 不匹配)。R.java 78 字段/8 类型 (从实际 `R.type.name` 引用生成)。**P1 compile-only; 真实 res 接线 (namespace+res/) 留 P2/P3 runtime**。
 - [x] 解耦剩余 cut 引用 ✅: 23 个 cut 类 stub (co-located 在 engine, 无向上依赖) + `input/rumble`/`compat/fexcore` 整块拷 + `AppTerminationHelper`/`XServerDisplayActivity`/`InputControlsView` 等 stub。WinHandler 124 错 (XSDA field/ctor + input.controls 6 类) 用 stub 解决 (内核 .java 原样不动)。
-- [ ] 抽 `WineSessionPreparer` (Java) 自 XSDA (D9, 6 方法) — 背景调研已产出 (XSDA 提取 agent, 251KB)
-- [ ] `WineEngine` 真实现 = facade 委托 com.winlator.cmod 类; 替换 `StubWineEngine` 的 `TODO()`
-- [x] 验证: Hilt 图仍编译 ✅ (`./gradlew :app:assembleDebug` 绿, commit `dee877e`; APK 31.9MB 含 libwinlator.so 964K)
+- [x] `WineSessionPreparer` 接口 (6 方法, 名字 verbatim 自 XSDA + 行号) + `StubWineSessionPreparer` (body TODO P2/P3) - :core:engine (`92b00ef`)
+- [x] `WineEngineImpl` facade skeleton: 注入 ContainerManager/RootfsInstaller/WineSessionPreparer + DispatcherProvider, launch 编排骨架委托 com.winlator.cmod (XEnvironment/GuestProgramLauncherComponent/VulkanRenderer), 每步 TODO 标 P-phase; 替换 StubWineEngine 作 bound impl (Stub 保留 fallback)
+- [x] Hilt: EngineModule 绑 WineEngineImpl + 临时 @Provides sibling 接口 stub (StubContainerManager/StubRootfsInstaller/StubWineSessionPreparer); `:core:engine` 是 P1 唯一 Hilt 模块, stub 暂居此 -> **P2/P4 移至 :core:{rootfs,container} 并删 EngineModule 对应 @Provides**
+- [x] 验证: Hilt 图仍编译 ✅ (`./gradlew :app:assembleDebug` 绿, commit `92b00ef`; APK 31.9MB 含 libwinlator.so 964K)
 
 **P1 关键发现 (供下个 agent, 修正 RFC/跟踪文档假设):**
 1. **WinNative `runtime/` 是 Java+Kotlin 混合** (非纯 Java): 40 个 .kt 文件多为 Compose UI (dialog/theme/toast/nav/focus/widget/HUD/glasses)。amphora 砍 37 个 (app 层, 重写), 留 3 个干净 kernel 逻辑 .kt (`LogManager`/`PeIconExtractor`/`StoragePathUtils`, 被 .java 引用)。
@@ -78,6 +80,7 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 3. **AGP 9 built-in Kotlin**: `compileDebugKotlin` 与 `compileDebugJavaWithJavac` **分离并行** — 单跑 `compileDebugKotlin` 会 **隐藏 .java 错误** (它不编 .java)。须跑 `:core:engine:compileDebugJavaWithJavac` 或 `:app:assembleDebug` 才见 .java 错。JDK 中文 locale -> 错误是 `错误:`/`程序包...不存在`/`找不到符号` (非 `error:`)。
 4. **解耦策略**: cut 类 stub (co-located, 保内核 .java 原样) 优于编辑内核 — `feature/app` 类 stub 后无向上依赖 (stub 在 engine 内), 架构干净; 真正 de-couple (删 SettingsConfig/PrefManager/PluviaApp/Marker/GOG 引用) 可作 P1-followup。
 5. `audio/midi` 用 `cn.sherlock`+`jp.kshoji` MIDI 库, 自含 (0 外部引用), 整块砍省两个外部依赖。
+6. **sibling 接口 stub 暂居 :core:engine**: P1 仅 `:core:engine` 有 Hilt; `ContainerManager`/`RootfsInstaller`/`WineSessionPreparer` 的 stub impl + `@Provides` 暂放 `EngineModule` (`StubEngineBindings.kt`, `internal`)。P2 (`:core:rootfs`)/P4 (`:core:container`) 给各自模块加 `amphora.android.hilt` + 真实现后, 删 `EngineModule` 三个临时 `@Provides`, 绑定移至 owning module。XSDA 6 方法 body 抽取 (~800-1000 行, 剥 Steam/录屏) 延后 P2/P3 -- 依赖 rootfs 就位才能端到端验, 复用 251KB 抽取调研。
 
 ### P2 · 运行时二进制 + rootfs (与 P1 并行, 长 pole)
 - [ ] 定位/clone `winlator-imagefs` (本地未检出, RFC 称已有资产; 产 Bionic 42 包 rootfs)
@@ -85,11 +88,13 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [ ] 自建 Proton 11 x86_64 (fork `WinNative-Emu/proton-wine`, 锁 `proton_11.0`, 见 [`RESEARCH-proton-wine-selfbuild.md`](RESEARCH-proton-wine-selfbuild.md) + D7); termuxfs+prefixPack 复用上游 SHA 锁定
 - [ ] box64 / Turnip / DXVK: 版本锁 + SHA256 (D4/D8, MVP 固定单 Turnip 驱动)
 - [ ] `:core:content` `BundledContentSource` 实现 (assets -> 首启解压到 imagefs)
+- [ ] **`WineSessionPreparer` body 抽取** (D9, XSDA 6 方法 ~800-1000 行, 剥 Steam/录屏; 复用 251KB 调研) - 依赖本节 rootfs 就位才能端到端验; 抽完替换 `StubWineSessionPreparer`, 同步删 `EngineModule.provideWineSessionPreparer` + `provideRootfsInstaller` 临时 stub (移 `:core:rootfs`)
 
 ### P3 · `:app` GameSessionScreen (D9)
 - [ ] `AndroidView{SurfaceView}` + `TouchpadView` 覆盖 (复用 WinNative `XServerSurfaceView`/`TouchpadView` 渲染靶+触屏逻辑)
 - [ ] `GameSessionViewModel` 生命周期编排: `ContainerManager` -> `WineSessionPreparer` -> `XEnvironment.startEnvironmentComponents` -> `GuestProgramLauncherComponent.execGuestProgram` (box64 wine explorer /desktop=WxH exe) -> `VulkanRenderer.attachSurface`
 - [ ] onPause->pauseComponents / onDestroy->stopComponents+ProcessHelper kill
+- [ ] `WineEngineImpl` P3 step 真实现 (替换 TODO): `startEnvironment`/`launchGuestProgram`/`sessionHandleFor`; `inputFeed`/`audioSink` 换 XServer/ALSAServer-backed sink; 同步删 `EngineModule.provideContainerManager` 临时 stub (移 `:core:container`, P4)
 
 ### P4 · 收尾
 - [ ] `:core:container` `ContainerManager` 实现 (移植 WinNative ContainerManager 861 行)
@@ -149,4 +154,5 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [x] ~~`NativeContentIO` 是否排除~~ ✅ 已排除 (P0), 省 curl/zstd/xz; Java 侧 `NativeContentIO.java`+`TarCompressorUtils` 的 native 调用在 P1 移植时 stub 或后续按需补
 - [ ] Proton 11 自建 CI 跑通前, 是否临时用 `proton-9.0-x86_64` 回退 (D5 回退路径)
 - [ ] minor: AGP 9 debug strip 对本 .so no-op (见 P0 修正); release strip 在 P4 核实
-- [ ] P1 起需定: 13 个 JNI 绑定类全放 `:core:engine`, 还是 leaf 类 (SysVSharedMemory/GPUInformation/ProcessHelper 若无 runtime 依赖) 下沉 `:core:native`
+- [x] ~~13 个 JNI 绑定类全放 :core:engine 还是 leaf 下沉~~ ✅ 已定: 11 个全落 `:core:engine` (leaf 下沉不可行, 见关键发现 #2)
+- [ ] P2/P4: 删 `EngineModule` 三个临时 sibling-stub `@Provides` (ContainerManager/RootfsInstaller/WineSessionPreparer), 绑定移至 :core:{container,rootfs,engine} 各自模块 (需先给 :core:rootfs/:core:container 加 `amphora.android.hilt`)
