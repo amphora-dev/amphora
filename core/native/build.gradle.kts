@@ -8,7 +8,9 @@ android {
 }
 
 dependencies {
-    // The com.winlator.cmod JNI binding classes (12) are ported here per RFC §7/D5.
-    // C/C++ sources live in src/main/cpp (single CMakeLists.txt -> libwinlator.so +
-    // libfakeinput.so). Until the port lands, stub sources prove the NDK pipeline.
+    // `:core:native` is pure C/C++ + CMake: it builds libwinlator.so +
+    // libfakeinput.so (see src/main/cpp/CMakeLists.txt). The com.winlator.cmod
+    // JNI *binding* classes are deferred to :core:engine (P1) -- they import the
+    // runtime kernel, so architecture forbids them here (native never depends
+    // upward). The .so resolves its JNI exports by symbol name regardless.
 }

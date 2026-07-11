@@ -3,16 +3,19 @@ package app.amphora.core.nativelib
 /**
  * Native library names loaded via `System.loadLibrary` (RFC §7 / D5).
  *
- * The 12 `com.winlator.cmod` JNI binding classes call into `libwinlator.so`
- * (48 exports across 9 source files, grouped into 7 JNI groups). `libfakeinput.so`
- * is an LD_PRELOAD input shim with no JNI. `libadrenotools` is statically linked
- * into `libwinlator.so` (Turnip driver loading).
+ * `libwinlator.so` exposes the 48 `Java_com_winlator_cmod_*` JNI exports
+ * (10 C/CXX sources ported verbatim from WinNative `cpp/winlator/` -- the
+ * `com.winlator.cmod` package prefix is preserved so the C is zero-edit).
+ * `libfakeinput.so` is an LD_PRELOAD evdev input shim with no JNI. adrenotools
+ * is statically linked into `libwinlator.so` (Turnip driver loading).
  *
- * The real C sources are ported wholesale from WinNative `cpp/winlator/` (single
- * CMakeLists.txt: FetchContent zstd v1.5.6 / xz v5.4.6, adrenotools submodule
- * add_subdirectory, 19 GLSL shaders via glslc + bin2c.cmake). Until that port
- * lands, `src/main/cpp/CMakeLists.txt` builds stubs so the NDK pipeline is
- * verified end-to-end.
+ * Trim (RFC §7 optional裁剪): `native_content_io.cpp` is NOT ported (MVP does
+ * no native download), which drops the curl + zstd + xz dependencies -- that
+ * file was their sole consumer. The Java JNI binding classes (VulkanRenderer /
+ * Drawable / SysVSharedMemory / ...) are deferred to `:core:engine` (P1): they
+ * import the runtime kernel, so architecture (`native` never depends upward)
+ * forbids them from living in `:core:native`; the `.so` needs them only at
+ * runtime, not at compile time.
  *
  * Note: this package is `app.amphora.core.nativelib` because `native` is a Java
  * keyword and cannot be an AGP namespace segment. The ported JNI classes keep
