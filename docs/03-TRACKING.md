@@ -67,10 +67,10 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [x] 砍: `input/`(controls+rumble+ui+Activities) · `display/recording` · `display/steampipeserver` · `display/ExternalDisplayController` · `display/XServerDisplayActivity`(D9 重写) · `environment/components/{SteamClientComponent,PulseAudioComponent}` · `compat/fexcore`(arm64ec D5 否决, 但 Container/GuestProgramLauncher 引用 -> 整块拷回当死代码) · `system/SessionKeepAliveService` · `audio/midi`(自含, RFC §8 ALSA-only, 推 v0.2+)
 - [x] 依赖 (版本取自 WinNative catalog 保源码兼容): `androidx.appcompat`1.7.1 · `androidx.preference`1.2.1 · `com.google.android.material`1.14.0 · `zstd-jni`1.5.7-9@aar · `commons-compress`1.28.0 · `tukaani-xz`1.12。加 `:core:engine/build.gradle.kts`。
 - [x] `R`+`BuildConfig` stub (内核 import `com.winlator.cmod.{R,BuildConfig}`; 引擎 namespace=`app.amphora.core.engine` 不匹配)。R.java 78 字段/8 类型 (从实际 `R.type.name` 引用生成)。**P1 compile-only; 真实 res 接线 (namespace+res/) 留 P2/P3 runtime**。
-- [ ] 解耦剩余 cut 引用 (进行中): 22 个 cut 类 stub (co-located 在 engine, 无向上依赖) + `input/rumble`/`compat/fexcore` 整块拷。WinHandler 124 错 (XSDA field/ctor + input.controls 6 类 + rumble) 是大头。
+- [x] 解耦剩余 cut 引用 ✅: 23 个 cut 类 stub (co-located 在 engine, 无向上依赖) + `input/rumble`/`compat/fexcore` 整块拷 + `AppTerminationHelper`/`XServerDisplayActivity`/`InputControlsView` 等 stub。WinHandler 124 错 (XSDA field/ctor + input.controls 6 类) 用 stub 解决 (内核 .java 原样不动)。
 - [ ] 抽 `WineSessionPreparer` (Java) 自 XSDA (D9, 6 方法) — 背景调研已产出 (XSDA 提取 agent, 251KB)
 - [ ] `WineEngine` 真实现 = facade 委托 com.winlator.cmod 类; 替换 `StubWineEngine` 的 `TODO()`
-- [ ] 验证: Hilt 图仍编译 (`./gradlew :app:assembleDebug`)
+- [x] 验证: Hilt 图仍编译 ✅ (`./gradlew :app:assembleDebug` 绿, commit `dee877e`; APK 31.9MB 含 libwinlator.so 964K)
 
 **P1 关键发现 (供下个 agent, 修正 RFC/跟踪文档假设):**
 1. **WinNative `runtime/` 是 Java+Kotlin 混合** (非纯 Java): 40 个 .kt 文件多为 Compose UI (dialog/theme/toast/nav/focus/widget/HUD/glasses)。amphora 砍 37 个 (app 层, 重写), 留 3 个干净 kernel 逻辑 .kt (`LogManager`/`PeIconExtractor`/`StoragePathUtils`, 被 .java 引用)。
