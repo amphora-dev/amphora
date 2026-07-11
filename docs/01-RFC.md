@@ -157,7 +157,7 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 | ~~`container/Shortcut`~~ | 442 | 主屏快捷方式 | 砍（非目标） |
 
 **不搬 / 重写**（改动多的点，见下）：
-- `XServerDisplayActivity.java`（**10,995 行**）-- 巨型 Activity，但 Steam 相关 **903 处** + 录屏/快捷方式 **715 处**可砍（占大头）；真正 MVP 核心启动逻辑（`setupXEnvironment`/`setupWineSystemFiles`/`changeWineAudioDriver`/`setupUI` 等约 10 个方法）仅 **~2-3k 行**。**Amphora 不搬**，用 Compose 重写薄启动 Screen 抽取这些核心方法。重写工作量远小于 11k。
+- `XServerDisplayActivity.java`（**10,995 行**）-- 巨型 Activity，但 Steam 相关 **903 处** + 录屏/快捷方式 **715 处**可砍（占大头）；真正 MVP 核心启动逻辑（`setupXEnvironment`/`setupWineSystemFiles`/`changeWineAudioDriver`/`setupUI` 等约 10 个方法）仅 **~2-3k 行**。**Amphora 不搬**，用 Compose 重写薄启动 Screen 抽取这些核心方法。抽取后 ~800-1,000 行落到 `:core:engine`(`WineSessionPreparer`) + `:app`(`GameSessionScreen`/`ViewModel`)。**详见 D9。**
 - `input/controls`（5,435 行，虚拟手柄/按键布局）-- MVP 只要基础触屏映射（TouchpadView 已含），完整手柄推 v0.4。
 - `display/recording`（506 行）、`ExternalDisplayController`（884 行）-- MVP 不做。
 - `steampipe`（172 行）-- Steam，不搬。
@@ -248,6 +248,48 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 - `AdrenotoolsManager` 精简到 ~30 行：仅保留 `vulkan.c` JNI 回调必需的构造器 `(Context)` + `getLibraryName(String)`；删除 `reloadContainers`（反向依赖 `feature.settings.GraphicsDriverConfigUtils` 的根源）+ 12 个多驱动管理方法。
 - 效果：解除内核反向依赖特性层的架构债（§4）；多驱动切换推 v0.3（`RemoteContentSource` 配套）。
 
+### D9: XServerDisplayActivity 拆解策略 ✅ 已定
+
+`XServerDisplayActivity`（10,995 行，421 方法）按职责拆解：
+
+| 职责块 | 方法数 | 行数 | 处理 |
+|---|---:|---:|---|
+| Steam | 52 | 2,089 | 砍（非目标）|
+| 录屏 | 21 | 431 | 砍（非目标）|
+| 快捷方式 | 15 | 183 | 砍（非目标）|
+| UI/输入/任务管理 | 70 | 1,219 | Compose 重写（薄）|
+| 核心/生命周期 + Wine 准备辅助 | ~30 | ~1,400 | 抽取（剥 Steam 分支后 ~800-1,000）|
+
+**抽取后落点：**
+
+`:core:engine` -- 从 XSDA 抽取的 Wine 准备逻辑移到新类 `WineSessionPreparer`（Java）：
+- `ensureWinePrefixReady`/`ensureWinePrefixEssentialFiles`（L7127/7164）
+- `extractDXWrapperFiles`（L7970）
+- `ensureLaunchRuntimeFilesReady`（L6280）
+- `applyGeneralPatches`（L10793）
+- `cleanupLingeringSessionProcesses`（L2632）/ `buildWineDebug`（L3556）
+
+`:app` -- Kotlin/Compose 新写薄编排器：
+- `GameSessionScreen`（Compose）：`AndroidView{SurfaceView}` + `TouchpadView` 覆盖
+- `GameSessionViewModel`：生命周期编排，委托 `WineEngine`
+
+**关键**：box64 wine 命令构造已在 `GuestProgramLauncherComponent.execGuestProgram`（L859，复用），`:app` 侧只传 exe 路径 + EnvVars，**不重写 `getWineStartCommand`**（253 行大部分是 Steam/exe 路径解析）。
+
+**MVP 启动调用链（剥掉 Steam/快捷方式）：**
+```
+GameSessionViewModel.launch(LaunchSpec)
+  -> ContainerManager 取/建容器
+  -> WineSessionPreparer: ensureWinePrefix + extractDXWrapper + ensureLaunchRuntimeFiles
+  -> XEnvironment.startEnvironmentComponents (ALSAServer + XServer + GuestProgramLauncher...)
+  -> GuestProgramLauncherComponent.execGuestProgram (box64 wine explorer /desktop=WxH exe)
+  -> VulkanRenderer.attachSurface (AndroidView{SurfaceView})
+```
+
+**生命周期：**
+- `onPause` -> `XEnvironment.pauseComponents` + ALSAServer suspend
+- `onResume` -> `XEnvironment.resumeComponents`
+- `onDestroy` -> `XEnvironment.stopComponents` + ProcessHelper kill
+
 ## 11. 构建与可复现策略
 
 - **rootfs**: winlator-imagefs 构建产物（源码构建，可复现，42 包）。MVP 够用（硬依赖全覆盖；gnutls/gstreamer 软依赖缺失优雅降级，v0.2+ 按需增量）。
@@ -271,6 +313,7 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 - [x] D6 patchelf -> 不移植（死代码，Bionic 无需 ELF patch）
 - [x] D7 MVP Proton 来源 -> 自建（fork proton-wine CI），termuxfs/prefixPack 复用上游 SHA 锁定
 - [x] D8 AdrenotoolsManager 简化 -> 固定单 Turnip 驱动，精简到 ~30 行，解除反向依赖
+- [x] D9 XServerDisplayActivity 拆解 -> 抽取 ~800-1,000 行核心启动，Steam/录屏/快捷方式砍，Compose 重写薄壳
 - [x] 模块架构认可
 - [x] MVP 范围认可
 - [x] 复用策略认可
