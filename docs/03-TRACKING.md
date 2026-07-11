@@ -1,16 +1,17 @@
 # 03 - 进度跟踪 / Handoff
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-07-11 · HEAD `fc14357` · 阶段: **scaffold 完成, 进入 v0.1 实现**
+> 最后更新: 2026-07-11 · HEAD `9e0929f` · 阶段: **P0 native 移植完成, 进入 P1**
 > 必读: [`00-RESEARCH.md`](00-RESEARCH.md) · [`01-RFC.md`](01-RFC.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
 
 ---
 
 ## 0. 状态快照
 
-- ✅ scaffold 已落地并提交 (`fc14357`)。`./gradlew :app:assembleDebug` 绿, APK 含 `libwinlator.so`+`libfakeinput.so`。
+- ✅ scaffold 已落地并提交 (`fc14357`)。
+- ✅ P0 已落地并提交 (`9e0929f`): `:core:native` 真实 `libwinlator.so`+`libfakeinput.so` (62 JNI 导出 + JNI_OnLoad, adrenotools 静态链入, 19 shader 编入)。`./gradlew :app:assembleDebug` 绿, APK `lib/arm64-v8a/` 含真 `.so`。
 - ✅ 技术栈对齐 Google `android/compose-samples` 当前参考 (比 `android/nowinandroid` 新一档)。详见 [02-SCAFFOLD.md §1](02-SCAFFOLD.md)。
-- ⏭ 下一步: v0.1 实现--移植 WinNative native + runtime 内核, 跑通一个 exe。
+- ⏭ 下一步: P1 -- 移植 `runtime/` Java 内核到 `:core:engine` + 13 个 JNI 绑定类 + `AdrenotoolsManager` 精简 (D8)。
 
 | 项 | 值 |
 |---|---|
@@ -31,6 +32,7 @@
 - [x] `StubWineEngine` + `EngineModule`(@Hilt) 使 DI 图端到端可编译
 - [x] `:app` Compose 壳 (NavHost: launcher/settings/session + 主题) + 单测/Instrumentation 骨架
 - [x] `docs/02-SCAFFOLD.md` (as-built 栈 + 踩坑)
+- [x] **P0 `:core:native` 移植** (`9e0929f`): 10 个 C/CXX 源整块拷 (零改, 保 `com.winlator.cmod`); 真实 CMakeLists (adrenotools submodule `add_subdirectory` + 19 glslc shader); 排除 `native_content_io.cpp` 省 curl/zstd/xz; 删 stub; `libwinlator.so` 62 JNI 导出 + JNI_OnLoad; APK 含真 `.so`
 
 ---
 
@@ -46,15 +48,18 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - **JNI 绑定类 (12 个)**: `WinNative/app/src/main/java/com/winlator/cmod/`
 - **巨型 Activity (不整块搬, 拆解)**: `WinNative/app/src/main/runtime/display/XServerDisplayActivity.java` (10,995 行, D9 拆解)
 
-### P0 · `:core:native` 移植 (技术核心, 先做)
-- [ ] 拷 `cpp/winlator/` 全量 C 源到 `core/native/src/main/cpp/winlator/`, **保留 `com.winlator.cmod` 包名** -> C 零改 (RFC §7/D5)
-- [ ] 写真 `core/native/src/main/cpp/CMakeLists.txt`: 单文件出 `libwinlator.so`+`libfakeinput.so`; FetchContent zstd v1.5.6 / xz v5.4.6 静态链; adrenotools submodule `add_subdirectory`; 19 GLSL shader 经 NDK `glslc`+`bin2c.cmake`
-- [ ] 拷 12 个 `com.winlator.cmod.*` Java 绑定类到 `:core:native` (或 `:core:native`+`:core:engine` 分放)
-- [ ] 提供 `vulkan.c` 回调类 `com.winlator.cmod.runtime.content.AdrenotoolsManager` (构造器 `(Context)`+`getLibraryName(String)`, 精简到 ~30 行, D8)
-- [ ] 移植 `android_sysvshm` (SysVSharedMemory JNI, 4 函数)
-- [ ] 删当前 stub (`winlator_stub.c`/`fakeinput_stub.c`)
-- [ ] 可选裁剪: 不走 native 下载则排除 `NativeContentIO`(`native_content_io.cpp`) 省 curl/OpenSSL
-- [ ] 验证: `./gradlew :core:native:assembleDebug` 出带真符号的 `.so`
+### P0 · `:core:native` 移植 ✅ 完成 (`9e0929f`)
+- [x] 拷 `cpp/winlator/` C 源到 `core/native/src/main/cpp/winlator/`, **保留 `com.winlator.cmod` 包名** -> C 零改 (10 源: drawable/gpu_image/sync_fence/sysvshared_memory/xconnector_epoll/process_lifecycle/vulkan + vk/vk_dispatch/vk_image/vk_renderer)
+- [x] 写真 `core/native/src/main/cpp/CMakeLists.txt`: 单文件出 `libwinlator.so`+`libfakeinput.so`; adrenotools submodule `add_subdirectory`; 19 GLSL shader 经 NDK `glslc`+`bin2c.cmake`。**无 zstd/xz/curl** (见下条裁剪)
+- [x] 删 stub (`winlator_stub.c`/`fakeinput_stub.c`)
+- [x] 裁剪: 排除 `native_content_io.cpp` -> 省 curl + zstd + xz 三依赖 (该文件是三者唯一消费者; RFC "zstd/xz 仍需" 指 Java 侧 zstd-jni, 非 native 构建)
+- [x] adrenotools 作 git submodule 引入 (pin `8483dfd`, 递归 linkernsbypass `b10d485`), 静态链入 libwinlator.so; 产物含 4 个 hook `.so` (main_hook/file_redirect_hook/gsl_alloc_hook/hook_impl, LD_PRELOAD 用)
+- [x] 验证: `:core:native:assembleDebug` + `:app:assembleDebug` 绿; `libwinlator.so` 含 **62** 个 `Java_com_winlator_cmod_*` 导出 + `JNI_OnLoad`, 覆盖全部 7 组 (VulkanRenderer 16/Texture 4/GPUImage 5/Drawable+Pixmap 8/XConnectorEpoll+ClientSocket/SyncFenceFd 6/GPUInformation 4/ProcessHelper 2/SysVSharedMemory 4); NativeContentIO 组按裁剪排除
+
+**P0 修正 (原 checklist 误区, 供下个 agent 参考):**
+- `android_sysvshm/` 是 **rootfs (imagefs Tier3.5) 组件**, 非 amphora native -- 它产 `libandroid-sysvshm.so` (socket-based shmem server, 供 rootfs 内 X11 lib 用)。4 个 SysV JNI 实际在 `cpp/winlator/sysvshared_memory.c` (直接开 `/dev/ashmem`), 随 winlator 拷贝即得, 无需单独移植 android_sysvshm。
+- JNI 绑定类是 **13 (非 12)**, 散在 `runtime/`(VulkanRenderer/Drawable/Pixmap/GPUImage/Texture/XConnectorEpoll/ClientSocket/SyncFenceFd/GPUInformation/ProcessHelper) + `shared/`(NativeContentIO) + `sharedmemory/`(SysVSharedMemory) + `java/com/winlator/cmod/`(PatchElf 死代码)。**非** `java/com/winlator/cmod/` 内 12 个。按架构 (native 不向上依赖) **全部延至 P1 `:core:engine`** -- 它们 import runtime 内核类, 无法在 `:core:native` 编译; `.so` 编译不需它们 (JNI 符号按名解析, 运行时才 FindClass)。
+- minor: AGP `stripDebugDebugSymbols` 对本 .so 报 "Unable to strip, packaging as they are" (debug 包不 strip, APK 略大); `llvm-strip --strip-debug` 手动 OK (941K->217K), 是 AGP 9 debug strip 怪癖, 非损坏。release strip 留 P4 核实。
 
 ### P1 · `:core:engine` runtime 内核移植
 - [ ] 拷 `runtime/` Java 内核到 `:core:engine`, **保 `com.winlator.cmod` 包名, Java 原样不转 Kotlin** (RFC §7 语言策略)
@@ -130,6 +135,8 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 ## 6. 待决议 / 开放
 
 - [ ] `winlator-imagefs` 仓库地址确认 + clone (RFC 称已有 42 包 CI 转绿, 本机未检出)
-- [ ] adrenotools submodule 来源 (WinNative `.gitmodules` 内) 确认可独立拉取
-- [ ] P0 完成后定: `NativeContentIO` 是否排除 (MVP 不走 native 下载则排除, 省 curl/OpenSSL Prefab AAR)
+- [x] ~~adrenotools submodule 来源~~ ✅ 已引为 amphora git submodule (`core/native/src/main/cpp/adrenotools` @ `8483dfd`, 递归 linkernsbypass `b10d485`); `git submodule update --init --recursive` 即可
+- [x] ~~`NativeContentIO` 是否排除~~ ✅ 已排除 (P0), 省 curl/zstd/xz; Java 侧 `NativeContentIO.java`+`TarCompressorUtils` 的 native 调用在 P1 移植时 stub 或后续按需补
 - [ ] Proton 11 自建 CI 跑通前, 是否临时用 `proton-9.0-x86_64` 回退 (D5 回退路径)
+- [ ] minor: AGP 9 debug strip 对本 .so no-op (见 P0 修正); release strip 在 P4 核实
+- [ ] P1 起需定: 13 个 JNI 绑定类全放 `:core:engine`, 还是 leaf 类 (SysVSharedMemory/GPUInformation/ProcessHelper 若无 runtime 依赖) 下沉 `:core:native`
