@@ -13,4 +13,14 @@ dependencies {
     api(project(":core:container"))
     implementation(project(":core:native"))
     implementation(project(":core:rootfs"))
+
+    // Ported com.winlator.cmod runtime kernel (RFC §7 - Java reused as-is).
+    // Versions matched to WinNative's catalog for source compatibility.
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.preference)
+    implementation(libs.android.material)
+    implementation(libs.commons.compress)
+    implementation(libs.tukaani.xz)
+    // zstd-jni is published as @aar (native lib + classes); matches WinNative.
+    implementation("com.github.luben:zstd-jni:${libs.versions.zstdJni.get()}@aar")
 }

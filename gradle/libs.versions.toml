@@ -18,6 +18,15 @@ espresso = "3.7.0"
 mockk = "1.14.11"
 turbine = "1.2.1"
 
+# Ported com.winlator.cmod runtime kernel deps (RFC §7 - Java reused as-is).
+# Versions matched to WinNative's catalog so the reused Java compiles unmodified.
+appcompat = "1.7.1"
+material = "1.14.0"
+preference = "1.2.1"
+zstdJni = "1.5.7-9"
+commonsCompress = "1.28.0"
+xz = "1.12"
+
 [libraries]
 # Gradle plugin artifacts (consumed by build-logic convention module)
 android-gradlePlugin = { group = "com.android.tools.build", name = "gradle", version.ref = "agp" }
@@ -67,6 +76,13 @@ espresso-core = { group = "androidx.test.espresso", name = "espresso-core", vers
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+
+# Ported com.winlator.cmod runtime kernel deps (RFC §7).
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-preference = { group = "androidx.preference", name = "preference", version.ref = "preference" }
+android-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
+tukaani-xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

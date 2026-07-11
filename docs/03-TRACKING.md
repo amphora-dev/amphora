@@ -61,13 +61,23 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - JNI 绑定类是 **13 (非 12)**, 散在 `runtime/`(VulkanRenderer/Drawable/Pixmap/GPUImage/Texture/XConnectorEpoll/ClientSocket/SyncFenceFd/GPUInformation/ProcessHelper) + `shared/`(NativeContentIO) + `sharedmemory/`(SysVSharedMemory) + `java/com/winlator/cmod/`(PatchElf 死代码)。**非** `java/com/winlator/cmod/` 内 12 个。按架构 (native 不向上依赖) **全部延至 P1 `:core:engine`** -- 它们 import runtime 内核类, 无法在 `:core:native` 编译; `.so` 编译不需它们 (JNI 符号按名解析, 运行时才 FindClass)。
 - minor: AGP `stripDebugDebugSymbols` 对本 .so 报 "Unable to strip, packaging as they are" (debug 包不 strip, APK 略大); `llvm-strip --strip-debug` 手动 OK (941K->217K), 是 AGP 9 debug strip 怪癖, 非损坏。release strip 留 P4 核实。
 
-### P1 · `:core:engine` runtime 内核移植
-- [ ] 拷 `runtime/` Java 内核到 `:core:engine`, **保 `com.winlator.cmod` 包名, Java 原样不转 Kotlin** (RFC §7 语言策略)
-  - display/xserver (9,833) · renderer (1,930) · environment (2,840) · connector (774) · winhandler (1,985) · ui (1,965) · audio (922) · system (1,446) · compat (1,384) · container (1,634) · content (1,194) · shared (~1,700) · wine (3,655, 简化单版本)
-- [ ] 抽 `WineSessionPreparer` (Java) 自 XSDA: `ensureWinePrefixReady`/`ensureWinePrefixEssentialFiles`/`extractDXWrapperFiles`/`ensureLaunchRuntimeFilesReady`/`applyGeneralPatches`/`cleanupLingeringSessionProcesses` (D9)
-- [ ] `WineEngine` 真实现 = facade 委托上述 com.winlator.cmod 类; 替换 `StubWineEngine` 的 `TODO()`
-- [ ] 砍: `input/controls` (5,435, 推 v0.4) · `display/recording` · `ExternalDisplayController` · `steampipe` · XSDA 的 Steam/录屏/快捷方式分支
+### P1 · `:core:engine` runtime 内核移植 — **进行中**
+- [x] 拷 `runtime/`+`shared/`+`sharedmemory/` Java 内核到 `:core:engine` (`src/main/java/com/winlator/cmod/...`), 保 `com.winlator.cmod` 包名, Java 原样不转 Kotlin (RFC §7)。WinNative 用 5 个 srcDirs + 非 canonical 路径 (javac 容忍); amphora 规整到 canonical 包路径。
+- [x] D8 `AdrenotoolsManager` 精简 (~30 行: ctor+`getLibraryName`)。仅 `ImageFsInstaller.installDriversFromAssets` 调过 `extractDriverFromResources` -> no-op (驱动抽取移 P2 RootfsInstaller)。
+- [x] 砍: `input/`(controls+rumble+ui+Activities) · `display/recording` · `display/steampipeserver` · `display/ExternalDisplayController` · `display/XServerDisplayActivity`(D9 重写) · `environment/components/{SteamClientComponent,PulseAudioComponent}` · `compat/fexcore`(arm64ec D5 否决, 但 Container/GuestProgramLauncher 引用 -> 整块拷回当死代码) · `system/SessionKeepAliveService` · `audio/midi`(自含, RFC §8 ALSA-only, 推 v0.2+)
+- [x] 依赖 (版本取自 WinNative catalog 保源码兼容): `androidx.appcompat`1.7.1 · `androidx.preference`1.2.1 · `com.google.android.material`1.14.0 · `zstd-jni`1.5.7-9@aar · `commons-compress`1.28.0 · `tukaani-xz`1.12。加 `:core:engine/build.gradle.kts`。
+- [x] `R`+`BuildConfig` stub (内核 import `com.winlator.cmod.{R,BuildConfig}`; 引擎 namespace=`app.amphora.core.engine` 不匹配)。R.java 78 字段/8 类型 (从实际 `R.type.name` 引用生成)。**P1 compile-only; 真实 res 接线 (namespace+res/) 留 P2/P3 runtime**。
+- [ ] 解耦剩余 cut 引用 (进行中): 22 个 cut 类 stub (co-located 在 engine, 无向上依赖) + `input/rumble`/`compat/fexcore` 整块拷。WinHandler 124 错 (XSDA field/ctor + input.controls 6 类 + rumble) 是大头。
+- [ ] 抽 `WineSessionPreparer` (Java) 自 XSDA (D9, 6 方法) — 背景调研已产出 (XSDA 提取 agent, 251KB)
+- [ ] `WineEngine` 真实现 = facade 委托 com.winlator.cmod 类; 替换 `StubWineEngine` 的 `TODO()`
 - [ ] 验证: Hilt 图仍编译 (`./gradlew :app:assembleDebug`)
+
+**P1 关键发现 (供下个 agent, 修正 RFC/跟踪文档假设):**
+1. **WinNative `runtime/` 是 Java+Kotlin 混合** (非纯 Java): 40 个 .kt 文件多为 Compose UI (dialog/theme/toast/nav/focus/widget/HUD/glasses)。amphora 砍 37 个 (app 层, 重写), 留 3 个干净 kernel 逻辑 .kt (`LogManager`/`PeIconExtractor`/`StoragePathUtils`, 被 .java 引用)。
+2. **11 个 JNI 绑定类全落 `:core:engine`** (开放问题已定): leaf 下沉不可行 — `SysVSharedMemory` import `XConnectorEpoll` (runtime), `ProcessHelper` import `shared.util.Callback`; `GPUInformation` 虽干净但与 `EnvironmentManager` 同包, 拆包不值。`.so` 按名 loadLibrary + FindClass 走 app classloader, 共处 engine OK。
+3. **AGP 9 built-in Kotlin**: `compileDebugKotlin` 与 `compileDebugJavaWithJavac` **分离并行** — 单跑 `compileDebugKotlin` 会 **隐藏 .java 错误** (它不编 .java)。须跑 `:core:engine:compileDebugJavaWithJavac` 或 `:app:assembleDebug` 才见 .java 错。JDK 中文 locale -> 错误是 `错误:`/`程序包...不存在`/`找不到符号` (非 `error:`)。
+4. **解耦策略**: cut 类 stub (co-located, 保内核 .java 原样) 优于编辑内核 — `feature/app` 类 stub 后无向上依赖 (stub 在 engine 内), 架构干净; 真正 de-couple (删 SettingsConfig/PrefManager/PluviaApp/Marker/GOG 引用) 可作 P1-followup。
+5. `audio/midi` 用 `cn.sherlock`+`jp.kshoji` MIDI 库, 自含 (0 外部引用), 整块砍省两个外部依赖。
 
 ### P2 · 运行时二进制 + rootfs (与 P1 并行, 长 pole)
 - [ ] 定位/clone `winlator-imagefs` (本地未检出, RFC 称已有资产; 产 Bionic 42 包 rootfs)

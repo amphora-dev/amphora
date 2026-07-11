@@ -1,0 +1,23 @@
+package com.winlator.cmod.feature.stores.steam.enums;
+
+/** Stub (RFC §7): not ported; minimal surface so the kernel compiles. Bodies are no-ops/default. */
+public enum Marker {
+  DOWNLOAD_COMPLETE_MARKER(".download_complete"),
+  DOWNLOAD_IN_PROGRESS_MARKER(".download_in_progress"),
+  STEAM_DLL_REPLACED(".steam_dll_replaced"),
+  STEAM_DLL_RESTORED(".steam_dll_restored"),
+  STEAM_COLDCLIENT_USED(".steam_coldclient_used"),
+  STEAM_DRM_PATCHED(".steam_drm_patched"),
+  STEAM_DRM_UNPACK_CHECKED(".steam_drm_unpack_checked"),
+  VCREDIST_INSTALLED(".vcredist_installed"),
+  GOG_SCRIPT_INSTALLED(".gog_script_installed"),
+  PHYSX_INSTALLED(".physx_installed"),
+  OPENAL_INSTALLED(".openal_installed"),
+  XNA_INSTALLED(".xna_installed");
+
+  public final String fileName;
+
+  Marker(String fileName) {
+    this.fileName = fileName;
+  }
+}
