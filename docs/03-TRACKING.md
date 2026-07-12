@@ -1,7 +1,7 @@
 # 03 - 进度跟踪 / Handoff
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-07-11 · HEAD `c593021` · 阶段: **P2 rootfs 提取能力恢复 + RootfsInstaller 真实现; XSDA body 抽取 / 资产获取待续**
+> 最后更新: 2026-07-12 · HEAD `829e83b` · 阶段: **P2 WineSessionPreparer body 抽取完成 (compile-only); 资产获取待续**
 > 必读: [`00-RESEARCH.md`](00-RESEARCH.md) · [`01-RFC.md`](01-RFC.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
 
 ---
@@ -13,7 +13,8 @@
 - ✅ P1 已落地并提交 (`dee877e`+`92b00ef`): `:core:engine` runtime Java 内核 (221 .java + 3 .kt) + 11 JNI 绑定 + AdrenotoolsManager 精简 (D8) + cut 类 stub; `WineEngineImpl` facade skeleton (注入 ContainerManager/RootfsInstaller/WineSessionPreparer, launch 编排骨架委托 com.winlator.cmod, 每步 TODO 标 P-phase) + `WineSessionPreparer` 接口 (6 方法, compile-only)。`./gradlew :app:assembleDebug` 绿, APK 31.9MB 含 libwinlator.so 964K。
 - ✅ 技术栈对齐 Google `android/compose-samples` 当前参考 (比 `android/nowinandroid` 新一档)。详见 [02-SCAFFOLD.md §1](02-SCAFFOLD.md)。
 - ✅ P2(部分) 已落地并提交 (`c593021`): native 资产提取能力恢复 (修正 P0 over-exclusion -- `native_content_io.cpp` 回归, zstd v1.5.6 + liblzma v5.4.6 静态链入, curl/download 2 JNI stub per D4); libwinlator.so 66 JNI 导出 (62+4 NativeContentIO), `TarCompressorUtils` kernel-wide 可用; `ImageFsRootfsInstaller` 真实现 (适配 `ImageFsInstaller`, 剥 Steam/Container/Activity, 仅 imagefs 提取+版本), EngineModule 绑定, `StubRootfsInstaller` 删除。`./gradlew :app:assembleDebug` 绿, APK 34.5MB 含 libwinlator.so 2.5MB (zstd+xz 静态链入)。compile-only。
-- ⏭ 下一步: P2 续 -- `WineSessionPreparer` body 抽取 (XSDA 6 方法 ~800-1000 行, 剥 Steam/录屏); `winlator-imagefs` clone + 资产 SHA 锁 (D7/box64/Turnip/DXVK); `:core:content` `BundledContentSource`。
+- ✅ P2(续) `WineSessionPreparer` body 抽取已落地 (`829e83b`): D9 XSDA 6 方法 body 逐字移植到 `XServerWineSessionPreparer` (849 行, XSDA L6127/7127/6280/7164/7970/7537 + helpers L6290/7950/5777/6398/6410/8098/8124/10793), 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI-refresh (D5/D8/D9); 4 个 feature-layer/.kt 小类移植 (WinComponentSetup 145 行 + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils 共 193 行 -> `com.winlator.cmod.runtime.{wine,container}`); 接口加 `envVars(): Map<String,String>` 输出 accessor (XSDA `envVars` 字段, 供 P3 launch 合并); `StubWineSessionPreparer` 删除, EngineModule 绑真实现。`./gradlew :app:assembleDebug` 绿, APK 34.5MB。compile-only (端到端验待资产)。
+- ⏭ 下一步: `winlator-imagefs` clone + 资产 SHA 锁 (D7/box64/Turnip/DXVK); `:core:content` `BundledContentSource`; P3 `:app` GameSessionScreen (复用真 preparer) 。
 
 | 项 | 值 |
 |---|---|
@@ -91,13 +92,14 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [ ] 自建 Proton 11 x86_64 (fork `WinNative-Emu/proton-wine`, 锁 `proton_11.0`, 见 [`RESEARCH-proton-wine-selfbuild.md`](RESEARCH-proton-wine-selfbuild.md) + D7); termuxfs+prefixPack 复用上游 SHA 锁定
 - [ ] box64 / Turnip / DXVK: 版本锁 + SHA256 (D4/D8, MVP 固定单 Turnip 驱动)
 - [ ] `:core:content` `BundledContentSource` 实现 (assets -> 首启解压到 imagefs; manifest 需资产 SHA, 依赖上两项)
-- [ ] **`WineSessionPreparer` body 抽取** (D9, XSDA 6 方法 ~800-1000 行, 剥 Steam/录屏; 复用 251KB 调研 `docs/llm/`) - 依赖 rootfs 资产就位才能端到端验; 抽完替换 `StubWineSessionPreparer`, 同步删 `EngineModule.provideWineSessionPreparer` stub
+- [x] **`WineSessionPreparer` body 抽取** (D9, `829e83b`): `XServerWineSessionPreparer` 849 行, XSDA 6 方法 + helpers 逐字移植, 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI (D5/D8/D9); 4 个小类移植 (WinComponentSetup + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils); 接口加 `envVars()` 输出 accessor; `StubWineSessionPreparer` 删除, EngineModule 绑真实现。compile-only (端到端验待 rootfs/驱动资产)。
 
 **P2 关键发现 (供下个 agent, 修正 P0/RFC 假设):**
 1. **P0 over-exclusion 修正**: P0 排除 `native_content_io.cpp` 时连 zstd+xz native 依赖一起砍, 但 RFC §7 原意是只省 curl (下载), zstd/xz 提取仍需 ("zstd/xz 仍需" 指 native 提取, 非仅 Java zstd-jni). 后果: `TarCompressorUtils.extract` -> `NativeContentIO.extractAsset` -> native (符号缺失) 对整个 kernel 是死路径 (ContentsManager/ContainerManager/ImageFsInstaller 调即 UnsatisfiedLinkError); P1 compile-only 没暴露. P2 (`c593021`) 恢复: cpp 回归 + FetchContent zstd v1.5.6/liblzma v5.4.6 静态链 + curl/download 2 JNI stub. 66 导出 (62+4). 提取 (L781-835) 与下载 (L836-927, curl) 在 cpp 内干净分离, 剥 curl 无伤提取.
-2. **DIP: 契约在低模块, concretion 在 engine**: `RootfsInstaller` 接口留 `:core:rootfs`, 但真 impl `ImageFsRootfsInstaller` 落 `:core:engine` (紧邻它适配的 `ImageFs`/`TarCompressorUtils`). 因依赖方向 `engine -> rootfs`, `:core:rootfs` 不可见 kernel. 这是 DIP (低模块拥抽象, 高模块拥 concretion), 非 "stub 暂居" 妥协. **`:core:rootfs` 无需 Hilt**. `ContainerManager` (P4) / `WineSessionPreparer` (P2/P3) 同理: 若 impl 依赖 kernel, concretion 落 engine, EngineModule 删 stub 换真 impl. 跟踪文档原 "移 owning module" 假设据此修正.
+2. **DIP: 契约在低模块, concretion 在 engine**: `RootfsInstaller` 接口留 `:core:rootfs`, 但真 impl `ImageFsRootfsInstaller` 落 `:core:engine` (紧邻它适配的 `ImageFs`/`TarCompressorUtils`). 因依赖方向 `engine -> rootfs`, `:core:rootfs` 不可见 kernel. 这是 DIP (低模块拥抽象, 高模块拥 concretion), 非 "stub 暂居" 妥协. **`:core:rootfs` 无需 Hilt**. `ContainerManager` (P4) / `WineSessionPreparer` (P2 ✅ `XServerWineSessionPreparer`) 同理: 若 impl 依赖 kernel, concretion 落 engine, EngineModule 删 stub 换真 impl. 跟踪文档原 "移 owning module" 假设据此修正.
 3. **imagefs 资产仍是占位**: WinNative `assets/imagefs.tzst` 仅 134 字节 (占位), 真实 ~869MB 提取产物来自 `winlator-imagefs` (本地未检出). `gh search repos` 找到 `Other-backup/winlator-imagefs-v2` + `kissGPT/imagefs-winlator` 但非 `WinNative-Emu/` 下; clone + SHA 锁仍是 P2 资产项. `ImageFsRootfsInstaller` 提取路径正确 (对 shard/单档), 端到端验待资产.
 4. **xz 测试二进制 bloat**: xz FetchContent 默认建 test_*/xzdec 二进制 (非链入 .so, 仅占 build 空间+时间). 已加 `XZ_BUILD_TESTS OFF` 抑制. `ensure_parent_dir` (cpp L75) 在 download stub 后无调用者, 编译报 unused-function 警告 (无害, 保留待 v0.3 download 恢复).
+5. **XSDA body 抽取: envVars 输出 accessor + 4 类小补丁 + AdrenotoolsManager stub**: (a) XSDA 的 `envVars` 是 Activity 字段, 被 `extractGraphicsDriverFiles`/DXVK/wined3d `setEnvVars` 累积, launch 时消费. 接口原 6 方法全 `Unit` 返回, 没有输出通道 -> 给 `WineSessionPreparer` 加 `envVars(): Map<String,String>` (additive, 不改现有签名), impl 持 `EnvVars envState` 累积, `WineEngineImpl` P3 合并进 launch env. (b) 6 方法依赖 4 个 WinNative feature-layer/.kt 小类 (`WinComponentSetup` 145 行 .kt + `DXVKConfigUtils`/`WineD3DConfigUtils`/`GraphicsDriverConfigUtils` 共 193 行), 全部移植到 `com.winlator.cmod.runtime.{wine,container}` (包名从 `feature.settings` 提升到 runtime, 逻辑零改). (c) `extractGraphicsDriverFiles` 的 adrenotools 驱动加载块 stub: D8 已把 `AdrenotoolsManager` 精简到只剩 `getLibraryName` (删 `setDriverById`/`getDriverName`/`getDriverVersion`), 单固定 Turnip 驱动 env-var 设置 (ADRENOTOOLS_DRIVER_PATH/NAME/HOOKS_PATH) 留 TODO, 资产到位 (P2) + runtime (P3) 恢复. (d) `getDxvkFrameRateOverride` stub=0 (快捷方式/偏好驱动, amphora 无), `getActiveGameDirectoryPath`=null / `isSteamShortcut`=false (快捷方式-only, D9 砍). (e) `desktopTheme` apply (`WineThemeManager.apply` 需 `xServer.screenInfo`) 延后 P3 setupXEnvironment (prep 阶段无 xServer). (f) `AmphoraContainer`->WinNative `Container` 解析: `ContainerManager.loadContainers()` + 按 `rootPath` 匹配 `getRootDir()` (P4 ContainerManager 接管桥接). (g) `WinHandler.FLAG_INPUT_TYPE_DINPUT` 是 `byte`, Kotlin `and` 需 `.toInt()` (Java 自动提升). 全 849 行 compile-only, `:app:assembleDebug` 绿.
 
 ### P3 · `:app` GameSessionScreen (D9)
 - [ ] `AndroidView{SurfaceView}` + `TouchpadView` 覆盖 (复用 WinNative `XServerSurfaceView`/`TouchpadView` 渲染靶+触屏逻辑)
@@ -164,4 +166,4 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [ ] Proton 11 自建 CI 跑通前, 是否临时用 `proton-9.0-x86_64` 回退 (D5 回退路径)
 - [ ] minor: AGP 9 debug strip 对本 .so no-op (见 P0 修正); release strip 在 P4 核实
 - [x] ~~13 个 JNI 绑定类全放 :core:engine 还是 leaf 下沉~~ ✅ 已定: 11 个全落 `:core:engine` (leaf 下沉不可行, 见关键发现 #2)
-- [ ] P2/P4: `RootfsInstaller` 已真实现 (P2 `c593021`, concretion 在 `:core:engine` 而非 `:core:rootfs` -- DIP, 因 `:core:rootfs` 不可见 `TarCompressorUtils`/`ImageFs`; `:core:rootfs` 无需 Hilt). 剩余 `EngineModule` stub: `ContainerManager` (P4) + `WineSessionPreparer` (P2/P3) -- 同样按 DIP 在 `:core:engine` 落 concretion (除非 impl 不依赖 kernel), 届时删对应 `@Provides`
+- [x] ~~P2/P4: `RootfsInstaller` + `WineSessionPreparer` 已真实现~~ ✅ `RootfsInstaller` (P2 `c593021`) + `WineSessionPreparer` (P2 `829e83b`, `XServerWineSessionPreparer` 849 行) concretion 均在 `:core:engine` (DIP -- `:core:rootfs`/`:core:container` 不可见 kernel). `:core:rootfs`/`:core:container` 无需 Hilt. 剩余唯一 `EngineModule` stub: `ContainerManager` (P4) -- 同样按 DIP 在 `:core:engine` 落 concretion, 届时删对应 `@Provides`.
