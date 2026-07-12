@@ -30,7 +30,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 **提取后**: ~877 MB, 10,892 条目, merged-usr 布局 (`bin`/`etc`/`lib`/`share`/`tmp` -> `usr/*` 符号链接)。
 **Bionic 标记确认**: `usr/lib/libc.so -> /system/lib64/libc.so`, `libdl.so`/`libm.so` 同; **无** `libc.so.6`/`ld-linux` (glibc 标记)。
 **关键库在位**: `libpulse.so`/`libpulseaudio.so`/`libpulsecommon-13.0.so` (PA 13.0), `libvulkan.so.1.4.315`, `libGL.so`, `libsndfile.so`, `libltdl.so`, `libandroid-spawn.so`; `etc/alsa/conf.d/android_aserver.conf` (Bionic ALSA 原生路径); `usr/share/wine/{fonts,nls}` + `winetricks`。
-**不在 imagefs 内**: `box64` 二进制 (走 installable component), `libEGL.so`/`libGLESv2.so` (运行时用 `/system`), `home/xuser`/`tmp/.X11-unix` (运行时由 XEnvironment 创建)。
+**不在 imagefs 内**: `box64` 二进制 + Proton/Wine 主二进制 (**运行时 `.wcp` 下载**, 见 §5), `libEGL.so`/`libGLESv2.so` (运行时用 `/system`), `home/xuser`/`tmp/.X11-unix` (运行时由 XEnvironment 创建)。
 **D7 termuxfs rpath**: Wine `.so` 的 `DT_RUNPATH=/data/data/com.termux/files/usr/lib` 烙在 ELF 内; imagefs 内**无**该路径 (grep 0 命中)。运行时由 launch `LD_LIBRARY_PATH` 解析 (P3 事项, 非 P2 提取阻塞)。
 
 **获取方式** (复现):
@@ -45,7 +45,7 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 ## 2. 图形驱动 / DX 包装层 / 组件 (SHA-256)
 
-> 全部来自 WinNative `app/src/main/assets/` (本地直存, 非 LFS)。Turnip = `graphics_driver/wrapper.tzst` (Mesa Vulkan ICD 包装器, `extractGraphicsDriverFiles` 的提取目标)。box64 二进制在 imagefs 外 (installable), 这里只锁 `.box64rc` 配置。
+> 全部来自 WinNative `app/src/main/assets/` (本地直存, 非 LFS)。Turnip = `graphics_driver/wrapper.tzst` (Mesa Vulkan ICD 包装器, `extractGraphicsDriverFiles` 的提取目标)。box64 二进制运行时 `.wcp` 下载 (见 §5), 这里只锁 `.box64rc` 配置。
 
 ### 2.1 graphics_driver/ (Turnip / VirGL / Zink / extra)
 | 资产 | SHA-256 |
@@ -119,7 +119,35 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 ## 4. 待办 (资产侧)
 
-- [ ] `proton-9.0-x86_64.txz` (Wine/Proton 主二进制): 定位下载源 + SHA 锁 (GitLab `winlator-extra/proton/` 或 WinNative `downloadProton` 任务) -- `preparer`/launch 真验需要
 - [ ] `:core:content` `BundledContentSource`: 用本清单 SHA 做首启解压校验 (manifest JSON 化)
-- [ ] box64 二进制: 确认来源 (installable component from GitHub `brunodev85/winlator` 或 imagefs 内) + SHA 锁
-- [ ] 真机端到端: imagefs.tzst 提取 (本轮) + `XServerWineSessionPreparer` 提取 wrapper.tzst/d8vk (下一轮, 需 Container + ContentsManager)
+- [ ] 真机 preparer 验证: host 下载 Proton/Box64 `.wcp` (§5) + adb push + `ContentsManager.extraContentFile` 本地装 (绕过 D4 download stub) + `createContainer` + 跑 `extractGraphicsDriverFiles`
+- [ ] v0.3 `RemoteContentSource`: 恢复 `nativeDownloadFile` curl body (D4 stub 解除) -> 设备上直接 `syncContents` + 下载 `.wcp`
+
+---
+
+## 5. 运行时组件生态 (.wcp 下载源) -- nicholasx417/WinNative-Components
+
+> 用户指认 + `ContentsManager.java:29` 核实: 运行时组件 (`.wcp` = Winlator Component Package) 从 **`nicholasx417/WinNative-Components`** 下载, 非 `WinNative-Emu/Components`. 这解释了为何 Proton/box64 二进制不在 imagefs/assets -- 它们是**运行时按需下载**, 非打包.
+
+**清单源** (`ContentsManager.REMOTE_PROFILES`):
+```
+https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/main/contents.json
+```
+`ContentsManager.syncContents()` 拉此 JSON -> 列组件 -> 每个 `remoteUrl` 指向 GitHub release `.wcp` -> `downloadFile` + `finishInstallContent`/`applyContent` 装载.
+
+**可用组件** (contents.json 抽样, verCode=0):
+| 类型 | 版本 (抽样) | .wcp remoteUrl |
+|---|---|---|
+| **Proton** | `Proton-10.0-4-x86_64` | `.../releases/download/Proton/Proton-10.0-4-x86_64.wcp` |
+| | `Proton-10-arm64ec-original` / `-unix` | (arm64ec, D5 砍) |
+| **Box64** | `Bionic-Box64-0.4.3-8ee3d8f2c` (**匹配 Bionic imagefs**) | `.../releases/download/bionic-box64-nightly-.../Bionic-Box64-0.4.3-8ee3d8f2c.wcp` |
+| | `Box64-0.4.3` / `0.3.9` / `0.3.8` / `0.3.7` | `.../releases/download/Stable-Box64/...wcp` |
+| **DXVK** | `Dxvk-1.7-async` / `1.7.3-async` / `1.7.2` | `.../releases/download/Stable-Dxvk/...wcp` |
+| **VKD3D** | `Vkd3d-3.0a` / `3.0b` / `3.0b-Tfix` | `.../releases/download/Stable-VKD3D/...wcp` |
+| Turnip / WineD3d | -- (不在 contents.json, 仍打包在 assets `graphics_driver/`/`dxwrapper/`) | -- |
+
+> WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 等是**打包默认**; nicholasx417 的 DXVK `.wcp` 是**可选升级**. 两条路径并存.
+
+**⚠️ D4 download stub (amphora 当前)**: `native_content_io.cpp:783` `nativeDownloadFile` 返回 `JNI_FALSE`, `nativeFetchContentLength` 返回 `-1` (RFC §10 D4 -- MVP 不做远程抓取, 符号保留避免 UnsatisfiedLinkError). 故 amphora 当前**无法在设备上直接 `syncContents`/下载 `.wcp`**.
+- **preparer 真验可行路径** (绕过 stub): host `curl` 下载 `.wcp` -> `adb push` -> `ContentsManager.extraContentFile(Uri, callback)` 本地装 (走 `nativeExtractArchive`, 非 download) -> `createContainer` (抽 Wine prefix) -> 跑 preparer.
+- **v0.3**: 恢复 curl body 解除 stub -> 设备直接下载.
