@@ -1,7 +1,7 @@
 # 03 - 进度跟踪 / Handoff
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-07-12 · HEAD `829e83b` · 阶段: **P2 WineSessionPreparer body 抽取完成 (compile-only); 资产获取待续**
+> 最后更新: 2026-07-12 · 资产获取轨: imagefs.tzst 真资产到手 (SHA 锁) + 真机 (Adreno arm64) rootfs 提取验证通过; preparer 真机验待 Proton/Container
 > 必读: [`00-RESEARCH.md`](00-RESEARCH.md) · [`01-RFC.md`](01-RFC.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
 
 ---
@@ -14,7 +14,8 @@
 - ✅ 技术栈对齐 Google `android/compose-samples` 当前参考 (比 `android/nowinandroid` 新一档)。详见 [02-SCAFFOLD.md §1](02-SCAFFOLD.md)。
 - ✅ P2(部分) 已落地并提交 (`c593021`): native 资产提取能力恢复 (修正 P0 over-exclusion -- `native_content_io.cpp` 回归, zstd v1.5.6 + liblzma v5.4.6 静态链入, curl/download 2 JNI stub per D4); libwinlator.so 66 JNI 导出 (62+4 NativeContentIO), `TarCompressorUtils` kernel-wide 可用; `ImageFsRootfsInstaller` 真实现 (适配 `ImageFsInstaller`, 剥 Steam/Container/Activity, 仅 imagefs 提取+版本), EngineModule 绑定, `StubRootfsInstaller` 删除。`./gradlew :app:assembleDebug` 绿, APK 34.5MB 含 libwinlator.so 2.5MB (zstd+xz 静态链入)。compile-only。
 - ✅ P2(续) `WineSessionPreparer` body 抽取已落地 (`829e83b`): D9 XSDA 6 方法 body 逐字移植到 `XServerWineSessionPreparer` (849 行, XSDA L6127/7127/6280/7164/7970/7537 + helpers L6290/7950/5777/6398/6410/8098/8124/10793), 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI-refresh (D5/D8/D9); 4 个 feature-layer/.kt 小类移植 (WinComponentSetup 145 行 + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils 共 193 行 -> `com.winlator.cmod.runtime.{wine,container}`); 接口加 `envVars(): Map<String,String>` 输出 accessor (XSDA `envVars` 字段, 供 P3 launch 合并); `StubWineSessionPreparer` 删除, EngineModule 绑真实现。`./gradlew :app:assembleDebug` 绿, APK 34.5MB。compile-only (端到端验待资产)。
-- ⏭ 下一步: `winlator-imagefs` clone + 资产 SHA 锁 (D7/box64/Turnip/DXVK); `:core:content` `BundledContentSource`; P3 `:app` GameSessionScreen (复用真 preparer) 。
+- ✅ 资产获取轨: `winlator-imagefs` clone (cnb.cool/atowerlight, 构建配方) + imagefs.tzst 真资产 (WinNative Git LFS, 190MB, SHA `0902e324...`, Bionic) + box64/Turnip/DXVK 全资产 SHA 锁 (`docs/04-ASSET-MANIFEST.md`); 真机 (Lenovo TB322FC / Adreno 830 / arm64-v8a / API 36) rootfs 提取 instrumented 验证通过 (877MB Bionic rootfs, 27,614 条目, 1.5s).
+- ⏭ 下一步: `proton-9.0-x86_64.txz` 获取 (preparer/launch 真验前置); `:core:content` `BundledContentSource` (用 manifest SHA); preparer 真机验 (需 Proton + Container 创建, P3/P4 前置); P3 `:app` GameSessionScreen.
 
 | 项 | 值 |
 |---|---|
@@ -86,12 +87,12 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 
 ### P2 · 运行时二进制 + rootfs (与 P1 并行, 长 pole)
 - [x] native 资产提取能力恢复 (`c593021`): `native_content_io.cpp` 回归 + zstd v1.5.6/liblzma v5.4.6 静态链入 + curl/download 2 JNI stub; libwinlator.so 66 导出, `TarCompressorUtils` kernel-wide 可用 (修正 P0 over-exclusion -- RFC §7 原意只省 curl, zstd/xz 提取仍需)
-- [ ] 定位/clone `winlator-imagefs` (本地未检出, RFC 称已有资产; 产 Bionic 42 包 rootfs)
+- [x] 定位/clone `winlator-imagefs` (cnb.cool/atowerlight, 构建配方非预产物; imagefs.tzst 真资产来自 WinNative Git LFS)
 - [x] `RootfsInstaller` 真实现 (`c593021`, `ImageFsRootfsInstaller` in `:core:engine`): imagefs 提取 (shard/单档) + 版本 (`.img_version`); 剥 Steam/Container/Activity. **契约留 `:core:rootfs`, concretion 落 `:core:engine` (DIP -- `:core:rootfs` 不可见 `TarCompressorUtils`/`ImageFs`)**
-- [ ] termuxfs rpath 复现 `/data/data/com.termux/files/usr/lib` (D7) -- 依赖真实 imagefs 资产就位后核实
+- [x] termuxfs rpath 核实 (D7): imagefs 内**无** `/data/data/com.termux/...` 路径 (grep 0 命中); rpath 烙在 Wine ELF, 运行时由 launch `LD_LIBRARY_PATH` 解析 (P3 事项, 非提取阻塞)
 - [ ] 自建 Proton 11 x86_64 (fork `WinNative-Emu/proton-wine`, 锁 `proton_11.0`, 见 [`RESEARCH-proton-wine-selfbuild.md`](RESEARCH-proton-wine-selfbuild.md) + D7); termuxfs+prefixPack 复用上游 SHA 锁定
-- [ ] box64 / Turnip / DXVK: 版本锁 + SHA256 (D4/D8, MVP 固定单 Turnip 驱动)
-- [ ] `:core:content` `BundledContentSource` 实现 (assets -> 首启解压到 imagefs; manifest 需资产 SHA, 依赖上两项)
+- [x] box64 / Turnip / DXVK: SHA256 锁定 (D4/D8, MVP 单 Turnip=`graphics_driver/wrapper.tzst`; 见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) §2)
+- [ ] `:core:content` `BundledContentSource` 实现 (assets -> 首启解压到 imagefs; manifest 已就绪 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md), 待接线)
 - [x] **`WineSessionPreparer` body 抽取** (D9, `829e83b`): `XServerWineSessionPreparer` 849 行, XSDA 6 方法 + helpers 逐字移植, 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI (D5/D8/D9); 4 个小类移植 (WinComponentSetup + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils); 接口加 `envVars()` 输出 accessor; `StubWineSessionPreparer` 删除, EngineModule 绑真实现。compile-only (端到端验待 rootfs/驱动资产)。
 
 **P2 关键发现 (供下个 agent, 修正 P0/RFC 假设):**
@@ -100,6 +101,7 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 3. **imagefs 资产仍是占位**: WinNative `assets/imagefs.tzst` 仅 134 字节 (占位), 真实 ~869MB 提取产物来自 `winlator-imagefs` (本地未检出). `gh search repos` 找到 `Other-backup/winlator-imagefs-v2` + `kissGPT/imagefs-winlator` 但非 `WinNative-Emu/` 下; clone + SHA 锁仍是 P2 资产项. `ImageFsRootfsInstaller` 提取路径正确 (对 shard/单档), 端到端验待资产.
 4. **xz 测试二进制 bloat**: xz FetchContent 默认建 test_*/xzdec 二进制 (非链入 .so, 仅占 build 空间+时间). 已加 `XZ_BUILD_TESTS OFF` 抑制. `ensure_parent_dir` (cpp L75) 在 download stub 后无调用者, 编译报 unused-function 警告 (无害, 保留待 v0.3 download 恢复).
 5. **XSDA body 抽取: envVars 输出 accessor + 4 类小补丁 + AdrenotoolsManager stub**: (a) XSDA 的 `envVars` 是 Activity 字段, 被 `extractGraphicsDriverFiles`/DXVK/wined3d `setEnvVars` 累积, launch 时消费. 接口原 6 方法全 `Unit` 返回, 没有输出通道 -> 给 `WineSessionPreparer` 加 `envVars(): Map<String,String>` (additive, 不改现有签名), impl 持 `EnvVars envState` 累积, `WineEngineImpl` P3 合并进 launch env. (b) 6 方法依赖 4 个 WinNative feature-layer/.kt 小类 (`WinComponentSetup` 145 行 .kt + `DXVKConfigUtils`/`WineD3DConfigUtils`/`GraphicsDriverConfigUtils` 共 193 行), 全部移植到 `com.winlator.cmod.runtime.{wine,container}` (包名从 `feature.settings` 提升到 runtime, 逻辑零改). (c) `extractGraphicsDriverFiles` 的 adrenotools 驱动加载块 stub: D8 已把 `AdrenotoolsManager` 精简到只剩 `getLibraryName` (删 `setDriverById`/`getDriverName`/`getDriverVersion`), 单固定 Turnip 驱动 env-var 设置 (ADRENOTOOLS_DRIVER_PATH/NAME/HOOKS_PATH) 留 TODO, 资产到位 (P2) + runtime (P3) 恢复. (d) `getDxvkFrameRateOverride` stub=0 (快捷方式/偏好驱动, amphora 无), `getActiveGameDirectoryPath`=null / `isSteamShortcut`=false (快捷方式-only, D9 砍). (e) `desktopTheme` apply (`WineThemeManager.apply` 需 `xServer.screenInfo`) 延后 P3 setupXEnvironment (prep 阶段无 xServer). (f) `AmphoraContainer`->WinNative `Container` 解析: `ContainerManager.loadContainers()` + 按 `rootPath` 匹配 `getRootDir()` (P4 ContainerManager 接管桥接). (g) `WinHandler.FLAG_INPUT_TYPE_DINPUT` 是 `byte`, Kotlin `and` 需 `.toInt()` (Java 自动提升). 全 849 行 compile-only, `:app:assembleDebug` 绿.
+6. **资产获取 + 真机 rootfs 提取验证**: (a) `winlator-imagefs` (cnb.cool/atowerlight) 是**构建配方仓** (1.2MB 脚本+CI, 产 `imagefs.txz` 18MB 重建版 SHA `af66e28b`), 非预产物; imagefs.tzst 真资产 (190MB, zstd, SHA `0902e324...`, **Bionic libc**) 实为 WinNative Git LFS blob (`git lfs install` + `git lfs pull --include="app/src/main/assets/imagefs.tzst"`), 与 amphora `ImageFsRootfsInstaller` (ZSTD/`.tzst`) 直配, 无需转码. 解压 877MB / 10,892 条目 / merged-usr / `libc.so -> /system/lib64/libc.so` (Bionic 确认, 无 glibc 标记). (b) box64/Turnip/DXVK 资产已存 WinNative assets (非 LFS), 全 SHA 锁定 ([`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)); Turnip=`graphics_driver/wrapper.tzst`, DXVK=`dxwrapper/d8vk-1.0.tzst`, box64 二进制不在 imagefs (走 installable). (c) **真机验证**: Lenovo TB322FC (arm64-v8a / API 36 / Adreno 830) instrumented `ImagefsExtractionTest` 通过 -- `libwinlator.so` 加载 OK, `TarCompressorUtils.extract(ZSTD)` 提取 877MB rootfs (27,614 条目, 1.5s), Bionic 结构 + merged-usr + libc.so 符号链接断言全过. (d) **preparer 真机验阻塞**: `extractGraphicsDriverFiles` 需 WinNative Container (走 `containerManager.loadContainers()` 按 rootPath 匹配); `createContainer` 会抽 Wine prefix (需 `proton-9.0-x86_64.txz` 资产, 未获取). 故 preparer 完整真机验待 Proton 资产 + Container 创建 (P3/P4 前置); 其 native 提取原语 (`TarCompressorUtils.extract`) 与 rootfs 同路径已证. (e) D7 termuxfs rpath: imagefs 内无 `/data/data/com.termux/...`, rpath 烙 Wine ELF, 运行时 `LD_LIBRARY_PATH` 解析 (P3). (f) imagefs.tzst 测试资产 (190MB) git-ignored (`*.tzst`), 测试用 `assumeTrue` 资产缺时 skip.
 
 ### P3 · `:app` GameSessionScreen (D9)
 - [ ] `AndroidView{SurfaceView}` + `TouchpadView` 覆盖 (复用 WinNative `XServerSurfaceView`/`TouchpadView` 渲染靶+触屏逻辑)
@@ -143,7 +145,8 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 | 移植源码 | `/Users/sky/co/github/WinNative` @ `48fe6b9` |
 | 栈版本参考 (最新) | `android/compose-samples` (Reply/Jetcaster) `gradle/libs.versions.toml` |
 | 栈/convention 参考 (正典, 略旧) | `android/nowinandroid` (注意无连字符) |
-| rootfs 源 | `winlator-imagefs` (本地未检出, 需 clone) |
+| rootfs 源 | `winlator-imagefs` (cnb.cool/atowerlight, 构建配方); imagefs.tzst 真资产 = WinNative Git LFS (见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)) |
+| 资产 SHA 锁 | [`docs/04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) |
 
 ---
 
@@ -160,7 +163,7 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 
 ## 6. 待决议 / 开放
 
-- [ ] `winlator-imagefs` 仓库地址确认 + clone (RFC 称已有 42 包 CI 转绿, 本机未检出)
+- [x] `winlator-imagefs` 仓库地址确认 + clone ✅ cnb.cool/atowerlight (构建配方); imagefs.tzst 真资产 = WinNative Git LFS (190MB, SHA `0902e324...`)
 - [x] ~~adrenotools submodule 来源~~ ✅ 已引为 amphora git submodule (`core/native/src/main/cpp/adrenotools` @ `8483dfd`, 递归 linkernsbypass `b10d485`); `git submodule update --init --recursive` 即可
 - [x] ~~`NativeContentIO` 是否排除~~ ✅ P0 排除 (省 curl), P2 (`c593021`) **恢复提取**: `native_content_io.cpp` 回归 + zstd/xz 静态链, curl/download 2 JNI stub. `TarCompressorUtils` kernel-wide 可用 (见 P2 关键发现 #1)
 - [ ] Proton 11 自建 CI 跑通前, 是否临时用 `proton-9.0-x86_64` 回退 (D5 回退路径)
