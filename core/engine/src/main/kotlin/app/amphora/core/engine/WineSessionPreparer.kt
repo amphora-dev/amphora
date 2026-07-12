@@ -11,10 +11,13 @@ import app.amphora.core.engine.model.LaunchSpec
  * (D9).
  *
  * Method names mirror the XSDA private methods verbatim (with the XSDA line
- * numbers in each KDoc) so the P2/P3 body extraction is a mechanical copy with
+ * numbers in each KDoc) so the P2 body extraction is a mechanical copy with
  * branch removal, not a redesign. Each method operates on a [Container]
  * (`rootPath` + `winePrefixPath`) whose rootfs must already be installed
- * (`RootfsInstaller`, P2).
+ * (`RootfsInstaller`, P2). The real concretion is
+ * [XServerWineSessionPreparer] (P2 body extraction; the
+ * [StubWineSessionPreparer] scaffold was removed, mirroring the P2
+ * [app.amphora.core.engine.ImageFsRootfsInstaller] graduation).
  *
  * MVP prep chain (XSDA `setupWineSystemFiles`, L6127):
  * ```
@@ -23,14 +26,27 @@ import app.amphora.core.engine.model.LaunchSpec
  *   -> ensureLaunchRuntimeFilesReady  // L6280 - box64 + runtime dlls (ensureBox64RuntimeReady L6290)
  *   -> ensureWinePrefixEssentialFiles // L7164 - system.reg / user.reg / dosdevices / ...
  *   -> extractDXWrapperFiles      // L7970 - DXVK / d8vk into prefix (extractD8VKIfNeeded L8098)
- *   -> extractGraphicsDriverFiles // L7537 - Turnip (D8: single pinned driver for MVP)
+ * extractGraphicsDriverFiles      // L7537 - Turnip (D8: single pinned driver for MVP) + env vars
  * ```
  *
- * Status: interface only (P1). Body extraction deferred to P2/P3 - see
- * [StubWineSessionPreparer] and `docs/03-TRACKING.md`.
+ * [envVars] exposes the wrapper/GPU environment variables accumulated during
+ * prep (`GALLIUM_DRIVER` / `VK_ICD_FILENAMES` / `WRAPPER_*` / `DXVK_*` ...);
+ * `WineEngineImpl` merges them with the caller's [LaunchSpec.env] for the
+ * `box64 wine explorer` launch (P3). It mirrors XSDA's mutable `envVars` field.
+ *
+ * Status: **P2 body extracted (compile-only)** in [XServerWineSessionPreparer].
+ * End-to-end verification waits on rootfs/driver assets (P2 asset acquisition).
  */
 interface WineSessionPreparer {
-    /** Top-level orchestrator (XSDA `setupWineSystemFiles`, L6127). P2/P3 body pending. */
+    /**
+     * The wrapper/GPU env vars computed during prep (XSDA `envVars` field).
+     * Read by `WineEngineImpl` after [setupWineSystemFiles] +
+     * [extractGraphicsDriverFiles] to build the guest-program environment.
+     * Additive output accessor (introduced with the P2 body extraction).
+     */
+    fun envVars(): Map<String, String>
+
+    /** Top-level orchestrator (XSDA `setupWineSystemFiles`, L6127). P2 body extracted (compile-only). */
     suspend fun setupWineSystemFiles(spec: LaunchSpec, container: Container)
 
     /** Create / validate the WINEPREFIX for [container] (XSDA `ensureWinePrefixReady`, L7127). */

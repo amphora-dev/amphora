@@ -30,7 +30,7 @@ import javax.inject.Singleton
  * ```
  * RootfsInstaller.ensureInstalled              // P2
  *   -> ContainerManager.getOrCreate            // P4
- *   -> WineSessionPreparer.setupWineSystemFiles  // P2/P3 (XSDA body extraction)
+ *   -> WineSessionPreparer.setupWineSystemFiles  // P2 (XSDA body extracted)
  *   -> XEnvironment.startEnvironmentComponents // P3 (ALSAServer + XServer + GuestProgramLauncher)
  *   -> GuestProgramLauncherComponent.execGuestProgram  // P3 (box64 wine explorer /desktop=WxH exe)
  *   -> VulkanRenderer.attachSurface            // P3 (from GameSessionScreen SurfaceView)
@@ -49,8 +49,10 @@ class WineEngineImpl @Inject constructor(
         ensureRootfs(spec)
         // 2. Wine container / WINEPREFIX (P4 ContainerManager real impl).
         val container = containerManager.getOrCreate(spec.containerId)
-        // 3. Prefix + runtime files + DX wrapper + graphics driver (P2/P3 XSDA body extraction).
+        // 3. Prefix + runtime files + DX wrapper (P2: WineSessionPreparer body extracted).
         preparer.setupWineSystemFiles(spec, container)
+        // TODO(P3): preparer.extractGraphicsDriverFiles(container); merge preparer.envVars()
+        //   (GALLIUM_DRIVER / VK_ICD_FILENAMES / WRAPPER_* / DXVK_* ...) into the launch env.
         // 4. XEnvironment: ALSAServer + XServer + GuestProgramLauncher (P3 setupXEnvironment, XSDA L6439).
         val environment = startEnvironment(container, spec)
         // 5. Launch guest: box64 wine explorer /desktop=WxH exe (P3; Amphora passes exe+env only, D9).

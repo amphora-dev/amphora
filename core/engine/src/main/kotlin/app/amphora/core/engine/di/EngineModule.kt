@@ -5,10 +5,10 @@ import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.engine.ImageFsRootfsInstaller
 import app.amphora.core.engine.StubContainerManager
-import app.amphora.core.engine.StubWineSessionPreparer
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.WineEngineImpl
 import app.amphora.core.engine.WineSessionPreparer
+import app.amphora.core.engine.XServerWineSessionPreparer
 import app.amphora.core.rootfs.RootfsInstaller
 import dagger.Module
 import dagger.Provides
@@ -24,12 +24,16 @@ import javax.inject.Singleton
  * [RootfsInstaller] is bound to its real concretion [ImageFsRootfsInstaller]
  * (P2: imagefs extract/version via the ported `com.winlator.cmod` kernel --
  * `native_content_io.cpp` extraction restored with zstd+xz, curl/download
- * stubbed per D4). The concretion lives in `:core:engine` next to the kernel it
- * adapts because the dep graph is `engine -> rootfs` and `:core:rootfs` cannot
- * see `TarCompressorUtils`/`ImageFs`; the *contract* stays in `:core:rootfs`
+ * stubbed per D4). [WineSessionPreparer] is bound to its real concretion
+ * [XServerWineSessionPreparer] (P2: the D9 XSDA body extraction -- Steam /
+ * recording / shortcut / Activity / arm64ec stripped, compile-only). Both
+ * concretions live in `:core:engine` next to the kernel they adapt because the
+ * dep graph is `engine -> {rootfs,container}` and `:core:rootfs` cannot see
+ * `TarCompressorUtils` / `ImageFs` (they live in the ported `com.winlator.cmod`
+ * kernel under `:core:engine`); the *contracts* stay in their low modules
  * (Dependency Inversion -- see `docs/03-TRACKING.md`). The remaining
- * sibling-interface stubs ([ContainerManager] P4 / [WineSessionPreparer] P2-P3)
- * are still @Provides here until their real impls land.
+ * sibling-interface stub ([ContainerManager] P4) is still @Provides here until
+ * its real impl lands.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -48,13 +52,13 @@ object EngineModule {
     @Singleton
     fun provideRootfsInstaller(impl: ImageFsRootfsInstaller): RootfsInstaller = impl
 
-    // Stubs below (P4 / P2-P3) -- replaced by real impls when their phases land.
+    @Provides
+    @Singleton
+    fun provideWineSessionPreparer(impl: XServerWineSessionPreparer): WineSessionPreparer = impl
+
+    // Stubs below (P4) -- replaced by real impls when their phases land.
 
     @Provides
     @Singleton
     fun provideContainerManager(): ContainerManager = StubContainerManager()
-
-    @Provides
-    @Singleton
-    fun provideWineSessionPreparer(): WineSessionPreparer = StubWineSessionPreparer()
 }
