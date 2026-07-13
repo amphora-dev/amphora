@@ -102,7 +102,7 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 | `proton-9.0-arm64ec_container_pattern.tzst` | `9826ac61405f641ca8326335208c3e1ed5cec107f4b0354f813825ec398b841b` | arm64ec (D5 砍) |
 | `proton-9.0-arm64ec.txz` | `63938f0b90d6ec9b2213bd419b27949768d5766af0da541831ce0d0f962c9381` | arm64ec (D5 砍, LFS) |
 
-> `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。amphora P2 未接线, 待 `:core:content` BundledContentSource。
+> `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。amphora `BundledContentSource` 已接线 (manifest WINE=`Proton-10.0-4-x86_64.wcp`, WCP 本地安装路径绕过 D4 stub, 见 §4); 生产需 build 时 staging `.wcp` 进 `app/src/main/assets/`。
 
 ---
 
@@ -119,7 +119,7 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 ## 4. 待办 (资产侧)
 
-- [ ] `:core:content` `BundledContentSource`: 用本清单 SHA 做首启解压校验 (manifest JSON 化)
+- [x] `:core:content` `BundledContentSource` (2026-07-13): `content_manifest.json` (本表派生) + SHA-256 流式校验 + ARCHIVE(`TarCompressorUtils`)/WCP(`ContentsManager.extraContentFile`) 双路径。`.wcp` SHA 待锁 (null=skip)。详见 03-TRACKING §P2 #8。
 - [ ] 真机 preparer 验证: host 下载 Proton/Box64 `.wcp` (§5) + adb push + `ContentsManager.extraContentFile` 本地装 (绕过 D4 download stub) + `createContainer` + 跑 `extractGraphicsDriverFiles`
 - [ ] v0.3 `RemoteContentSource`: 恢复 `nativeDownloadFile` curl body (D4 stub 解除) -> 设备上直接 `syncContents` + 下载 `.wcp`
 

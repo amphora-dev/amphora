@@ -1,18 +1,25 @@
 package app.amphora.core.engine.di
 
+import android.content.Context
 import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
+import app.amphora.core.content.BundledAssetInstaller
+import app.amphora.core.content.BundledContentSource
+import app.amphora.core.content.ContentManifest
+import app.amphora.core.content.ContentSource
 import app.amphora.core.engine.ImageFsRootfsInstaller
 import app.amphora.core.engine.StubContainerManager
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.WineEngineImpl
+import app.amphora.core.engine.WinlatorBundledAssetInstaller
 import app.amphora.core.engine.WineSessionPreparer
 import app.amphora.core.engine.XServerWineSessionPreparer
 import app.amphora.core.rootfs.RootfsInstaller
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -45,6 +52,26 @@ object EngineModule {
     @Provides
     @Singleton
     fun provideDispatcherProvider(): DispatcherProvider = DefaultDispatcherProvider()
+
+    // --- content (P2: BundledContentSource) ------------------------------------
+
+    @Provides
+    @Singleton
+    fun provideContentManifest(@ApplicationContext context: Context): ContentManifest =
+        ContentManifest.load(context)
+
+    @Provides
+    @Singleton
+    fun provideBundledAssetInstaller(impl: WinlatorBundledAssetInstaller): BundledAssetInstaller = impl
+
+    @Provides
+    @Singleton
+    fun provideContentSource(
+        @ApplicationContext context: Context,
+        manifest: ContentManifest,
+        installer: BundledAssetInstaller,
+        dispatchers: DispatcherProvider,
+    ): ContentSource = BundledContentSource(context, manifest, installer, dispatchers)
 
     // --- sibling-interface bindings --------------------------------------------
 

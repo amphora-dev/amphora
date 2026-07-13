@@ -1,0 +1,46 @@
+{
+  "$comment": "amphora bundled-content manifest. Generated from docs/04-ASSET-MANIFEST.md. Each entry maps a ComponentId (lowercase ContentComponent name) to an APK-bundled asset, its pinned SHA-256 (null = pending lock, verification skipped), a version string, and a provisioning kind. ARCHIVE = tar extracted to filesDir/amphora-content/<component>/<version>/; WCP = Winlator Component Package installed via ContentsManager.extraContentFile (local extract, bypasses the D4 download stub); ROOTFS = owned by RootfsInstaller (not resolved by BundledContentSource).",
+  "version": 1,
+  "source": "docs/04-ASSET-MANIFEST.md",
+  "components": {
+    "wine": {
+      "assetPath": "Proton-10.0-4-x86_64.wcp",
+      "sha256": null,
+      "version": "Proton-10.0-4-x86_64-0",
+      "kind": "WCP",
+      "contentType": "Proton",
+      "verName": "10.0-4-x86_64",
+      "verCode": 0
+    },
+    "box64": {
+      "assetPath": "Bionic-Box64-0.4.3-8ee3d8f2c.wcp",
+      "sha256": null,
+      "version": "Box64-0.4.3-8ee3d8f2c-0",
+      "kind": "WCP",
+      "contentType": "Box64",
+      "verName": "0.4.3-8ee3d8f2c",
+      "verCode": 0
+    },
+    "turnip": {
+      "assetPath": "graphics_driver/wrapper.tzst",
+      "sha256": "2651fbe6372af36c7d269664416b4f62d959125122ad3b8f79a787788e510fd8",
+      "version": "1",
+      "kind": "ARCHIVE",
+      "compression": "zstd"
+    },
+    "dxvk": {
+      "assetPath": "dxwrapper/d8vk-1.0.tzst",
+      "sha256": "da30a104f83f619214a3bc67c971434837e1a11ca30703d0f79041a93f2be246",
+      "version": "d8vk-1.0",
+      "kind": "ARCHIVE",
+      "compression": "zstd"
+    },
+    "audio_plugin": {
+      "assetPath": "pulseaudio.tzst",
+      "sha256": "357bb53fbcf91ab2adcd2e6a4b7fc3f2cb95f1555610681b08dbf6d412ac4bd8",
+      "version": "1",
+      "kind": "ARCHIVE",
+      "compression": "zstd"
+    }
+  }
+}
