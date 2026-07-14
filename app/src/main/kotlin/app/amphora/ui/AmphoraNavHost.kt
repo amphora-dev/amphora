@@ -7,14 +7,17 @@ import app.amphora.feature.launcher.navigation.LauncherRoute
 import app.amphora.feature.launcher.navigation.launcherScreen
 import app.amphora.feature.settings.navigation.SettingsRoute
 import app.amphora.feature.settings.navigation.settingsScreen
-import app.amphora.gamesession.GameSessionRoute
+import app.amphora.gamesession.gameSessionRoute
 import app.amphora.gamesession.gameSessionScreen
 
 @Composable
 fun AmphoraNavHost(navController: NavHostController) {
     NavHost(navController = navController, startDestination = LauncherRoute) {
         launcherScreen(
-            onLaunch = { navController.navigate(GameSessionRoute) },
+            onLaunch = {
+                // TODO(P4): launcher exe picker + resolution selector build the real LaunchSpec.
+                navController.navigate(gameSessionRoute("C:\\game.exe"))
+            },
             onOpenSettings = { navController.navigate(SettingsRoute) },
         )
         settingsScreen(onBack = { navController.popBackStack() })
