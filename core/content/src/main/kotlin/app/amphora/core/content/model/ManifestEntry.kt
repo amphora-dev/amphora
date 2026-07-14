@@ -7,9 +7,9 @@ package app.amphora.core.content.model
  * @property component The logical [ContentComponent] this entry resolves.
  * @property assetPath Path inside the APK `assets/` dir (e.g.
  *   `graphics_driver/wrapper.tzst` or `Proton-10.0-4-x86_64.wcp`).
- * @property sha256 Pinned SHA-256 of the archive file, or `null` when the digest
- *   is not yet locked (verification is skipped with a log). `.wcp` runtime
- *   components download SHAs are pending lock (see `docs/04-ASSET-MANIFEST.md` §5).
+ * @property sha256 Pinned SHA-256 of the asset file, or `null` when the digest
+ *   is not yet locked (verification is skipped with a log). All shipped entries
+ *   are pinned as of 2026-07-14 (gap #1); see `docs/04-ASSET-MANIFEST.md` §4-5.
  * @property version Version string; encoded into the resolved path so a manifest
  *   bump naturally provisions a fresh copy (the stale dir is orphaned, not
  *   mutated). For [Kind.WCP] this is the ContentsManager entry name

@@ -5,7 +5,7 @@
   "components": {
     "wine": {
       "assetPath": "Proton-10.0-4-x86_64.wcp",
-      "sha256": null,
+      "sha256": "e61d29be8c736abe13f662d33ff4b14fae2b7294b011283be53c8e33665d2b48",
       "version": "Proton-10.0-4-x86_64-0",
       "kind": "WCP",
       "contentType": "Proton",
@@ -14,7 +14,7 @@
     },
     "box64": {
       "assetPath": "Bionic-Box64-0.4.3-8ee3d8f2c.wcp",
-      "sha256": null,
+      "sha256": "eec659650ff31df151c13d2a522330b1636b98cd82dbf60ba3ff522759f528fd",
       "version": "Box64-0.4.3-8ee3d8f2c-0",
       "kind": "WCP",
       "contentType": "Box64",

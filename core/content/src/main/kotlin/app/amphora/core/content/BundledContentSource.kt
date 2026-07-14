@@ -24,8 +24,8 @@ import java.security.MessageDigest
  * a pointer to it.
  *
  * The manifest (`content_manifest.json`) is generated from
- * `docs/04-ASSET-MANIFEST.md`; SHAs for `.wcp` runtime components are pending
- * lock (`null` -> verification skipped with a warning). The version string is
+ * `docs/04-ASSET-MANIFEST.md`; all component SHAs are pinned (locked
+ * 2026-07-14, gap #1; a `null` digest still skips verification with a warning). The version string is
  * encoded into the resolved path, so a manifest bump provisions a fresh copy
  * (the stale dir is orphaned, not mutated).
  *

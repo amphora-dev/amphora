@@ -2,6 +2,8 @@ package app.amphora.core.content
 
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
+import app.amphora.core.content.model.id
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -11,8 +13,9 @@ import org.junit.Test
 /**
  * JVM unit test for [ContentManifest.parse]. Exercises both provisioning kinds
  * (WCP + ARCHIVE), null-SHA skipping, optional-field defaults, and the
- * ComponentId mapping. The real `content_manifest.json` asset is round-tripped
- * via [loadAsset] so a malformed shipped manifest fails here, not on device.
+ * ComponentId mapping. [realManifestHasAllShasPinned] parses the shipped
+ * `content_manifest.json` so a malformed or un-pinned manifest fails here, not
+ * on device.
  */
 class ContentManifestTest {
 
@@ -72,6 +75,27 @@ class ContentManifestTest {
         // A key that isn't a ContentComponent name fails fast at parse time
         // (Enum.valueOf throws IllegalArgumentException for unknown names).
         ContentManifest.parse("""{"version":1,"components":{"bogus":{"kind":"ARCHIVE","assetPath":"x","version":"1"}}}""")
+    }
+
+    /**
+     * Regression guard for gap #1: every shipped manifest entry must carry a
+     * pinned SHA-256. A `null` digest silently skips runtime verification
+     * ([BundledContentSource] logs a warning and trusts the asset), so this
+     * fails fast if a component is ever un-pinned. Parses the real
+     * `content_manifest.json` (not [SAMPLE]); Gradle runs unit tests with the
+     * module dir as the working directory, so the source asset is reachable via
+     * a relative path.
+     */
+    @Test fun realManifestHasAllShasPinned() {
+        val manifest = ContentManifest.parse(
+            File("src/main/assets/content_manifest.json").readText(),
+        )
+        assertEquals("shipped manifest must define 5 bundled components", 5, manifest.all().size)
+        val unpinned = manifest.all().filter { it.sha256 == null }
+        assertTrue(
+            "un-pinned SHA-256 (gap #1 regression): ${unpinned.joinToString { it.component.id.value }}",
+            unpinned.isEmpty(),
+        )
     }
 
     private companion object {

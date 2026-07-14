@@ -194,7 +194,12 @@ val stageBundledContent by tasks.registering {
                         }
                     }
                     cached.copyTo(staged, overwrite = false)
-                    logger.lifecycle("[stageBundledContent] $id: staged $assetPath (sha256=${staged.sha256()}). Paste into content_manifest.json to lock (currently null).")
+                    val actualSha = staged.sha256()
+                    if (expectedSha != null && actualSha != expectedSha) {
+                        logger.error("[stageBundledContent] $id: SHA-256 MISMATCH for $assetPath (expected $expectedSha, got $actualSha). Runtime resolve will reject this asset.")
+                    } else {
+                        logger.lifecycle("[stageBundledContent] $id: staged $assetPath (sha256=$actualSha).${if (expectedSha == null) " Paste into content_manifest.json to lock." else ""}")
+                    }
                 }
                 else -> logger.warn("[stageBundledContent] $id: unknown kind '$kind'; skipping.")
             }
