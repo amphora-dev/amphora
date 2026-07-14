@@ -250,6 +250,17 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 - [x] `GameSessionLaunchTest` / `XServerSurfaceViewInitTest` + content-aware connected 测试入口
 - [x] 文档: [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) as-built 架构真源
 
+### P4-followup · no-GPU 测试路径 (headless Wine) -- ✅ mac ARM 模拟器验通 (`feat/headless-wine-test`)
+
+分支 `feat/headless-wine-test` 加了一条**不碰 GPU** 的测试路径,把 box64+Wine+Bionic-rootfs+prefix 的 CPU 栈从 Adreno Vulkan 渲染里剥出来,能在 mac ARM 模拟器上迭代(无需真机)。
+
+- **`WineHeadlessRunner` (`:core:engine`, 生产 seam)**: `ProcessBuilder` 直接跑 `box64 wine <args>`,不启 X server/不挂 Vulkan surface/不碰音频。env 是 GPLC `execGuestProgram` 的 wineboot-essential 切片(HOME/USER/TMPDIR/LD_LIBRARY_PATH/PATH/WINEPREFIX/box64),不设 DISPLAY/VK_ICD_FILENAMES/GALLIUM_DRIVER。文件式 stdout 捕获 + 超时(避管道死锁/挂起)。`ProcessHelper.exec` 在 `WINEDEBUG=-all` 下把 stdout 丢 /dev/null,故不用它。
+- **`HeadlessWineBootTest` (`app/androidTest`)**: 两个用例 -- `headlessWine_versionPrints` (`box64 wine --version` -> exit 0 + stdout `wine-10.0`) + `headlessWineboot_initSucceeds` (`box64 wine wineboot --init` -> exit 0 + `user.reg`)。setup 复用 `PreparerGraphicsDriverTest` 的 imagefs + .wcp 安装 + `createContainer`,**加上 `preparer.ensureLaunchRuntimeFilesReady`** (createContainer 只抽 prefix,box64 二进制由 preparer 的 `ensureBox64RuntimeReady` -> `applyContent` 装到 `imagefs/usr/bin/box64`)。
+- **✅ mac ARM 模拟器 (arm64-v8a API 30) 验通**: box64 dynarec (x86_64->ARM64) 在 Apple Silicon HVF 下正常;Bionic rootfs + termuxfs rpath;Proton Wine 加载运行;`wine --version` 打印 `wine-10.0`,`wineboot --init` exit 0。证明整条 CPU 栈无需 Adreno 即可跑。
+- **模拟器三大坑 (已记入测试 KDoc)**: (1) **SELinux** -- AOSP 模拟器 `untrusted_app` 严格策略 deny `execute_no_trans` app_data_file (box64 exec 报 error=13)。userdebug image 需 `adb root && adb shell setenforce 0`。**真机 OEM 策略通常允许**(WinNative 上游在真机跑通即证),故此坑模拟器专属。(2) **磁盘** -- 每次跑抽 ~800MB prefix,5.8G 分区跑 2-3 次满;`pm clear app.amphora` 清(再重 stage .wcp)。(3) **.wcp 暂存** -- API 30+ FUSE 禁 adb push 到 `/sdcard/Android/data/<pkg>/`;改用 `cat /data/local/tmp/x.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/x.wcp'` 灌进内部 filesDir(测试读 `filesDir` 非 `getExternalFilesDir`)。
+- **能验/不能验**: ✅ box64 dynarec / Bionic rootfs / Wine .so 链接 / prefix / wineserver / content+syncContents 链 / (audio AudioTrack 也能模拟器验)。❌ 仍需真机 Adreno: Vulkan 渲染(Turnip/Freedreno)、`vk_renderer` swapchain、DXVK/vkd3d 实跑 D3D、触屏到可见画面 -- 那些是 RFC §8。
+- **未合并**: 在 `feat/headless-wine-test` 分支,基于 P4 `fdaa4e8`。合并前可选清理 runner 的 `pre-exec box64` 调试 log。
+
 ---
 
 ## 3. 必须遵守的约束 (别重踩)
