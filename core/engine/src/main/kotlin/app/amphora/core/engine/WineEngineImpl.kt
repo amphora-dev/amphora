@@ -1,83 +1,245 @@
 package app.amphora.core.engine
 
+import android.content.Context
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
-import app.amphora.core.container.model.Container
+import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.engine.model.AudioSink
 import app.amphora.core.engine.model.InputSink
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.SessionHandle
 import app.amphora.core.rootfs.RootfsInstaller
+import app.amphora.core.rootfs.model.RootfsSpec
+import com.winlator.cmod.runtime.audio.alsaserver.ALSAClient
+import com.winlator.cmod.runtime.compat.box64.Box64Preset
+import com.winlator.cmod.runtime.container.Container as WinNativeContainer
+import com.winlator.cmod.runtime.container.ContainerManager as WinNativeContainerManager
+import com.winlator.cmod.runtime.content.ContentsManager
+import com.winlator.cmod.runtime.display.connector.UnixSocketConfig
+import com.winlator.cmod.runtime.display.environment.ImageFs
+import com.winlator.cmod.runtime.display.environment.ImageFsInstaller
 import com.winlator.cmod.runtime.display.environment.XEnvironment
+import com.winlator.cmod.runtime.display.environment.components.ALSAServerComponent
+import com.winlator.cmod.runtime.display.environment.components.GuestProgramLauncherComponent
+import com.winlator.cmod.runtime.display.environment.components.NetworkInfoUpdateComponent
+import com.winlator.cmod.runtime.display.environment.components.SysVSharedMemoryComponent
+import com.winlator.cmod.runtime.display.environment.components.XServerComponent
+import com.winlator.cmod.runtime.display.xserver.ScreenInfo
+import com.winlator.cmod.runtime.display.xserver.XServer
+import com.winlator.cmod.runtime.wine.EnvVars
+import com.winlator.cmod.runtime.wine.LocaleEnv
+import com.winlator.cmod.runtime.wine.WineInfo
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Real [WineEngine] facade (RFC §6 / §7 / D9). Delegates to the ported
- * `com.winlator.cmod` runtime (XEnvironment / GuestProgramLauncherComponent /
- * VulkanRenderer) plus the sibling interfaces ([ContainerManager] P4,
- * [RootfsInstaller] P2, [WineSessionPreparer] P2/P3).
- *
- * **P1: compile-only skeleton.** [launch] wires the real dependency chain and
- * marks each not-yet-ported step `TODO` with its owning phase. [inputFeed] /
- * [audioSink] return the shared non-throwing stubs until P3 wires the XServer /
- * ALSAServer. Replaces [StubWineEngine] as the bound [WineEngine] (StubWineEngine
- * retained as a fallback - flip the binding in
+ * `com.winlator.cmod` runtime: [XEnvironment] (ALSAServer + XServer + GuestProgramLauncher
+ * components) + [GuestProgramLauncherComponent] (the `box64 wine explorer /desktop=WxH exe`
+ * launch) + [XServer] (render target + input). Sibling interfaces: [ContainerManager] (P4),
+ * [RootfsInstaller] (P2), [WineSessionPreparer] (P2). Replaces [StubWineEngine] as the bound
+ * [WineEngine] (StubWineEngine retained as a fallback - flip the binding in
  * [app.amphora.core.engine.di.EngineModule] to revert).
  *
- * MVP launch chain (RFC §6 / D9):
+ * Also implements [GameSessionSurfaceProvider]: the GameSession UI (the D9 rewrite of
+ * `XServerDisplayActivity`) needs the [XServer] to construct `XServerSurfaceView` + the touch
+ * overlay, so [surface] exposes it once [launch] has built it. The [WineEngine] interface
+ * itself stays kernel-free.
+ *
+ * MVP launch chain (XSDA `setupXEnvironment`, L6439, stripped of Steam / shortcut / recording /
+ * arm64ec / WinHandler per RFC §7 / D5 / D9):
  * ```
- * RootfsInstaller.ensureInstalled              // P2
- *   -> ContainerManager.getOrCreate            // P4
- *   -> WineSessionPreparer.setupWineSystemFiles  // P2 (XSDA body extracted)
- *   -> XEnvironment.startEnvironmentComponents // P3 (ALSAServer + XServer + GuestProgramLauncher)
- *   -> GuestProgramLauncherComponent.execGuestProgram  // P3 (box64 wine explorer /desktop=WxH exe)
- *   -> VulkanRenderer.attachSurface            // P3 (from GameSessionScreen SurfaceView)
+ * RootfsInstaller.ensureInstalled                 // P2
+ *   -> ContainerManager.getOrCreate               // P4 (stub until then)
+ *   -> WineSessionPreparer.setupWineSystemFiles + extractGraphicsDriverFiles  // P2
+ *   -> resolve WinNative Container + WineInfo      // bridge (mirror preparer.resolveState)
+ *   -> XServer(ScreenInfo(spec.displaySize))       // render target + input sink
+ *   -> EnvVars (LC_ALL/WINEPREFIX/WINEDEBUG + preparer.envVars + spec.env + ALSA)
+ *   -> XEnvironment + components (SysVShm / XServer / ALSA / NetworkInfo / GuestProgramLauncher)
+ *   -> startEnvironmentComponents()                // GPLC runs last, execs box64 wine
  * ```
+ *
+ * **Compile-only (P3):** the chain is wired end-to-end but `ContainerManager.getOrCreate` is
+ * still the P4 stub (throws), so [launch] throws at step 2 until P4 lands a real
+ * [ContainerManager]. This mirrors the P2 `XServerWineSessionPreparer` graduation
+ * (compile-only, end-to-end verification deferred to the asset/container phase). All kernel
+ * orchestration is real and faithful to XSDA.
  */
 @Singleton
 class WineEngineImpl @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val containerManager: ContainerManager,
     private val rootfsInstaller: RootfsInstaller,
     private val preparer: WineSessionPreparer,
     private val dispatchers: DispatcherProvider,
-) : WineEngine {
+) : WineEngine, GameSessionSurfaceProvider {
+
+    // --- kernel singletons (constructed like XServerWineSessionPreparer / XSDA L1041+) -----
+    private val imageFs: ImageFs = ImageFs.find(context)
+    private val contentsManager: ContentsManager = ContentsManager(context)
+    private val wnContainerManager: WinNativeContainerManager = WinNativeContainerManager(context)
+
+    // --- session surface (GameSessionSurfaceProvider) ---------------------------------------
+    private val _surface = MutableStateFlow<GameSessionSurface?>(null)
+    override val surface: StateFlow<GameSessionSurface?> = _surface.asStateFlow()
+
+    private var currentXServer: XServer? = null
+    private var currentHandle: XServerSessionHandle? = null
+    private val sessionAudioSink = XServerAudioSink()
 
     override suspend fun launch(spec: LaunchSpec): SessionHandle = withContext(dispatchers.default) {
-        // 1. Rootfs imagefs must be installed before any prefix work (P2).
-        ensureRootfs(spec)
-        // 2. Wine container / WINEPREFIX (P4 ContainerManager real impl).
+        // Clear any prior session state before starting a new one.
+        _surface.value = null
+        currentXServer = null
+        currentHandle = null
+
+        // 1. imagefs rootfs (P2).
+        ensureRootfs()
+        // 2. Wine container / WINEPREFIX (P4 ContainerManager real impl; stub throws until then).
         val container = containerManager.getOrCreate(spec.containerId)
-        // 3. Prefix + runtime files + DX wrapper (P2: WineSessionPreparer body extracted).
+        // 3. Prefix + runtime files + DX wrapper + graphics driver (P2 WineSessionPreparer).
         preparer.setupWineSystemFiles(spec, container)
-        // TODO(P3): preparer.extractGraphicsDriverFiles(container); merge preparer.envVars()
-        //   (GALLIUM_DRIVER / VK_ICD_FILENAMES / WRAPPER_* / DXVK_* ...) into the launch env.
-        // 4. XEnvironment: ALSAServer + XServer + GuestProgramLauncher (P3 setupXEnvironment, XSDA L6439).
-        val environment = startEnvironment(container, spec)
-        // 5. Launch guest: box64 wine explorer /desktop=WxH exe (P3; Amphora passes exe+env only, D9).
-        launchGuestProgram(environment, spec)
-        // 6. Render surface attaches from the UI layer (P3 GameSessionScreen -> VulkanRenderer.attachSurface).
-        sessionHandleFor(environment)
+        preparer.extractGraphicsDriverFiles(container)
+        // 4. Resolve the WinNative Container + WineInfo the launcher needs (bridge, mirror
+        //    preparer.resolveState: amphora Container.rootPath -> WinNative Container by rootDir).
+        val wnContainer = resolveWinNativeContainer(container)
+        val wineVersion = wnContainer.getWineVersion()
+        val wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion)
+        imageFs.setWinePath(wineInfo.path)
+        // 5. XServer: the X render target + the input injection surface for the touch overlay.
+        val xServer = XServer(ScreenInfo(spec.displaySize.width, spec.displaySize.height))
+        currentXServer = xServer
+        _surface.value = GameSessionSurface(xServer)
+        // 6. Launch env: session essentials + preparer (driver/DXVK/wrapper) + caller + ALSA.
+        val envVars = buildLaunchEnvVars(spec)
+        // 7. XEnvironment + service components (GPLC added separately so the handle can wire its
+        //    termination callback first).
+        val environment = buildEnvironment(xServer, envVars)
+        val handle = XServerSessionHandle(environment, xServer, dispatchers)
+        currentHandle = handle
+        // 8. Guest launcher: `box64 wine explorer /desktop=WxH "<exe>"` (D9: Amphora passes
+        //    exe + env only; it never rewrites getWineStartCommand).
+        val launcher = buildGuestLauncher(wnContainer, wineInfo, spec, envVars)
+        launcher.setTerminationCallback { handle.markStopped() }
+        environment.addComponent(launcher)
+        // 9. Start (GPLC starts last and execs the guest process).
+        handle.markStarting()
+        try {
+            environment.startEnvironmentComponents()
+            handle.markRunning()
+        } catch (e: Exception) {
+            handle.markFailed(e)
+            throw e
+        }
+        handle
     }
 
     override fun inputFeed(): InputSink =
-        StubInputSink // P3: XServer-backed InputSink (xServer.injectPointerMove/Button)
+        currentXServer?.let { XServerInputSink(it) } ?: StubInputSink
 
-    override fun audioSink(): AudioSink =
-        StubAudioSink // P3: ALSAServer-backed AudioSink (volume/mute -> ALSAServerComponent)
+    override fun audioSink(): AudioSink = sessionAudioSink
 
-    // --- launch steps (P2/P3 bodies) ------------------------------------------
+    // --- launch steps ------------------------------------------------------------------------
 
-    private suspend fun ensureRootfs(spec: LaunchSpec): Unit =
-        TODO("P2: rootfsInstaller.ensureInstalled(RootfsSpec(targetRoot=<imagefs>, imagefsVersion=<pinned>, termuxfsSha256=<pinned>))")
+    private suspend fun ensureRootfs() {
+        rootfsInstaller.ensureInstalled(
+            RootfsSpec(
+                targetRoot = imageFs.getRootDir().absolutePath,
+                imagefsVersion = IMAGEFS_VERSION,
+                // termuxfs has no separate archive (D7: rpath baked in Wine ELF, resolved at
+                // launch via LD_LIBRARY_PATH); the field is reserved for future pinning.
+                termuxfsSha256 = "",
+            ),
+        )
+    }
 
-    private suspend fun startEnvironment(container: Container, spec: LaunchSpec): XEnvironment =
-        TODO("P3: XSDA setupXEnvironment (L6439) - construct XEnvironment(container, xServer) + startEnvironmentComponents() (ALSAServer + XServer + GuestProgramLauncher)")
+    /**
+     * Bridge amphora [AmphoraContainer] -> WinNative [WinNativeContainer] by matching
+     * `rootPath` (mirrors `XServerWineSessionPreparer.resolveContainer`). The WinNative
+     * Container carries the emulator / box64 / graphics-driver config the launcher reads;
+     * amphora's model is intentionally lean. P4 ContainerManager will own this bridge.
+     */
+    private fun resolveWinNativeContainer(amphora: AmphoraContainer): WinNativeContainer {
+        val target = File(amphora.rootPath).absoluteFile
+        wnContainerManager.loadContainers()
+        return wnContainerManager.getContainers().firstOrNull { it.getRootDir().absoluteFile == target }
+            ?: throw IllegalStateException(
+                "WinNative container not found at ${amphora.rootPath} " +
+                    "(loaded ${wnContainerManager.getContainers().size} container(s))",
+            )
+    }
 
-    private suspend fun launchGuestProgram(environment: XEnvironment, spec: LaunchSpec): Unit =
-        TODO("P3: GuestProgramLauncherComponent.execGuestProgram(getWineStartCommand(box64 wine explorer /desktop=WxH exe)) - Amphora passes exe+env only (D9)")
+    private fun buildLaunchEnvVars(spec: LaunchSpec): EnvVars {
+        val envVars = EnvVars()
+        envVars.put("LC_ALL", LocaleEnv.normalize(LocaleEnv.deriveFromDevice()))
+        envVars.put("WINEPREFIX", imageFs.wineprefix)
+        envVars.put("WINEDEBUG", "-all")
+        // Preparer-computed wrapper / GPU / DXVK env (GALLIUM_DRIVER, VK_ICD_FILENAMES,
+        // WRAPPER_*, DXVK_* ...). XSDA accumulates these in `envVars` during prep.
+        for ((key, value) in preparer.envVars()) envVars.put(key, value)
+        // Caller-supplied env (LaunchSpec.env).
+        for ((key, value) in spec.env) envVars.put(key, value)
+        // ALSA socket (RFC §8: MVP is ALSA-only; PulseAudio is a non-target).
+        val rootPath = imageFs.getRootDir().path
+        envVars.put("ANDROID_ALSA_SERVER", rootPath + UnixSocketConfig.ALSA_SERVER_PATH)
+        envVars.put("ANDROID_ASERVER_USE_SHM", "true")
+        return envVars
+    }
 
-    private fun sessionHandleFor(environment: XEnvironment): SessionHandle =
-        TODO("P3: SessionHandle backed by XEnvironment.pause/resume/stopComponents + ProcessHelper kill (RFC D9)")
+    private fun buildEnvironment(xServer: XServer, envVars: EnvVars): XEnvironment {
+        val rootPath = imageFs.getRootDir().path
+        val environment = XEnvironment(context, imageFs)
+        environment.addComponent(
+            SysVSharedMemoryComponent(
+                xServer,
+                UnixSocketConfig.createSocket(rootPath, UnixSocketConfig.SYSVSHM_SERVER_PATH),
+            ),
+        )
+        environment.addComponent(
+            XServerComponent(
+                xServer,
+                UnixSocketConfig.createSocket(rootPath, UnixSocketConfig.XSERVER_PATH),
+            ),
+        )
+        environment.addComponent(
+            ALSAServerComponent(
+                UnixSocketConfig.createSocket(rootPath, UnixSocketConfig.ALSA_SERVER_PATH),
+                ALSAClient.Options.fromEnvVars(envVars),
+            ),
+        )
+        environment.addComponent(NetworkInfoUpdateComponent())
+        return environment
+    }
+
+    private fun buildGuestLauncher(
+        container: WinNativeContainer,
+        wineInfo: WineInfo,
+        spec: LaunchSpec,
+        envVars: EnvVars,
+    ): GuestProgramLauncherComponent {
+        // wineProfile may be null (falls back to imageFs.getWinePath() inside the launcher);
+        // shortcut is null - Amphora has no shortcuts (D9 stripped).
+        val wineProfile = contentsManager.getProfileByEntryName(container.getWineVersion())
+        val launcher = GuestProgramLauncherComponent(contentsManager, wineProfile, null)
+        launcher.setContainer(container)
+        launcher.setWineInfo(wineInfo)
+        // `wine explorer /desktop=shell,<WxH> "<exe>"` - the guest executable (XSDA L6500).
+        val screenInfo = "${spec.displaySize.width}x${spec.displaySize.height}"
+        launcher.setGuestExecutable("wine explorer /desktop=shell,$screenInfo \"${spec.exePath}\"")
+        launcher.setEnvVars(envVars)
+        launcher.setBox64Preset(Box64Preset.PERFORMANCE)
+        spec.workingDirectory?.let { launcher.setWorkingDir(File(it)) }
+        return launcher
+    }
+
+    private companion object {
+        /** Pinned imagefs version (WinNative `ImageFsInstaller.LATEST_VERSION`). */
+        const val IMAGEFS_VERSION = ImageFsInstaller.LATEST_VERSION.toString()
+    }
 }

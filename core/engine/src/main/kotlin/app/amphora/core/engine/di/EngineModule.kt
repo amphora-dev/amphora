@@ -9,6 +9,7 @@ import app.amphora.core.content.BundledContentSource
 import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ContentSource
 import app.amphora.core.engine.ImageFsRootfsInstaller
+import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.StubContainerManager
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.WineEngineImpl
@@ -48,6 +49,10 @@ object EngineModule {
     @Provides
     @Singleton
     fun provideWineEngine(impl: WineEngineImpl): WineEngine = impl
+
+    @Provides
+    @Singleton
+    fun provideGameSessionSurfaceProvider(impl: WineEngineImpl): GameSessionSurfaceProvider = impl
 
     @Provides
     @Singleton
