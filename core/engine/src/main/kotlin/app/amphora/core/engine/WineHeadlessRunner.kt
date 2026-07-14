@@ -104,6 +104,12 @@ class WineHeadlessRunner @Inject constructor(
         }
 
         Log.i(TAG, "headless exec: ${command.joinToString(" ")}  (cwd=${rootDir.path}, timeout=${timeoutSec}s)")
+        val box64File = File(box64)
+        Log.i(
+            TAG,
+            "pre-exec box64: exists=${box64File.exists()} isFile=${box64File.isFile}" +
+                " len=${if (box64File.isFile) box64File.length() else -1} canExec=${box64File.canExecute()}",
+        )
         val process = pb.start()
         val exited = try {
             process.waitFor(timeoutSec, TimeUnit.SECONDS)

@@ -9,6 +9,7 @@ import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.container.model.ContainerId
 import app.amphora.core.engine.WineHeadlessRunner
+import app.amphora.core.engine.XServerWineSessionPreparer
 import com.winlator.cmod.runtime.container.Container as WnContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WnContainerManager
 import com.winlator.cmod.runtime.content.ContentProfile
@@ -43,15 +44,29 @@ import java.util.concurrent.TimeUnit
  * + container creation); the difference is the final step hands the container to
  * [WineHeadlessRunner] instead of the X-server/Vulkan launch path.
  *
- * Host prerequisites:
- * ```
- * adb push Proton-10.0-4-x86_64.wcp        /sdcard/Android/data/app.amphora/files/
- * adb push Bionic-Box64-0.4.3-8ee3d8f2c.wcp /sdcard/Android/data/app.amphora/files/
- * ```
- * plus `imagefs.tzst` in `app/androidTest/assets/` (git-ignored; copy from the
+ * Host prerequisites (discovered on a mac ARM AOSP emulator, API 30):
+ * 1. **.wcp assets** -- stage into the app's INTERNAL filesDir (not external; API 30+
+ *    FUSE blocks adb push to /sdcard/Android/data/<pkg>/). The .wcp come from
+ *    `nicholasx417/WinNative-Components` releases (or `./gradlew :app:stageBundledContent`):
+ *    ```
+ *    adb push Proton-10.0-4-x86_64.wcp        /data/local/tmp/
+ *    adb push Bionic-Box64-0.4.3-8ee3d8f2c.wcp /data/local/tmp/
+ *    adb shell "run-as app.amphora mkdir -p /data/data/app.amphora/files"
+ *    adb shell "cat /data/local/tmp/Proton-10.0-4-x86_64.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/Proton-10.0-4-x86_64.wcp'"
+ *    adb shell "cat /data/local/tmp/Bionic-Box64-0.4.3-8ee3d8f2c.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/Bionic-Box64-0.4.3-8ee3d8f2c.wcp'"
+ *    ```
+ * 2. **SELinux permissive** -- the AOSP emulator's strict `untrusted_app` policy
+ *    denies `execute_no_trans` for binaries in app_data_file (box64 exec fails with
+ *    error=13). On a userdebug emulator image: `adb root && adb shell setenforce 0`.
+ *    Real Adreno devices typically allow this via OEM policy, so this is emulator-only.
+ * 3. **Disk** -- each run extracts an ~800MB Wine prefix; the emulator's 5.8G data
+ *    partition fills after 2-3 runs. `adb shell pm clear app.amphora` between runs
+ *    (then re-stage the .wcp per step 1).
+ * Plus `imagefs.tzst` in `app/androidTest/assets/` (git-ignored; copy from the
  * WinNative checkout). Tests `assumeTrue`-skip when an asset is absent.
  *
  * Run: `./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.amphora.HeadlessWineBootTest`
+ * (or `adb shell am instrument -w -e class app.amphora.HeadlessWineBootTest#headlessWine_versionPrints app.amphora.test/androidx.test.runner.AndroidJUnitRunner`)
  */
 @RunWith(AndroidJUnit4::class)
 class HeadlessWineBootTest {
@@ -108,12 +123,15 @@ class HeadlessWineBootTest {
         assertTrue("imagefs/usr/lib missing", File(imagefsDir, "usr/lib").isDirectory)
 
         // Phase 1: install Proton + Box64 .wcp (local, bypasses D4 download stub).
-        val extDir = appCtx.getExternalFilesDir(null)
-        assumeTrue("external files dir unavailable", extDir != null)
-        val protonWcp = File(extDir, "Proton-10.0-4-x86_64.wcp")
-        val box64Wcp = File(extDir, "Bionic-Box64-0.4.3-8ee3d8f2c.wcp")
-        assumeTrue("Proton .wcp not pushed to $extDir", protonWcp.exists())
-        assumeTrue("Box64 .wcp not pushed to $extDir", box64Wcp.exists())
+        // NOTE: uses internal filesDir (not getExternalFilesDir) because on API 30+ adb shell
+        // cannot push to /sdcard/Android/data/<pkg>/ (FUSE-scoped). The host stages the .wcp
+        // into filesDir via `adb shell "cat /data/local/tmp/x.wcp | run-as app.amphora sh -c
+        // 'cat > /data/data/app.amphora/files/x.wcp'"` (see docs/03-TRACKING.md §P4-followup).
+        val wcpDir = appCtx.filesDir
+        val protonWcp = File(wcpDir, "Proton-10.0-4-x86_64.wcp")
+        val box64Wcp = File(wcpDir, "Bionic-Box64-0.4.3-8ee3d8f2c.wcp")
+        assumeTrue("Proton .wcp not staged in app filesDir ($wcpDir)", protonWcp.exists())
+        assumeTrue("Box64 .wcp not staged in app filesDir ($wcpDir)", box64Wcp.exists())
 
         val cm = ContentsManager(appCtx)
         cm.syncContents()
@@ -144,11 +162,24 @@ class HeadlessWineBootTest {
             File(wnContainer.getRootDir(), ".wine").isDirectory,
         )
 
-        return AmphoraContainer(
+        val amphoraContainer = AmphoraContainer(
             id = ContainerId(wnContainer.id.toString()),
             rootPath = wnContainer.getRootDir().absolutePath,
             winePrefixPath = File(wnContainer.getRootDir(), ".wine").absolutePath,
         )
+        // Install box64 to rootfs/usr/bin/box64 -- createContainer only extracts the Wine
+        // prefix; the box64 binary is applied by the preparer's ensureLaunchRuntimeFilesReady
+        // (ensureBox64RuntimeReady -> ContentsManager.applyContent). The headless runner
+        // execs box64 directly, so this must run first. (The full launch path does this in
+        // WineEngineImpl.launch step 3 via preparer.setupWineSystemFiles.)
+        val preparer = XServerWineSessionPreparer(appCtx, DefaultDispatcherProvider())
+        preparer.ensureLaunchRuntimeFilesReady(amphoraContainer)
+        assertTrue(
+            "box64 binary missing at rootfs/usr/bin/box64 after ensureLaunchRuntimeFilesReady",
+            File(imagefsDir, "usr/bin/box64").isFile,
+        )
+
+        return amphoraContainer
     }
 
     /** Extract imagefs.tzst (test asset) to filesDir/imagefs if usr/lib absent. */
