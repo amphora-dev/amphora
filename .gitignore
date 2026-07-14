@@ -43,4 +43,5 @@ __pycache__/
 # Large build artifacts (rootfs / proton wcp)
 *.txz
 *.tzst
+*.wcp
 !docs/**

@@ -120,6 +120,7 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 ## 4. 待办 (资产侧)
 
 - [x] `:core:content` `BundledContentSource` (2026-07-13): `content_manifest.json` (本表派生) + SHA-256 流式校验 + ARCHIVE(`TarCompressorUtils`)/WCP(`ContentsManager.extraContentFile`) 双路径。`.wcp` SHA 待锁 (null=skip)。详见 03-TRACKING §P2 #8。
+- [x] build 时资产 staging `:app:stageBundledContent` (2026-07-14): manifest 驱动; ARCHIVE 从 WinNative 拷 (SHA 校验) + WCP 从 nicholasx417 GitHub releases 下载, 入 `app/src/main/assets/` (git-ignored)。Best-effort (不破构建), standalone (不 wire preBuild -- 避免 160M Proton 膨胀每次 debug APK)。`.wcp` SHA 已算出待锁 (wine=`e61d29be8c736abe13f662d33ff4b14fae2b7294b011283be53c8e33665d2b48` / box64=`eec659650ff31df151c13d2a522330b1636b98cd82dbf60ba3ff522759f528fd`)。详见 03-TRACKING §P2 #9。
 - [ ] 真机 preparer 验证: host 下载 Proton/Box64 `.wcp` (§5) + adb push + `ContentsManager.extraContentFile` 本地装 (绕过 D4 download stub) + `createContainer` + 跑 `extractGraphicsDriverFiles`
 - [ ] v0.3 `RemoteContentSource`: 恢复 `nativeDownloadFile` curl body (D4 stub 解除) -> 设备上直接 `syncContents` + 下载 `.wcp`
 
