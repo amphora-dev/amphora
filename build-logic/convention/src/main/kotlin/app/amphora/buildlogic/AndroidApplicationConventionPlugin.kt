@@ -15,6 +15,11 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
                 defaultConfig {
                     minSdk = SDK_MIN
                     targetSdk = SDK_TARGET
+                    // Package only arm64-v8a. Our own CMake (see AndroidNativeConventionPlugin)
+                    // already builds arm64-only; this also filters prebuilt .so files shipped by
+                    // AAR dependencies (e.g. zstd-jni, androidx.graphics:graphics-path) so that
+                    // armeabi-v7a / x86 / x86_64 variants are not merged into the APK.
+                    ndk { abiFilters += "arm64-v8a" }
                 }
             }
             addCommonTestDependencies()
