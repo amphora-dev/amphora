@@ -37,5 +37,9 @@ gradlePlugin {
             id = "amphora.android.feature"
             implementationClass = "app.amphora.buildlogic.AndroidFeatureConventionPlugin"
         }
+        register("contentStaging") {
+            id = "amphora.content.staging"
+            implementationClass = "app.amphora.buildlogic.ContentStagingConventionPlugin"
+        }
     }
 }
