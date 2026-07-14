@@ -10,10 +10,10 @@ import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ContentSource
 import app.amphora.core.engine.ImageFsRootfsInstaller
 import app.amphora.core.engine.GameSessionSurfaceProvider
-import app.amphora.core.engine.StubContainerManager
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.WineEngineImpl
 import app.amphora.core.engine.WinlatorBundledAssetInstaller
+import app.amphora.core.engine.WinlatorContainerManager
 import app.amphora.core.engine.WineSessionPreparer
 import app.amphora.core.engine.XServerWineSessionPreparer
 import app.amphora.core.rootfs.RootfsInstaller
@@ -39,9 +39,10 @@ import javax.inject.Singleton
  * dep graph is `engine -> {rootfs,container}` and `:core:rootfs` cannot see
  * `TarCompressorUtils` / `ImageFs` (they live in the ported `com.winlator.cmod`
  * kernel under `:core:engine`); the *contracts* stay in their low modules
- * (Dependency Inversion -- see `docs/03-TRACKING.md`). The remaining
- * sibling-interface stub ([ContainerManager] P4) is still @Provides here until
- * its real impl lands.
+ * (Dependency Inversion -- see `docs/03-TRACKING.md`). [ContainerManager] (P4)
+ * is now bound to its real concretion [WinlatorContainerManager] (bridges the
+ * ported `com.winlator.cmod.runtime.container.ContainerManager`); all three
+ * sibling interfaces have graduated -- no stubs remain.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -88,9 +89,7 @@ object EngineModule {
     @Singleton
     fun provideWineSessionPreparer(impl: XServerWineSessionPreparer): WineSessionPreparer = impl
 
-    // Stubs below (P4) -- replaced by real impls when their phases land.
-
     @Provides
     @Singleton
-    fun provideContainerManager(): ContainerManager = StubContainerManager()
+    fun provideContainerManager(impl: WinlatorContainerManager): ContainerManager = impl
 }

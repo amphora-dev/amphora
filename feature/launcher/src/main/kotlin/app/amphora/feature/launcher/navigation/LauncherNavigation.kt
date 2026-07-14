@@ -7,7 +7,7 @@ import app.amphora.feature.launcher.LauncherScreen
 const val LauncherRoute = "launcher"
 
 fun NavGraphBuilder.launcherScreen(
-    onLaunch: () -> Unit,
+    onLaunch: (exePath: String, width: Int, height: Int) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     composable(route = LauncherRoute) {

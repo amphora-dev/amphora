@@ -30,9 +30,10 @@ import javax.inject.Inject
  * forwarded so the screen can construct `XServerSurfaceView` + the touch overlay once the
  * engine has built the render target.
  *
- * The container id is a fixed placeholder until P4 ships the real [app.amphora.core.container.ContainerManager]
- * + the launcher exe picker (the launch chain throws at the P4 container stub either way, so
- * this is compile-only wiring until then - mirrors the P2 `XServerWineSessionPreparer` graduation).
+ * The container id is the MVP single shared container (`"1"`, created on first
+ * launch by [app.amphora.core.engine.WinlatorContainerManager]); multi-prefix /
+ * container management is v0.2 (RFC §9). If launch fails, the error is surfaced
+ * via [launchError] for the screen to display.
  */
 @HiltViewModel
 class GameSessionViewModel @Inject constructor(
@@ -58,7 +59,7 @@ class GameSessionViewModel @Inject constructor(
         val width = savedStateHandle.get<Int>(WIDTH_ARG) ?: DEFAULT_WIDTH
         val height = savedStateHandle.get<Int>(HEIGHT_ARG) ?: DEFAULT_HEIGHT
         if (exePath.isEmpty()) {
-            _launchError.value = "No game selected (exe picker is P4)"
+            _launchError.value = "No game selected"
             _sessionState.value = SessionState.FAILED
         } else {
             launch(exePath, width, height)
@@ -71,7 +72,8 @@ class GameSessionViewModel @Inject constructor(
             try {
                 val spec = LaunchSpec(
                     exePath = exePath,
-                    containerId = ContainerId("default"), // TODO(P4): real container from launcher.
+                    // MVP: single shared container (RFC §9: multi-prefix is v0.2).
+                    containerId = ContainerId(DEFAULT_CONTAINER_ID),
                     displaySize = DisplaySize(width, height),
                 )
                 val h = wineEngine.launch(spec)
@@ -81,8 +83,7 @@ class GameSessionViewModel @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                // Launch boundary: never let a session-start failure (incl. the P4
-                // ContainerManager NotImplementedError stub) crash the app - surface it.
+                // Launch boundary: never let a session-start failure crash the app - surface it.
                 _launchError.value = e.message ?: e.javaClass.simpleName
                 _sessionState.value = SessionState.FAILED
             }
@@ -113,5 +114,7 @@ class GameSessionViewModel @Inject constructor(
         const val HEIGHT_ARG = "height"
         const val DEFAULT_WIDTH = 1280
         const val DEFAULT_HEIGHT = 720
+        /** MVP single shared container id (RFC §9: multi-prefix is v0.2). */
+        const val DEFAULT_CONTAINER_ID = "1"
     }
 }

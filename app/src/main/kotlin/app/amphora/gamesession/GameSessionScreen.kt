@@ -21,6 +21,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import android.net.Uri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -40,9 +41,9 @@ const val GameSessionRoute = "game_session"
 private const val GAME_SESSION_ROUTE_WITH_ARGS =
     "$GameSessionRoute?exePath={exePath}&width={width}&height={height}"
 
-/** Builds the navigation URL for the game-session route (P4 launcher passes a real exe). */
+/** Builds the navigation URL for the game-session route (exe path URL-encoded). */
 fun gameSessionRoute(exePath: String, width: Int = 1280, height: Int = 720): String =
-    "$GameSessionRoute?exePath=$exePath&width=$width&height=$height"
+    "$GameSessionRoute?exePath=${Uri.encode(exePath)}&width=$width&height=$height"
 
 fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
     composable(
@@ -64,8 +65,8 @@ fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
  * touches to X pointer events. Lifecycle (pause/resume/stop) delegates to the VM, which
  * forwards to the [app.amphora.core.engine.model.SessionHandle] (XEnvironment + ProcessHelper).
  *
- * Until P4 ships the launcher exe picker + real [app.amphora.core.container.ContainerManager],
- * the launch chain throws at the container stub; the screen shows the error + an Exit button.
+ * P4: the launch chain is real ([app.amphora.core.container.ContainerManager] + launcher
+ * exe picker wired); if a session fails to start the error is surfaced here + an Exit button.
  */
 @Composable
 internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Unit) {

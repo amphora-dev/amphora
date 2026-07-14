@@ -13,6 +13,7 @@ import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.audio.alsaserver.ALSAClient
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import com.winlator.cmod.runtime.container.Container as WinNativeContainer
+import com.winlator.cmod.shared.io.FileUtils
 import com.winlator.cmod.runtime.container.ContainerManager as WinNativeContainerManager
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.display.connector.UnixSocketConfig
@@ -42,7 +43,7 @@ import javax.inject.Singleton
  * Real [WineEngine] facade (RFC §6 / §7 / D9). Delegates to the ported
  * `com.winlator.cmod` runtime: [XEnvironment] (ALSAServer + XServer + GuestProgramLauncher
  * components) + [GuestProgramLauncherComponent] (the `box64 wine explorer /desktop=WxH exe`
- * launch) + [XServer] (render target + input). Sibling interfaces: [ContainerManager] (P4),
+ * launch) + [XServer] (render target + input). Sibling interfaces: [ContainerManager] (P4 ✅),
  * [RootfsInstaller] (P2), [WineSessionPreparer] (P2). Replaces [StubWineEngine] as the bound
  * [WineEngine] (StubWineEngine retained as a fallback - flip the binding in
  * [app.amphora.core.engine.di.EngineModule] to revert).
@@ -56,7 +57,7 @@ import javax.inject.Singleton
  * arm64ec / WinHandler per RFC §7 / D5 / D9):
  * ```
  * RootfsInstaller.ensureInstalled                 // P2
- *   -> ContainerManager.getOrCreate               // P4 (stub until then)
+ *   -> ContainerManager.getOrCreate               // P4 ✅ (WinlatorContainerManager)
  *   -> WineSessionPreparer.setupWineSystemFiles + extractGraphicsDriverFiles  // P2
  *   -> resolve WinNative Container + WineInfo      // bridge (mirror preparer.resolveState)
  *   -> XServer(ScreenInfo(spec.displaySize))       // render target + input sink
@@ -65,11 +66,12 @@ import javax.inject.Singleton
  *   -> startEnvironmentComponents()                // GPLC runs last, execs box64 wine
  * ```
  *
- * **Compile-only (P3):** the chain is wired end-to-end but `ContainerManager.getOrCreate` is
- * still the P4 stub (throws), so [launch] throws at step 2 until P4 lands a real
- * [ContainerManager]. This mirrors the P2 `XServerWineSessionPreparer` graduation
- * (compile-only, end-to-end verification deferred to the asset/container phase). All kernel
- * orchestration is real and faithful to XSDA.
+ * **P4:** the chain is wired end-to-end with a real [ContainerManager]
+ * ([WinlatorContainerManager]). `getOrCreate` installs the bundled Wine/Box64
+ * content + creates the Wine prefix; this facade then resolves the WinNative
+ * [WineInfo] + builds the [XEnvironment] + launches `box64 wine`. End-to-end
+ * verification is the RFC §8 acceptance test (launch a .exe -> Vulkan frame +
+ * touch + audio). All kernel orchestration is real and faithful to XSDA.
  */
 @Singleton
 class WineEngineImpl @Inject constructor(
@@ -101,8 +103,14 @@ class WineEngineImpl @Inject constructor(
 
         // 1. imagefs rootfs (P2).
         ensureRootfs()
-        // 2. Wine container / WINEPREFIX (P4 ContainerManager real impl; stub throws until then).
+        // 2. Wine container / WINEPREFIX (P4 WinlatorContainerManager: installs bundled
+        //    Wine/Box64 content + creates the prefix from the Proton prefixPack).
         val container = containerManager.getOrCreate(spec.containerId)
+        // This engine instance's ContentsManager needs the installed profiles loaded for
+        // WineInfo.fromIdentifier (step 4) + buildGuestLauncher (getProfileByEntryName).
+        // The ContainerManager + preparer each sync their own ContentsManager instance
+        // (per-instance state -- see docs/03-TRACKING.md §P2 #7c).
+        contentsManager.syncContents()
         // 3. Prefix + runtime files + DX wrapper + graphics driver (P2 WineSessionPreparer).
         preparer.setupWineSystemFiles(spec, container)
         preparer.extractGraphicsDriverFiles(container)
@@ -163,7 +171,8 @@ class WineEngineImpl @Inject constructor(
      * Bridge amphora [AmphoraContainer] -> WinNative [WinNativeContainer] by matching
      * `rootPath` (mirrors `XServerWineSessionPreparer.resolveContainer`). The WinNative
      * Container carries the emulator / box64 / graphics-driver config the launcher reads;
-     * amphora's model is intentionally lean. P4 ContainerManager will own this bridge.
+     * amphora's model is intentionally lean. [WinlatorContainerManager] creates the
+     * container; this facade + the preparer both resolve the WinNative view by rootPath.
      */
     private fun resolveWinNativeContainer(amphora: AmphoraContainer): WinNativeContainer {
         val target = File(amphora.rootPath).absoluteFile
@@ -229,13 +238,38 @@ class WineEngineImpl @Inject constructor(
         val launcher = GuestProgramLauncherComponent(contentsManager, wineProfile, null)
         launcher.setContainer(container)
         launcher.setWineInfo(wineInfo)
+        // Stage the picked exe into the container's C: drive (drive_c) and launch it as a
+        // Windows path. The launcher staged the SAF-picked file at spec.exePath
+        // (app-private filesDir/exe/<name>); Wine's drive letters only map drive_c (C:),
+        // the rootfs (Z:), and Downloads/ExternalStorage (D:/F:) -- the staged path is
+        // under none of them, so it must be copied into drive_c. This mirrors WinNative's
+        // `ensureDriveCGameSymlink` (WineUtils): Wine `explorer /desktop=...` expects a
+        // Windows path, and C: (-> drive_c) is always mapped by createDosdevicesSymlinks.
+        val wineExePath = stageExeIntoPrefix(container, spec.exePath)
         // `wine explorer /desktop=shell,<WxH> "<exe>"` - the guest executable (XSDA L6500).
         val screenInfo = "${spec.displaySize.width}x${spec.displaySize.height}"
-        launcher.setGuestExecutable("wine explorer /desktop=shell,$screenInfo \"${spec.exePath}\"")
+        launcher.setGuestExecutable("wine explorer /desktop=shell,$screenInfo \"$wineExePath\"")
         launcher.setEnvVars(envVars)
         launcher.setBox64Preset(Box64Preset.PERFORMANCE)
         spec.workingDirectory?.let { launcher.setWorkingDir(File(it)) }
         return launcher
+    }
+
+    /**
+     * Copy the staged exe into the container's `drive_c` and return its Wine path
+     * (`C:\<name>`). Idempotent: skips the copy when the destination already matches
+     * the source size (re-launching the same exe). The `C:` dosdevice -> `drive_c`
+     * (createDosdevicesSymlinks), so `C:\<name>` resolves to the copied file.
+     */
+    private fun stageExeIntoPrefix(container: WinNativeContainer, exePath: String): String {
+        val src = File(exePath)
+        val exeName = src.name.ifEmpty { "amphora-game.exe" }
+        val driveC = File(container.getRootDir(), ".wine/drive_c").apply { mkdirs() }
+        val dest = File(driveC, exeName)
+        if (!dest.exists() || dest.length() != src.length()) {
+            FileUtils.copy(src, dest)
+        }
+        return "C:\\$exeName"
     }
 
     private companion object {

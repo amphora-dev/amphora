@@ -69,11 +69,13 @@ import javax.inject.Singleton
  *   driver asset lands (P2 asset + P3 runtime).
  * - `getDxvkFrameRateOverride` returns 0 (shortcut/preferences-driven).
  *
- * **Compile-only:** the prep path is correct against the restored
- * [TarCompressorUtils] native backend (P2). End-to-end verification waits on
- * rootfs/driver assets (P2 asset acquisition) -- `ContainerManager` resolution,
- * `repairContainerWinePrefix`, `applyContent`, `TarCompressorUtils.extract` all
- * need real imagefs/box64/DXVK/Turnip assets to exercise.
+ * **Status:** the prep path is correct against the restored
+ * [TarCompressorUtils] native backend (P2, real-device-verified §P2 #7). This
+ * instance now self-calls `syncContents()` in [resolveState] (the §P2 #7c gap).
+ * End-to-end verification (a live `box64 wine` launch) is the P4 RFC §8
+ * acceptance test; `repairContainerWinePrefix` / `applyContent` /
+ * `TarCompressorUtils.extract` all exercise against real imagefs/box64/DXVK/
+ * Turnip assets.
  *
  * @param envState the mutable wrapper/GPU env-var accumulator (XSDA `envVars`
  *   field); exposed read-only via [envVars] for `WineEngineImpl` to merge into
@@ -169,6 +171,10 @@ class XServerWineSessionPreparer @Inject constructor(
             val c = resolveContainer(amphora)
             wnContainer = c
             wineVersion = c.getWineVersion()
+            // Load installed profiles so WineInfo.fromIdentifier + repairContainerWinePrefix
+            // resolve the Proton prefixPack. This manager instance is separate from the
+            // engine's / ContainerManager's (per-instance state) -- each must sync.
+            contentsManager.syncContents()
             wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion)
             imageFs.setWinePath(wineInfo.path)
             graphicsDriver = c.getGraphicsDriver()

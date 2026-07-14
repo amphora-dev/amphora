@@ -14,9 +14,8 @@ import app.amphora.gamesession.gameSessionScreen
 fun AmphoraNavHost(navController: NavHostController) {
     NavHost(navController = navController, startDestination = LauncherRoute) {
         launcherScreen(
-            onLaunch = {
-                // TODO(P4): launcher exe picker + resolution selector build the real LaunchSpec.
-                navController.navigate(gameSessionRoute("C:\\game.exe"))
+            onLaunch = { exePath, width, height ->
+                navController.navigate(gameSessionRoute(exePath, width, height))
             },
             onOpenSettings = { navController.navigate(SettingsRoute) },
         )
