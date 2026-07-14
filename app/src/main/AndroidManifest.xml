@@ -1,6 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Network state: read active network / DNS / link properties to feed the
+         Wine prefix (NetworkHelper, NetworkInfoUpdateComponent, GuestProgramLauncherComponent). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Outbound HTTP from app code (e.g. shared/io/HttpUtils). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Haptic feedback / controller rumble (WinHandler). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- GameSir X5s BLE rumble driver (API 31+). neverForLocation: scanning is
+         for gamepad connectivity only, not to derive the user's location. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
     <application
         android:name=".AmphoraApplication"
         android:allowBackup="false"
