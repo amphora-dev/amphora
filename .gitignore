@@ -40,8 +40,14 @@ signing.properties
 __pycache__/
 *.pyc
 
-# Large build artifacts (rootfs / proton wcp)
+# Large build artifacts (rootfs / proton wcp) + test exes
 *.txz
 *.tzst
 *.wcp
+*.exe
 !docs/**
+
+# stageBundledContent output: app/src/main/assets/ is populated by
+# ./gradlew :app:stageBundledContent from the WinNative checkout. Entire dir is
+# build output — nothing here should be committed. See ContentStagingPlugin.kt.
+app/src/main/assets/

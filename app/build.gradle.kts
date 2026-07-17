@@ -12,7 +12,7 @@ android {
         applicationId = "app.amphora"
         versionCode = 1
         versionName = "0.1.0"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "app.amphora.HiltTestRunner"
     }
 
     buildTypes {
@@ -72,4 +72,26 @@ amphoraContentStaging {
                 "https://github.com/nicholasx417/WinNative-Components/releases/download/bionic-box64-nightly-0.4.3-8ee3d8f2c/Bionic-Box64-0.4.3-8ee3d8f2c.wcp",
         )
     )
+}
+
+// ============================================================================
+// Instrumented-test orchestration
+// ============================================================================
+// `stageBundledContent` is deliberately NOT wired to `preBuild` (the 160 MB
+// Proton .wcp would bloat every debug APK). But the androidTest suite needs
+// those assets staged, and running `connectedDebugAndroidTest` without staging
+// silently `assumeTrue`-skips every asset-gated test (GameSessionLaunchTest,
+// ImagefsExtractionTest, PreparerGraphicsDriverTest, BundledContentSourceTest).
+// This aggregate task stages content first so the full suite actually runs:
+//
+//   ./gradlew :app:connectedAndroidTestWithContent
+//
+// Use plain `:app:connectedDebugAndroidTest` for quick runs without assets.
+tasks.register("connectedAndroidTestWithContent") {
+    group = "amphora content"
+    description =
+        "Run connectedDebugAndroidTest after staging bundled content (imagefs/.wcp/.tzst) " +
+            "into the app APK, so asset-gated tests run instead of assumeTrue-skipping."
+    dependsOn("stageBundledContent")
+    dependsOn("connectedDebugAndroidTest")
 }

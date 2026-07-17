@@ -2,8 +2,9 @@ package com.winlator.cmod.runtime.display.ui;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.graphics.SurfaceTexture;
+import android.view.Surface;
+import android.view.TextureView;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import com.winlator.cmod.runtime.display.renderer.RenderCallback;
@@ -12,9 +13,17 @@ import com.winlator.cmod.runtime.display.xserver.XServer;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-/** SurfaceView that drives a {@link VulkanRenderer} on a dedicated render thread, preserving the public API: {@link #queueEvent(Runnable)}, {@link #requestRender()}, {@link #setRenderMode(int)}, {@link #onResume()}, {@link #onPause()}, {@link #getRenderer()}. */
+/**
+ * {@link TextureView} that drives a {@link VulkanRenderer} on a dedicated render
+ * thread. Originally a {@code SurfaceView} (WinNative XSDA), converted to
+ * TextureView because Compose {@code AndroidView} does not allocate the
+ * SurfaceView sub-window surface (surfaceCreated never fires) — TextureView
+ * renders as a regular view so its surface arrives reliably under Compose.
+ * Public API preserved: {@link #queueEvent(Runnable)}, {@link #requestRender()},
+ * {@link #setRenderMode(int)}, {@link #onResume()}, {@link #onPause()}, {@link #getRenderer()}.
+ */
 @SuppressLint("ViewConstructor")
-public class XServerSurfaceView extends SurfaceView implements SurfaceHolder.Callback {
+public class XServerSurfaceView extends TextureView implements TextureView.SurfaceTextureListener {
     public static final int RENDERMODE_WHEN_DIRTY  = 0;
     public static final int RENDERMODE_CONTINUOUSLY = 1;
     private static final long TRANSIENT_FRAME_INTERVAL_NS = 1_000_000_000L / 120L;
@@ -40,10 +49,40 @@ public class XServerSurfaceView extends SurfaceView implements SurfaceHolder.Cal
 
     public XServerSurfaceView(Context context, XServer xServer) {
         super(context);
+        setOpaque(true);
         setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         renderer = new VulkanRenderer(this, xServer);
-        getHolder().addCallback(this);
+        setSurfaceTextureListener(this);
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        android.util.Log.i("AMP_SURFACE", "onAttachedToWindow w=" + getWidth() + " h=" + getHeight()
+                + " visible=" + isShown() + " windowToken=" + getWindowToken()
+                + " surfaceTexture=" + getSurfaceTexture());
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int widthMeasureSpec2) {
+        super.onMeasure(widthMeasureSpec, widthMeasureSpec2);
+        android.util.Log.i("AMP_SURFACE", "onMeasure => " + getMeasuredWidth() + "x" + getMeasuredHeight()
+                + " spec=" + MeasureSpec.toString(widthMeasureSpec) + "/" + MeasureSpec.toString(widthMeasureSpec2));
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        super.onLayout(changed, left, top, right, bottom);
+        android.util.Log.i("AMP_SURFACE", "onLayout " + left + "," + top + "-" + right + "," + bottom
+                + " surfaceTexture=" + getSurfaceTexture());
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        android.util.Log.i("AMP_SURFACE", "onWindowVisibilityChanged vis=" + visibility
+                + " (" + (visibility == 0 ? "VISIBLE" : visibility == 4 ? "INVISIBLE" : "GONE") + ")");
     }
 
     public VulkanRenderer getRenderer() {
@@ -105,10 +144,11 @@ public class XServerSurfaceView extends SurfaceView implements SurfaceHolder.Cal
         }
     }
 
-    // --- SurfaceHolder.Callback ----------------------------------------------
+    // --- TextureView.SurfaceTextureListener ---------------------------------
 
     @Override
-    public void surfaceCreated(SurfaceHolder holder) {
+    public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int w, int h) {
+        android.util.Log.i("AMP_SURFACE", "onSurfaceTextureAvailable " + w + "x" + h);
         // Let any retiring render thread finish freeing the renderer before attaching the new surface.
         joinRetiringRenderThread();
         synchronized (renderLock) {
@@ -116,7 +156,18 @@ public class XServerSurfaceView extends SurfaceView implements SurfaceHolder.Cal
             width = 0;
             height = 0;
         }
-        renderer.attachSurface(holder.getSurface());
+        renderer.attachSurface(new Surface(surfaceTexture));
+        if (w > 0 && h > 0) {
+            renderer.notifySurfaceChanged(w, h);
+            synchronized (renderLock) {
+                width = w;
+                height = h;
+                eventQueue.add(() -> renderer.onSurfaceChanged(w, h));
+                surfaceReady = true;
+                renderRequested = true;
+                renderLock.notifyAll();
+            }
+        }
         startRenderThreadIfNeeded();
     }
 
@@ -132,7 +183,8 @@ public class XServerSurfaceView extends SurfaceView implements SurfaceHolder.Cal
     }
 
     @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
+    public void onSurfaceTextureSizeChanged(SurfaceTexture surfaceTexture, int w, int h) {
+        android.util.Log.i("AMP_SURFACE", "onSurfaceTextureSizeChanged " + w + "x" + h);
         if (w <= 0 || h <= 0) {
             synchronized (renderLock) {
                 surfaceReady = false;
@@ -155,7 +207,8 @@ public class XServerSurfaceView extends SurfaceView implements SurfaceHolder.Cal
     }
 
     @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
+    public boolean onSurfaceTextureDestroyed(SurfaceTexture surfaceTexture) {
+        android.util.Log.i("AMP_SURFACE", "onSurfaceTextureDestroyed");
         synchronized (renderLock) {
             surfaceReady = false;
             width = 0;
@@ -165,6 +218,12 @@ public class XServerSurfaceView extends SurfaceView implements SurfaceHolder.Cal
         // Run the render thread one more iteration so it sees surfaceReady=false and exits.
         stopRenderThread();
         renderer.detachSurface();
+        return true;
+    }
+
+    @Override
+    public void onSurfaceTextureUpdated(SurfaceTexture surfaceTexture) {
+        // Frame produced by the guest; the render thread pulls and presents. No-op here.
     }
 
     // --- Render thread -------------------------------------------------------

@@ -10,7 +10,6 @@ import android.view.Choreographer;
 import android.view.Surface;
 import androidx.preference.PreferenceManager;
 import com.winlator.cmod.BuildConfig;
-import com.winlator.cmod.R;
 import com.winlator.cmod.runtime.system.ApplicationLogGate;
 import com.winlator.cmod.runtime.display.renderer.effects.Effect;
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView;
@@ -177,7 +176,18 @@ public class VulkanRenderer
         Context context = xServerView.getContext();
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inScaled = false;
-        Bitmap bitmap = BitmapFactory.decodeResource(context.getResources(), R.drawable.cursor, options);
+        // Amphora port: com.winlator.cmod.R.drawable.cursor is a P1 compile-only
+        // stub (= 0), so decodeResource(..., 0) returns null and Drawable.fromBitmap
+        // NPEs. The real cursor.png ships in the :app module's res/drawable/. Resolve
+        // it by name at runtime; fall back to a 1x1 transparent bitmap if absent so
+        // the constructor can never crash (invisible cursor, not a crash).
+        int cursorResId = context.getResources().getIdentifier("cursor", "drawable", context.getPackageName());
+        Bitmap bitmap = cursorResId != 0
+                ? BitmapFactory.decodeResource(context.getResources(), cursorResId, options)
+                : null;
+        if (bitmap == null) {
+            bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+        }
         return Drawable.fromBitmap(bitmap);
     }
 
@@ -193,6 +203,8 @@ public class VulkanRenderer
             if (nativeHandle == 0) {
                 nativeHandle = nativeCreate(shouldEnableValidationLayers(),
                         graphicsDriverName, xServerView.getContext().getApplicationContext());
+                android.util.Log.i("AMP_SURFACE", "attachSurface: nativeCreate => nativeHandle=" + nativeHandle
+                        + " driver=" + graphicsDriverName);
                 if (nativeHandle == 0) {
                     Log.e(TAG, "nativeCreate failed");
                     return;
@@ -210,6 +222,7 @@ public class VulkanRenderer
                 xServer.pointer.addOnPointerMotionListener(this);
             }
             nativeSurfaceCreated(nativeHandle, surface);
+            android.util.Log.i("AMP_SURFACE", "attachSurface: nativeSurfaceCreated done");
         }
     }
 

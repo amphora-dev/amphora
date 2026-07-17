@@ -8,6 +8,7 @@ import app.amphora.core.engine.model.LaunchSpec
 import com.winlator.cmod.runtime.container.Container
 import com.winlator.cmod.runtime.container.ContainerManager
 import com.winlator.cmod.runtime.container.WinComponentSetup
+import androidx.annotation.VisibleForTesting
 import com.winlator.cmod.runtime.content.AdrenotoolsManager
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
@@ -108,6 +109,17 @@ class XServerWineSessionPreparer @Inject constructor(
 
     override fun envVars(): Map<String, String> = buildMap {
         for (key in envState) this[key] = envState.get(key)
+    }
+
+    /**
+     * Test-only: loads installed content profiles into the internal
+     * [ContentsManager] so [ensureWinePrefixReady] / `WineInfo.fromIdentifier`
+     * can resolve Proton/Box64 profiles. Production wires `syncContents()` at
+     * app init; tests construct the preparer directly and must sync explicitly.
+     */
+    @VisibleForTesting
+    fun syncContentsForTesting() {
+        contentsManager.syncContents()
     }
 
     // --- interface overrides: resolve state on a worker thread, then delegate -

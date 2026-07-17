@@ -1,6 +1,7 @@
 package com.winlator.cmod.runtime.display.xserver;
 
 import androidx.collection.ArrayMap;
+import com.winlator.cmod.runtime.display.winhandler.WinHandler;
 import java.util.Map;
 
 public abstract class DesktopHelper {
@@ -48,7 +49,12 @@ public abstract class DesktopHelper {
           parentIsRoot
               ? WindowManager.FocusRevertTo.POINTER_ROOT
               : WindowManager.FocusRevertTo.PARENT);
-      xServer.getWinHandler().bringToFront(window.getClassName(), window.getHandle());
+      // WinHandler is intentionally null in the amphora MVP (gamepad UDP input is
+      // deferred per docs/03-TRACKING.md §P3; touch/mouse goes via XServer pointer
+      // injection). Guard so mapping an app window before/without a WinHandler
+      // doesn't NPE the XServer request-handler thread (focus is already set above).
+      WinHandler winHandler = xServer.getWinHandler();
+      if (winHandler != null) winHandler.bringToFront(window.getClassName(), window.getHandle());
     }
   }
 

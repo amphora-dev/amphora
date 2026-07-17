@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.container.model.ContainerId
@@ -33,16 +32,19 @@ import java.util.concurrent.TimeUnit
  * P2 real-device verification of [XServerWineSessionPreparer] graphics-driver
  * extraction, exercised end-to-end against real runtime assets.
  *
- * Proves the "runtime .wcp download" workaround for the D4 download stub
- * (native_content_io.cpp:783 `nativeDownloadFile` returns JNI_FALSE): the host
- * curls the .wcp, `adb push`es it to the app's external files dir, and the test
- * installs it locally via [ContentsManager.extraContentFile] (which routes
- * through `nativeExtractArchive`, NOT the stubbed `nativeDownloadFile`).
+ * Proves the "local .wcp install" workaround for the D4 download stub
+ * (native_content_io.cpp:783 `nativeDownloadFile` returns JNI_FALSE): the `.wcp`
+ * files are bundled in the *app* APK by `./gradlew :app:stageBundledContent`,
+ * staged to temp files by the test, and installed locally via
+ * [ContentsManager.extraContentFile] (which routes through `nativeExtractArchive`,
+ * NOT the stubbed `nativeDownloadFile`).
  *
  * Flow:
- *  1. Ensure imagefs at `filesDir/imagefs` (from `androidTest/assets/imagefs.tzst`).
- *  2. Install Proton + Bionic-Box64 `.wcp` via `extraContentFile` +
- *     `finishInstallContent` (local extract, bypasses D4 download stub).
+ *  1. Ensure imagefs at `filesDir/imagefs` (from app APK asset `imagefs.tzst`,
+ *     staged by `stageBundledContent`).
+ *  2. Install Proton + Bionic-Box64 `.wcp` (staged from app APK assets) via
+ *     `extraContentFile` + `finishInstallContent` (local extract, bypasses D4
+ *     download stub).
  *  3. Create a WinNative [WnContainer] (`ContainerManager.createContainer`) —
  *     extracts the Wine prefix from the Proton `prefixPack.txz`.
  *  4. [XServerWineSessionPreparer]: `ensureWinePrefixReady` (repair →
@@ -51,11 +53,10 @@ import java.util.concurrent.TimeUnit
  *  5. Verify `envVars()` (unconditional). Conditionally verify `wrapper.tzst`
  *     extraction (needs the app APK to bundle `graphics_driver/wrapper.tzst`).
  *
- * Host prerequisites:
- * ```
- * adb push Proton-10.0-4-x86_64.wcp        /sdcard/Android/data/app.amphora/files/
- * adb push Bionic-Box64-0.4.3-8ee3d8f2c.wcp /sdcard/Android/data/app.amphora/files/
- * ```
+ * Prerequisite: `./gradlew :app:stageBundledContent` (or the aggregate
+ * `connectedAndroidTestWithContent` task) must bundle `imagefs.tzst`, the two
+ * `.wcp`s, and `graphics_driver/wrapper.tzst` into the app APK. Missing assets
+ * `assumeTrue`-skip the corresponding tier rather than fail.
  *
  * Device: Lenovo TB322FC, arm64-v8a, API 36, Adreno 830.
  */
@@ -65,28 +66,29 @@ class PreparerGraphicsDriverTest {
     @Test
     fun installRuntimes_createContainer_extractGraphicsDriver() = runBlocking {
         val appCtx = ApplicationProvider.getApplicationContext<Context>()
-        val testCtx = InstrumentationRegistry.getInstrumentation().context
 
         // --- Phase 0: ensure imagefs at filesDir/imagefs ----------------------
+        // imagefs.tzst is bundled in the *app* APK by stageBundledContent
+        // (same source as GameSessionLaunchTest / ImagefsExtractionTest).
         val imagefsDir = File(appCtx.filesDir, "imagefs")
-        ensureImagefs(testCtx, appCtx, imagefsDir)
+        ensureImagefs(appCtx, imagefsDir)
         assertTrue("imagefs/usr/lib missing", File(imagefsDir, "usr/lib").isDirectory)
         assertTrue("imagefs/usr/share missing", File(imagefsDir, "usr/share").isDirectory)
 
         // --- Phase 1: install Proton + Box64 .wcp (local, bypasses D4 stub) ---
-        val extDir = appCtx.getExternalFilesDir(null)
-        assumeTrue("external files dir unavailable", extDir != null)
-        val protonWcp = File(extDir, "Proton-10.0-4-x86_64.wcp")
-        val box64Wcp = File(extDir, "Bionic-Box64-0.4.3-8ee3d8f2c.wcp")
+        // .wcp files are bundled in the app APK by stageBundledContent; stage
+        // them to temp files and install via extraContentFile (routes through
+        // nativeExtractArchive, NOT the stubbed nativeDownloadFile).
+        val topAssets = appCtx.assets.list("").orEmpty().toList()
         assumeTrue(
-            "Proton .wcp not pushed to $extDir " +
-                "(adb push Proton-10.0-4-x86_64.wcp $extDir/)",
-            protonWcp.exists(),
+            "Proton .wcp not bundled in app assets (have: $topAssets); " +
+                "run ./gradlew :app:stageBundledContent first.",
+            PROTON_WCP in topAssets,
         )
         assumeTrue(
-            "Box64 .wcp not pushed to $extDir " +
-                "(adb push Bionic-Box64-0.4.3-8ee3d8f2c.wcp $extDir/)",
-            box64Wcp.exists(),
+            "Box64 .wcp not bundled in app assets (have: $topAssets); " +
+                "run ./gradlew :app:stageBundledContent first.",
+            BOX64_WCP in topAssets,
         )
 
         val cm = ContentsManager(appCtx)
@@ -95,6 +97,7 @@ class PreparerGraphicsDriverTest {
         // Proton (skip re-install if already present from a prior run).
         var protonProfile = cm.getProfileByEntryName(PROTON_ENTRY)
         if (protonProfile == null || !ContentsManager.getInstallDir(appCtx, protonProfile).isDirectory) {
+            val protonWcp = stageWcpFromAssets(appCtx, PROTON_WCP)
             println("INSTALLING Proton .wcp (${protonWcp.length()} bytes)…")
             protonProfile = installWcp(cm, protonWcp)
             cm.syncContents()
@@ -112,6 +115,7 @@ class PreparerGraphicsDriverTest {
         // Box64.
         var box64Profile = cm.getProfileByEntryName(BOX64_ENTRY)
         if (box64Profile == null || !ContentsManager.getInstallDir(appCtx, box64Profile).isDirectory) {
+            val box64Wcp = stageWcpFromAssets(appCtx, BOX64_WCP)
             println("INSTALLING Box64 .wcp (${box64Wcp.length()} bytes)…")
             box64Profile = installWcp(cm, box64Wcp)
             cm.syncContents()
@@ -145,12 +149,13 @@ class PreparerGraphicsDriverTest {
 
         // The preparer owns a private ContentsManager that has not had syncContents()
         // called; WineInfo.fromIdentifier / repairContainerWinePrefix need the
-        // installed profiles loaded. Reflect in and sync (test-only; prod wires
-        // this at app init). Best-effort: Tier-1 envVars work even if this fails.
+        // installed profiles loaded. The @VisibleForTesting accessor syncs it
+        // (test-only; prod wires this at app init). Best-effort: Tier-1 envVars
+        // work even if this fails.
         val preparerSynced = try {
-            syncContentsOnPreparer(preparer); true
+            preparer.syncContentsForTesting(); true
         } catch (e: Throwable) {
-            println("WARN: preparer syncContents reflection failed (envVars still verified): $e"); false
+            println("WARN: preparer syncContentsForTesting failed (envVars still verified): $e"); false
         }
 
         val amphoraContainer = AmphoraContainer(
@@ -230,27 +235,40 @@ class PreparerGraphicsDriverTest {
 
     // --- helpers -------------------------------------------------------------
 
-    /** Extract imagefs.tzst (test asset) to filesDir/imagefs if usr/lib absent. */
-    private fun ensureImagefs(testCtx: Context, appCtx: Context, imagefsDir: File) {
+    /** Extract imagefs.tzst (app APK asset) to filesDir/imagefs if usr/lib absent. */
+    private fun ensureImagefs(appCtx: Context, imagefsDir: File) {
         if (File(imagefsDir, "usr/lib").isDirectory) {
             println("imagefs already present at $imagefsDir")
             return
         }
-        val assets = testCtx.assets.list("").orEmpty().toList()
+        val assets = appCtx.assets.list("").orEmpty().toList()
         assumeTrue(
-            "imagefs.tzst not staged in androidTest/assets (have: $assets); " +
-                "see docs/04-ASSET-MANIFEST.md",
+            "imagefs.tzst not bundled in app assets (have: $assets); " +
+                "run ./gradlew :app:stageBundledContent first (see docs/04-ASSET-MANIFEST.md)",
             "imagefs.tzst" in assets,
         )
         imagefsDir.deleteRecursively()
         assertTrue("mkdirs imagefs failed", imagefsDir.mkdirs())
         val t0 = System.currentTimeMillis()
         val ok = TarCompressorUtils.extract(
-            TarCompressorUtils.Type.ZSTD, testCtx, "imagefs.tzst", imagefsDir,
+            TarCompressorUtils.Type.ZSTD, appCtx, "imagefs.tzst", imagefsDir,
         )
         val dtMs = System.currentTimeMillis() - t0
         assertTrue("imagefs extract failed (dt=${dtMs}ms)", ok)
         println("IMAGEFS_EXTRACTED dt_ms=$dtMs -> $imagefsDir")
+    }
+
+    /**
+     * Copy a `.wcp` from the app APK assets (bundled by `stageBundledContent`)
+     * to a temp file under [Context]'s cacheDir, for feeding to
+     * [ContentsManager.extraContentFile]. Idempotent: reuses an existing copy.
+     */
+    private fun stageWcpFromAssets(appCtx: Context, name: String): File {
+        val out = File(appCtx.cacheDir, name).apply { parentFile?.mkdirs() }
+        if (!out.exists() || out.length() == 0L) {
+            appCtx.assets.open(name).use { input -> out.outputStream().use { input.copyTo(it) } }
+        }
+        return out
     }
 
     /**
@@ -294,19 +312,12 @@ class PreparerGraphicsDriverTest {
         return result[0]!!
     }
 
-    /** Reflect into the preparer's private ContentsManager and load installed profiles. */
-    private fun syncContentsOnPreparer(preparer: XServerWineSessionPreparer) {
-        val field = XServerWineSessionPreparer::class.java.getDeclaredField("contentsManager")
-        field.isAccessible = true
-        val cm = field.get(preparer) as ContentsManager
-        cm.syncContents()
-        val protonCount = cm.getProfiles(ContentProfile.ContentType.CONTENT_TYPE_PROTON)?.size ?: 0
-        println("PREPARER_CM_SYNCED proton_profiles=$protonCount")
-    }
-
     private companion object {
         // Entry names = type-verName-verCode (versionCode=0 in both .wcp profile.json).
         private const val PROTON_ENTRY = "Proton-10.0-4-x86_64-0"
         private const val BOX64_ENTRY = "Box64-0.4.3-8ee3d8f2c-0"
+        // Asset names (bundled in the app APK by stageBundledContent).
+        private const val PROTON_WCP = "Proton-10.0-4-x86_64.wcp"
+        private const val BOX64_WCP = "Bionic-Box64-0.4.3-8ee3d8f2c.wcp"
     }
 }

@@ -8,7 +8,13 @@ import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.kotlin.dsl.getByType
 
 internal const val SDK_COMPILE = 37
-internal const val SDK_TARGET = 36
+// targetSdk 28 (not 36): the app execs box64/wine from filesDir (app_data_file),
+// which Android 10+ W^X (targetSdk >= 29, untrusted_app domain) denies via SELinux
+// `execute_no_trans`. targetSdk 28 keeps the legacy untrusted_app_27 domain that
+// permits it — same as upstream WinNative. Sideloading-only; do NOT bump without
+// first moving box64 to nativeLibraryDir (app_lib_data_file, exec-allowed) or a
+// memfd exec launcher. See WineEngineImpl.launch / GuestProgramLauncherComponent.
+internal const val SDK_TARGET = 28
 internal const val SDK_MIN = 26
 internal const val NDK_VERSION = "28.0.13004108"
 internal const val CMAKE_VERSION = "3.31.1"

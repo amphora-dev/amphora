@@ -99,6 +99,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
 
     Box(modifier = Modifier.fillMaxSize()) {
         val xServer = surface?.xServer
+        android.util.Log.i("AMP_SURFACE", "GameSessionScreen recompose: surface=" + (if (surface != null) "non-null" else "null") + " sessionState=$sessionState")
         if (xServer != null) {
             GameSurface(xServer = xServer, modifier = Modifier.fillMaxSize())
             TouchInputOverlay(xServer = xServer, modifier = Modifier.fillMaxSize())
@@ -118,17 +119,23 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
 /** The Vulkan render surface (XSDA `setupUI`, L6914). Wires the renderer back to the XServer. */
 @Composable
 private fun GameSurface(xServer: XServer, modifier: Modifier = Modifier) {
+    android.util.Log.i("AMP_SURFACE", "GameSurface: AndroidView factory xServer=$xServer")
     AndroidView(
         factory = { ctx ->
             XServerSurfaceView(ctx, xServer).also { view ->
+                android.util.Log.i("AMP_SURFACE", "GameSurface: XServerSurfaceView created, renderer=${view.getRenderer()}")
                 val renderer = view.getRenderer()
                 // TODO(P4): wire preparer graphicsDriverConfig (version / compositorPresentMode).
                 renderer.setGraphicsDriver("System")
-                renderer.setCursorVisible(false)
+                renderer.setCursorVisible(true)
                 renderer.setNativeMode(true) // dri3
                 renderer.setPresentMode(VulkanRenderer.parsePresentMode(null))
                 renderer.setSwapRB(false)
-                renderer.setUnviewableWMClasses("explorer.exe")
+                // DEBUG: do NOT hide the explorer.exe desktop window — amphora launches via
+                // `explorer /desktop`, so the desktop IS the render target. Hiding it = black.
+                // Keep relativeMouseMovement=false: buttons route via the X-protocol path (no
+                // WinHandler, which is null in the MVP). The touch overlay still moves the
+                // cursor by delta via injectPointerMoveDelta (relative cursor feel).
                 xServer.setRenderer(renderer)
             }
         },
@@ -137,45 +144,52 @@ private fun GameSurface(xServer: XServer, modifier: Modifier = Modifier) {
 }
 
 /**
- * Minimal touch overlay (D9 rewrite of `TouchpadView`). MVP is direct-touch: a touch becomes a
- * left-button drag - down presses + moves to the mapped position, move tracks, up releases.
- * Trackpad-mode (relative), tap-to-click tuning, and gesture profiles are P4+ (TouchpadView
- * parity) once the OSK / controls layer lands.
+ * Minimal touch overlay (D9 rewrite of `TouchpadView`). Touchpad/relative mode:
+ * a drag moves the cursor by the finger's delta (not absolute), a quick tap
+ * (little movement, <250ms) is a left click. Drag-to-select (tap then drag) and
+ * gesture profiles are P4+ (TouchpadView parity) once the OSK / controls layer lands.
  */
 @Composable
 private fun TouchInputOverlay(xServer: XServer, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier.pointerInput(xServer) {
-            val screenW = xServer.screenInfo.width.toInt().coerceAtLeast(1)
-            val screenH = xServer.screenInfo.height.toInt().coerceAtLeast(1)
             awaitEachGesture {
-                awaitFirstDown().also { down ->
-                    val (sx, sy) = mapToScreen(down.position, size, screenW, screenH)
-                    xServer.injectPointerMove(sx, sy)
-                    xServer.injectPointerButtonPress(Pointer.Button.BUTTON_LEFT)
-                }
+                val down = awaitFirstDown()
+                var lastX = down.position.x
+                var lastY = down.position.y
+                val downX = down.position.x
+                val downY = down.position.y
+                val downTime = System.currentTimeMillis()
+                var moved = false
                 while (true) {
                     val event = awaitPointerEvent()
                     val change = event.changes.first()
                     if (!change.pressed) {
-                        xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_LEFT)
+                        // Tap = left click (little movement, short hold). Drag = just move, no click.
+                        val dt = System.currentTimeMillis() - downTime
+                        val totalMove = Math.abs(change.position.x - downX) + Math.abs(change.position.y - downY)
+                        if (!moved && dt < 250 && totalMove < 24f) {
+                            xServer.injectPointerButtonPress(Pointer.Button.BUTTON_LEFT)
+                            xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_LEFT)
+                        }
                         break
                     }
-                    val (sx, sy) = mapToScreen(change.position, size, screenW, screenH)
-                    xServer.injectPointerMove(sx, sy)
+                    val dx = (change.position.x - lastX).toInt()
+                    val dy = (change.position.y - lastY).toInt()
+                    if (dx != 0 || dy != 0) {
+                        xServer.injectPointerMoveDelta(dx, dy)
+                        if (totalMove(change.position.x, change.position.y, downX, downY) > 24f) moved = true
+                    }
+                    lastX = change.position.x
+                    lastY = change.position.y
                 }
             }
         },
     )
 }
 
-private fun mapToScreen(position: Offset, viewSize: androidx.compose.ui.unit.IntSize, screenW: Int, screenH: Int): Pair<Int, Int> {
-    val vw = viewSize.width.coerceAtLeast(1)
-    val vh = viewSize.height.coerceAtLeast(1)
-    val sx = (position.x / vw * screenW).toInt().coerceIn(0, screenW - 1)
-    val sy = (position.y / vh * screenH).toInt().coerceIn(0, screenH - 1)
-    return sx to sy
-}
+private fun totalMove(x: Float, y: Float, downX: Float, downY: Float): Float =
+    Math.abs(x - downX) + Math.abs(y - downY)
 
 @Composable
 private fun SessionPlaceholder(sessionState: SessionState?, launchError: String?) {

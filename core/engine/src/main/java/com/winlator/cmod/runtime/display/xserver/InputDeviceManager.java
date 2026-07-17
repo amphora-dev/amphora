@@ -162,7 +162,10 @@ public class InputDeviceManager
           button == Pointer.Button.BUTTON_SCROLL_UP
               ? MOUSE_WHEEL_DELTA
               : (button == Pointer.Button.BUTTON_SCROLL_DOWN ? -MOUSE_WHEEL_DELTA : 0);
-      winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, true), 0, 0, wheelDelta);
+      // WinHandler is null in the amphora MVP (gamepad UDP input deferred per
+      // docs/03-TRACKING.md §P3). Guard so relative mode doesn't NPE; the X-protocol
+      // path (absolute mode) handles buttons without WinHandler.
+      if (winHandler != null) winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, true), 0, 0, wheelDelta);
     } else {
       Window grabWindow = xServer.grabManager.getWindow();
       if (grabWindow == null) {
@@ -199,7 +202,7 @@ public class InputDeviceManager
   public void onPointerButtonRelease(Pointer.Button button) {
     if (xServer.isRelativeMouseMovement()) {
       WinHandler winHandler = xServer.getWinHandler();
-      winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, false), 0, 0, 0);
+      if (winHandler != null) winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, false), 0, 0, 0);
     } else {
       Bitmask eventMask = createPointerEventMask();
       Window grabWindow = xServer.grabManager.getWindow();

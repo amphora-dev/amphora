@@ -1,6 +1,7 @@
 package app.amphora.core.engine
 
 import android.content.Context
+import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.container.model.Container as AmphoraContainer
@@ -97,6 +98,7 @@ class WineEngineImpl @Inject constructor(
 
     override suspend fun launch(spec: LaunchSpec): SessionHandle = withContext(dispatchers.default) {
         // Clear any prior session state before starting a new one.
+        Log.i("AMP_SURFACE", "launch: clearing _surface (prior session teardown)")
         _surface.value = null
         currentXServer = null
         currentHandle = null
@@ -124,6 +126,7 @@ class WineEngineImpl @Inject constructor(
         val xServer = XServer(ScreenInfo(spec.displaySize.width, spec.displaySize.height))
         currentXServer = xServer
         _surface.value = GameSessionSurface(xServer)
+        Log.i("AMP_SURFACE", "launch: _surface SET xServer=$xServer ${spec.displaySize}")
         // 6. Launch env: session essentials + preparer (driver/DXVK/wrapper) + caller + ALSA.
         val envVars = buildLaunchEnvVars(spec)
         // 7. XEnvironment + service components (GPLC added separately so the handle can wire its
@@ -156,7 +159,7 @@ class WineEngineImpl @Inject constructor(
     // --- launch steps ------------------------------------------------------------------------
 
     private suspend fun ensureRootfs() {
-        rootfsInstaller.ensureInstalled(
+        val installed = rootfsInstaller.ensureInstalled(
             RootfsSpec(
                 targetRoot = imageFs.getRootDir().absolutePath,
                 imagefsVersion = IMAGEFS_VERSION,
@@ -165,6 +168,10 @@ class WineEngineImpl @Inject constructor(
                 termuxfsSha256 = "",
             ),
         )
+        check(installed) {
+            "Rootfs installation failed: imagefs.tzst extraction returned false " +
+                "(asset missing from APK assets or native extract error; see TarCompressor logs)."
+        }
     }
 
     /**

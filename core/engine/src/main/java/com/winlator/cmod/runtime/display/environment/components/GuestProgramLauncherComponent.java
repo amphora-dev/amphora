@@ -529,6 +529,15 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
       launchGeneration++;
       pid = execGuestProgram();
+      if (pid == -1) {
+        // ProcessHelper.exec swallows pb.start() failures (e.g. SELinux
+        // execute_no_trans denial, EACCES) and returns -1. Surface it so
+        // WineEngineImpl.launch -> markFailed fires and awaitReady is honest,
+        // instead of silently marking the session RUNNING with no guest process.
+        throw new IllegalStateException(
+            "Guest process failed to start (exec returned -1; see logcat for "
+                + "'Permission denied' / SELinux execute_no_trans / missing binary)");
+      }
       Log.d(
           TAG,
           "Guest process started with pid="

@@ -105,13 +105,25 @@ abstract class StageBundledContentTask : DefaultTask() {
 
     private fun allAssetsStaged(): Boolean = try {
         val dir = stagedAssetsDir.get().asFile
-        manifestComponents().values.all { e ->
+        val manifestStaged = manifestComponents().values.all { e ->
             val staged = File(dir, e["assetPath"] as String)
             staged.exists() && when (e["kind"] as String) {
                 "ARCHIVE" -> (e["sha256"] as String?)?.let { sha256(staged) == it } ?: true
                 else -> true
             }
         }
+        // Kernel-direct .tzst (imagefs.tzst + preparer wincomponents/* / ddrawrapper/* /
+        // container_pattern_common.tzst ...) read straight from context.assets must all
+        // be present too, or the task is stale and must re-run stageKernelDirectAssets().
+        val winnative = winnativeDir.orNull?.asFile
+        val kernelStaged = winnative?.takeIf { it.isDirectory }?.let { w ->
+            w.walkTopDown().filter { it.isFile && !it.name.endsWith(".wcp") }.all { src ->
+                val rel = src.relativeTo(w).path
+                !(rel.startsWith("wnsteam/") || rel.contains("arm64ec")) ||
+                    File(dir, rel).exists()
+            }
+        } ?: true
+        manifestStaged && kernelStaged
     } catch (t: Throwable) {
         logger.debug("[stageBundledContent] up-to-date check failed: $t", t)
         false
@@ -136,6 +148,42 @@ abstract class StageBundledContentTask : DefaultTask() {
                 else -> logger.warn("[stageBundledContent] $id: unknown kind '$kind'; skipping.")
             }
         }
+
+        // Kernel-direct runtime archives: ImageFsRootfsInstaller (imagefs.tzst) +
+        // XServerWineSessionPreparer / WinComponentSetup (container_pattern_common.tzst,
+        // wincomponents/*, ddrawrapper/*, ...) read these .tzst straight from context.assets,
+        // bypassing ContentSource/manifest. Stage them from the WinNative checkout too.
+        stageKernelDirectAssets(winnativeAssets, stagedDir)
+    }
+
+    /**
+     * Stages the kernel-direct assets the ported `com.winlator.cmod` kernel reads
+     * straight from `context.assets` (rootfs + preparer/runtime files), bypassing
+     * [ContentSource] / the manifest. Every file under the WinNative checkout's
+     * assets is copied (idempotent on equal size) except `.wcp` (WCP-download-
+     * managed by the manifest), Steam (`wnsteam/`) and arm64ec (RFC §7 / D5
+     * non-targets). This covers `.tzst` archives *and* non-archive assets the
+     * kernel reads straight from assets (e.g. `metadata/startmenu.json` --
+     * `WineStartMenuCreator`). Manifest-managed archives are re-touched harmlessly.
+     * Best-effort: a missing checkout logs a warning and skips.
+     */
+    private fun stageKernelDirectAssets(winnativeAssets: File?, stagedDir: File) {
+        if (winnativeAssets == null || !winnativeAssets.isDirectory) {
+            logger.warn("[stageBundledContent] WinNative checkout absent; skipping kernel-direct assets (imagefs.tzst, metadata/startmenu.json, wincomponents/*, ...).")
+            return
+        }
+        var copied = 0
+        winnativeAssets.walkTopDown().filter { it.isFile && !it.name.endsWith(".wcp") }.forEach { src ->
+            val rel = src.relativeTo(winnativeAssets).path
+            if (rel.startsWith("wnsteam/") || rel.contains("arm64ec")) return@forEach
+            val staged = File(stagedDir, rel)
+            staged.parentFile.mkdirs()
+            if (staged.exists() && staged.length() == src.length()) return@forEach
+            src.copyTo(staged, overwrite = true)
+            logger.lifecycle("[stageBundledContent] kernel-direct: staged $rel (${src.length()} bytes).")
+            copied++
+        }
+        if (copied == 0) logger.lifecycle("[stageBundledContent] kernel-direct .tzst assets all present; nothing copied.")
     }
 
     private fun stageArchive(

@@ -3,7 +3,6 @@ package app.amphora
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -19,8 +18,9 @@ import java.nio.file.Files
  * Exercises the exact code path `ImageFsRootfsInstaller` relies on:
  * `TarCompressorUtils.extract(Type.ZSTD, ctx, "imagefs.tzst", outDir)` ->
  * `NativeContentIO.extractAsset` (native, `libwinlator.so`, zstd). The 190 MB
- * real `imagefs.tzst` asset (SHA `0902e324...`, WinNative Git LFS) is carried in
- * the test APK's assets (git-ignored; see `docs/04-ASSET-MANIFEST.md`).
+ * real `imagefs.tzst` asset (SHA `0902e324...`, WinNative Git LFS) is bundled in
+ * the *app* APK by `./gradlew :app:stageBundledContent` (git-ignored `*.tzst`;
+ * see `docs/04-ASSET-MANIFEST.md`).
  *
  * Device: Lenovo TB322FC, arm64-v8a, API 36, Adreno 830.
  */
@@ -29,26 +29,27 @@ class ImagefsExtractionTest {
 
     @Test
     fun extractRealImagefsAsset() {
-        // Test APK context -> its assets carry imagefs.tzst.
-        val testCtx = InstrumentationRegistry.getInstrumentation().context
+        // imagefs.tzst is bundled in the *app* APK by stageBundledContent
+        // (same source as GameSessionLaunchTest / PreparerGraphicsDriverTest).
+        val appCtx = ApplicationProvider.getApplicationContext<Context>()
         val assetName = "imagefs.tzst"
 
-        val assets = testCtx.assets.list("").orEmpty().toList()
+        val assets = appCtx.assets.list("").orEmpty().toList()
         // The 190MB imagefs.tzst is git-ignored (*.tzst); skip (not fail) when not staged.
         assumeTrue(
-            "imagefs.tzst not staged in androidTest/assets (have: $assets); see docs/04-ASSET-MANIFEST.md",
+            "imagefs.tzst not bundled in app assets (have: $assets); " +
+                "run ./gradlew :app:stageBundledContent first (see docs/04-ASSET-MANIFEST.md)",
             assetName in assets,
         )
 
         // Extract into the app's internal filesDir (where ImageFs.find() resolves).
-        val appCtx = ApplicationProvider.getApplicationContext<Context>()
         val outDir = File(appCtx.filesDir, "imagefs_test_extract")
         outDir.deleteRecursively()
         assertTrue("mkdirs failed", outDir.mkdirs())
 
         val t0 = System.currentTimeMillis()
         val ok = TarCompressorUtils.extract(
-            TarCompressorUtils.Type.ZSTD, testCtx, assetName, outDir,
+            TarCompressorUtils.Type.ZSTD, appCtx, assetName, outDir,
         )
         val dtMs = System.currentTimeMillis() - t0
         assertTrue("TarCompressorUtils.extract returned false (dt=${dtMs}ms)", ok)

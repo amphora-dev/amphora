@@ -35,7 +35,11 @@ public class FakeInputWriter {
   public static void prepareRingSlots(File fakeInputDir, int slotCount) {}
 
   public static String getRingEnv(File fakeInputDir) {
-    return null;
+    // Stub (RFC §7): amphora routes input via XServer inject (TouchInputOverlay),
+    // not the fakeinput evdev ring. Return "" so the kernel's
+    // `if (!getRingEnv(...).isEmpty())` guard skips FAKE_EVDEV_MEMFD_PATHS
+    // (returning null would NPE in GuestProgramLauncherComponent.execGuestProgram).
+    return "";
   }
 
   public static void releaseAllRingSlots() {}
