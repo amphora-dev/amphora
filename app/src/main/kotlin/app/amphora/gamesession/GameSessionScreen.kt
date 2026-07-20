@@ -30,6 +30,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.model.SessionState
 import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView
@@ -98,11 +99,10 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     val running = sessionState in setOf(SessionState.STARTING, SessionState.RUNNING, SessionState.PAUSED)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        val xServer = surface?.xServer
-        android.util.Log.i("AMP_SURFACE", "GameSessionScreen recompose: surface=" + (if (surface != null) "non-null" else "null") + " sessionState=$sessionState")
-        if (xServer != null) {
-            GameSurface(xServer = xServer, modifier = Modifier.fillMaxSize())
-            TouchInputOverlay(xServer = xServer, modifier = Modifier.fillMaxSize())
+        val sessionSurface = surface
+        if (sessionSurface != null) {
+            GameSurface(surface = sessionSurface, modifier = Modifier.fillMaxSize())
+            TouchInputOverlay(xServer = sessionSurface.xServer, modifier = Modifier.fillMaxSize())
         } else {
             SessionPlaceholder(sessionState = sessionState, launchError = launchError)
         }
@@ -118,24 +118,22 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
 
 /** The Vulkan render surface (XSDA `setupUI`, L6914). Wires the renderer back to the XServer. */
 @Composable
-private fun GameSurface(xServer: XServer, modifier: Modifier = Modifier) {
-    android.util.Log.i("AMP_SURFACE", "GameSurface: AndroidView factory xServer=$xServer")
+private fun GameSurface(surface: GameSessionSurface, modifier: Modifier = Modifier) {
+    val xServer = surface.xServer
+    val graphicsDriver = surface.graphicsDriver
+    val presentMode = surface.presentMode
     AndroidView(
         factory = { ctx ->
             XServerSurfaceView(ctx, xServer).also { view ->
-                android.util.Log.i("AMP_SURFACE", "GameSurface: XServerSurfaceView created, renderer=${view.getRenderer()}")
                 val renderer = view.getRenderer()
-                // TODO(P4): wire preparer graphicsDriverConfig (version / compositorPresentMode).
-                // "wrapper" = use adrenotools-wrapped Turnip+freedreno (the bundled driver in
-                // imagefs/usr/lib). "System" would bypass the wrapper and dlopen the host
-                // /system/lib64/libvulkan.so, which renders to a different Vulkan instance than
-                // the guest (VK_ICD_FILENAMES=wrapper_icd.aarch64.json) — black screen.
-                renderer.setGraphicsDriver("wrapper")
+                // Host must match guest ICD: container graphicsDriverConfig `version=`
+                // (adrenotools id, typically "wrapper"). "System" = host Adreno ≠ Turnip.
+                renderer.setGraphicsDriver(graphicsDriver)
                 renderer.setCursorVisible(true)
                 renderer.setNativeMode(true) // dri3
-                renderer.setPresentMode(VulkanRenderer.parsePresentMode(null))
+                renderer.setPresentMode(VulkanRenderer.parsePresentMode(presentMode))
                 renderer.setSwapRB(false)
-                // DEBUG: do NOT hide the explorer.exe desktop window — amphora launches via
+                // Do NOT hide the explorer.exe desktop window — amphora launches via
                 // `explorer /desktop`, so the desktop IS the render target. Hiding it = black.
                 // Keep relativeMouseMovement=false: buttons route via the X-protocol path (no
                 // WinHandler, which is null in the MVP). The touch overlay still moves the
@@ -144,6 +142,12 @@ private fun GameSurface(xServer: XServer, modifier: Modifier = Modifier) {
             }
         },
         modifier = modifier,
+        update = { view ->
+            // Re-apply if the surface config changes without recreating the AndroidView.
+            val renderer = view.getRenderer()
+            renderer.setGraphicsDriver(graphicsDriver)
+            renderer.setPresentMode(VulkanRenderer.parsePresentMode(presentMode))
+        },
     )
 }
 

@@ -29,8 +29,10 @@ import com.winlator.cmod.runtime.display.environment.components.XServerComponent
 import com.winlator.cmod.runtime.display.xserver.ScreenInfo
 import com.winlator.cmod.runtime.display.xserver.XServer
 import com.winlator.cmod.runtime.wine.EnvVars
+import com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
 import com.winlator.cmod.runtime.wine.LocaleEnv
 import com.winlator.cmod.runtime.wine.WineInfo
+import com.winlator.cmod.runtime.system.ProcessHelper
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,10 +99,12 @@ class WineEngineImpl @Inject constructor(
 
     override suspend fun launch(spec: LaunchSpec): SessionHandle = withContext(dispatchers.default) {
         // Clear any prior session state before starting a new one.
-        Log.i("AMP_SURFACE", "launch: clearing _surface (prior session teardown)")
+        Log.d("AMP_SURFACE", "launch: clearing _surface (prior session teardown)")
         _surface.value = null
         currentXServer = null
         currentHandle = null
+        // Ensure Wine stderr can land under filesDir (ProcessHelper has no PluviaApp).
+        ProcessHelper.init(context)
 
         // 1. imagefs rootfs (P2).
         ensureRootfs()
@@ -124,8 +128,21 @@ class WineEngineImpl @Inject constructor(
         // 5. XServer: the X render target + the input injection surface for the touch overlay.
         val xServer = XServer(ScreenInfo(spec.displaySize.width, spec.displaySize.height))
         currentXServer = xServer
-        _surface.value = GameSessionSurface(xServer)
-        Log.i("AMP_SURFACE", "launch: _surface SET xServer=$xServer ${spec.displaySize}")
+        val driverConfig = GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
+            wnContainer.getGraphicsDriverConfig(),
+        )
+        // Host VulkanRenderer must use the same adrenotools id as the guest ICD
+        // (config `version=`, default "wrapper"). Empty / "System" would dlopen the
+        // host Adreno and black-screen against guest Turnip.
+        val hostDriver = driverConfig["version"]
+            ?.takeIf { it.isNotEmpty() && !it.equals("System", ignoreCase = true) }
+            ?: "wrapper"
+        _surface.value = GameSessionSurface(
+            xServer = xServer,
+            graphicsDriver = hostDriver,
+            presentMode = driverConfig["presentMode"],
+        )
+        Log.d("AMP_SURFACE", "launch: _surface SET xServer=$xServer driver=$hostDriver ${spec.displaySize}")
         // 6. Launch env: session essentials + preparer (driver/DXVK/wrapper) + caller + ALSA.
         val envVars = buildLaunchEnvVars(spec)
         // 7. XEnvironment + service components (GPLC added separately so the handle can wire its

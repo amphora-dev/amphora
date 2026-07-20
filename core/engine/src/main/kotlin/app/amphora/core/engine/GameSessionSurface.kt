@@ -25,5 +25,16 @@ interface GameSessionSurfaceProvider {
  * needs to construct `XServerSurfaceView` + the touch overlay. The `VulkanRenderer` itself
  * is created inside `XServerSurfaceView` and wired back via `xServer.setRenderer(...)`
  * (XSDA `setupUI`, L6914); [xServer] is the single shared handle.
+ *
+ * [graphicsDriver] / [presentMode] come from the container's `graphicsDriverConfig`
+ * (`version=` / `presentMode=`) so the host renderer loads the same adrenotools driver
+ * id the guest uses (`VK_ICD_FILENAMES=wrapper_icd...`). Hardcoding `"wrapper"` in the
+ * UI previously drifted from the container and caused black screens when they diverged.
  */
-data class GameSessionSurface(val xServer: XServer)
+data class GameSessionSurface(
+    val xServer: XServer,
+    /** Adrenotools driver id for `VulkanRenderer.setGraphicsDriver` (config `version=`). */
+    val graphicsDriver: String = "wrapper",
+    /** Optional compositor present mode (`mailbox` / `fifo` / …); null → renderer default. */
+    val presentMode: String? = null,
+)

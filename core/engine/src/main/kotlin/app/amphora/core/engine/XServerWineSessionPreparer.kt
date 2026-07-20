@@ -63,11 +63,13 @@ import javax.inject.Singleton
  *   arm64ec, amphora is x86_64 + box64 only.
  * - `applyPreferredRefreshRate` (Activity/Window refresh-rate UI) -> Compose P3.
  *
- * **Stubbed (D8 / deferred):**
- * - `AdrenotoolsManager.setDriverById`/`getDriverName`/`getDriverVersion` were
- *   removed by D8 (single pinned Turnip driver). The driver env-var setup block
- *   in [extractGraphicsDriverFilesCore] is a TODO restored when the pinned
- *   driver asset lands (P2 asset + P3 runtime).
+ * **Adrenotools driver install:** [installAdrenotoolsDriverIfNeeded] copies the
+ * bundled Turnip `libvulkan_wrapper.so` (+ runtime deps) from imagefs into
+ * `filesDir/contents/adrenotools/<id>/` with a minimal `meta.json`, so the host
+ * `VulkanRenderer` and guest ICD share the same driver. Skips only when both
+ * `meta.json` and the driver `.so` are already present.
+ *
+ * **Stubbed (deferred):**
  * - `getDxvkFrameRateOverride` returns 0 (shortcut/preferences-driven).
  *
  * **Status:** the prep path is correct against the restored
@@ -639,8 +641,8 @@ class XServerWineSessionPreparer @Inject constructor(
      * adrenotools namespace only searches `nativeLibraryDir` + system paths —
      * so we copy the imagefs-hosted deps into the adrenotools driver dir too.
      *
-     * Idempotent: skips the copy when `meta.json` already exists (the driver
-     * `.so` is ~19 MB + deps ~10 MB, no need to recopy every boot).
+     * Idempotent: skips when both `meta.json` and the driver `.so` already exist
+     * (the driver `.so` is ~19 MB + deps ~10 MB, no need to recopy every boot).
      */
     private fun installAdrenotoolsDriverIfNeeded(driverId: String, libraryName: String) {
         if (driverId.isEmpty()) {
@@ -648,9 +650,13 @@ class XServerWineSessionPreparer @Inject constructor(
             return
         }
         val adrenotoolsDir = File(context.filesDir, "contents/adrenotools/$driverId")
+        val resolvedLibraryName = if (libraryName.isNotEmpty()) libraryName else "libvulkan_wrapper.so"
         val metaFile = File(adrenotoolsDir, "meta.json")
-        if (metaFile.exists()) {
-            Log.d(TAG, "Adrenotools driver already installed: $driverId (meta.json present)")
+        val dstDriver = File(adrenotoolsDir, resolvedLibraryName)
+        // Require both meta + .so — a lone meta.json from a partial install would
+        // otherwise skip forever and leave the host on the system Adreno driver.
+        if (metaFile.exists() && dstDriver.exists()) {
+            Log.d(TAG, "Adrenotools driver already installed: $driverId ($resolvedLibraryName)")
             return
         }
         if (!adrenotoolsDir.exists() && !adrenotoolsDir.mkdirs()) {
@@ -659,13 +665,11 @@ class XServerWineSessionPreparer @Inject constructor(
         }
 
         // Source: the wrapper.tzst extract landed the driver .so at imagefs/usr/lib/.
-        val resolvedLibraryName = if (libraryName.isNotEmpty()) libraryName else "libvulkan_wrapper.so"
         val srcDriver = File(imageFs.getLibDir(), resolvedLibraryName)
         if (!srcDriver.exists()) {
             Log.w(TAG, "installAdrenotoolsDriverIfNeeded: driver .so not found at $srcDriver — re-extracting wrapper.tzst")
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/wrapper.tzst", imageFs.getRootDir())
         }
-        val dstDriver = File(adrenotoolsDir, resolvedLibraryName)
         if (srcDriver.exists()) {
             if (FileUtils.copy(srcDriver, dstDriver)) {
                 Log.i(TAG, "Installed Adrenotools driver .so: $srcDriver -> $dstDriver")

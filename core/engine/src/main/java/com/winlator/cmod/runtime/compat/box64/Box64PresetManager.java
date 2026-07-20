@@ -3,7 +3,6 @@ package com.winlator.cmod.runtime.compat.box64;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Environment;
 import android.util.Log;
 import android.widget.Spinner;
 import android.widget.SpinnerAdapter;
@@ -256,10 +255,11 @@ public abstract class Box64PresetManager {
           String path = FileUtils.getFilePathFromUri(context, uri);
           presetFile = new File(path, "Presets/" + prefix + "_" + preset[1] + ".wbp");
         } else {
+          // amphora: app-specific dir (no legacy /WinNative external path).
+          File base = context.getExternalFilesDir(null);
+          if (base == null) base = context.getFilesDir();
           presetFile =
-              new File(
-                  Environment.getExternalStorageDirectory().getPath() + "/WinNative",
-                  "Presets/" + prefix + "_" + preset[1] + ".wbp");
+              new File(base, "Presets/" + prefix + "_" + preset[1] + ".wbp");
         }
         if (!presetFile.getParentFile().exists()) presetFile.getParentFile().mkdirs();
 

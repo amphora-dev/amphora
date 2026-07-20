@@ -23,6 +23,19 @@ public abstract class ProcessHelper {
   private static final int MAX_PROCESS_DETAIL_LENGTH = 240;
   public static final boolean PRINT_DEBUG = false;
   private static final ArrayList<Callback<String>> debugCallbacks = new ArrayList<>();
+  /** App filesDir for wine_stderr.log; set via [init]. Null until Application / engine boots. */
+  private static volatile File appFilesDir;
+
+  /**
+   * Anchor wine-debug file capture to the process [Context] filesDir. Replaces the
+   * deleted PluviaApp singleton. Safe to call repeatedly (idempotent).
+   */
+  public static void init(android.content.Context context) {
+    if (context == null) return;
+    File dir = context.getApplicationContext().getFilesDir();
+    if (dir != null) appFilesDir = dir;
+  }
+
   private static final String[] SESSION_PROCESS_FILTERS = {
     "wine",
     "wine64",
@@ -294,11 +307,25 @@ public abstract class ProcessHelper {
         Log.i("ProcessHelper",
                 "exec wine-debug branch: WINEDEBUG='" + wineDebug + "' active=" + wineDebugActive
                         + " cmd=" + command.substring(0, Math.min(80, command.length())));
-        File nullFile = new File("/dev/null");
-        pb.redirectError(nullFile);
-        pb.redirectOutput(nullFile);
+        File wineDebugLog = wineDebugActive ? resolveWineStderrLog() : null;
+        if (wineDebugLog != null) {
+          try {
+            if (wineDebugLog.exists() && wineDebugLog.length() > 16 * 1024 * 1024)
+              wineDebugLog.delete();
+          } catch (Exception ignored) {}
+          pb.redirectErrorStream(true);
+          pb.redirectOutput(ProcessBuilder.Redirect.appendTo(wineDebugLog));
+          Log.i(
+              "ProcessHelper",
+              "exec wine-debug: redirecting stderr+stdout to " + wineDebugLog.getAbsolutePath());
+        } else {
+          File nullFile = new File("/dev/null");
+          pb.redirectError(nullFile);
+          pb.redirectOutput(nullFile);
+        }
       } else {
-        Log.w("ProcessHelper", "exec: no capture file; falling back to piped debug reader");
+        Log.i("ProcessHelper", "exec: debugCallbacks non-empty (" + debugCallbacks.size()
+                + "), piping wine output to callbacks");
       }
       java.lang.Process process = pb.start();
       if (!debugCallbacks.isEmpty()) {
@@ -320,6 +347,16 @@ public abstract class ProcessHelper {
       Log.e("ProcessHelper", "Error executing command: " + command, e);
     }
     return pid;
+  }
+
+  /** Wine debug log under the app filesDir; null if [init] was never called. */
+  private static File resolveWineStderrLog() {
+    File filesDir = appFilesDir;
+    if (filesDir == null) {
+      Log.w(TAG, "resolveWineStderrLog: ProcessHelper.init() not called; wine debug log disabled");
+      return null;
+    }
+    return new File(filesDir, "wine_stderr.log");
   }
 
   private static void createDebugThread(final InputStream inputStream) {

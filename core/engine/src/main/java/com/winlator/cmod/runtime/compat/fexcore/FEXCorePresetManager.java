@@ -3,7 +3,6 @@ package com.winlator.cmod.runtime.compat.fexcore;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Environment;
 import android.util.Log;
 import android.widget.Spinner;
 import android.widget.SpinnerAdapter;
@@ -236,10 +235,10 @@ public class FEXCorePresetManager {
           String path = FileUtils.getFilePathFromUri(context, uri);
           presetFile = new File(path, "Presets/fexcore_" + preset[1] + ".wbp");
         } else {
-          presetFile =
-              new File(
-                  Environment.getExternalStorageDirectory().getPath() + "/WinNative",
-                  "Presets/fexcore_" + preset[1] + ".wbp");
+          // amphora: app-specific dir (no legacy /WinNative external path).
+          File base = context.getExternalFilesDir(null);
+          if (base == null) base = context.getFilesDir();
+          presetFile = new File(base, "Presets/fexcore_" + preset[1] + ".wbp");
         }
         if (!presetFile.getParentFile().exists()) presetFile.getParentFile().mkdirs();
 
