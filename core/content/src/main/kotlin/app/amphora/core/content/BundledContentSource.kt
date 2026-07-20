@@ -34,14 +34,15 @@ import java.security.MessageDigest
  * temp file (tee'd through SHA-256), verified, handed to the installer, and the
  * temp file is deleted.
  *
- * **Consumer wiring:** the WCP path (WINE / BOX64) replaces the test's host
+ * Consumer wiring: the WCP path (WINE / BOX64 / DXVK) replaces the test's host
  * `curl` + `adb push` + `extraContentFile` workaround for production -- when the
- * `.wcp` files are bundled in APK assets, `resolve(WINE)` / `resolve(BOX64)`
- * installs them locally with no remote download. The ARCHIVE path
- * (TURNIP / DXVK / AUDIO_PLUGIN) is a SHA-verified provisioning capability; the
+ * `.wcp` files are bundled in APK assets, `resolve(WINE)` / `resolve(BOX64)` /
+ * `resolve(DXVK)` installs them locally with no remote download. The ARCHIVE path
+ * (TURNIP / AUDIO_PLUGIN) is a SHA-verified provisioning capability; the
  * ported kernel (`WineSessionPreparer.extractGraphicsDriverFiles`,
  * `ImageFsRootfsInstaller`) still reads those assets from `context.assets`
- * directly today, and will be migrated to consume `ContentSource` in P3.
+ * directly today. `dxwrapper/d8vk-1.0.tzst` remains a kernel-direct asset for
+ * DXVK < 2.4 (extractD8VKIfNeeded); modern bundled DXVK ships d3d8 itself.
  */
 class BundledContentSource(
     private val context: Context,

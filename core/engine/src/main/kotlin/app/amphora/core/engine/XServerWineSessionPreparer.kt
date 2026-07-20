@@ -229,25 +229,45 @@ class XServerWineSessionPreparer @Inject constructor(
 
         // No shortcut (D9): derive dxwrapper + config straight from the container.
         var localDxwrapper = dxwrapper
-        val dxwrapperConfigStr = dxwrapperConfig.toString()
-        val currentDXWrapperConfig = DXVKConfigUtils.parseConfig(dxwrapperConfigStr)
 
-        if (localDxwrapper.contains("dxvk")) {
-            val dxvkWrapper = "dxvk-" + currentDXWrapperConfig.get("version")
-            val vkd3dWrapper = "vkd3d-" + currentDXWrapperConfig.get("vkd3dVersion")
-            val ddrawrapper = currentDXWrapperConfig.get("ddrawrapper")
+        // amphora: WinlatorContainerManager writes the full delimited form
+        // ("dxvk-3.0.2-gplasync-0;vkd3d-None;none") into `dxwrapper` and leaves
+        // `dxwrapperConfig` empty. WinNative's XSDA, by contrast, stores the short
+        // form ("dxvk+vkd3d") in `dxwrapper` and reconstructs the delimited form
+        // from `dxwrapperConfig` below. Detect which shape we have and only rebuild
+        // when the short form is present — otherwise pass the delimited form
+        // through as-is so the version token isn't lost.
+        if (!localDxwrapper.contains(";")) {
+            val dxwrapperConfigStr = dxwrapperConfig.toString()
+            val currentDXWrapperConfig = DXVKConfigUtils.parseConfig(dxwrapperConfigStr)
+
+            if (localDxwrapper.contains("dxvk")) {
+                val dxvkWrapper = "dxvk-" + currentDXWrapperConfig.get("version")
+                val vkd3dWrapper = "vkd3d-" + currentDXWrapperConfig.get("vkd3dVersion")
+                val ddrawrapper = currentDXWrapperConfig.get("ddrawrapper")
+                Log.i(
+                    TAG,
+                    "Launch DX wrapper files selected: dxvk='$dxvkWrapper' vkd3d='$vkd3dWrapper' ddrawrapper='$ddrawrapper'",
+                )
+                localDxwrapper = "$dxvkWrapper;$vkd3dWrapper;$ddrawrapper"
+            } else {
+                val vkd3dVersion = currentDXWrapperConfig.get("vkd3dVersion")
+                if (hasSelectedVkd3dVersion(vkd3dVersion)) {
+                    val vkd3dWrapper = "vkd3d-$vkd3dVersion"
+                    Log.i(TAG, "Launch VKD3D-only wrapper files selected: vkd3d='$vkd3dWrapper'")
+                    localDxwrapper = "$localDxwrapper;$vkd3dWrapper"
+                }
+            }
+        } else {
+            // Already delimited — log the passthrough for diagnostics.
+            val parts = localDxwrapper.split(";")
+            val dxvkWrapper = if (parts.size > 0) parts[0] else ""
+            val vkd3dWrapper = if (parts.size > 1) parts[1] else ""
+            val ddrawrapper = if (parts.size > 2) parts[2] else ""
             Log.i(
                 TAG,
-                "Launch DX wrapper files selected: dxvk='$dxvkWrapper' vkd3d='$vkd3dWrapper' ddrawrapper='$ddrawrapper'",
+                "Launch DX wrapper files selected (delimited form): dxvk='$dxvkWrapper' vkd3d='$vkd3dWrapper' ddrawrapper='$ddrawrapper'",
             )
-            localDxwrapper = "$dxvkWrapper;$vkd3dWrapper;$ddrawrapper"
-        } else {
-            val vkd3dVersion = currentDXWrapperConfig.get("vkd3dVersion")
-            if (hasSelectedVkd3dVersion(vkd3dVersion)) {
-                val vkd3dWrapper = "vkd3d-$vkd3dVersion"
-                Log.i(TAG, "Launch VKD3D-only wrapper files selected: vkd3d='$vkd3dWrapper'")
-                localDxwrapper = "$localDxwrapper;$vkd3dWrapper"
-            }
         }
 
         val wincomponents = c.getWinComponents()
@@ -470,12 +490,15 @@ class XServerWineSessionPreparer @Inject constructor(
             val ddrawrapper = parts[2]
 
             if (hasSelectedDxvkWrapper(dxvkWrapper)) {
-                val dxvkProfile = contentsManager.getProfileByEntryName(dxvkWrapper)
+                val dxvkProfile = resolveDxvkProfile(dxvkWrapper)
                 if (dxvkProfile != null) {
-                    Log.d(TAG, "Applying user-defined DXVK content profile: $dxvkWrapper")
+                    Log.d(TAG, "Applying DXVK content profile: $dxvkWrapper -> ${ContentsManager.getEntryName(dxvkProfile)}")
                     contentsManager.applyContent(dxvkProfile)
                     extractD8VKIfNeeded(dxvkWrapper, windowsDir)
                 } else {
+                    // Match WinNative XSDA: no fake ARCHIVE/Wine-builtin substitute.
+                    // Real DXVK must be installed via ContentsManager (amphora bundles
+                    // Dxvk-*.wcp through ContentSource.resolve(DXVK)).
                     Log.w(TAG, "DXVK content profile not installed; no bundled DXVK archive will be loaded: $dxvkWrapper")
                 }
             } else {
@@ -576,10 +599,119 @@ class XServerWineSessionPreparer @Inject constructor(
         return version.trim().isNotEmpty() && !version.equals("None", ignoreCase = true)
     }
 
+    /**
+     * Resolve a DXVK [ContentProfile] from the delimited-form token
+     * (`dxvk-<verName>-<verCode>` or full `DXVK-...` entry name). Tries
+     * [ContentsManager.getProfileByEntryName] first, then the XSDA
+     * [resolveContentProfile] fallback (type + version-after-first-dash).
+     */
+    private fun resolveDxvkProfile(dxvkWrapper: String): ContentProfile? {
+        contentsManager.getProfileByEntryName(dxvkWrapper)?.let { return it }
+        val version = if (dxvkWrapper.startsWith("dxvk-", ignoreCase = true)) {
+            dxvkWrapper.substringAfter('-')
+        } else {
+            dxvkWrapper
+        }
+        return resolveContentProfile(ContentProfile.ContentType.CONTENT_TYPE_DXVK, version)
+    }
+
     private fun extractD8VKIfNeeded(dxvkWrapper: String, windowsDir: File) {
         if (compareVersion(dxvkWrapper, "2.4") >= 0) return
         Log.d(TAG, "Extracting d8vk as part of DXVK version $dxvkWrapper")
         TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, D8VK_ASSET_PATH, windowsDir)
+    }
+
+    /**
+     * amphora: install the bundled Turnip driver to the adrenotools content
+     * directory (`filesDir/contents/adrenotools/<id>/`) so the host-side
+     * `VulkanRenderer` can load it via `adrenotools_open_libvulkan`. The
+     * `wrapper.tzst` asset (extracted into `imagefs/usr/lib/` by
+     * [extractGraphicsDriverFilesCore]) ships `libvulkan_wrapper.so` and the
+     * ICD JSON; the adrenotools loader expects the `.so` plus a `meta.json`
+     * (with `libraryName`) at its own content path. This bridges the two
+     * locations — without it, the host falls back to the system Adreno driver
+     * while the guest uses Turnip, producing a black screen.
+     *
+     * `libvulkan_wrapper.so` was built in Termux and has `NEEDED` entries for
+     * `libandroid-sysvshm.so`, `libxcb*.so`, `libdrm.so`, `libX11-xcb.so` etc.
+     * (RUNPATH points at a Termux path that doesn't exist on device). The
+     * guest finds them via `LD_LIBRARY_PATH=imagefs/usr/lib`, but the host's
+     * adrenotools namespace only searches `nativeLibraryDir` + system paths —
+     * so we copy the imagefs-hosted deps into the adrenotools driver dir too.
+     *
+     * Idempotent: skips the copy when `meta.json` already exists (the driver
+     * `.so` is ~19 MB + deps ~10 MB, no need to recopy every boot).
+     */
+    private fun installAdrenotoolsDriverIfNeeded(driverId: String, libraryName: String) {
+        if (driverId.isEmpty()) {
+            Log.w(TAG, "installAdrenotoolsDriverIfNeeded: empty driverId, skipping")
+            return
+        }
+        val adrenotoolsDir = File(context.filesDir, "contents/adrenotools/$driverId")
+        val metaFile = File(adrenotoolsDir, "meta.json")
+        if (metaFile.exists()) {
+            Log.d(TAG, "Adrenotools driver already installed: $driverId (meta.json present)")
+            return
+        }
+        if (!adrenotoolsDir.exists() && !adrenotoolsDir.mkdirs()) {
+            Log.w(TAG, "installAdrenotoolsDriverIfNeeded: failed to mkdir $adrenotoolsDir")
+            return
+        }
+
+        // Source: the wrapper.tzst extract landed the driver .so at imagefs/usr/lib/.
+        val resolvedLibraryName = if (libraryName.isNotEmpty()) libraryName else "libvulkan_wrapper.so"
+        val srcDriver = File(imageFs.getLibDir(), resolvedLibraryName)
+        if (!srcDriver.exists()) {
+            Log.w(TAG, "installAdrenotoolsDriverIfNeeded: driver .so not found at $srcDriver — re-extracting wrapper.tzst")
+            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/wrapper.tzst", imageFs.getRootDir())
+        }
+        val dstDriver = File(adrenotoolsDir, resolvedLibraryName)
+        if (srcDriver.exists()) {
+            if (FileUtils.copy(srcDriver, dstDriver)) {
+                Log.i(TAG, "Installed Adrenotools driver .so: $srcDriver -> $dstDriver")
+            } else {
+                Log.e(TAG, "installAdrenotoolsDriverIfNeeded: copy failed $srcDriver -> $dstDriver")
+                return
+            }
+        } else {
+            Log.e(TAG, "installAdrenotoolsDriverIfNeeded: driver .so still missing after re-extract: $srcDriver")
+            return
+        }
+
+        // Copy the driver's runtime deps that live in imagefs/usr/lib/ — the
+        // host adrenotools namespace doesn't search that path, so without
+        // copies here dlopen fails with "library not found" for each NEEDED
+        // entry that isn't in nativeLibraryDir or /system/lib64.
+        val imageFsLibDir = imageFs.getLibDir()
+        val wrapperDeps = listOf(
+            // SysV shmem shim (built in imagefs, not in APK nativeLibraryDir).
+            "libandroid-sysvshm.so",
+            // X11 / DRM — Mesa Zink + WSI need these at dlopen time.
+            "libxcb.so", "libX11-xcb.so", "libxcb-dri3.so", "libxcb-present.so",
+            "libxcb-sync.so", "libxcb-randr.so", "libxcb-shm.so", "libdrm.so",
+            "libxkbcommon.so",
+        )
+        var copiedDeps = 0
+        for (dep in wrapperDeps) {
+            val src = File(imageFsLibDir, dep)
+            if (!src.exists()) {
+                Log.w(TAG, "installAdrenotoolsDriverIfNeeded: dep $dep not found at $src (skipping)")
+                continue
+            }
+            val dst = File(adrenotoolsDir, dep)
+            if (dst.exists()) continue
+            if (FileUtils.copy(src, dst)) copiedDeps++ else Log.w(TAG, "installAdrenotoolsDriverIfNeeded: copy failed for dep $dep")
+        }
+        if (copiedDeps > 0) Log.i(TAG, "Installed $copiedDeps Adrenotools driver dep(s) from $imageFsLibDir")
+
+        // Write meta.json so AdrenotoolsManager.getLibraryName can report the
+        // library to vulkan.c's JNI callback at nativeCreate time.
+        val metaJson = """{"libraryName":"$resolvedLibraryName"}"""
+        if (FileUtils.writeString(metaFile, metaJson)) {
+            Log.i(TAG, "Wrote Adrenotools meta.json: $metaFile ($metaJson)")
+        } else {
+            Log.e(TAG, "installAdrenotoolsDriverIfNeeded: failed to write $metaFile")
+        }
     }
 
     private fun compareVersion(varA: String, varB: String): Int {
@@ -659,14 +791,20 @@ class XServerWineSessionPreparer @Inject constructor(
         }
 
         if (adrenoToolsDriverId.isNotEmpty() && adrenoToolsDriverId != "System") {
-            // D8: AdrenotoolsManager simplified to getLibraryName only (single pinned
-            // Turnip driver for MVP). getDriverName/getDriverVersion/setDriverById were
-            // removed; driver env-var setup (ADRENOTOOLS_DRIVER_PATH/NAME/HOOKS_PATH) is
-            // restored when the pinned driver asset lands (P2 asset + P3 runtime).
+            // amphora: install the bundled Turnip driver to the adrenotools content
+            // directory so the host VulkanRenderer can load it via
+            // adrenotools_open_libvulkan. The driver .so + ICD JSON ship inside
+            // graphics_driver/wrapper.tzst (extracted above into imagefs/usr/lib/
+            // and imagefs/usr/share/vulkan/icd.d/). The host-side adrenotools
+            // loader (vulkan.c:get_driver_path) looks for the driver at
+            // filesDir/contents/adrenotools/<id>/<libraryName>, with a companion
+            // meta.json naming the library — so copy both from the imagefs
+            // extract location. Idempotent: skips the copy if meta.json already
+            // exists (the driver .so is ~19 MB, no need to recopy every boot).
             val adrenotoolsManager = AdrenotoolsManager(context)
             val driverLibrary = adrenotoolsManager.getLibraryName(adrenoToolsDriverId)
             Log.i(TAG, "Loading graphics/Turnip driver: id='$adrenoToolsDriverId' library='$driverLibrary'")
-            // TODO(P3): restore adrenotoolsManager.setDriverById(envState, imageFs, adrenoToolsDriverId)
+            installAdrenotoolsDriverIfNeeded(adrenoToolsDriverId, driverLibrary)
             if (wantLeegao) envState.put("ADRENOTOOLS_HOOKS_PATH", imageFs.getLibDir().path)
         } else {
             Log.w(

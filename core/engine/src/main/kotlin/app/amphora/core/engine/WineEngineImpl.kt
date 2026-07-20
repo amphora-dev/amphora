@@ -105,7 +105,7 @@ class WineEngineImpl @Inject constructor(
         // 1. imagefs rootfs (P2).
         ensureRootfs()
         // 2. Wine container / WINEPREFIX (P4 WinlatorContainerManager: installs bundled
-        //    Wine/Box64 content + creates the prefix from the Proton prefixPack).
+        //    Wine/Box64/DXVK content + creates the prefix from the Proton prefixPack).
         val container = containerManager.getOrCreate(spec.containerId)
         // This engine instance's ContentsManager needs the installed profiles loaded for
         // WineInfo.fromIdentifier (step 4) + buildGuestLauncher (getProfileByEntryName).

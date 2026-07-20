@@ -126,7 +126,11 @@ private fun GameSurface(xServer: XServer, modifier: Modifier = Modifier) {
                 android.util.Log.i("AMP_SURFACE", "GameSurface: XServerSurfaceView created, renderer=${view.getRenderer()}")
                 val renderer = view.getRenderer()
                 // TODO(P4): wire preparer graphicsDriverConfig (version / compositorPresentMode).
-                renderer.setGraphicsDriver("System")
+                // "wrapper" = use adrenotools-wrapped Turnip+freedreno (the bundled driver in
+                // imagefs/usr/lib). "System" would bypass the wrapper and dlopen the host
+                // /system/lib64/libvulkan.so, which renders to a different Vulkan instance than
+                // the guest (VK_ICD_FILENAMES=wrapper_icd.aarch64.json) — black screen.
+                renderer.setGraphicsDriver("wrapper")
                 renderer.setCursorVisible(true)
                 renderer.setNativeMode(true) // dri3
                 renderer.setPresentMode(VulkanRenderer.parsePresentMode(null))
