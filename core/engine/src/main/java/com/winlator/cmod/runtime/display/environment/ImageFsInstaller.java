@@ -3,10 +3,6 @@ package com.winlator.cmod.runtime.display.environment;
 import android.content.Context;
 import android.util.Log;
 import com.winlator.cmod.R;
-import com.winlator.cmod.app.config.SettingsConfig;
-import com.winlator.cmod.feature.stores.steam.enums.Marker;
-import com.winlator.cmod.feature.stores.steam.utils.MarkerUtils;
-import com.winlator.cmod.runtime.compat.SteamBridge;
 import com.winlator.cmod.runtime.container.Container;
 import com.winlator.cmod.runtime.container.ContainerManager;
 import com.winlator.cmod.runtime.content.AdrenotoolsManager;
@@ -238,8 +234,6 @@ public abstract class ImageFsInstaller {
     InstallProgressTracker progressTracker =
         new InstallProgressTracker(estimateInstallWorkBytes(activity, true), listener);
 
-    SettingsConfig.resetEmulatorsVersion(activity);
-
     Executors.newSingleThreadExecutor()
         .execute(
             () -> {
@@ -287,7 +281,6 @@ public abstract class ImageFsInstaller {
                 pool.shutdown();
                 success = postInstallSuccess.get();
                 if (success) {
-                  clearSteamDllMarkers(activity);
                   imageFs.createImgVersionFile(LATEST_VERSION);
                   resetContainerImgVersions(activity);
                   progressTracker.addWork(FINALIZE_PROGRESS_BYTES);
@@ -447,36 +440,5 @@ public abstract class ImageFsInstaller {
       Log.e("ImageFsInstaller", "Failed to list imagefs shards", e);
     }
     return shards.toArray(new String[0]);
-  }
-
-  /**
-   * Remove Steam DLL state markers after reinstalling ImageFS so future launches re-apply
-   * replacements when needed.
-   */
-  private static void clearSteamDllMarkers(Context context) {
-    try {
-      ContainerManager manager = new ContainerManager(context);
-      for (Container container : manager.getContainers()) {
-        try {
-          int gameId = container.id;
-          String appDirPath = SteamBridge.getAppDirPath(gameId);
-          MarkerUtils.INSTANCE.removeMarker(appDirPath, Marker.STEAM_DLL_REPLACED);
-          MarkerUtils.INSTANCE.removeMarker(appDirPath, Marker.STEAM_DLL_RESTORED);
-          MarkerUtils.INSTANCE.removeMarker(appDirPath, Marker.STEAM_COLDCLIENT_USED);
-          MarkerUtils.INSTANCE.removeMarker(appDirPath, Marker.STEAM_DRM_PATCHED);
-          Log.i(
-              "ImageFsInstaller",
-              "Cleared Steam markers for container "
-                  + container.getName()
-                  + " (ID: "
-                  + container.id
-                  + ")");
-        } catch (Exception e) {
-          Log.w("ImageFsInstaller", "Failed to clear markers for container ID " + container.id, e);
-        }
-      }
-    } catch (Exception e) {
-      Log.e("ImageFsInstaller", "Error clearing Steam DLL markers", e);
-    }
   }
 }

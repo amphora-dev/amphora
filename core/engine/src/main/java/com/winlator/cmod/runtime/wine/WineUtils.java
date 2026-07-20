@@ -174,33 +174,11 @@ public abstract class WineUtils {
     for (String path : getMountedSdCardRootPaths(null)) {
       if (path != null && !path.isEmpty()) return path;
     }
-    try {
-      if (!com.winlator.cmod.feature.stores.steam.utils.PrefManager.INSTANCE
-          .getUseExternalStorage()) return null;
-      String path =
-          com.winlator.cmod.feature.stores.steam.utils.PrefManager.INSTANCE
-              .getExternalStoragePath();
-      if (path == null || path.isEmpty()) return null;
-      File root = new File(path);
-      return root.exists() ? root.getAbsolutePath() : null;
-    } catch (Throwable ignored) {
-      return null;
-    }
+    return null;
   }
 
   public static List<String> getMountedSdCardRootPaths(@Nullable Context context) {
     ArrayList<String> roots = new ArrayList<>();
-
-    try {
-      if (com.winlator.cmod.feature.stores.steam.utils.PrefManager.INSTANCE
-          .getUseExternalStorage()) {
-        addStorageRoot(
-            roots,
-            com.winlator.cmod.feature.stores.steam.utils.PrefManager.INSTANCE
-                .getExternalStoragePath());
-      }
-    } catch (Throwable ignored) {
-    }
 
     try {
       for (File root : StoragePathUtils.getMountedStorageRoots(context, false, false, true)) {
@@ -210,11 +188,6 @@ public abstract class WineUtils {
     }
 
     return roots;
-  }
-
-  private static void addStorageRoot(List<String> roots, @Nullable String path) {
-    if (path == null || path.isEmpty()) return;
-    addStorageRoot(roots, new File(path));
   }
 
   private static void addStorageRoot(List<String> roots, @Nullable File root) {

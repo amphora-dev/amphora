@@ -11,14 +11,12 @@ import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.RandomAccessFile;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicLong;
 
 public abstract class ProcessHelper {
   private static final String TAG = "ProcessHelper";
@@ -288,7 +286,6 @@ public abstract class ProcessHelper {
       ProcessBuilder pb = new ProcessBuilder(splitCommand);
       pb.directory(workingDir);
       pb.environment().putAll(EnvironmentManager.getEnvVars());
-      File tailCapture = null;
       if (debugCallbacks.isEmpty()) {
         String wineDebug = EnvironmentManager.getEnvVars().get("WINEDEBUG");
         boolean wineDebugActive = wineDebug != null
@@ -297,41 +294,16 @@ public abstract class ProcessHelper {
         Log.i("ProcessHelper",
                 "exec wine-debug branch: WINEDEBUG='" + wineDebug + "' active=" + wineDebugActive
                         + " cmd=" + command.substring(0, Math.min(80, command.length())));
-        File wineDebugLog = wineDebugActive ? resolveWineStderrLog() : null;
-        if (wineDebugLog != null) {
-          try {
-            if (wineDebugLog.exists() && wineDebugLog.length() > 16 * 1024 * 1024)
-              wineDebugLog.delete();
-          } catch (Exception ignored) {}
-          pb.redirectErrorStream(true);
-          pb.redirectOutput(ProcessBuilder.Redirect.appendTo(wineDebugLog));
-          Log.i(
-              "ProcessHelper",
-              "exec wine-debug: redirecting stderr+stdout to " + wineDebugLog.getAbsolutePath());
-        } else {
-          File nullFile = new File("/dev/null");
-          pb.redirectError(nullFile);
-          pb.redirectOutput(nullFile);
-        }
+        File nullFile = new File("/dev/null");
+        pb.redirectError(nullFile);
+        pb.redirectOutput(nullFile);
       } else {
-        tailCapture = resolveWineTailCapture();
-        if (tailCapture != null) {
-          pb.redirectErrorStream(true);
-          pb.redirectOutput(ProcessBuilder.Redirect.to(tailCapture));
-          Log.i("ProcessHelper", "exec: debugCallbacks non-empty (" + debugCallbacks.size()
-                  + "), capturing wine output to " + tailCapture.getAbsolutePath() + " and tailing to drawer");
-        } else {
-          Log.w("ProcessHelper", "exec: no capture file; falling back to piped debug reader");
-        }
+        Log.w("ProcessHelper", "exec: no capture file; falling back to piped debug reader");
       }
       java.lang.Process process = pb.start();
       if (!debugCallbacks.isEmpty()) {
-        if (tailCapture != null) {
-          startDebugTailThread(tailCapture, process);
-        } else {
-          createDebugThread(process.getInputStream());
-          createDebugThread(process.getErrorStream());
-        }
+        createDebugThread(process.getInputStream());
+        createDebugThread(process.getErrorStream());
       }
 
       // Accessing hidden field
@@ -348,17 +320,6 @@ public abstract class ProcessHelper {
       Log.e("ProcessHelper", "Error executing command: " + command, e);
     }
     return pid;
-  }
-
-  /** Wine debug log target in the app's own files dir so it works on every (rebranded) flavor; null if no app context. */
-  private static File resolveWineStderrLog() {
-    try {
-      File filesDir = com.winlator.cmod.app.PluviaApp.Companion.getInstance().getFilesDir();
-      if (filesDir != null) return new File(filesDir, "wine_stderr.log");
-    } catch (Throwable t) {
-      Log.w(TAG, "resolveWineStderrLog: app context unavailable; wine debug log disabled", t);
-    }
-    return null;
   }
 
   private static void createDebugThread(final InputStream inputStream) {
@@ -380,83 +341,6 @@ public abstract class ProcessHelper {
             },
             "ProcessDebugReader")
         .start();
-  }
-
-  private static final AtomicLong tailSeq = new AtomicLong();
-
-  private static File resolveWineTailCapture() {
-    try {
-      File cacheDir = com.winlator.cmod.app.PluviaApp.Companion.getInstance().getCacheDir();
-      if (cacheDir != null) {
-        File dir = new File(cacheDir, "wine_tail");
-        if (!dir.exists()) dir.mkdirs();
-        return new File(dir, "wine_tail_" + tailSeq.incrementAndGet() + ".log");
-      }
-    } catch (Throwable t) {
-      Log.w(TAG, "resolveWineTailCapture: app context unavailable; tail disabled", t);
-    }
-    return null;
-  }
-
-  private static void emitDebugLine(String line) {
-    synchronized (debugCallbacks) {
-      if (!debugCallbacks.isEmpty())
-        for (Callback<String> callback : debugCallbacks) callback.call(line);
-    }
-  }
-
-  private static void startDebugTailThread(final File file, final java.lang.Process process) {
-    Thread thread =
-        new Thread(
-            () -> {
-              try {
-                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
-              } catch (Throwable ignored) {
-              }
-              try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-                ByteArrayOutputStream line = new ByteArrayOutputStream(256);
-                byte[] buf = new byte[8192];
-                boolean finalPass = false;
-                while (true) {
-                  int n = raf.read(buf);
-                  if (n > 0) {
-                    for (int i = 0; i < n; i++) {
-                      byte b = buf[i];
-                      if (b == '\n') {
-                        emitDebugLine(new String(line.toByteArray(), StandardCharsets.UTF_8));
-                        line.reset();
-                      } else if (b != '\r') {
-                        line.write(b);
-                      }
-                    }
-                  } else if (finalPass) {
-                    if (line.size() > 0)
-                      emitDebugLine(new String(line.toByteArray(), StandardCharsets.UTF_8));
-                    break;
-                  } else {
-                    boolean alive;
-                    try {
-                      process.exitValue();
-                      alive = false;
-                    } catch (IllegalThreadStateException ex) {
-                      alive = true;
-                    }
-                    if (alive) Thread.sleep(40);
-                    else finalPass = true;
-                  }
-                }
-              } catch (Exception e) {
-                Log.e("ProcessHelper", "Error in debug tail thread", e);
-              } finally {
-                try {
-                  file.delete();
-                } catch (Exception ignored) {
-                }
-              }
-            },
-            "ProcessDebugTail");
-    thread.setDaemon(true);
-    thread.start();
   }
 
   private static void createWaitForThread(

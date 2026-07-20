@@ -3,12 +3,12 @@ package com.winlator.cmod.runtime.compat.box64;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Environment;
 import android.util.Log;
 import android.widget.Spinner;
 import android.widget.SpinnerAdapter;
 import androidx.preference.PreferenceManager;
 import com.winlator.cmod.R;
-import com.winlator.cmod.app.config.SettingsConfig;
 import com.winlator.cmod.runtime.wine.EnvVars;
 import com.winlator.cmod.shared.android.AppUtils;
 import com.winlator.cmod.shared.ui.toast.WinToast;
@@ -258,7 +258,7 @@ public abstract class Box64PresetManager {
         } else {
           presetFile =
               new File(
-                  SettingsConfig.DEFAULT_WINLATOR_PATH,
+                  Environment.getExternalStorageDirectory().getPath() + "/WinNative",
                   "Presets/" + prefix + "_" + preset[1] + ".wbp");
         }
         if (!presetFile.getParentFile().exists()) presetFile.getParentFile().mkdirs();

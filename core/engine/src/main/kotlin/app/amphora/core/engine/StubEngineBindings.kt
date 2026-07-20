@@ -8,9 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Non-throwing sink stubs shared by [WineEngineImpl] (bound) and [StubWineEngine]
- * (fallback) so the DI graph + any preview UI stay stable pre-P3. Replaced by
- * XServer / ALSAServer-backed sinks in P3 (RFC §8).
+ * Non-throwing sink stubs used by [WineEngineImpl] as fallbacks when no [XServer]
+ * is bound yet (pre-launch). Replaced by XServer / ALSAServer-backed sinks once
+ * [WineEngineImpl.launch] has built the [XServer] (RFC §8).
  */
 internal object StubInputSink : InputSink {
     override suspend fun injectPointerMove(x: Float, y: Float) {}

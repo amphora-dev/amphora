@@ -45,9 +45,8 @@ import javax.inject.Singleton
  * `com.winlator.cmod` runtime: [XEnvironment] (ALSAServer + XServer + GuestProgramLauncher
  * components) + [GuestProgramLauncherComponent] (the `box64 wine explorer /desktop=WxH exe`
  * launch) + [XServer] (render target + input). Sibling interfaces: [ContainerManager] (P4 ✅),
- * [RootfsInstaller] (P2), [WineSessionPreparer] (P2). Replaces [StubWineEngine] as the bound
- * [WineEngine] (StubWineEngine retained as a fallback - flip the binding in
- * [app.amphora.core.engine.di.EngineModule] to revert).
+ * [RootfsInstaller] (P2), [WineSessionPreparer] (P2). Bound as the [WineEngine] impl in
+ * [app.amphora.core.engine.di.EngineModule].
  *
  * Also implements [GameSessionSurfaceProvider]: the GameSession UI (the D9 rewrite of
  * `XServerDisplayActivity`) needs the [XServer] to construct `XServerSurfaceView` + the touch

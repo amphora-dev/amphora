@@ -3,12 +3,12 @@ package com.winlator.cmod.runtime.compat.fexcore;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Environment;
 import android.util.Log;
 import android.widget.Spinner;
 import android.widget.SpinnerAdapter;
 import androidx.preference.PreferenceManager;
 import com.winlator.cmod.R;
-import com.winlator.cmod.app.config.SettingsConfig;
 import com.winlator.cmod.runtime.wine.EnvVars;
 import com.winlator.cmod.shared.android.AppUtils;
 import com.winlator.cmod.shared.ui.toast.WinToast;
@@ -238,7 +238,8 @@ public class FEXCorePresetManager {
         } else {
           presetFile =
               new File(
-                  SettingsConfig.DEFAULT_WINLATOR_PATH, "Presets/fexcore_" + preset[1] + ".wbp");
+                  Environment.getExternalStorageDirectory().getPath() + "/WinNative",
+                  "Presets/fexcore_" + preset[1] + ".wbp");
         }
         if (!presetFile.getParentFile().exists()) presetFile.getParentFile().mkdirs();
 

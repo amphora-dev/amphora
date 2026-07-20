@@ -26,8 +26,7 @@ import javax.inject.Singleton
 
 /**
  * Engine DI bindings (RFC §6). [WineEngine] is bound to [WineEngineImpl] (the
- * ported-runtime facade); [app.amphora.core.engine.StubWineEngine] is retained
- * as a fallback (swap the param/return below to revert).
+ * ported-runtime facade).
  *
  * [RootfsInstaller] is bound to its real concretion [ImageFsRootfsInstaller]
  * (P2: imagefs extract/version via the ported `com.winlator.cmod` kernel --
