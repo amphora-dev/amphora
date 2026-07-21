@@ -419,27 +419,28 @@ public abstract class ProcessHelper {
   }
 
   public static String[] splitCommand(String command) {
+    // Shell-like split for ProcessBuilder argv: quote characters delimit a
+    // single argument but are NOT part of the argument. Keeping them (the old
+    // behavior) made Wine look up paths like `"C:\foo.exe"` literally, so
+    // `explorer /desktop=... "C:\notepad.exe"` brought up an empty desktop.
     ArrayList<String> result = new ArrayList<>();
     boolean startedQuotes = false;
     StringBuilder value = new StringBuilder();
     char currChar, nextChar;
+    char quoteChar = '"';
     for (int i = 0, count = command.length(); i < count; i++) {
       currChar = command.charAt(i);
-      char quoteChar = '"';
 
       if (startedQuotes) {
         if (currChar == quoteChar) {
           startedQuotes = false;
-          if (value.length() > 0) {
-            value.append(quoteChar);
-            result.add(value.toString());
-            value.setLength(0);
-          }
+          // Empty quoted token ("") is still a distinct argv element.
+          result.add(value.toString());
+          value.setLength(0);
         } else value.append(currChar);
       } else if (currChar == '"' || currChar == '\'') {
-        if (currChar == '\'') quoteChar = '\'';
+        quoteChar = currChar;
         startedQuotes = true;
-        value.append(quoteChar);
       } else {
         nextChar = i < count - 1 ? command.charAt(i + 1) : '\0';
         if (currChar == ' ' || (currChar == '\\' && nextChar == ' ')) {
@@ -459,6 +460,7 @@ public abstract class ProcessHelper {
         }
       }
     }
+    if (value.length() > 0) result.add(value.toString());
 
     return result.toArray(new String[0]);
   }

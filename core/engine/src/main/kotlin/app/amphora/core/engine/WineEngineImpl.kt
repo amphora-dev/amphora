@@ -1,6 +1,7 @@
 package app.amphora.core.engine
 
 import android.content.Context
+import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.container.model.Container as AmphoraContainer
@@ -266,8 +267,12 @@ class WineEngineImpl @Inject constructor(
         // Windows path, and C: (-> drive_c) is always mapped by createDosdevicesSymlinks.
         val wineExePath = stageExeIntoPrefix(container, spec.exePath)
         // `wine explorer /desktop=shell,<WxH> "<exe>"` - the guest executable (XSDA L6500).
+        // Quotes around the path are required for spaces; ProcessHelper.splitCommand strips
+        // the delimiters so Wine sees C:\foo.exe, not "C:\foo.exe".
         val screenInfo = "${spec.displaySize.width}x${spec.displaySize.height}"
-        launcher.setGuestExecutable("wine explorer /desktop=shell,$screenInfo \"$wineExePath\"")
+        val guestExecutable = "wine explorer /desktop=shell,$screenInfo \"$wineExePath\""
+        Log.i("WineEngineImpl", "guestExecutable=$guestExecutable")
+        launcher.setGuestExecutable(guestExecutable)
         launcher.setEnvVars(envVars)
         launcher.setBox64Preset(Box64Preset.PERFORMANCE)
         spec.workingDirectory?.let { launcher.setWorkingDir(File(it)) }
