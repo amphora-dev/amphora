@@ -9,7 +9,6 @@ import com.winlator.cmod.shared.util.KeyValueSet;
 import com.winlator.cmod.runtime.wine.WineInfo;
 import com.winlator.cmod.runtime.wine.WineThemeManager;
 import com.winlator.cmod.runtime.compat.fexcore.FEXCorePreset;
-import com.winlator.cmod.runtime.display.winhandler.WinHandler;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
 
 import org.json.JSONException;
@@ -38,6 +37,10 @@ public class Container {
     public static final byte STARTUP_SELECTION_ESSENTIAL = 1;
     public static final byte STARTUP_SELECTION_AGGRESSIVE = 2;
     public static final byte MAX_DRIVE_LETTERS = 26;
+    /** Former WinHandler.DEFAULT_INPUT_TYPE (XInput); kept as a container field default. */
+    public static final byte DEFAULT_INPUT_TYPE = 4;
+    /** Former WinHandler.FLAG_INPUT_TYPE_DINPUT — used by preparer joystick registry. */
+    public static final byte FLAG_INPUT_TYPE_DINPUT = 8;
     public final int id;
     private String name;
     private String screenSize = DEFAULT_SCREEN_SIZE;
@@ -62,7 +65,7 @@ public class Container {
     private File rootDir;
     private JSONObject extraData;
     private String midiSoundFont = "";
-    private int inputType = WinHandler.DEFAULT_INPUT_TYPE;
+    private int inputType = DEFAULT_INPUT_TYPE;
     private boolean exclusiveXInput = true;
     private String lc_all = "";
     private String box64Version = "";

@@ -5,7 +5,6 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
 import androidx.annotation.NonNull;
-import com.winlator.cmod.R;
 import com.winlator.cmod.runtime.content.ContentProfile;
 import com.winlator.cmod.runtime.content.ContentsManager;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
@@ -161,18 +160,16 @@ public class WineInfo implements Parcelable {
 
     if (matched) {
       String matchedIdentifier = matcher.group(0); // The full match for path resolution
-      String[] wineVersions = context.getResources().getStringArray(R.array.wine_entries);
-      for (String wineVersion : wineVersions) {
-        if (wineVersion.contains(matchedIdentifier)) {
-          path = imageFs.getRootDir().getPath() + "/opt/" + matchedIdentifier;
-          break;
-        }
-      }
-
+      // Prefer ContentsManager install dir for installed .wcp profiles. Do NOT consult
+      // R.array.wine_entries on that path — amphora's handwritten R IDs are 0 and
+      // getStringArray(0) throws / resolves garbage (legacy opt/ wines only).
       if (wineProfile != null
           && (wineProfile.type == ContentProfile.ContentType.CONTENT_TYPE_WINE
-              || wineProfile.type == ContentProfile.ContentType.CONTENT_TYPE_PROTON))
+              || wineProfile.type == ContentProfile.ContentType.CONTENT_TYPE_PROTON)) {
         path = ContentsManager.getInstallDir(context, wineProfile).getPath();
+      } else {
+        path = imageFs.getRootDir().getPath() + "/opt/" + matchedIdentifier;
+      }
 
       String arch = matcher.group(4);
       Log.d(

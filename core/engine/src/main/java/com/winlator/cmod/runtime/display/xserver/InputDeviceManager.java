@@ -1,7 +1,5 @@
 package com.winlator.cmod.runtime.display.xserver;
 
-import com.winlator.cmod.runtime.display.winhandler.MouseEventFlags;
-import com.winlator.cmod.runtime.display.winhandler.WinHandler;
 import com.winlator.cmod.runtime.display.xserver.events.ButtonPress;
 import com.winlator.cmod.runtime.display.xserver.events.ButtonRelease;
 import com.winlator.cmod.runtime.display.xserver.events.EnterNotify;
@@ -18,7 +16,6 @@ public class InputDeviceManager
         Keyboard.OnKeyboardListener,
         WindowManager.OnWindowModificationListener,
         XResourceManager.OnResourceLifecycleListener {
-  private static final byte MOUSE_WHEEL_DELTA = 120;
   private Window pointWindow;
   private final XServer xServer;
 
@@ -156,86 +153,70 @@ public class InputDeviceManager
 
   @Override
   public void onPointerButtonPress(Pointer.Button button) {
-    if (xServer.isRelativeMouseMovement()) {
-      WinHandler winHandler = xServer.getWinHandler();
-      int wheelDelta =
-          button == Pointer.Button.BUTTON_SCROLL_UP
-              ? MOUSE_WHEEL_DELTA
-              : (button == Pointer.Button.BUTTON_SCROLL_DOWN ? -MOUSE_WHEEL_DELTA : 0);
-      // WinHandler is null in the amphora MVP (gamepad UDP input deferred per
-      // docs/03-TRACKING.md §P3). Guard so relative mode doesn't NPE; the X-protocol
-      // path (absolute mode) handles buttons without WinHandler.
-      if (winHandler != null) winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, true), 0, 0, wheelDelta);
-    } else {
-      Window grabWindow = xServer.grabManager.getWindow();
-      if (grabWindow == null) {
-        grabWindow = pointWindow.getAncestorWithEventId(Event.BUTTON_PRESS);
-        if (grabWindow != null) xServer.grabManager.activatePointerGrab(grabWindow);
-      }
+    // Always X-protocol (WinHandler / UDP gamepad path removed for amphora MVP).
+    Window grabWindow = xServer.grabManager.getWindow();
+    if (grabWindow == null) {
+      grabWindow = pointWindow.getAncestorWithEventId(Event.BUTTON_PRESS);
+      if (grabWindow != null) xServer.grabManager.activatePointerGrab(grabWindow);
+    }
 
-      if (grabWindow != null && grabWindow.attributes.isEnabled()) {
-        Bitmask eventMask = createPointerEventMask();
-        eventMask.unset(button.flag());
+    if (grabWindow != null && grabWindow.attributes.isEnabled()) {
+      Bitmask eventMask = createPointerEventMask();
+      eventMask.unset(button.flag());
 
-        short x = xServer.pointer.getX();
-        short y = xServer.pointer.getY();
-        short[] localPoint = grabWindow.rootPointToLocal(x, y);
+      short x = xServer.pointer.getX();
+      short y = xServer.pointer.getY();
+      short[] localPoint = grabWindow.rootPointToLocal(x, y);
 
-        Window child = grabWindow.isAncestorOf(pointWindow) ? pointWindow : null;
-        grabWindow.sendEvent(
-            Event.BUTTON_PRESS,
-            new ButtonPress(
-                button.code(),
-                xServer.windowManager.rootWindow,
-                grabWindow,
-                child,
-                x,
-                y,
-                localPoint[0],
-                localPoint[1],
-                eventMask));
-      }
+      Window child = grabWindow.isAncestorOf(pointWindow) ? pointWindow : null;
+      grabWindow.sendEvent(
+          Event.BUTTON_PRESS,
+          new ButtonPress(
+              button.code(),
+              xServer.windowManager.rootWindow,
+              grabWindow,
+              child,
+              x,
+              y,
+              localPoint[0],
+              localPoint[1],
+              eventMask));
     }
   }
 
   @Override
   public void onPointerButtonRelease(Pointer.Button button) {
-    if (xServer.isRelativeMouseMovement()) {
-      WinHandler winHandler = xServer.getWinHandler();
-      if (winHandler != null) winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, false), 0, 0, 0);
-    } else {
-      Bitmask eventMask = createPointerEventMask();
-      Window grabWindow = xServer.grabManager.getWindow();
-      Window window =
-          grabWindow == null || xServer.grabManager.isOwnerEvents()
-              ? pointWindow.getAncestorWithEventMask(eventMask)
-              : null;
+    Bitmask eventMask = createPointerEventMask();
+    Window grabWindow = xServer.grabManager.getWindow();
+    Window window =
+        grabWindow == null || xServer.grabManager.isOwnerEvents()
+            ? pointWindow.getAncestorWithEventMask(eventMask)
+            : null;
 
-      if (grabWindow != null || window != null) {
-        Window eventWindow = window != null ? window : grabWindow;
+    if (grabWindow != null || window != null) {
+      Window eventWindow = window != null ? window : grabWindow;
 
-        short x = xServer.pointer.getX();
-        short y = xServer.pointer.getY();
-        short[] localPoint = eventWindow.rootPointToLocal(x, y);
+      short x = xServer.pointer.getX();
+      short y = xServer.pointer.getY();
+      short[] localPoint = eventWindow.rootPointToLocal(x, y);
 
-        Window child = eventWindow.isAncestorOf(pointWindow) ? pointWindow : null;
-        ButtonRelease buttonRelease =
-            new ButtonRelease(
-                button.code(),
-                xServer.windowManager.rootWindow,
-                eventWindow,
-                child,
-                x,
-                y,
-                localPoint[0],
-                localPoint[1],
-                eventMask);
-        sendEvent(window, eventMask, buttonRelease);
-      }
+      Window child = eventWindow.isAncestorOf(pointWindow) ? pointWindow : null;
+      ButtonRelease buttonRelease =
+          new ButtonRelease(
+              button.code(),
+              xServer.windowManager.rootWindow,
+              eventWindow,
+              child,
+              x,
+              y,
+              localPoint[0],
+              localPoint[1],
+              eventMask);
+      sendEvent(window, eventMask, buttonRelease);
+    }
 
-      if (xServer.pointer.getButtonMask().isEmpty() && xServer.grabManager.isReleaseWithButtons()) {
-        xServer.grabManager.deactivatePointerGrab();
-      }
+    if (xServer.pointer.getButtonMask().isEmpty() && xServer.grabManager.isReleaseWithButtons()) {
+      xServer.grabManager.deactivatePointerGrab();
     }
   }
 

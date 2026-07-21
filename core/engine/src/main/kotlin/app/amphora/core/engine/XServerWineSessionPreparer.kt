@@ -13,7 +13,6 @@ import com.winlator.cmod.runtime.content.AdrenotoolsManager
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.display.environment.ImageFs
-import com.winlator.cmod.runtime.display.winhandler.WinHandler
 import com.winlator.cmod.runtime.system.GPUInformation
 import com.winlator.cmod.runtime.wine.DXVKConfigUtils
 import com.winlator.cmod.runtime.wine.EnvVars
@@ -308,7 +307,7 @@ class XServerWineSessionPreparer @Inject constructor(
         WineUtils.createDosdevicesSymlinks(c, getActiveGameDirectoryPath(), isSteamShortcut())
 
         val inputType = c.getInputType()
-        val dinputFlag = WinHandler.FLAG_INPUT_TYPE_DINPUT.toInt()
+        val dinputFlag = Container.FLAG_INPUT_TYPE_DINPUT.toInt()
         val dinputEnabled = (inputType and dinputFlag) == dinputFlag
         val exclusiveXInput = c.isExclusiveXInput()
         WineUtils.setJoystickRegistryKeys(c, dinputEnabled, exclusiveXInput)

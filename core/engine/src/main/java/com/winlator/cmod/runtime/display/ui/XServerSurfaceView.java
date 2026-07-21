@@ -119,7 +119,6 @@ public class XServerSurfaceView extends TextureView implements TextureView.Surfa
 
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int w, int h) {
-        android.util.Log.i("AMP_SURFACE", "onSurfaceTextureAvailable " + w + "x" + h);
         // Let any retiring render thread finish freeing the renderer before attaching the new surface.
         joinRetiringRenderThread();
         synchronized (renderLock) {
@@ -155,7 +154,6 @@ public class XServerSurfaceView extends TextureView implements TextureView.Surfa
 
     @Override
     public void onSurfaceTextureSizeChanged(SurfaceTexture surfaceTexture, int w, int h) {
-        android.util.Log.i("AMP_SURFACE", "onSurfaceTextureSizeChanged " + w + "x" + h);
         if (w <= 0 || h <= 0) {
             synchronized (renderLock) {
                 surfaceReady = false;
@@ -179,7 +177,6 @@ public class XServerSurfaceView extends TextureView implements TextureView.Surfa
 
     @Override
     public boolean onSurfaceTextureDestroyed(SurfaceTexture surfaceTexture) {
-        android.util.Log.i("AMP_SURFACE", "onSurfaceTextureDestroyed");
         synchronized (renderLock) {
             surfaceReady = false;
             width = 0;

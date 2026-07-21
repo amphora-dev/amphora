@@ -1,7 +1,6 @@
 package app.amphora.core.engine
 
 import android.content.Context
-import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.container.model.Container as AmphoraContainer
@@ -99,7 +98,6 @@ class WineEngineImpl @Inject constructor(
 
     override suspend fun launch(spec: LaunchSpec): SessionHandle = withContext(dispatchers.default) {
         // Clear any prior session state before starting a new one.
-        Log.d("AMP_SURFACE", "launch: clearing _surface (prior session teardown)")
         _surface.value = null
         currentXServer = null
         currentHandle = null
@@ -142,7 +140,6 @@ class WineEngineImpl @Inject constructor(
             graphicsDriver = hostDriver,
             presentMode = driverConfig["presentMode"],
         )
-        Log.d("AMP_SURFACE", "launch: _surface SET xServer=$xServer driver=$hostDriver ${spec.displaySize}")
         // 6. Launch env: session essentials + preparer (driver/DXVK/wrapper) + caller + ALSA.
         val envVars = buildLaunchEnvVars(spec)
         // 7. XEnvironment + service components (GPLC added separately so the handle can wire its

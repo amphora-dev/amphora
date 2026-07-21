@@ -203,8 +203,6 @@ public class VulkanRenderer
             if (nativeHandle == 0) {
                 nativeHandle = nativeCreate(shouldEnableValidationLayers(),
                         graphicsDriverName, xServerView.getContext().getApplicationContext());
-                android.util.Log.i("AMP_SURFACE", "attachSurface: nativeCreate => nativeHandle=" + nativeHandle
-                        + " driver=" + graphicsDriverName);
                 if (nativeHandle == 0) {
                     Log.e(TAG, "nativeCreate failed");
                     return;
@@ -222,7 +220,6 @@ public class VulkanRenderer
                 xServer.pointer.addOnPointerMotionListener(this);
             }
             nativeSurfaceCreated(nativeHandle, surface);
-            android.util.Log.i("AMP_SURFACE", "attachSurface: nativeSurfaceCreated done");
         }
     }
 

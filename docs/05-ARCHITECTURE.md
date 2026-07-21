@@ -147,6 +147,7 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 - `:feature:settings` 实质项；键盘/手柄；音频音量接线
 - Present/DRI3 完善；`RemoteContentSource`；多容器/prefix
-- WinHandler / 手柄 / 录制等 RFC §7 stub 依赖图清理
+- `libfakeinput` LD_PRELOAD / udev 空路径裁剪（Java 手柄 stub 已清）
+- 手写 `R` / `BuildConfig` 收敛
 - Proton 11 自建（见 `RESEARCH-proton-wine-selfbuild.md`）
 - targetSdk 上探（须先把可执行文件迁到可 exec 位置）

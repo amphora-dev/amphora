@@ -4,8 +4,6 @@ import android.util.Log;
 import android.util.SparseArray;
 import com.winlator.cmod.shared.math.Mathf;
 import com.winlator.cmod.runtime.display.renderer.VulkanRenderer;
-import com.winlator.cmod.runtime.display.winhandler.MouseEventFlags;
-import com.winlator.cmod.runtime.display.winhandler.WinHandler;
 import com.winlator.cmod.runtime.display.xserver.extensions.BigReqExtension;
 import com.winlator.cmod.runtime.display.xserver.extensions.DRI3Extension;
 import com.winlator.cmod.runtime.display.xserver.extensions.Extension;
@@ -51,7 +49,6 @@ public class XServer {
   private SHMSegmentManager shmSegmentManager;
   private VulkanRenderer renderer;
   private final FramePaceClock framePaceClock = new FramePaceClock();
-  private WinHandler winHandler;
   private final EnumMap<Lockable, ReentrantLock> locks = new EnumMap<>(Lockable.class);
   private boolean relativeMouseMovement = false;
   private boolean pointerCaptureActive = false;
@@ -127,14 +124,6 @@ public class XServer {
 
   public void setRenderer(VulkanRenderer renderer) {
     this.renderer = renderer;
-  }
-
-  public WinHandler getWinHandler() {
-    return winHandler;
-  }
-
-  public void setWinHandler(WinHandler winHandler) {
-    this.winHandler = winHandler;
   }
 
   public SHMSegmentManager getSHMSegmentManager() {

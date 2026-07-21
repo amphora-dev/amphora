@@ -19,7 +19,9 @@
 - ✅ P4 已落地并提交 (`fdaa4e8`, `:app:assembleDebug` 绿): `:core:container` `ContainerManager` 真实现 = `WinlatorContainerManager` (`:core:engine`, DIP 桥); launcher SAF `.exe` picker + 分辨率; exe 进 `drive_c` 跑 `C:\<name>`; syncContents gap 修复; **零 stub 剩余**.
 - ✅ **RFC §8 真机验收通过** (2026-07-21): 启动 Windows `.exe` → Vulkan Wine desktop 有画面 + 相对触控。P4 后关键修复见上 (DXVK WCP / host-guest Vulkan / surface+touch)。
 - ✅ 残留清理 (2026-07-21): 默认 `LauncherRoute`; notepad 测试路径保留 (launcher **Debug: Notepad** + `DEBUG_AUTO_LAUNCH_NOTEPAD`); 删 Graphics-Test staging / `StubAudioSink` / 空 `SettingsViewModel`; surface 渲染异常改记日志。
-- ⏭ 下一步 (v0.2 候选): settings 实质项; 键盘/手柄; 音频音量接线; Present/DRI3 完善; WinHandler/手柄 stub 依赖图清理。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
+- ✅ 残留清理续: 删 `GameRecorder`/`PulseAudioComponent`/`WinToast`/`AppTerminationHelper`/`PerformanceHudState` + 接线拆除; `WineInfo` 不再读假 `R.array.wine_entries` (走 ContentsManager install dir)。
+- ✅ WinHandler/手柄 stub 闭包清理: 删 `WinHandler`/`XServerDisplayActivity`/controls stubs/`rumble/*`; 按钮一律走 X 协议; `FakeInputWriter` 仅留 GPLC env 空环辅助; inputType 常量内联到 `Container`。
+- ⏭ 下一步 (v0.2 候选): settings 实质项; 键盘/手柄(真实现); 音频音量接线; Present/DRI3 完善; `libfakeinput` LD_PRELOAD 裁剪; 手写 `R`/`BuildConfig` 收敛。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
 |---|---|

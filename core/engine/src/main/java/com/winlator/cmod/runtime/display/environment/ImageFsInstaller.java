@@ -8,7 +8,6 @@ import com.winlator.cmod.runtime.container.ContainerManager;
 import com.winlator.cmod.runtime.content.AdrenotoolsManager;
 import com.winlator.cmod.runtime.wine.WineInfo;
 import com.winlator.cmod.shared.android.AppUtils;
-import com.winlator.cmod.shared.ui.toast.WinToast;
 import com.winlator.cmod.shared.io.FileUtils;
 import com.winlator.cmod.shared.io.TarCompressorUtils;
 import com.winlator.cmod.shared.ui.dialog.DownloadProgressDialog;
@@ -287,8 +286,7 @@ public abstract class ImageFsInstaller {
                   progressTracker.finish();
                 }
               } else {
-                activity.runOnUiThread(
-                    () -> WinToast.show(activity, R.string.setup_wizard_unable_to_install_system_files));
+                Log.e("ImageFsInstaller", "Unable to install system files (imagefs extract failed)");
               }
 
               if (listener != null) listener.onFinished(success);

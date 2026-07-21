@@ -2,7 +2,6 @@ package com.winlator.cmod.runtime.display.xserver;
 
 import android.view.KeyEvent;
 import androidx.collection.ArraySet;
-import com.winlator.cmod.runtime.input.controls.ExternalController;
 import java.util.ArrayList;
 
 public class Keyboard {
@@ -90,8 +89,6 @@ public class Keyboard {
   }
 
   public boolean onKeyEvent(KeyEvent event) {
-    if (ExternalController.isGameController(event.getDevice())) return false;
-
     int action = event.getAction();
     int keyCode = event.getKeyCode();
 

@@ -88,19 +88,6 @@ public abstract class AppUtils {
     }
   }
 
-  public static void restartApplication(Context context) {
-    restartApplication(context, 0);
-  }
-
-  public static void restartApplication(Context context, int selectedMenuItemId) {
-    AppTerminationHelper.stopManagedServices(context, "restart_application", true);
-    Intent intent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
-    Intent mainIntent = Intent.makeRestartActivityTask(intent.getComponent());
-    if (selectedMenuItemId > 0) mainIntent.putExtra("selected_menu_item_id", selectedMenuItemId);
-    context.startActivity(mainIntent);
-    Runtime.getRuntime().exit(0);
-  }
-
   public static void showKeyboard(AppCompatActivity activity) {
     View targetView = activity.getCurrentFocus();
     if (targetView == null) targetView = activity.getWindow().getDecorView();

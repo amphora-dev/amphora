@@ -10,7 +10,6 @@ import androidx.preference.PreferenceManager;
 import com.winlator.cmod.R;
 import com.winlator.cmod.runtime.wine.EnvVars;
 import com.winlator.cmod.shared.android.AppUtils;
-import com.winlator.cmod.shared.ui.toast.WinToast;
 import com.winlator.cmod.shared.io.FileUtils;
 import java.io.BufferedReader;
 import java.io.File;
@@ -252,14 +251,16 @@ public class FEXCorePresetManager {
         break;
       }
     }
-    if (presetFile != null && presetFile.exists())
-      WinToast.show(
-          context,
+    if (presetFile != null && presetFile.exists()) {
+      Log.i(
+          "FEXCorePresetManager",
           "Preset "
               + presetFile.getName()
               + " exported successfully at "
               + presetFile.getParentFile().getPath());
-    else WinToast.show(context, "Failed to export preset");
+    } else {
+      Log.w("FEXCorePresetManager", "Failed to export preset");
+    }
   }
 
   public static void importPreset(Context context, InputStream stream) {

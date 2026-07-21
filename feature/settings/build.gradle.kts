@@ -5,3 +5,7 @@ plugins {
 android {
     namespace = "app.amphora.feature.settings"
 }
+
+dependencies {
+    implementation(libs.androidx.navigation.compose)
+}
