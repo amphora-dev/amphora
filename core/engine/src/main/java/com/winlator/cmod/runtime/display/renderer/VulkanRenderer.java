@@ -1,5 +1,6 @@
 package com.winlator.cmod.runtime.display.renderer;
 
+import android.content.pm.ApplicationInfo;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -9,7 +10,6 @@ import android.util.Log;
 import android.view.Choreographer;
 import android.view.Surface;
 import androidx.preference.PreferenceManager;
-import com.winlator.cmod.BuildConfig;
 import com.winlator.cmod.runtime.system.ApplicationLogGate;
 import com.winlator.cmod.runtime.display.renderer.effects.Effect;
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView;
@@ -176,11 +176,9 @@ public class VulkanRenderer
         Context context = xServerView.getContext();
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inScaled = false;
-        // Amphora port: com.winlator.cmod.R.drawable.cursor is a P1 compile-only
-        // stub (= 0), so decodeResource(..., 0) returns null and Drawable.fromBitmap
-        // NPEs. The real cursor.png ships in the :app module's res/drawable/. Resolve
-        // it by name at runtime; fall back to a 1x1 transparent bitmap if absent so
-        // the constructor can never crash (invisible cursor, not a crash).
+        // Amphora: resolve cursor.png from the :app module res/drawable by name.
+        // Fall back to a 1x1 transparent bitmap if absent so the constructor never
+        // crashes (invisible cursor, not a crash).
         int cursorResId = context.getResources().getIdentifier("cursor", "drawable", context.getPackageName());
         Bitmap bitmap = cursorResId != 0
                 ? BitmapFactory.decodeResource(context.getResources(), cursorResId, options)
@@ -225,7 +223,9 @@ public class VulkanRenderer
 
     private boolean shouldEnableValidationLayers() {
         Context context = xServerView.getContext();
-        return BuildConfig.DEBUG
+        boolean debuggable =
+                (context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        return debuggable
                 && PreferenceManager.getDefaultSharedPreferences(context)
                         .getBoolean(PREF_VULKAN_VALIDATION_LAYERS, false);
     }

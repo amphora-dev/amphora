@@ -18,7 +18,6 @@ import com.winlator.cmod.runtime.content.ContentsManager;
 import com.winlator.cmod.runtime.display.connector.UnixSocketConfig;
 import com.winlator.cmod.runtime.display.environment.EnvironmentComponent;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
-import com.winlator.cmod.runtime.input.controls.FakeInputWriter;
 import com.winlator.cmod.runtime.system.GPUInformation;
 import com.winlator.cmod.runtime.system.ProcessHelper;
 import com.winlator.cmod.runtime.wine.EnvVars;
@@ -222,12 +221,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       Log.d("GuestLauncher", "execShellCommand LD_PRELOAD=" + ldPreload.toString());
     }
     if (!"1".equals(envVars.get("PROTON_NO_ESYNC"))) envVars.put("WINEESYNC_WINLATOR", "1");
-    mergeExternalEnvVars(
-        envVars,
-        envVars.get("LD_PRELOAD"),
-        envVars.get("FAKE_EVDEV_DIR"),
-        envVars.get("FAKE_EVDEV_MEMFD_PATHS"),
-        envVars.get("FAKE_UDEV_DATA_DIR"));
+    mergeExternalEnvVars(envVars, envVars.get("LD_PRELOAD"));
     FEXCorePresetManager.normalizeSmcChecksEnvVars(envVars, this.envVars);
 
     // For arm64ec Wine builds the wine binary is native ARM64 — call it directly
@@ -494,17 +488,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     this.shortcut = shortcut;
   }
 
-  private int getConfiguredControllerCount() {
-    int numControllers = 1;
-    if (shortcut != null) {
-      try {
-        numControllers = Integer.parseInt(shortcut.getExtra("numControllers", "1"));
-      } catch (NumberFormatException e) {
-        numControllers = 1;
-      }
-    }
-    return Math.max(1, Math.min(numControllers, 4));
-  }
 
   @Override
   public void start() {
@@ -739,12 +722,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     return ldPreload;
   }
 
-  private void mergeExternalEnvVars(
-      EnvVars envVars,
-      String protectedLdPreload,
-      String protectedFakeEvdevDir,
-      String protectedFakeEvdevMemfdPaths,
-      String protectedFakeUdevDataDir) {
+  private void mergeExternalEnvVars(EnvVars envVars, String protectedLdPreload) {
     if (this.envVars == null) {
       return;
     }
@@ -758,112 +736,13 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
 
     String overrideLdPreload = this.envVars.get("LD_PRELOAD");
-    String overrideFakeEvdevDir = this.envVars.get("FAKE_EVDEV_DIR");
-    String overrideFakeEvdevMemfdPaths = this.envVars.get("FAKE_EVDEV_MEMFD_PATHS");
-    String overrideFakeUdevDataDir = this.envVars.get("FAKE_UDEV_DATA_DIR");
-
     envVars.putAll(this.envVars);
 
     if (protectedLdPreload != null && !protectedLdPreload.isEmpty()) {
       envVars.put("LD_PRELOAD", mergePreloadValue(protectedLdPreload, overrideLdPreload));
     }
-
-    if (protectedFakeEvdevDir != null && !protectedFakeEvdevDir.isEmpty()) {
-      envVars.put("FAKE_EVDEV_DIR", protectedFakeEvdevDir);
-    } else if (overrideFakeEvdevDir != null && !overrideFakeEvdevDir.isEmpty()) {
-      envVars.put("FAKE_EVDEV_DIR", overrideFakeEvdevDir);
-    }
-
-    if (protectedFakeEvdevMemfdPaths != null && !protectedFakeEvdevMemfdPaths.isEmpty()) {
-      envVars.put("FAKE_EVDEV_MEMFD_PATHS", protectedFakeEvdevMemfdPaths);
-    } else if (overrideFakeEvdevMemfdPaths != null && !overrideFakeEvdevMemfdPaths.isEmpty()) {
-      envVars.put("FAKE_EVDEV_MEMFD_PATHS", overrideFakeEvdevMemfdPaths);
-    }
-
-    if (protectedFakeUdevDataDir != null && !protectedFakeUdevDataDir.isEmpty()) {
-      envVars.put("FAKE_UDEV_DATA_DIR", protectedFakeUdevDataDir);
-    } else if (overrideFakeUdevDataDir != null && !overrideFakeUdevDataDir.isEmpty()) {
-      envVars.put("FAKE_UDEV_DATA_DIR", overrideFakeUdevDataDir);
-    }
   }
 
-  private void prepareFakeInputUdevMetadata(ImageFs imageFs, File devInputDir, EnvVars envVars) {
-    File rootDir = imageFs.getRootDir();
-    File udevDataDir = new File(rootDir, "run/udev/data");
-    if (!udevDataDir.exists() && !udevDataDir.mkdirs()) {
-      Log.w("GuestLauncher", "Failed to create fake udev data directory: " + udevDataDir);
-      return;
-    }
-
-    envVars.put("FAKE_UDEV_DATA_DIR", udevDataDir.getAbsolutePath());
-
-    File byIdDir = new File(devInputDir, "by-id");
-    if (!byIdDir.exists()) byIdDir.mkdirs();
-
-    int numControllers = getConfiguredControllerCount();
-    for (int slot = 0; slot < numControllers; slot++) {
-      int vendorId = 0x1234 + slot;
-      int productId = 0x5678 + slot;
-      int eventMinor = 64 + slot;
-      String name = "Generic HID Gamepad " + slot;
-      File udevData = new File(udevDataDir, "c13:" + eventMinor);
-      String vendor = String.format(java.util.Locale.US, "%04x", vendorId);
-      String product = String.format(java.util.Locale.US, "%04x", productId);
-      String symlink = "input/by-id/usb-WinNative_Generic_HID_Gamepad_" + slot + "-event-joystick";
-      String content =
-          "I:"
-              + slot
-              + "\n"
-              + "N:input/event"
-              + slot
-              + "\n"
-              + "S:"
-              + symlink
-              + "\n"
-              + "E:DEVNAME=/dev/input/event"
-              + slot
-              + "\n"
-              + "E:ID_INPUT=1\n"
-              + "E:ID_INPUT_JOYSTICK=1\n"
-              + "E:ID_BUS=usb\n"
-              + "E:ID_VENDOR=WinNative\n"
-              + "E:ID_VENDOR_ID="
-              + vendor
-              + "\n"
-              + "E:ID_MODEL=Generic_HID_Gamepad_"
-              + slot
-              + "\n"
-              + "E:ID_MODEL_ID="
-              + product
-              + "\n"
-              + "E:ID_SERIAL=WinNative_Generic_HID_Gamepad_"
-              + slot
-              + "\n"
-              + "E:NAME=\""
-              + name
-              + "\"\n"
-              + "E:TAGS=:uaccess:\n";
-      FileUtils.writeString(udevData, content);
-
-      File eventNode = new File(devInputDir, "event" + slot);
-      if (!eventNode.exists()) {
-        try {
-          eventNode.createNewFile();
-        } catch (Exception e) {
-          Log.w("GuestLauncher", "Failed to create fake input node " + eventNode, e);
-        }
-      }
-
-      File byIdLink = new File(byIdDir, "usb-WinNative_Generic_HID_Gamepad_" + slot + "-event-joystick");
-      if (!byIdLink.exists()) {
-        try {
-          FileUtils.symlink("../event" + slot, byIdLink.getPath());
-        } catch (Exception e) {
-          Log.w("GuestLauncher", "Failed to create fake input by-id symlink " + byIdLink, e);
-        }
-      }
-    }
-  }
 
   private int execGuestProgram() {
     final int gen = launchGeneration;
@@ -1030,29 +909,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     } else {
       ld_preload = imageFs.getLibDir() + "/libandroid-sysvshm.so";
     }
-    File fakeinputDest = new File(imageFs.getLibDir(), "libfakeinput.so");
-    String nativeLibDir = environment.getContext().getApplicationInfo().nativeLibraryDir;
-    File fakeinputSrc = new File(nativeLibDir, "libfakeinput.so");
-    Log.d("GuestLauncher", "nativeLibDir: " + nativeLibDir);
-    Log.d("GuestLauncher", "fakeinputSrc exists: " + fakeinputSrc.exists());
-    Log.d("GuestLauncher", "fakeinputDest: " + fakeinputDest.getAbsolutePath());
-    if (!fakeinputDest.exists()) {
-      try {
-        if (fakeinputSrc.exists()) {
-          FileUtils.copy(fakeinputSrc, fakeinputDest);
-          Log.d("GuestLauncher", "Copied libfakeinput.so to imagefs");
-        } else {
-          Log.e(
-              "GuestLauncher",
-              "libfakeinput.so NOT FOUND in APK: " + fakeinputSrc.getAbsolutePath());
-        }
-      } catch (Exception e) {
-        Log.e("GuestLauncher", "Failed to copy libfakeinput.so: " + e.getMessage());
-        e.printStackTrace();
-      }
-    }
-    Log.d("GuestLauncher", "fakeinputDest exists after copy: " + fakeinputDest.exists());
-
     // Some Proton builds dlopen "libSDL2-2.0.so.0" (standard SONAME on desktop Linux).
     // The imagefs ships "libSDL2-2.0.so" without the .0 suffix.  Create a symlink so
     // any winebus.so build can find SDL regardless of the exact name it tries.
@@ -1061,13 +917,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     if (sdlSo.exists() && !sdlSoLink.exists()) {
       FileUtils.symlink(sdlSo.getName(), sdlSoLink.getPath());
       Log.d("GuestLauncher", "Created SDL symlink: " + sdlSoLink.getPath());
-    }
-
-    if (fakeinputDest.exists()) {
-      if (!ld_preload.isEmpty()) {
-        ld_preload = ld_preload + ":";
-      }
-      ld_preload = ld_preload + fakeinputDest.getAbsolutePath();
     }
 
     // Preload OEM Vulkan ICD deps that otherwise fail lazy symbol resolution.
@@ -1086,34 +935,11 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     ld_preload = appendFirstExistingPreload(ld_preload, cryptoCandidates);
 
 
-    File devInputDir = new File(imageFs.getRootDir(), "dev/input");
-    devInputDir.mkdirs();
-    FakeInputWriter.prepareRingSlots(devInputDir, 4);
-    String fakeEvdevRingPaths = FakeInputWriter.getRingEnv(devInputDir);
-    if (!fakeEvdevRingPaths.isEmpty()) {
-      envVars.put("FAKE_EVDEV_MEMFD_PATHS", fakeEvdevRingPaths);
-    }
-    envVars.put("FAKE_EVDEV_DIR", devInputDir.getAbsolutePath());
-    prepareFakeInputUdevMetadata(imageFs, devInputDir, envVars);
-    envVars.put("FAKE_EVDEV_VIBRATION", "1");
-
-    // Ensure Proton-flavoured winebus.sys uses the evdev/SDL path that
-    // libfakeinput.so hooks, and does not filter out our fake gamepad.
-    envVars.put("PROTON_ENABLE_HIDRAW", "0");
-    envVars.put("SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD", "1");
-    envVars.put("SDL_JOYSTICK_HIDAPI", "0");
-
     Log.d("GuestLauncher", "Final LD_PRELOAD: " + ld_preload);
     envVars.put("LD_PRELOAD", ld_preload);
 
-    // Preserve the launcher-owned preload/input paths while restoring the
-    // full env built upstream in XServerDisplayActivity (driver, DXVK, Vulkan, etc).
-    mergeExternalEnvVars(
-        envVars,
-        envVars.get("LD_PRELOAD"),
-        envVars.get("FAKE_EVDEV_DIR"),
-        envVars.get("FAKE_EVDEV_MEMFD_PATHS"),
-        envVars.get("FAKE_UDEV_DATA_DIR"));
+    // Preserve launcher-owned LD_PRELOAD while merging upstream env (driver/DXVK/wrapper).
+    mergeExternalEnvVars(envVars, envVars.get("LD_PRELOAD"));
     FEXCorePresetManager.normalizeSmcChecksEnvVars(envVars, this.envVars);
 
     String emulator = container.getEmulator();

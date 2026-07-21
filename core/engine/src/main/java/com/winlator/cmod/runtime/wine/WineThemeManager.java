@@ -7,9 +7,6 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.RectF;
-import android.util.DisplayMetrics;
-import com.winlator.cmod.R;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
 import com.winlator.cmod.runtime.display.xserver.ScreenInfo;
 import java.io.File;
@@ -145,20 +142,15 @@ public abstract class WineThemeManager {
 
     File userWallpaperFile = getUserWallpaperFile(context);
     if (backgroundType == BackgroundType.ORIGINAL) {
-      drawOriginalWallpaper(context, canvas, paint, outputWidth, outputHeight);
+      drawSolidWallpaper(canvas, paint, outputWidth, outputHeight, 0xff01579b, 0xff0277bd);
     } else if (userWallpaperFile.isFile()) {
       Bitmap image = BitmapFactory.decodeFile(userWallpaperFile.getPath());
       Rect srcRect = new Rect(0, 0, image.getWidth(), image.getHeight());
       Rect dstRect = new Rect(0, 0, outputWidth, outputHeight);
       canvas.drawBitmap(image, srcRect, dstRect, paint);
     } else {
-      BitmapFactory.Options options = new BitmapFactory.Options();
-      options.inScaled = false;
-      Bitmap image =
-          BitmapFactory.decodeResource(context.getResources(), R.drawable.wallpaper_default, options);
-      Rect srcRect = new Rect(0, 0, image.getWidth(), image.getHeight());
-      Rect dstRect = new Rect(0, 0, outputWidth, outputHeight);
-      canvas.drawBitmap(image, srcRect, dstRect, paint);
+      // amphora: no bundled wallpaper drawables; solid fallback matches DEFAULT_DESKTOP_THEME.
+      drawSolidWallpaper(canvas, paint, outputWidth, outputHeight, 0xff0277bd, 0xff0277bd);
     }
 
     ImageFs imageFs = ImageFs.find(context);
@@ -166,24 +158,18 @@ public abstract class WineThemeManager {
         outputBitmap, new File(imageFs.getRootDir(), ImageFs.CACHE_PATH + "/wallpaper.bmp"));
   }
 
-  private static void drawOriginalWallpaper(
-      Context context, Canvas canvas, Paint paint, int outputWidth, int outputHeight) {
-    BitmapFactory.Options options = new BitmapFactory.Options();
-    options.inTargetDensity = DisplayMetrics.DENSITY_HIGH;
-    Bitmap wallpaperBitmap =
-        BitmapFactory.decodeResource(context.getResources(), R.drawable.wallpaper, options);
+  private static void drawSolidWallpaper(
+      Canvas canvas,
+      Paint paint,
+      int outputWidth,
+      int outputHeight,
+      int topColor,
+      int bottomColor) {
     paint.setStyle(Paint.Style.FILL);
-    paint.setColor(0xff01579b);
+    paint.setColor(topColor);
     canvas.drawRect(0, 0, outputWidth, outputHeight * 0.5f, paint);
-    paint.setColor(0xff0277bd);
+    paint.setColor(bottomColor);
     canvas.drawRect(0, outputHeight * 0.5f, outputWidth, outputHeight, paint);
-
-    float targetSize = outputHeight * (320.0f / 480.0f);
-    float centerX = (outputWidth - targetSize) * 0.5f;
-    float centerY = (outputHeight - targetSize) * 0.5f;
-    Rect srcRect = new Rect(0, 0, wallpaperBitmap.getWidth(), wallpaperBitmap.getHeight());
-    RectF dstRect = new RectF(centerX, centerY, centerX + targetSize, centerY + targetSize);
-    canvas.drawBitmap(wallpaperBitmap, srcRect, dstRect, paint);
   }
 
   public static File getUserWallpaperFile(Context context) {

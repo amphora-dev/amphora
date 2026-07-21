@@ -3,8 +3,8 @@
 # Ported wholesale from WinNative `cpp/winlator/` (zero edits -- the
 # `com.winlator.cmod` package name is preserved so the JNI exports
 # `Java_com_winlator_cmod_*` resolve without touching the C). Produces:
-#   - libwinlator.so : Vulkan X-server renderer + X compositor (48 JNI exports)
-#   - libfakeinput.so : LD_PRELOAD evdev input shim (no JNI)
+#   - libwinlator.so : Vulkan X-server renderer + X compositor (JNI exports)
+#   - (libfakeinput.so not built — MVP input is XServer inject; see end of file)
 #
 # Trim vs upstream (RFC §7): `native_content_io.cpp` is included for asset
 # extraction (zstd + xz), but its HTTP download path (curl) is stubbed out --
@@ -195,9 +195,6 @@ target_link_libraries(winlator
         liblzma
 )
 
-# Fake evdev input shim used by the pb_controller_fix controller path.
-add_library(fakeinput SHARED
-        winlator/fakeinput.cpp
-)
-target_compile_options(fakeinput PRIVATE -Wall -Wextra -fvisibility=hidden)
-target_link_libraries(fakeinput log dl)
+# fakeinput LD_PRELOAD shim intentionally not built (MVP input is XServer inject;
+# gamepad/fake-evdev path removed). Reintroduce winlator/fakeinput.cpp here when
+# native gamepad support returns.

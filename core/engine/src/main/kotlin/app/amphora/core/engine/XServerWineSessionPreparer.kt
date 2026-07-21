@@ -1,5 +1,7 @@
 package app.amphora.core.engine
 
+import android.content.pm.PackageManager
+import androidx.core.content.pm.PackageInfoCompat
 import android.content.Context
 import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
@@ -21,7 +23,6 @@ import com.winlator.cmod.runtime.wine.WineD3DConfigUtils
 import com.winlator.cmod.runtime.wine.WineInfo
 import com.winlator.cmod.runtime.wine.WineStartMenuCreator
 import com.winlator.cmod.runtime.wine.WineUtils
-import com.winlator.cmod.shared.android.AppUtils
 import com.winlator.cmod.shared.io.FileUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import com.winlator.cmod.shared.util.StringUtils
@@ -208,7 +209,7 @@ class XServerWineSessionPreparer @Inject constructor(
         ensureWinePrefixReadyCore()
         ensureLaunchRuntimeFilesReadyCore()
 
-        val appVersion = AppUtils.getVersionCode(context).toString()
+        val appVersion = appVersionCode(context)
         val imgVersion = imageFs.getVersion().toString()
         var containerDataChanged = false
 
@@ -971,5 +972,14 @@ class XServerWineSessionPreparer @Inject constructor(
             "ddraw.dll", "d3dimm.dll",
         )
         private val SEMVER_LOOSE = Pattern.compile("(\\d+)\\.(\\d+)(?:\\.(\\d+))?")
+
+        private fun appVersionCode(context: Context): String {
+            return try {
+                val info = context.packageManager.getPackageInfo(context.packageName, 0)
+                PackageInfoCompat.getLongVersionCode(info).toString()
+            } catch (_: PackageManager.NameNotFoundException) {
+                "0"
+            }
+        }
     }
 }

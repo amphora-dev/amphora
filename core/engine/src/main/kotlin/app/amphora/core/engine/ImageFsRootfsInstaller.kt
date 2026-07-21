@@ -29,8 +29,8 @@ import javax.inject.Singleton
  * Steam DLL marker clear (`clearSteamDllMarkers`) and container-version reset
  * (`resetContainerImgVersions`) from WinNative are stripped -- Steam is a
  * non-target (RFC §7) and container state belongs to `:core:container` (P4).
- * Activity / progress UI (`DownloadProgressDialog`, `ProgressListener`) is
- * replaced by amphora's Compose UI in P3.
+ * Activity / progress UI from WinNative was removed; amphora surfaces progress
+ * via Compose instead.
  *
  * **Why this lives in `:core:engine`, not `:core:rootfs`:** the dependency graph
  * is `engine -> rootfs` (RFC §6), so `:core:rootfs` cannot see

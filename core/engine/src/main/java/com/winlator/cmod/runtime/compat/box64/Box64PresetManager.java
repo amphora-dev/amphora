@@ -2,22 +2,9 @@ package com.winlator.cmod.runtime.compat.box64;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.net.Uri;
 import android.util.Log;
-import android.widget.Spinner;
-import android.widget.SpinnerAdapter;
 import androidx.preference.PreferenceManager;
-import com.winlator.cmod.R;
 import com.winlator.cmod.runtime.wine.EnvVars;
-import com.winlator.cmod.shared.android.AppUtils;
-import com.winlator.cmod.shared.io.FileUtils;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Locale;
@@ -116,18 +103,11 @@ public abstract class Box64PresetManager {
 
   public static ArrayList<Box64Preset> getPresets(String prefix, Context context) {
     ArrayList<Box64Preset> presets = new ArrayList<>();
-    presets.add(
-        new Box64Preset(
-            Box64Preset.STABILITY, context.getString(R.string.container_box64_stability)));
-    presets.add(
-        new Box64Preset(
-            Box64Preset.COMPATIBILITY, context.getString(R.string.container_box64_compatibility)));
-    presets.add(
-        new Box64Preset(
-            Box64Preset.INTERMEDIATE, context.getString(R.string.container_box64_intermediate)));
-    presets.add(
-        new Box64Preset(
-            Box64Preset.PERFORMANCE, context.getString(R.string.container_box64_performance)));
+    // Hardcoded labels — amphora has no Winlator string resources for these presets.
+    presets.add(new Box64Preset(Box64Preset.STABILITY, "Stability"));
+    presets.add(new Box64Preset(Box64Preset.COMPATIBILITY, "Compatibility"));
+    presets.add(new Box64Preset(Box64Preset.INTERMEDIATE, "Intermediate"));
+    presets.add(new Box64Preset(Box64Preset.PERFORMANCE, "Performance"));
     for (String[] preset : customPresetsIterator(prefix, context))
       presets.add(new Box64Preset(preset[0], preset[1]));
     return presets;
@@ -236,118 +216,5 @@ public abstract class Box64PresetManager {
     }
 
     preferences.edit().putString(key, newCustomPresetsStr).apply();
-  }
-
-  public static void exportPreset(String prefix, Context context, String id) {
-    File presetFile = null;
-    String key = prefix + "_custom_presets";
-    SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String[] customPresets = preferences.getString(key, "").split(",");
-
-    for (int i = 0; i < customPresets.length; i++) {
-      String[] preset = customPresets[i].split("\\|");
-      if (preset[0].equals(id)) {
-        ;
-        String uriPath = preferences.getString("winlator_path_uri", null);
-        if (uriPath != null) {
-          Uri uri = Uri.parse(uriPath);
-          String path = FileUtils.getFilePathFromUri(context, uri);
-          presetFile = new File(path, "Presets/" + prefix + "_" + preset[1] + ".wbp");
-        } else {
-          // amphora: app-specific dir (no legacy /WinNative external path).
-          File base = context.getExternalFilesDir(null);
-          if (base == null) base = context.getFilesDir();
-          presetFile =
-              new File(base, "Presets/" + prefix + "_" + preset[1] + ".wbp");
-        }
-        if (!presetFile.getParentFile().exists()) presetFile.getParentFile().mkdirs();
-
-        try (FileOutputStream fos = new FileOutputStream(presetFile);
-            PrintWriter pw = new PrintWriter(fos)) {
-          pw.write("ID:" + preset[0] + "\n");
-          pw.write("Name:" + preset[1] + "\n");
-          pw.write("EnvVars:" + preset[2] + "\n");
-        } catch (IOException e) {
-        }
-        break;
-      }
-    }
-    if (presetFile != null && presetFile.exists()) {
-      Log.i(
-          "Box64PresetManager",
-          "Preset "
-              + presetFile.getName()
-              + " exported successfully at "
-              + presetFile.getParentFile().getPath());
-    } else {
-      Log.w("Box64PresetManager", "Failed to export preset");
-    }
-  }
-
-  public static void importPreset(String prefix, Context context, InputStream stream) {
-    String key = prefix + "_custom_presets";
-    SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String customPresetStr = preferences.getString(key, "");
-    ArrayList<String> lines = new ArrayList<>();
-
-    try {
-      String[] preset = new String[3];
-      BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
-      String line;
-      while ((line = reader.readLine()) != null) {
-        lines.add(line);
-      }
-      for (int i = 0; i < lines.size(); i++) {
-        String[] contents = lines.get(i).split(":");
-        switch (contents[0]) {
-          case "ID":
-            preset[0] = contents[1];
-            break;
-          case "Name":
-            preset[1] = contents[1];
-            break;
-          case "EnvVars":
-            preset[2] = contents[1];
-            break;
-        }
-      }
-      customPresetStr =
-          customPresetStr
-              + (!customPresetStr.equals("") ? "," : "")
-              + Box64Preset.CUSTOM
-              + "-"
-              + getNextPresetId(context, prefix)
-              + "|"
-              + preset[1]
-              + "|"
-              + preset[2];
-    } catch (IOException e) {
-    }
-
-    preferences.edit().putString(key, customPresetStr).apply();
-  }
-
-  public static void loadSpinner(String prefix, Spinner spinner, String selectedId) {
-    Context context = spinner.getContext();
-    ArrayList<Box64Preset> presets = getPresets(prefix, context);
-
-    int selectedPosition = 0;
-    for (int i = 0; i < presets.size(); i++) {
-      if (presets.get(i).id.equals(selectedId)) {
-        selectedPosition = i;
-        break;
-      }
-    }
-
-    AppUtils.setupThemedSpinner(spinner, context, presets);
-    spinner.setSelection(selectedPosition);
-  }
-
-  public static String getSpinnerSelectedId(Spinner spinner) {
-    SpinnerAdapter adapter = spinner.getAdapter();
-    int selectedPosition = spinner.getSelectedItemPosition();
-    if (adapter != null && adapter.getCount() > 0 && selectedPosition >= 0) {
-      return ((Box64Preset) adapter.getItem(selectedPosition)).id;
-    } else return Box64Preset.PERFORMANCE;
   }
 }

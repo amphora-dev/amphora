@@ -2,22 +2,9 @@ package com.winlator.cmod.runtime.compat.fexcore;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.net.Uri;
 import android.util.Log;
-import android.widget.Spinner;
-import android.widget.SpinnerAdapter;
 import androidx.preference.PreferenceManager;
-import com.winlator.cmod.R;
 import com.winlator.cmod.runtime.wine.EnvVars;
-import com.winlator.cmod.shared.android.AppUtils;
-import com.winlator.cmod.shared.io.FileUtils;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Iterator;
 
@@ -96,19 +83,11 @@ public class FEXCorePresetManager {
 
   public static ArrayList<FEXCorePreset> getPresets(Context context) {
     ArrayList<FEXCorePreset> presets = new ArrayList<>();
-    presets.add(
-        new FEXCorePreset(
-            FEXCorePreset.STABILITY, context.getString(R.string.container_box64_stability)));
-    presets.add(
-        new FEXCorePreset(
-            FEXCorePreset.COMPATIBILITY,
-            context.getString(R.string.container_box64_compatibility)));
-    presets.add(
-        new FEXCorePreset(
-            FEXCorePreset.INTERMEDIATE, context.getString(R.string.container_box64_intermediate)));
-    presets.add(
-        new FEXCorePreset(
-            FEXCorePreset.PERFORMANCE, context.getString(R.string.container_box64_performance)));
+    // Hardcoded labels — amphora has no Winlator string resources for these presets.
+    presets.add(new FEXCorePreset(FEXCorePreset.STABILITY, "Stability"));
+    presets.add(new FEXCorePreset(FEXCorePreset.COMPATIBILITY, "Compatibility"));
+    presets.add(new FEXCorePreset(FEXCorePreset.INTERMEDIATE, "Intermediate"));
+    presets.add(new FEXCorePreset(FEXCorePreset.PERFORMANCE, "Performance"));
     for (String[] preset : customPresetsIterator(context))
       presets.add(new FEXCorePreset(preset[0], preset[1]));
     return presets;
@@ -216,117 +195,5 @@ public class FEXCorePresetManager {
     }
 
     preferences.edit().putString(key, newCustomPresetsStr).apply();
-  }
-
-  public static void exportPreset(Context context, String id) {
-    File presetFile = null;
-    String key = "fexcore_custom_presets";
-    SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String[] customPresets = preferences.getString(key, "").split(",");
-
-    for (int i = 0; i < customPresets.length; i++) {
-      String[] preset = customPresets[i].split("\\|");
-      if (preset[0].equals(id)) {
-        ;
-        String uriPath = preferences.getString("winlator_path_uri", null);
-        if (uriPath != null) {
-          Uri uri = Uri.parse(uriPath);
-          String path = FileUtils.getFilePathFromUri(context, uri);
-          presetFile = new File(path, "Presets/fexcore_" + preset[1] + ".wbp");
-        } else {
-          // amphora: app-specific dir (no legacy /WinNative external path).
-          File base = context.getExternalFilesDir(null);
-          if (base == null) base = context.getFilesDir();
-          presetFile = new File(base, "Presets/fexcore_" + preset[1] + ".wbp");
-        }
-        if (!presetFile.getParentFile().exists()) presetFile.getParentFile().mkdirs();
-
-        try (FileOutputStream fos = new FileOutputStream(presetFile);
-            PrintWriter pw = new PrintWriter(fos)) {
-          pw.write("ID:" + preset[0] + "\n");
-          pw.write("Name:" + preset[1] + "\n");
-          pw.write("EnvVars:" + preset[2] + "\n");
-        } catch (IOException e) {
-        }
-        break;
-      }
-    }
-    if (presetFile != null && presetFile.exists()) {
-      Log.i(
-          "FEXCorePresetManager",
-          "Preset "
-              + presetFile.getName()
-              + " exported successfully at "
-              + presetFile.getParentFile().getPath());
-    } else {
-      Log.w("FEXCorePresetManager", "Failed to export preset");
-    }
-  }
-
-  public static void importPreset(Context context, InputStream stream) {
-    String key = "fexcore_custom_presets";
-    SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String customPresetStr = preferences.getString(key, "");
-    ArrayList<String> lines = new ArrayList<>();
-
-    try {
-      String[] preset = new String[3];
-      BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
-      String line;
-      while ((line = reader.readLine()) != null) {
-        lines.add(line);
-      }
-      for (int i = 0; i < lines.size(); i++) {
-        String[] contents = lines.get(i).split(":");
-        switch (contents[0]) {
-          case "ID":
-            preset[0] = contents[1];
-            break;
-          case "Name":
-            preset[1] = contents[1];
-            break;
-          case "EnvVars":
-            preset[2] = contents[1];
-            break;
-        }
-      }
-      customPresetStr =
-          customPresetStr
-              + (!customPresetStr.equals("") ? "," : "")
-              + FEXCorePreset.CUSTOM
-              + "-"
-              + getNextPresetId(context)
-              + "|"
-              + preset[1]
-              + "|"
-              + preset[2];
-    } catch (IOException e) {
-    }
-
-    preferences.edit().putString(key, customPresetStr).apply();
-  }
-
-  public static void loadSpinner(Spinner spinner, String selectedId) {
-    Context context = spinner.getContext();
-    ArrayList<FEXCorePreset> presets = getPresets(context);
-
-    int selectedPosition = 0;
-    for (int i = 0; i < presets.size(); i++) {
-      if (presets.get(i).id.equals(selectedId)) {
-        selectedPosition = i;
-        break;
-      }
-    }
-
-    AppUtils.setupThemedSpinner(spinner, context, presets);
-    spinner.setSelection(selectedPosition);
-  }
-
-  public static String getSpinnerSelectedId(Spinner spinner) {
-    SpinnerAdapter adapter = spinner.getAdapter();
-    int selectedPosition = spinner.getSelectedItemPosition();
-    if (adapter != null && adapter.getCount() > 0 && selectedPosition >= 0) {
-      return ((FEXCorePreset) adapter.getItem(selectedPosition)).id;
-    } else return FEXCorePreset.PERFORMANCE;
   }
 }

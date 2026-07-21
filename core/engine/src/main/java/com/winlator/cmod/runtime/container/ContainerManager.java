@@ -4,7 +4,6 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import com.winlator.cmod.R;
 import com.winlator.cmod.runtime.content.ContentProfile;
 import com.winlator.cmod.runtime.content.ContentsManager;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
@@ -366,7 +365,7 @@ public class ContainerManager {
     Container dstContainer = new Container(id, this);
     dstContainer.setRootDir(dstDir);
     dstContainer.setName(
-        srcContainer.getName() + " (" + context.getString(R.string.common_ui_copy) + ")");
+        srcContainer.getName() + " (Copy)");
     dstContainer.setScreenSize(srcContainer.getScreenSize());
     dstContainer.setEnvVars(srcContainer.getEnvVars());
     dstContainer.setCPUList(srcContainer.getCPUList());

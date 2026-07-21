@@ -110,8 +110,9 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 | 产物 | 内容 |
 |---|---|
 | `libwinlator.so` | X/Vulkan/AHB/压缩解压/socket/shmem/进程回收；adrenotools 静态链入；zstd+xz FetchContent |
-| `libfakeinput.so` | LD_PRELOAD evdev shim |
 | ABI | **仅 arm64-v8a**；minSdk 26；NDK r28 |
+
+`libfakeinput.so` 不再构建（MVP 输入走 X inject）。`fakeinput.cpp` 源码仍在树内，手柄路径回归时再挂回 CMake。
 
 JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包名保留，C 零改）。远程下载 JNI（`nativeDownloadFile` 等）为 stub——MVP 只走 APK 内联资产。
 
@@ -147,7 +148,5 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 - `:feature:settings` 实质项；键盘/手柄；音频音量接线
 - Present/DRI3 完善；`RemoteContentSource`；多容器/prefix
-- `libfakeinput` LD_PRELOAD / udev 空路径裁剪（Java 手柄 stub 已清）
-- 手写 `R` / `BuildConfig` 收敛
 - Proton 11 自建（见 `RESEARCH-proton-wine-selfbuild.md`）
 - targetSdk 上探（须先把可执行文件迁到可 exec 位置）

@@ -21,7 +21,9 @@
 - ✅ 残留清理 (2026-07-21): 默认 `LauncherRoute`; notepad 测试路径保留 (launcher **Debug: Notepad** + `DEBUG_AUTO_LAUNCH_NOTEPAD`); 删 Graphics-Test staging / `StubAudioSink` / 空 `SettingsViewModel`; surface 渲染异常改记日志。
 - ✅ 残留清理续: 删 `GameRecorder`/`PulseAudioComponent`/`WinToast`/`AppTerminationHelper`/`PerformanceHudState` + 接线拆除; `WineInfo` 不再读假 `R.array.wine_entries` (走 ContentsManager install dir)。
 - ✅ WinHandler/手柄 stub 闭包清理: 删 `WinHandler`/`XServerDisplayActivity`/controls stubs/`rumble/*`; 按钮一律走 X 协议; `FakeInputWriter` 仅留 GPLC env 空环辅助; inputType 常量内联到 `Container`。
-- ⏭ 下一步 (v0.2 候选): settings 实质项; 键盘/手柄(真实现); 音频音量接线; Present/DRI3 完善; `libfakeinput` LD_PRELOAD 裁剪; 手写 `R`/`BuildConfig` 收敛。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
+- ✅ fakeinput 裁剪 + BuildConfig/R 收敛: GPLC 不再 copy/LD_PRELOAD `libfakeinput` / FAKE_EVDEV/udev; CMake 停编 fakeinput; 删 `FakeInputWriter` + 手写 `BuildConfig`; Vulkan validation 改读 `FLAG_DEBUGGABLE`; preset/拷贝文案硬编码，避开假 `R` ID。
+- ✅ 假 `R` 死 UI 闭包: 删手写 `R.java` + `DownloadProgressDialog`/`MultiSelectionComboBox`/`HttpUtils`/`AppUtils`; `ImageFsInstaller` 仅留 `LATEST_VERSION`; wallpaper 改纯色回退; Box64/FEX 去掉 Spinner/import-export 死路径。
+- ⏭ 下一步 (v0.2 候选): settings 实质项; 键盘/手柄(真实现); 音频音量接线; Present/DRI3 完善。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
 |---|---|
@@ -77,7 +79,7 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [x] D8 `AdrenotoolsManager` 精简 (~30 行: ctor+`getLibraryName`)。仅 `ImageFsInstaller.installDriversFromAssets` 调过 `extractDriverFromResources` -> no-op (驱动抽取移 P2 RootfsInstaller)。
 - [x] 砍: `input/`(controls+rumble+ui+Activities) · `display/recording` · `display/steampipeserver` · `display/ExternalDisplayController` · `display/XServerDisplayActivity`(D9 重写) · `environment/components/{SteamClientComponent,PulseAudioComponent}` · `compat/fexcore`(arm64ec D5 否决, 但 Container/GuestProgramLauncher 引用 -> 整块拷回当死代码) · `system/SessionKeepAliveService` · `audio/midi`(自含, RFC §8 ALSA-only, 推 v0.2+)
 - [x] 依赖 (版本取自 WinNative catalog 保源码兼容): `androidx.appcompat`1.7.1 · `androidx.preference`1.2.1 · `com.google.android.material`1.14.0 · `zstd-jni`1.5.7-9@aar · `commons-compress`1.28.0 · `tukaani-xz`1.12。加 `:core:engine/build.gradle.kts`。
-- [x] `R`+`BuildConfig` stub (内核 import `com.winlator.cmod.{R,BuildConfig}`; 引擎 namespace=`app.amphora.core.engine` 不匹配)。R.java 78 字段/8 类型 (从实际 `R.type.name` 引用生成)。**P1 compile-only; 真实 res 接线 (namespace+res/) 留 P2/P3 runtime**。
+- [x] `R`+`BuildConfig` stub 曾用于 P1 compile-only；后续已删手写 `BuildConfig`/`R.java`，相关路径改硬编码 / `:app` 真资源名解析 / 删死 UI。
 - [x] 解耦剩余 cut 引用 ✅: 23 个 cut 类 stub (co-located 在 engine, 无向上依赖) + `input/rumble`/`compat/fexcore` 整块拷 + `AppTerminationHelper`/`XServerDisplayActivity`/`InputControlsView` 等 stub。WinHandler 124 错 (XSDA field/ctor + input.controls 6 类) 用 stub 解决 (内核 .java 原样不动)。
 - [x] `WineSessionPreparer` 接口 (6 方法, 名字 verbatim 自 XSDA + 行号) + `StubWineSessionPreparer` (body TODO P2/P3) - :core:engine (`92b00ef`)
 - [x] `WineEngineImpl` facade skeleton: 注入 ContainerManager/RootfsInstaller/WineSessionPreparer + DispatcherProvider, launch 编排骨架委托 com.winlator.cmod (XEnvironment/GuestProgramLauncherComponent/VulkanRenderer), 每步 TODO 标 P-phase; 替换 StubWineEngine 作 bound impl (Stub 保留 fallback)
