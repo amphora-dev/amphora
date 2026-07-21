@@ -1,8 +1,8 @@
 # 03 - 进度跟踪 / Handoff
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-07-14 · 资产获取轨: imagefs.tzst 真资产到手 (SHA 锁) + 真机 (Adreno arm64) rootfs 提取验证通过; **preparer 真机验证通过** (Proton/Box64 .wcp 本地安装 + 容器创建 + extractGraphicsDriverFiles + envVars/wrapper.tzst 提取全验); **`:core:content` `BundledContentSource` 落地** (manifest JSON + SHA-256 校验 + ARCHIVE/WCP 双路径, `EngineModule` 绑定, 替代 curl+push 生产路径 -- 详见 §P2 #8); **`.wcp` SHA 锁 ✅ (gap #1, 2026-07-14)**; **`BundledContentSourceTest` 真机验 ✅ (3/3, §P2 #10)**; **P3 `GameSessionScreen` + launch 链落地** (compile-only, `2a2078a`+`0404922`, 详见 §P3); **P4 `ContainerManager` 真实现 + launcher exe picker + 分辨率选择落地 ✅** (`WinlatorContainerManager` DIP 桥 + SAF exe 暂存 + `C:\` 路径 + syncContents gap 修复, `:app:assembleDebug` 绿, 详见 §P4)
-> 必读: [`00-RESEARCH.md`](00-RESEARCH.md) · [`01-RFC.md`](01-RFC.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
+> 最后更新: 2026-07-21 · **v0.1 端到端已跑通** (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。P0–P4 全接线后的关键修复: `ecc7ee3` (desktop surface + relative touch + `GameSessionLaunchTest`) · `65e180f` (真实 DXVK WCP `Dxvk-3.0.2-gplasync` + adrenotools-wrapped Turnip) · `04ec6f5` (host Vulkan 跟容器 graphicsDriverConfig + wine debug logs)。架构真源见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)。
+> 必读: [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) · [`01-RFC.md`](01-RFC.md) · [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
 
 ---
 
@@ -16,15 +16,17 @@
 - ✅ P2(续) `WineSessionPreparer` body 抽取已落地 (`829e83b`): D9 XSDA 6 方法 body 逐字移植到 `XServerWineSessionPreparer` (849 行, XSDA L6127/7127/6280/7164/7970/7537 + helpers L6290/7950/5777/6398/6410/8098/8124/10793), 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI-refresh (D5/D8/D9); 4 个 feature-layer/.kt 小类移植 (WinComponentSetup 145 行 + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils 共 193 行 -> `com.winlator.cmod.runtime.{wine,container}`); 接口加 `envVars(): Map<String,String>` 输出 accessor (XSDA `envVars` 字段, 供 P3 launch 合并); `StubWineSessionPreparer` 删除, EngineModule 绑真实现。`./gradlew :app:assembleDebug` 绿, APK 34.5MB。compile-only (端到端验待资产)。
 - ✅ 资产获取轨: `winlator-imagefs` clone (cnb.cool/atowerlight, 构建配方) + imagefs.tzst 真资产 (WinNative Git LFS, 190MB, SHA `0902e324...`, Bionic) + box64/Turnip/DXVK 全资产 SHA 锁 (`docs/04-ASSET-MANIFEST.md`); 真机 (Lenovo TB322FC / Adreno 830 / arm64-v8a / API 36) rootfs 提取 instrumented 验证通过 (877MB Bionic rootfs, 27,614 条目, 1.5s).
 - ✅ P3 已落地并提交 (`2a2078a`+`0404922`, compile-only): `WineEngineImpl.launch` 真接线 (XSDA `setupXEnvironment` L6439 移植 -- RootfsInstaller->ContainerManager->Preparer->resolveWinNativeContainer->`XServer`->`EnvVars`->`XEnvironment`+components->`startEnvironmentComponents`, 剥 Steam/shortcut/recording/arm64ec/WinHandler); `XServerSessionHandle` (pause/resume/stop via XEnvironment+ProcessHelper, teardownOnce); 真 sinks (`XServerInputSink`/`XServerAudioSink`); `GameSessionSurfaceProvider` 暴露 `XServer` (WineEngine 接口保 kernel-free); `GameSessionScreen` (AndroidView{`XServerSurfaceView`}+`TouchInputOverlay`+生命周期, D9 XSDA 重写); `GameSessionViewModel` (launch/stop/pause/resume, Throwable 边界)。`./gradlew :app:assembleDebug` 绿, `:core:content`/`:core:common` test 绿。launch 在 P4 container stub 抛, 端到端验待 P4。
-- ✅ P4 已落地并提交 (compile-only, `:app:assembleDebug` 绿): `:core:container` `ContainerManager` 真实现 = `WinlatorContainerManager` (`:core:engine`, DIP 桥 -- 契约在 `:core:container`, concretion 适配已移植的 `com.winlator.cmod.runtime.container.ContainerManager` 内核); `getOrCreate` 编排: `ContentSource.resolve(WINE/BOX64)` (bundled .wcp 安装) -> `syncContents` -> 解析 wineVersion (manifest 派生) -> `createContainer`/load -> `activateContainer` (xuser 符号链接) -> 映射 amphora `Container`; launcher `LauncherScreen`+`LauncherViewModel` 真 UI (SAF `.exe` picker -> 暂存 `filesDir/exe/<name>` -> `Resolution` FilterChip 选择 -> launch); `WineEngineImpl` 把暂存 exe 拷进容器 `drive_c` 跑 `C:\<name>` (Z: 映 rootfs 非 `/`, 原始 Unix 路径不可达); **syncContents gap 修复** (engine + preparer 各自实例现在自调, 原 §P2 #7c 反射 workaround 不再需要); `StubContainerManager` 删除, `EngineModule` 绑真实现, **零 stub 剩余**.
-- ⏭ 下一步: **RFC §8 验收 (真机)** -- `./gradlew :app:stageBundledContent` (打 .wcp/.tzst 进 APK) -> `:app:connectedDebugAndroidTest` 或手测: 启动一个 Windows .exe, 有画面(Vulkan)+触屏映射+音频。P4 launch 链全接线 (rootfs->content->container->prep->XEnvironment->`box64 wine explorer /desktop=WxH C:\<exe>`), 端到端真机验证是 v0.1 收官。
+- ✅ P4 已落地并提交 (`fdaa4e8`, `:app:assembleDebug` 绿): `:core:container` `ContainerManager` 真实现 = `WinlatorContainerManager` (`:core:engine`, DIP 桥); launcher SAF `.exe` picker + 分辨率; exe 进 `drive_c` 跑 `C:\<name>`; syncContents gap 修复; **零 stub 剩余**.
+- ✅ **RFC §8 真机验收通过** (2026-07-21): 启动 Windows `.exe` → Vulkan Wine desktop 有画面 + 相对触控。P4 后关键修复见上 (DXVK WCP / host-guest Vulkan / surface+touch)。debug `AmphoraNavHost` 当前直启 `notepad.exe` 便于迭代。
+- ⏭ 下一步 (v0.2 候选): 恢复默认 `LauncherRoute`; settings 实质项; 键盘/手柄; 音频音量接线; Present/DRI3 完善; 去掉 debug 直启。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
 |---|---|
 | AGP / Gradle / Kotlin / KSP | 9.2.1 / 9.4.1 / 2.3.21 / 2.3.9 |
 | Hilt / Compose BOM | 2.59.2 / 2026.06.01 |
-| compileSdk / targetSdk / minSdk / NDK | 37 / 36 / 26 / r28 (28.0.13004108) |
+| compileSdk / targetSdk / minSdk / NDK | 37 / **28** / 26 / r28 (28.0.13004108) — targetSdk 28 因 `filesDir` 执行 box64/Wine (SELinux) |
 | 包名 / 模块数 | `app.amphora` / 10 模块 + build-logic |
+| 架构文档 | [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) |
 
 ---
 
@@ -129,10 +131,11 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 8. **lifecycle-runtime-compose 加入 catalog**: `collectAsState`/`LocalLifecycleOwner` 需此依赖 (Compose BOM 1.11.4 的 `AndroidView` 在 `androidx.compose.ui.viewinterop` 非 `viewbinding`; `LocalLifecycleOwner` 已从 `ui.platform` 移至 `androidx.lifecycle.compose`)。app `build.gradle.kts` 加 `implementation(libs.androidx.lifecycle.runtime.compose)`。
 9. **端到端验待 P4**: P3 compile-only -- launch 在 P4 container stub 抛, surface 不 emit, 屏幕显错 + Exit。真机验 (启动 .exe, Vulkan 画面, 触屏映射, 音频) 是 P4 验收 (RFC §8)。
 
-### P4 · 收尾 -- compile-only 落地 (`:app:assembleDebug` 绿)
+### P4 · 收尾 -- 落地 + RFC §8 真机验收 ✅
 - [x] `:core:container` `ContainerManager` 实现 = `WinlatorContainerManager` (`:core:engine`, DIP 桥 -- WinNative `ContainerManager` 861 行已在 P1 移植为内核, P4 写 amphora-facing concretion 适配它)
 - [x] launcher: exe picker (SAF) + 分辨率选择 -> 构 `LaunchSpec`
-- [ ] **验收 (RFC §8)**: 启动一个 Windows .exe, 有画面(Vulkan)+触屏映射+音频 -- 真机验证待跑 (需 `:app:stageBundledContent` 打资产进 APK)
+- [x] **验收 (RFC §8)**: 启动 Windows .exe, Vulkan desktop 有画面 + 相对触控 ✅ (2026-07-21)。音频路径已接线 (ALSA component); 音量 API 仍未接 `AudioTrack`。跑前需 `:app:stageBundledContent`。
+- [x] P4 后关键修复: `ecc7ee3` desktop surface + relative touch + `GameSessionLaunchTest`; `65e180f` DXVK → `Dxvk-3.0.2-gplasync.wcp` + host/guest Turnip wrapper 对齐; `04ec6f5` host Vulkan 读容器 `graphicsDriverConfig` + wine debug logs。
 
 **P4 关键发现 (供下个 agent):**
 1. **WinNative `ContainerManager` 861 行早非 P4 移植项**: P1 已把 `runtime/container/` 内核 (Container 773 + ContainerManager 861 + Shortcut) 整块拷进 `:core:engine` (保 `com.winlator.cmod` 包名)。P4 的 "移植" 实为写 amphora `ContainerManager` 接口的 **DIP concretion** (`WinlatorContainerManager`) -- 桥接 amphora 的 lean `Container{id,rootPath,winePrefixPath}` 与 WinNative `Container`(id+rootDir+wineVersion+emulator+...)。同 `ImageFsRootfsInstaller`/`XServerWineSessionPreparer` 模式: 契约在低模块 (`:core:container`), concretion 在 `:core:engine` (紧邻它适配的内核); `:core:container` 无 Hilt, `EngineModule` 绑定。**三个 sibling 接口全部毕业, 零 stub 剩余**。
@@ -141,7 +144,15 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 4. **exe 路径必须进 `drive_c` (Z: 映 rootfs 非 `/`)**: `WineUtils.createDosdevicesSymlinks` 造 `c:`->`../drive_c`, `z:`->`container.getRootDir()/../..` = **rootfs 根** (`filesDir/imagefs`), 非 Android `/`。`hostPathToMappedWinePath` 对 rootfs 外的路径走 fallback `Z:\<path>` -> 解析到 `<rootfs>/<path>` (不存在)。所以 launcher SAF 暂存的 `filesDir/exe/<name>` (rootfs 兄弟目录) **不可直传 Wine**。解法: `WineEngineImpl.stageExeIntoPrefix` 把暂存 exe 拷进容器 `drive_c/<name>`, 跑 `C:\<name>` (C:->drive_c 恒在)。镜像 WinNative `ensureDriveCGameSymlink` 模式 (WineUtils, 它对游戏目录造符号链接进 `drive_c/WinNative/Games/`)。idempotent (size 匹配 skip)。
 5. **launcher exe picker = SAF `OpenDocument("*/*")`**: `.exe` mime 不可靠 (`application/octet-stream`/`x-dosexec`/未知), 用 `*/*`。`ContentResolver.query(DISPLAY_NAME)` 取文件名, 拷进 `filesDir/exe/<name>` (app-private, 无 scoped-storage 权限问题)。`Resolution` enum (1280×720/1920×1080/1024×768/800×600) `FilterChip` 选择。`feature:launcher` 加 `androidx.activity.compose` (rememberLauncherForActivityResult)。导航 `gameSessionRoute` 对 exePath `Uri.encode` (Unix 路径含 `/`, 防查询串解析出错; `NavType.StringType.parseValue` 自动 decode)。
 6. **`removeContainer` 是 private**: amphora `delete` 不能直调; 用 public `removeContainerAsync(Container, Runnable)` + `suspendCancellableCoroutine` 桥 (callback 走 main Handler, resume 回 IO)。MVP 删除非关键路径 (RFC §8 只验启动)。shortcuts (`loadShortcuts`/`upgradeShortcuts`)/duplicate 留在移植内核未用 (D9 non-target / v0.2)。
-7. **端到端验待真机**: P4 compile-only -- `:app:assembleDebug` 绿, APK 含 libwinlator.so 2.5M + content_manifest.json。launch 链全接线: `ensureRootfs` -> `containerManager.getOrCreate` (装 content + 建容器) -> `syncContents` -> `preparer.setupWineSystemFiles`/`extractGraphicsDriverFiles` -> `resolveWinNativeContainer`+`WineInfo` -> `XServer` -> `buildLaunchEnvVars` -> `XEnvironment`+components -> `stageExeIntoPrefix`+`buildGuestLauncher` -> `startEnvironmentComponents` (GPLC 跑 `box64 wine explorer /desktop=WxH "C:\<exe>"`)。真机验 = RFC §8 (启动 .exe, Vulkan 画面, 触屏映射, 音频), 需先 `./gradlew :app:stageBundledContent` 把 Proton/Box64 .wcp + wrapper/d8vk/pulseaudio .tzst 打进 APK assets。
+7. **端到端验 ✅**: launch 链全接线并真机跑通 (RFC §8)。复现: `./gradlew :app:stageBundledContent` → 装 APK / `GameSessionLaunchTest`。DXVK 现为 WCP (`Dxvk-3.0.2-gplasync`, 见 manifest), 非早期 `d8vk-1.0.tzst` ARCHIVE。debug 默认直启 notepad -- 见 `AmphoraNavHost`。
+
+### P4+ · 端到端硬化 (2026-07-21) ✅
+- [x] 显示 explorer desktop surface (不再隐藏桌面进程窗口)
+- [x] 触控改为相对移动 + tap-to-click
+- [x] 真实 DXVK WCP + 旧 `dxvk-1.0` 容器迁移
+- [x] host `VulkanRenderer` 与 guest 共用 adrenotools-wrapped Turnip
+- [x] `GameSessionLaunchTest` / `XServerSurfaceViewInitTest` + content-aware connected 测试入口
+- [x] 文档: [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) as-built 架构真源
 
 ---
 
@@ -167,10 +178,11 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 
 | 用途 | 位置 |
 |---|---|
-| 项目决议/架构 | `docs/01-RFC.md` (D1-D9 已定) |
+| **as-built 架构 (优先读)** | `docs/05-ARCHITECTURE.md` |
+| 项目决议 | `docs/01-RFC.md` (D1-D9 已定) |
 | 研究基础 (WinNative 拆解) | `docs/00-RESEARCH.md` |
 | Proton 自建 | `docs/RESEARCH-proton-wine-selfbuild.md` |
-| as-built 栈 + 踩坑 | `docs/02-SCAFFOLD.md` |
+| scaffold 栈 + 踩坑 | `docs/02-SCAFFOLD.md` |
 | 移植源码 | `/Users/sky/co/github/WinNative` @ `48fe6b9` |
 | 栈版本参考 (最新) | `android/compose-samples` (Reply/Jetcaster) `gradle/libs.versions.toml` |
 | 栈/convention 参考 (正典, 略旧) | `android/nowinandroid` (注意无连字符) |
@@ -182,9 +194,11 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 ## 5. 验证命令
 
 ```bash
-./gradlew help                  # 全工程配置
-./gradlew :app:assembleDebug    # 全量 (Kotlin+KSP/Hilt+native .so+Compose+APK)
-./gradlew :core:common:test     # 单测
+./gradlew help                       # 全工程配置
+./gradlew :app:stageBundledContent   # 打 imagefs/.wcp/.tzst 进 APK assets (端到端必需)
+./gradlew :app:assembleDebug         # 全量 (Kotlin+KSP/Hilt+native .so+Compose+APK)
+./gradlew :core:common:test          # 单测
+./gradlew :app:connectedDebugAndroidTest   # 真机 / 含 GameSessionLaunchTest
 # APK: app/build/outputs/apk/debug/app-debug.apk (含 lib/arm64-v8a/libwinlator.so)
 ```
 

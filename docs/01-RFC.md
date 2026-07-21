@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Approved - 决议已定，进入 scaffold |
+| **Status** | Approved - 决议已定；v0.1 已按本 RFC 落地并端到端跑通（as-built 见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)） |
 | **作者** | (待定) |
 | **日期** | 2026-07-10 |
 | **依据** | [`00-RESEARCH.md`](00-RESEARCH.md) |

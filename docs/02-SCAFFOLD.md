@@ -1,7 +1,7 @@
 # 02 - Scaffold 落地 (As-Built)
 
-> Status: scaffold 完成，`:app:assembleDebug` 绿。本文记录**实际**技术栈与落地约束。
-> 日期: 2026-07-11。依据: [`01-RFC.md`](01-RFC.md) §审核清单 scaffold 顺序。
+> Status: scaffold 完成（历史文档）。**当前架构真源**见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)；进度见 [`03-TRACKING.md`](03-TRACKING.md)。
+> 日期: 2026-07-11。本文仍是技术栈版本与 AGP9 踩坑的可靠参考；§5/§7 中的 stub / 下一步已过时。
 > 组合对齐 Google `android/compose-samples`（Reply/Jetcaster，2026-07）当前参考栈。
 
 ## 1. As-Built 技术栈
@@ -22,7 +22,7 @@
 | hilt-navigation-compose | 1.3.0 | |
 | NDK | 28.0.13004108 (r28) | RFC 写 r27/r29，r28 实测可用 |
 | CMake | 3.31.1 | |
-| compileSdk / targetSdk / minSdk | **37** / 36 / 26 | 平台包名 `platforms;android-37.0`（带 `.0`）|
+| compileSdk / targetSdk / minSdk | **37** / **28** / 26 | 平台包名 `platforms;android-37.0`（带 `.0`）。targetSdk **刻意 28**（`filesDir` 执行 box64/Wine，见 `ConventionHelpers.kt`）；scaffold 时写的 36 已纠正 |
 | JDK | 17 (Gradle 跑 JBR 21) | |
 
 ## 2. 关键约束 / 踩坑
@@ -61,12 +61,11 @@
 | `amphora.android.hilt` | ksp + hilt + hilt-android/ksp(hilt-compiler) |
 | `amphora.android.native` | ndkVersion + cmake path + arm64-v8a abiFilter（须先 apply library）|
 | `amphora.android.feature` | library + compose + hilt（便捷组合）|
+| `amphora.content.staging` | manifest 驱动的 `:app:stageBundledContent`（后加；见架构文档 §5）|
 
-## 5. 关键接口（已定义，RFC §6）
+## 5. 关键接口（RFC §6；现均已实现）
 
-- `:core:content` - `ContentSource.resolve(ComponentId): ContentArtifact`；`ContentComponent` enum（ROOTFS/WINE/BOX64/TURNIP/DXVK/AUDIO_PLUGIN）。
-- `:core:engine` - `WineEngine.launch(LaunchSpec): SessionHandle` + `inputFeed(): InputSink` + `audioSink(): AudioSink`；`SessionHandle.state: StateFlow<SessionState>`。`StubWineEngine` + `EngineModule`(@Hilt 绑定) 使 DI 图端到端可编译，`launch()` TODO 待 runtime 移植。
-- `:core:container` - `ContainerManager`；`:core:rootfs` - `RootfsInstaller`。
+接口定义未变。实现与 DIP 落点见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §2——`WineEngineImpl` / `BundledContentSource` / `WinlatorContainerManager` / `ImageFsRootfsInstaller` 等，**无 stub**。
 
 ## 6. 验证
 
@@ -76,11 +75,8 @@
 ./gradlew :core:common:test        # 单测骨架通过
 ```
 
-APK `app/build/outputs/apk/debug/app-debug.apk` 内含 `lib/arm64-v8a/libwinlator.so` + `libfakeinput.so`（CMake/NDK 管线端到端验证）。
+APK `app/build/outputs/apk/debug/app-debug.apk` 内含 `lib/arm64-v8a/libwinlator.so` + `libfakeinput.so`（CMake/NDK 管线端到端验证）。端到端运行需先 `:app:stageBundledContent`。
 
-## 7. 下一步（v0.1 实现入口）
+## 7. 下一步
 
-1. `:core:native` - 移植 WinNative `cpp/winlator/`（48 JNI，保 `com.winlator.cmod` 包名）+ 12 个 Java 调用类（RFC §7/D5）。替换 CMake stub。
-2. `:core:engine` - 移植 `runtime/` 内核（~32k 行 Java，RFC §7）；`WineSessionPreparer` 抽取自 XSDA（D9）；`StubWineEngine` 换真实实现。
-3. `:core:rootfs` - 接 winlator-imagefs 产物（RFC §11）。
-4. `:app` `GameSessionScreen` - Compose 重写薄壳（`AndroidView{SurfaceView}` + `TouchpadView`，D9）。
+v0.1 已跑通。后续候选见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9 与 [`03-TRACKING.md`](03-TRACKING.md) 状态快照。
