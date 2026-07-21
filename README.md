@@ -46,7 +46,7 @@ Instrumented E2E (device with Adreno recommended):
 **Notes**
 
 - `stageBundledContent` is **not** wired to `preBuild` (keeps routine debug APKs slim).
-- Debug nav currently auto-launches `assets/exe/notepad.exe` into `GameSessionScreen`; revert `AmphoraNavHost` to `LauncherRoute` for the SAF picker flow.
+- Debug notepad path: launcher **Debug: Notepad** button, or flip `DEBUG_AUTO_LAUNCH_NOTEPAD` in `AmphoraNavHost` (default starts at launcher).
 - `targetSdk` is **28** on purpose (exec box64/Wine from `filesDir`); do not bump without an exec-path redesign — see `ConventionHelpers.kt`.
 
 ## Docs

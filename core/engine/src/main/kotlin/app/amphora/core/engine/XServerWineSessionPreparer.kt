@@ -72,13 +72,8 @@ import javax.inject.Singleton
  * **Stubbed (deferred):**
  * - `getDxvkFrameRateOverride` returns 0 (shortcut/preferences-driven).
  *
- * **Status:** the prep path is correct against the restored
- * [TarCompressorUtils] native backend (P2, real-device-verified §P2 #7). This
- * instance now self-calls `syncContents()` in [resolveState] (the §P2 #7c gap).
- * End-to-end verification (a live `box64 wine` launch) is the P4 RFC §8
- * acceptance test; `repairContainerWinePrefix` / `applyContent` /
- * `TarCompressorUtils.extract` all exercise against real imagefs/box64/DXVK/
- * Turnip assets.
+ * **Status:** prep path verified on device (P2 §P2 #7) and wired into the live
+ * launch chain (RFC §8). Self-calls `syncContents()` in [resolveState].
  *
  * @param envState the mutable wrapper/GPU env-var accumulator (XSDA `envVars`
  *   field); exposed read-only via [envVars] for `WineEngineImpl` to merge into
@@ -310,7 +305,6 @@ class XServerWineSessionPreparer @Inject constructor(
         // deferred to P3 setupXEnvironment (post xServer creation).
 
         WineStartMenuCreator.create(context, c)
-        stageGraphicsTestExes()
         WineUtils.createDosdevicesSymlinks(c, getActiveGameDirectoryPath(), isSteamShortcut())
 
         val inputType = c.getInputType()
@@ -920,36 +914,11 @@ class XServerWineSessionPreparer @Inject constructor(
         }
     }
 
-    /** stageGraphicsTestExes (XSDA L5777) + stageBundledExe. */
-    private fun stageGraphicsTestExes() {
-        val c = wnContainer ?: return
-        val dir = File(c.getRootDir(), ".wine/drive_c/ProgramData/Microsoft/Windows")
-        if (!dir.isDirectory && !dir.mkdirs()) return
-        stageBundledExe(dir, "Graphics-Test-32bit.exe", GRAPHICS_TEST_32_EXE_BYTES)
-        stageBundledExe(dir, "Graphics-Test-64bit.exe", GRAPHICS_TEST_64_EXE_BYTES)
-    }
-
-    private fun stageBundledExe(dir: File, name: String, expectedBytes: Long) {
-        val dst = File(dir, name)
-        if (dst.exists() && dst.length() == expectedBytes) return
-        try {
-            context.assets.open("winnative/$name").use { input ->
-                java.io.FileOutputStream(dst).use { out ->
-                    val buf = ByteArray(64 * 1024)
-                    var n: Int
-                    while (input.read(buf).also { n = it } > 0) out.write(buf, 0, n)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to stage $name", e)
-        }
-    }
-
     /**
      * getDxvkFrameRateOverride (XSDA L627) -- stubbed to 0. The XSDA version reads
      * per-game/global refresh-rate overrides from the shortcut + SharedPreferences;
      * Amphora has neither (D9: no shortcuts). Wire to container/user prefs when
-     * frame-rate limiting lands (P3+).
+     * frame-rate limiting lands.
      */
     private fun getDxvkFrameRateOverride(): Int = 0
 
@@ -996,8 +965,6 @@ class XServerWineSessionPreparer @Inject constructor(
     private companion object {
         private const val TAG = "WineSessionPreparer"
         private const val D8VK_ASSET_PATH = "dxwrapper/d8vk-1.0.tzst"
-        private const val GRAPHICS_TEST_32_EXE_BYTES = 2333245L
-        private const val GRAPHICS_TEST_64_EXE_BYTES = 2361407L
         private val DXWRAPPER_DLLS = arrayOf(
             "d3d10.dll", "d3d10_1.dll", "d3d10core.dll",
             "d3d11.dll", "d3d12.dll", "d3d12core.dll",

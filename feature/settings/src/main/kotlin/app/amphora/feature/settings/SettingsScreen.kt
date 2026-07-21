@@ -26,7 +26,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Settings (scaffold)")
+            Text("No settings yet.")
             Button(onClick = onBack) { Text("Back") }
         }
     }

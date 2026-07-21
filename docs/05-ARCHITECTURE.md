@@ -52,8 +52,8 @@ Hilt 绑定集中在 `EngineModule`；三个 sibling 接口已无 stub。
 
 ```
 MainActivity → AmphoraNavHost
-  ├─ [debug] 直接 game_session(notepad.exe)     ← 当前默认，便于真机迭代
-  └─ [正常]  launcher → SAF .exe → filesDir/exe/ → game_session
+  ├─ [默认] launcher → SAF .exe → filesDir/exe/ → game_session
+  └─ [测试] Debug: Notepad 按钮 / DEBUG_AUTO_LAUNCH_NOTEPAD=true → notepad session
 
 GameSessionViewModel
   → WineEngine.launch(LaunchSpec)   // MVP 容器 id = "1"
@@ -145,8 +145,8 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 ## 9. 当前缺口（v0.2+ 候选）
 
-- 恢复 `AmphoraNavHost` 默认 `LauncherRoute`（去掉 debug notepad 直启）
 - `:feature:settings` 实质项；键盘/手柄；音频音量接线
 - Present/DRI3 完善；`RemoteContentSource`；多容器/prefix
+- WinHandler / 手柄 / 录制等 RFC §7 stub 依赖图清理
 - Proton 11 自建（见 `RESEARCH-proton-wine-selfbuild.md`）
 - targetSdk 上探（须先把可执行文件迁到可 exec 位置）

@@ -56,35 +56,6 @@ public class XServerSurfaceView extends TextureView implements TextureView.Surfa
         setSurfaceTextureListener(this);
     }
 
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        android.util.Log.i("AMP_SURFACE", "onAttachedToWindow w=" + getWidth() + " h=" + getHeight()
-                + " visible=" + isShown() + " windowToken=" + getWindowToken()
-                + " surfaceTexture=" + getSurfaceTexture());
-    }
-
-    @Override
-    protected void onMeasure(int widthMeasureSpec, int widthMeasureSpec2) {
-        super.onMeasure(widthMeasureSpec, widthMeasureSpec2);
-        android.util.Log.i("AMP_SURFACE", "onMeasure => " + getMeasuredWidth() + "x" + getMeasuredHeight()
-                + " spec=" + MeasureSpec.toString(widthMeasureSpec) + "/" + MeasureSpec.toString(widthMeasureSpec2));
-    }
-
-    @Override
-    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        super.onLayout(changed, left, top, right, bottom);
-        android.util.Log.i("AMP_SURFACE", "onLayout " + left + "," + top + "-" + right + "," + bottom
-                + " surfaceTexture=" + getSurfaceTexture());
-    }
-
-    @Override
-    protected void onWindowVisibilityChanged(int visibility) {
-        super.onWindowVisibilityChanged(visibility);
-        android.util.Log.i("AMP_SURFACE", "onWindowVisibilityChanged vis=" + visibility
-                + " (" + (visibility == 0 ? "VISIBLE" : visibility == 4 ? "INVISIBLE" : "GONE") + ")");
-    }
-
     public VulkanRenderer getRenderer() {
         return renderer;
     }
@@ -306,9 +277,21 @@ public class XServerSurfaceView extends TextureView implements TextureView.Surfa
             }
             if (!running) break;
             if (event != null) {
-                try { event.run(); } catch (Throwable ignore) {}
+                try {
+                    event.run();
+                } catch (Error e) {
+                    throw e;
+                } catch (Throwable t) {
+                    android.util.Log.e("AMP_SURFACE", "render event failed", t);
+                }
             } else if (draw) {
-                try { renderer.onDrawFrame(); } catch (Throwable ignore) {}
+                try {
+                    renderer.onDrawFrame();
+                } catch (Error e) {
+                    throw e;
+                } catch (Throwable t) {
+                    android.util.Log.e("AMP_SURFACE", "onDrawFrame failed", t);
+                }
             }
         }
         renderer.onSurfaceDestroyed();

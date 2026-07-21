@@ -17,8 +17,9 @@
 - ✅ 资产获取轨: `winlator-imagefs` clone (cnb.cool/atowerlight, 构建配方) + imagefs.tzst 真资产 (WinNative Git LFS, 190MB, SHA `0902e324...`, Bionic) + box64/Turnip/DXVK 全资产 SHA 锁 (`docs/04-ASSET-MANIFEST.md`); 真机 (Lenovo TB322FC / Adreno 830 / arm64-v8a / API 36) rootfs 提取 instrumented 验证通过 (877MB Bionic rootfs, 27,614 条目, 1.5s).
 - ✅ P3 已落地并提交 (`2a2078a`+`0404922`, compile-only): `WineEngineImpl.launch` 真接线 (XSDA `setupXEnvironment` L6439 移植 -- RootfsInstaller->ContainerManager->Preparer->resolveWinNativeContainer->`XServer`->`EnvVars`->`XEnvironment`+components->`startEnvironmentComponents`, 剥 Steam/shortcut/recording/arm64ec/WinHandler); `XServerSessionHandle` (pause/resume/stop via XEnvironment+ProcessHelper, teardownOnce); 真 sinks (`XServerInputSink`/`XServerAudioSink`); `GameSessionSurfaceProvider` 暴露 `XServer` (WineEngine 接口保 kernel-free); `GameSessionScreen` (AndroidView{`XServerSurfaceView`}+`TouchInputOverlay`+生命周期, D9 XSDA 重写); `GameSessionViewModel` (launch/stop/pause/resume, Throwable 边界)。`./gradlew :app:assembleDebug` 绿, `:core:content`/`:core:common` test 绿。launch 在 P4 container stub 抛, 端到端验待 P4。
 - ✅ P4 已落地并提交 (`fdaa4e8`, `:app:assembleDebug` 绿): `:core:container` `ContainerManager` 真实现 = `WinlatorContainerManager` (`:core:engine`, DIP 桥); launcher SAF `.exe` picker + 分辨率; exe 进 `drive_c` 跑 `C:\<name>`; syncContents gap 修复; **零 stub 剩余**.
-- ✅ **RFC §8 真机验收通过** (2026-07-21): 启动 Windows `.exe` → Vulkan Wine desktop 有画面 + 相对触控。P4 后关键修复见上 (DXVK WCP / host-guest Vulkan / surface+touch)。debug `AmphoraNavHost` 当前直启 `notepad.exe` 便于迭代。
-- ⏭ 下一步 (v0.2 候选): 恢复默认 `LauncherRoute`; settings 实质项; 键盘/手柄; 音频音量接线; Present/DRI3 完善; 去掉 debug 直启。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
+- ✅ **RFC §8 真机验收通过** (2026-07-21): 启动 Windows `.exe` → Vulkan Wine desktop 有画面 + 相对触控。P4 后关键修复见上 (DXVK WCP / host-guest Vulkan / surface+touch)。
+- ✅ 残留清理 (2026-07-21): 默认 `LauncherRoute`; notepad 测试路径保留 (launcher **Debug: Notepad** + `DEBUG_AUTO_LAUNCH_NOTEPAD`); 删 Graphics-Test staging / `StubAudioSink` / 空 `SettingsViewModel`; surface 渲染异常改记日志。
+- ⏭ 下一步 (v0.2 候选): settings 实质项; 键盘/手柄; 音频音量接线; Present/DRI3 完善; WinHandler/手柄 stub 依赖图清理。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
 |---|---|

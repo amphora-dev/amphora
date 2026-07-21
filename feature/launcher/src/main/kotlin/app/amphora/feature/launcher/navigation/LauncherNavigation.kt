@@ -9,11 +9,13 @@ const val LauncherRoute = "launcher"
 fun NavGraphBuilder.launcherScreen(
     onLaunch: (exePath: String, width: Int, height: Int) -> Unit,
     onOpenSettings: () -> Unit,
+    onDebugLaunchNotepad: (() -> Unit)? = null,
 ) {
     composable(route = LauncherRoute) {
         LauncherScreen(
             onLaunch = onLaunch,
             onOpenSettings = onOpenSettings,
+            onDebugLaunchNotepad = onDebugLaunchNotepad,
         )
     }
 }
