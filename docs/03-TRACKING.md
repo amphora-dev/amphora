@@ -24,6 +24,7 @@
 - ✅ fakeinput 裁剪 + BuildConfig/R 收敛: GPLC 不再 copy/LD_PRELOAD `libfakeinput` / FAKE_EVDEV/udev; CMake 停编 fakeinput; 删 `FakeInputWriter` + 手写 `BuildConfig`; Vulkan validation 改读 `FLAG_DEBUGGABLE`; preset/拷贝文案硬编码，避开假 `R` ID。
 - ✅ 假 `R` 死 UI 闭包: 删手写 `R.java` + `DownloadProgressDialog`/`MultiSelectionComboBox`/`HttpUtils`/`AppUtils`; `ImageFsInstaller` 仅留 `LATEST_VERSION`; wallpaper 改纯色回退; Box64/FEX 去掉 Spinner/import-export 死路径。
 - ✅ MVP 再削: `WineThemeManager` 仅留默认串; 删 `MSBitmap`/`LogManager`/`CPUStatus`/`UnitUtils`/`fakeinput.cpp`; Box64/FEX 仅留 `getEnvVars`; 去掉 pulseaudio.tzst 旁路提取 + manifest `audio_plugin`（MVP ALSA-only，aserver 在 imagefs）。`:feature:settings` **保留**（v0.2 实质项）。
+- ✅ 内核再削 (2026-07-21): 删 Shortcut / PE 图标 / WineThemeManager / EffectComposer；GPLC 去 shortcut 与浏览器/剪贴板 prefs；ContainerManager 去 duplicate/shortcuts；ContentsManager 去 remote profiles；`NativeContentIO` 去 download JNI 包装；`AssetPaths` 仅留 GPU_CARDS+WINE_STARTMENU；un-include `:core:ui`（目录保留）。
 - ⏭ 下一步 (v0.2 候选): settings 实质项; 键盘/手柄(真实现); 音频音量接线; Present/DRI3 完善。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
@@ -31,7 +32,7 @@
 | AGP / Gradle / Kotlin / KSP | 9.2.1 / 9.4.1 / 2.3.21 / 2.3.9 |
 | Hilt / Compose BOM | 2.59.2 / 2026.06.01 |
 | compileSdk / targetSdk / minSdk / NDK | 37 / **28** / 26 / r28 (28.0.13004108) — targetSdk 28 因 `filesDir` 执行 box64/Wine (SELinux) |
-| 包名 / 模块数 | `app.amphora` / 10 模块 + build-logic |
+| 包名 / 模块数 | `app.amphora` / 9 模块 + build-logic（`core/ui` 目录保留但未 include） |
 | 架构文档 | [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) |
 
 ---

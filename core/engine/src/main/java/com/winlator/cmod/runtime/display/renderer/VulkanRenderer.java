@@ -11,7 +11,6 @@ import android.view.Choreographer;
 import android.view.Surface;
 import androidx.preference.PreferenceManager;
 import com.winlator.cmod.runtime.system.ApplicationLogGate;
-import com.winlator.cmod.runtime.display.renderer.effects.Effect;
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView;
 import com.winlator.cmod.runtime.display.xserver.Bitmask;
 import com.winlator.cmod.runtime.display.xserver.Cursor;
@@ -52,7 +51,6 @@ public class VulkanRenderer
     // Must be set before attachSurface — nativeCreate reads it once at instance creation.
     private volatile String graphicsDriverName = null;
 
-    private final EffectComposer effectComposer;
     public final ViewTransformation viewTransformation = new ViewTransformation();
 
     private final Drawable rootCursorDrawable;
@@ -119,15 +117,12 @@ public class VulkanRenderer
 
     // Reusable scratch — sized once, refilled per frame.
     private final float[] sceneXform = XForm.getInstance();
-    // Effect.writeParams writes into a float[]; we copy into the ByteBuffer afterwards.
-    private final float[] effectParamsScratch = new float[MAX_EFFECTS * 4];
 
     private final AtomicBoolean destroyed = new AtomicBoolean(false);
 
     public VulkanRenderer(XServerSurfaceView view, XServer xServer) {
         this.xServerView = view;
         this.xServer = xServer;
-        this.effectComposer = new EffectComposer(this);
         this.rootCursorDrawable = createRootCursorDrawable();
     }
 
@@ -550,18 +545,7 @@ public class VulkanRenderer
         buf.putInt(OFF_SOURCE_W, sourceW);
         buf.putInt(OFF_SOURCE_H, sourceH);
 
-        Effect[] active = effectComposer.snapshot();
-        int effectCount = Math.min(active.length, MAX_EFFECTS);
-        buf.putInt(OFF_EFFECT_COUNT, effectCount);
-        for (int i = 0; i < effectCount; i++) {
-            buf.putInt(OFF_EFFECT_TYPES + i * 4, active[i].getNativeType());
-            active[i].writeParams(effectParamsScratch, i * 4);
-            int pOff = OFF_EFFECT_PARAMS + i * 16;
-            buf.putFloat(pOff,      effectParamsScratch[i * 4]);
-            buf.putFloat(pOff + 4,  effectParamsScratch[i * 4 + 1]);
-            buf.putFloat(pOff + 8,  effectParamsScratch[i * 4 + 2]);
-            buf.putFloat(pOff + 12, effectParamsScratch[i * 4 + 3]);
-        }
+        buf.putInt(OFF_EFFECT_COUNT, 0);
 
         nativeSetScene(nativeHandle, buf);
         // nativeSetFpsLimit is a native no-op (pacing is done elsewhere); not called per frame.
@@ -672,8 +656,6 @@ public class VulkanRenderer
     }
 
     // ----- Public API -------------------------------------------------------
-
-    public EffectComposer getEffectComposer() { return effectComposer; }
 
     public void onXServerScreenChanged() {
         int oldViewWidth = viewTransformation.viewWidth;

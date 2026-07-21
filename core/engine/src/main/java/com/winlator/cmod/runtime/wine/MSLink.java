@@ -1,8 +1,5 @@
 package com.winlator.cmod.runtime.wine;
 
-import android.content.Context;
-import com.winlator.cmod.runtime.container.Container;
-import com.winlator.cmod.runtime.display.environment.ImageFs;
 import com.winlator.cmod.shared.util.ArrayUtils;
 import com.winlator.cmod.shared.util.StringUtils;
 import java.io.DataInputStream;
@@ -10,7 +7,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -221,110 +217,5 @@ public abstract class MSLink {
     }
 
     return filePath;
-  }
-
-  public static boolean createDesktopFile(File lnkFile, Context context) {
-    return createDesktopFile(lnkFile, context, null);
-  }
-
-  public static boolean createDesktopFile(File lnkFile, Context context, Container container) {
-    String lnkFilePath = lnkFile.getPath();
-    String windowsPath = parseFilePath(lnkFile);
-    if (windowsPath == null || windowsPath.isEmpty()) return false;
-
-    String filePath = StringUtils.escapeDOSPath(windowsPath);
-    ImageFs imageFs = ImageFs.find(context);
-    
-    // Determine the prefix and native path for C drive games
-    String winePrefix = imageFs.wineprefix;
-    File exeFile = WineUtils.getNativePath(container, imageFs, windowsPath);
-
-    if (windowsPath.matches("^[cC]:.*")) {
-      File containerRootDir = container != null ? container.getRootDir() : new File(imageFs.getRootDir(), "home/" + ImageFs.USER);
-      winePrefix = new File(containerRootDir, ".wine").getAbsolutePath();
-
-      // PEACFUL UPGRADE: If getNativePath failed (common during first creation),
-      // calculate the Absolute Android Path math immediately so we have the parent folder.
-      if (exeFile == null || !exeFile.exists()) {
-        String relPath = windowsPath.substring(2).replace("\\", "/");
-        while (relPath.startsWith("/")) relPath = relPath.substring(1);
-        exeFile = new File(containerRootDir, ".wine/drive_c/" + relPath);
-      }
-    } else if (windowsPath.matches("^[zZ]:.*")) {
-      File containerRootDir = container != null ? container.getRootDir() : new File(imageFs.getRootDir(), "home/" + ImageFs.USER);
-      winePrefix = new File(containerRootDir, ".wine").getAbsolutePath();
-
-      if (exeFile == null || !exeFile.exists()) {
-        String relPath = windowsPath.substring(2).replace("\\", "/");
-        while (relPath.startsWith("/")) relPath = relPath.substring(1);
-        exeFile = new File(imageFs.getRootDir(), relPath);
-      }
-    }
-
-    File desktopFile =
-        new File(lnkFilePath.substring(0, lnkFilePath.lastIndexOf(".")) + ".desktop");
-    String name = lnkFile.getName().substring(0, lnkFile.getName().lastIndexOf("."));
-
-    // Smart Discovery (Synchronized like main):
-    String customLibraryIconPath = "";
-    if (exeFile != null && exeFile.exists()) {
-      String safeName =
-          lnkFile
-              .getName()
-              .substring(0, lnkFile.getName().lastIndexOf("."))
-              .replace("/", "_")
-              .replace("\\", "_");
-      File iconOutFile = new File(context.getFilesDir(), "custom_icons/" + safeName + ".png");
-
-      if (PeIconExtractor.INSTANCE.extractAndSave(exeFile, iconOutFile)) {
-        customLibraryIconPath = iconOutFile.getAbsolutePath();
-      }
-    }
-
-    // SILENT MERGE: If Wine created a file, read it first so we don't destroy its data.
-    java.util.ArrayList<String> lines = new java.util.ArrayList<>();
-    if (desktopFile.exists()) {
-        for (String line : com.winlator.cmod.shared.io.FileUtils.readLines(desktopFile)) {
-            if (line.contains("[Extra Data]")) break;
-            lines.add(line);
-        }
-    } else {
-        lines.add("[Desktop Entry]");
-        lines.add("Name=" + name);
-        lines.add("Exec=env WINEPREFIX=\"" + winePrefix + "\" wine " + filePath);
-        lines.add("Type=Application");
-        lines.add("Icon=custom_game");
-        lines.add("StartupNotify=True");
-    }
-
-    try (FileOutputStream fos = new FileOutputStream(desktopFile);
-        PrintWriter pw = new PrintWriter(fos)) {
-      for (String line : lines) pw.write(line + "\n");
-
-      // Merge our working metadata into the file
-      pw.write("\n[Extra Data]\n");
-      pw.write("game_source=CUSTOM\n");
-      pw.write("custom_name=" + name + "\n");
-      pw.write("use_container_defaults=1\n");
-      if (container != null) pw.write("container_id=" + container.id + "\n");
-
-      // Write Absolute Android Paths immediately so the launcher never says "Path not found"
-      if (exeFile != null) {
-        pw.write("custom_exe=" + exeFile.getAbsolutePath() + "\n");
-        pw.write("launch_exe_path=" + exeFile.getAbsolutePath() + "\n");
-        File parent = exeFile.getParentFile();
-        if (parent != null) pw.write("custom_game_folder=" + parent.getAbsolutePath() + "\n");
-      } else {
-        pw.write("custom_exe=" + windowsPath + "\n");
-        pw.write("launch_exe_path=" + windowsPath + "\n");
-      }
-      
-      if (!customLibraryIconPath.isEmpty()) {
-        pw.write("customCoverArtPath=" + customLibraryIconPath + "\n");
-      }
-      return true;
-    } catch (IOException e) {
-      return false;
-    }
   }
 }

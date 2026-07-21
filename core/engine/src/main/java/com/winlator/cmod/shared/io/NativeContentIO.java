@@ -33,21 +33,6 @@ public final class NativeContentIO {
     return nativeExtractAsset(type, assetManager, assetFile, destination.getAbsolutePath(), listener);
   }
 
-  public static boolean downloadFile(
-      String address, File destination, String caBundlePath, Object progressListener) {
-    if (address == null || address.isEmpty() || destination == null) return false;
-    return nativeDownloadFile(
-        address,
-        destination.getAbsolutePath(),
-        caBundlePath != null ? caBundlePath : "",
-        progressListener);
-  }
-
-  public static long fetchContentLength(String address, String caBundlePath) {
-    if (address == null || address.isEmpty()) return -1L;
-    return nativeFetchContentLength(address, caBundlePath != null ? caBundlePath : "");
-  }
-
   private static native boolean nativeExtractArchive(
       int type, String sourcePath, String destinationPath, OnExtractFileListener listener);
 
@@ -57,9 +42,4 @@ public final class NativeContentIO {
       String assetFile,
       String destinationPath,
       OnExtractFileListener listener);
-
-  private static native boolean nativeDownloadFile(
-      String address, String destinationPath, String caBundlePath, Object progressListener);
-
-  private static native long nativeFetchContentLength(String address, String caBundlePath);
 }

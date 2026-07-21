@@ -29,7 +29,6 @@ android {
 dependencies {
     implementation(project(":feature:launcher"))
     implementation(project(":feature:settings"))
-    implementation(project(":core:ui"))
     implementation(project(":core:common"))
     implementation(project(":core:engine"))
 

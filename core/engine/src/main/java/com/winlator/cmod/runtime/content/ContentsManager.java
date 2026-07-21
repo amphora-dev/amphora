@@ -25,8 +25,6 @@ import org.json.JSONObject;
 
 public class ContentsManager {
   public static final String PROFILE_NAME = "profile.json";
-  public static final String REMOTE_PROFILES =
-      "https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/main/contents.json";
   private static final long EXTRACTION_PROGRESS_INTERVAL_MS = 120L;
   public static final String[] DXVK_TRUST_FILES = {
     "${system32}/d3d8.dll",
@@ -94,7 +92,6 @@ public class ContentsManager {
 
   private HashMap<ContentProfile.ContentType, List<ContentProfile>> profilesMap;
 
-  private ArrayList<ContentProfile> remoteProfiles;
 
   public ContentsManager(Context context) {
     this.context = context;
@@ -125,30 +122,6 @@ public class ContentsManager {
     default void onByteProgress(long bytesExtracted) {}
   }
 
-  public void setRemoteProfiles(String json) {
-    try {
-      remoteProfiles = new ArrayList<>();
-      JSONArray content = new JSONArray(json);
-      for (int i = 0; i < content.length(); i++) {
-        try {
-          JSONObject object = content.getJSONObject(i);
-          ContentProfile remoteProfile = new ContentProfile();
-          remoteProfile.remoteUrl = object.getString("remoteUrl");
-          remoteProfile.type = ContentProfile.ContentType.getTypeByName(object.getString("type"));
-          remoteProfile.verName = object.getString("verName");
-          remoteProfile.verCode = object.getInt("verCode");
-          remoteProfile.isOfficial =
-              parseOfficialFlag(object.opt(ContentProfile.MARK_OFFICIAL));
-          remoteProfiles.add(remoteProfile);
-        } catch (JSONException e) {
-          e.printStackTrace();
-        }
-      }
-    } catch (JSONException e) {
-      e.printStackTrace();
-    }
-    syncContents();
-  }
 
   /**
    * Interprets the optional "official" marker. Accepts a string ("1"/"true"/"yes"), a number
@@ -199,33 +172,6 @@ public class ContentsManager {
             profile.isInstalled = true;
             mergedProfiles.put(getProfileKey(profile), profile);
             Log.d("ContentsManager", "Local profile loaded: " + profile.verName);
-          }
-        }
-      }
-
-      // Add remote profiles for this type
-      if (remoteProfiles != null) {
-        for (ContentProfile remote : remoteProfiles) {
-          if (remote.type == type) {
-            remote.isInstalled = isInstalled(context, remote);
-
-            String aliasProfileKey = getRemoteProfileAlias(remote.remoteUrl);
-            if (aliasProfileKey != null) {
-              ContentProfile aliasedProfile = mergedProfiles.get(aliasProfileKey);
-              if (aliasedProfile != null && aliasedProfile.isInstalled) {
-                mergeRemoteMetadata(aliasedProfile, remote);
-                continue;
-              }
-            }
-
-            String profileKey = getProfileKey(remote);
-            ContentProfile existingProfile = mergedProfiles.get(profileKey);
-            if (existingProfile == null) {
-              mergedProfiles.put(profileKey, remote);
-              Log.d("ContentsManager", "Remote profile added: " + remote.verName);
-            } else {
-              mergeRemoteMetadata(existingProfile, remote);
-            }
           }
         }
       }
@@ -654,16 +600,6 @@ public class ContentsManager {
     return profile.type.toString() + '-' + profile.verName + '-' + profile.verCode;
   }
 
-  public void registerRemoteProfileAlias(String remoteUrl, ContentProfile profile) {
-    if (remoteUrl == null || remoteUrl.isEmpty() || profile == null) {
-      return;
-    }
-    preferences
-        .edit()
-        .putString(getRemoteAliasPreferenceKey(remoteUrl), getProfileKey(profile))
-        .apply();
-  }
-
   private static String getProfileKey(ContentProfile profile) {
     return getProfileKey(profile.type, profile.verName, profile.verCode);
   }
@@ -671,31 +607,6 @@ public class ContentsManager {
   private static String getProfileKey(
       ContentProfile.ContentType type, String verName, int verCode) {
     return type + "|" + verName + "|" + verCode;
-  }
-
-  private void mergeRemoteMetadata(ContentProfile localProfile, ContentProfile remoteProfile) {
-    if (localProfile.remoteUrl == null) {
-      localProfile.remoteUrl = remoteProfile.remoteUrl;
-    }
-    if (remoteProfile.isOfficial) {
-      localProfile.isOfficial = true;
-    }
-    localProfile.isInstalled = true;
-  }
-
-  public boolean isRemoteUrlInstalled(String remoteUrl) {
-    return getRemoteProfileAlias(remoteUrl) != null;
-  }
-
-  private String getRemoteProfileAlias(String remoteUrl) {
-    if (remoteUrl == null || remoteUrl.isEmpty()) {
-      return null;
-    }
-    return preferences.getString(getRemoteAliasPreferenceKey(remoteUrl), null);
-  }
-
-  private String getRemoteAliasPreferenceKey(String remoteUrl) {
-    return "remote_profile_alias_" + remoteUrl;
   }
 
   private ContentProfile createInstalledFallbackProfile(

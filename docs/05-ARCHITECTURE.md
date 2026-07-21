@@ -17,7 +17,6 @@ Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 
 :app
 ├─ :feature:launcher      SAF 选 .exe + 分辨率 → 导航到会话
 ├─ :feature:settings      设置页骨架（无实质项）
-├─ :core:ui               Compose 库位（当前几乎空；主题在 :app）
 └─ :core:engine           ★ 架构核心
    ├─ api  → :core:common, :core:content, :core:container
    └─ impl → :core:native, :core:rootfs
@@ -28,6 +27,8 @@ Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 
         ├─ :core:native      libwinlator.so（arm64-v8a；fakeinput 已停编）
         └─ :core:common      协程 / AppResult
 ```
+
+`core/ui/` 仍在磁盘（`build.gradle` 保留便于再加），但 **未** `include(":core:ui")`。
 
 `build-logic`（included build）提供 convention 插件：`amphora.android.{application,library,compose,hilt,native,feature}` + `amphora.content.staging`。
 
@@ -86,14 +87,14 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
 | Guest 图形 | Turnip wrapper ICD + DXVK 3.0.2 gplasync | host renderer 与 guest 共用 adrenotools-wrapped driver |
 
-已知裁剪：无 OSK/字符注入；音频 `setVolume` 未接真实 `AudioTrack`；Present idle 尚未按 GPU release fence 精确门控。
+已知裁剪：无 OSK/字符注入；音频 `setVolume` 未接真实 `AudioTrack`；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 
 ---
 
 ## 5. 内容与资产
 
 - **真源**：`core/content/src/main/assets/content_manifest.json`（派生自 `04-ASSET-MANIFEST.md`）
-- **组件**：Wine Proton / Box64 / Turnip wrapper / DXVK（ROOTFS 由 `RootfsInstaller` 独占；ALSA aserver 随 imagefs；`AUDIO_PLUGIN`/`pulseaudio.tzst` 未入 manifest）
+- **组件**：Wine Proton / Box64 / Turnip wrapper / DXVK（ROOTFS 由 `RootfsInstaller` 独占；ALSA aserver 随 imagefs；pulseaudio.tzst 未入 manifest）
 - **安装路径**：
   - `WCP` → `ContentsManager.extraContentFile` + `finishInstallContent` → `filesDir/contents/...`
   - `ARCHIVE` → `TarCompressorUtils` → `filesDir/amphora-content/<component>/<version>/`

@@ -7,7 +7,6 @@ import android.util.Log;
 import com.winlator.cmod.runtime.content.ContentProfile;
 import com.winlator.cmod.runtime.content.ContentsManager;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
-import com.winlator.cmod.runtime.wine.MSLink;
 import com.winlator.cmod.runtime.wine.WineInfo;
 import com.winlator.cmod.runtime.wine.WineUtils;
 import com.winlator.cmod.shared.io.FileUtils;
@@ -17,17 +16,11 @@ import com.winlator.cmod.shared.util.OnExtractFileListener;
 import java.io.File;
 import java.io.RandomAccessFile;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 public class ContainerManager {
-  private static final AtomicBoolean shortcutUpgradeRunning = new AtomicBoolean(false);
-  private static final AtomicBoolean shortcutUpgradeAttempted = new AtomicBoolean(false);
-
   private final ArrayList<Container> containers = new ArrayList<>();
   private int maxContainerId = 0;
   private final File homeDir;
@@ -183,24 +176,6 @@ public class ContainerManager {
             });
   }
 
-  public void duplicateContainerAsync(Container container, Runnable callback) {
-    duplicateContainerAsync(container, null, callback);
-  }
-
-  public void duplicateContainerAsync(
-      Container container, Callback<Integer> progressCallback, Runnable callback) {
-    final Handler handler = new Handler(Looper.getMainLooper());
-    Executors.newSingleThreadExecutor()
-        .execute(
-            () -> {
-              Callback<Integer> uiProgress =
-                  progressCallback != null
-                      ? progress -> handler.post(() -> progressCallback.call(progress))
-                      : null;
-              duplicateContainer(container, uiProgress);
-              handler.post(callback);
-            });
-  }
 
   public void removeContainerAsync(Container container, Runnable callback) {
     final Handler handler = new Handler(Looper.getMainLooper());
@@ -334,57 +309,6 @@ public class ContainerManager {
     return firstDash >= 0 ? entryName.substring(firstDash + 1) : entryName;
   }
 
-  private void duplicateContainer(Container srcContainer) {
-    duplicateContainer(srcContainer, null);
-  }
-
-  private void duplicateContainer(Container srcContainer, Callback<Integer> progressCallback) {
-    int id = maxContainerId + 1;
-
-    File dstDir = new File(homeDir, ImageFs.USER + "-" + id);
-    if (!dstDir.mkdirs()) return;
-
-    final int totalFiles = FileUtils.countFiles(srcContainer.getRootDir());
-    final int[] copiedFiles = {0};
-
-    if (!FileUtils.copy(
-        srcContainer.getRootDir(),
-        dstDir,
-        file -> {
-          FileUtils.chmod(file, 0771);
-          if (progressCallback != null && totalFiles > 0) {
-            copiedFiles[0]++;
-            int pct = Math.min(100, (copiedFiles[0] * 100) / totalFiles);
-            progressCallback.call(pct);
-          }
-        })) {
-      FileUtils.delete(dstDir);
-      return;
-    }
-
-    Container dstContainer = new Container(id, this);
-    dstContainer.setRootDir(dstDir);
-    dstContainer.setName(
-        srcContainer.getName() + " (Copy)");
-    dstContainer.setScreenSize(srcContainer.getScreenSize());
-    dstContainer.setEnvVars(srcContainer.getEnvVars());
-    dstContainer.setCPUList(srcContainer.getCPUList());
-    dstContainer.setCPUListWoW64(srcContainer.getCPUListWoW64());
-    dstContainer.setGraphicsDriver(srcContainer.getGraphicsDriver());
-    dstContainer.setDXWrapper(srcContainer.getDXWrapper());
-    dstContainer.setDXWrapperConfig(srcContainer.getDXWrapperConfig());
-    dstContainer.setAudioDriver(srcContainer.getAudioDriver());
-    dstContainer.setWinComponents(srcContainer.getWinComponents());
-    dstContainer.setDrives(srcContainer.getDrives());
-    dstContainer.setStartupSelection(srcContainer.getStartupSelection());
-    dstContainer.setBox64Preset(srcContainer.getBox64Preset());
-    dstContainer.setDesktopTheme(srcContainer.getDesktopTheme());
-    dstContainer.setWineVersion(srcContainer.getWineVersion());
-    dstContainer.saveData();
-
-    maxContainerId++;
-    containers.add(dstContainer);
-  }
 
   private void removeContainer(Container container) {
     // MN-2: deletes the whole container including in-prefix game saves (drive_c/users, Steam userdata); log here so the deletion is visible even on the non-interactive deleteContainer path.
@@ -395,71 +319,7 @@ public class ContainerManager {
     if (FileUtils.delete(container.getRootDir())) containers.remove(container);
   }
 
-  public ArrayList<Shortcut> loadShortcuts() {
-    ArrayList<Shortcut> shortcuts = new ArrayList<>();
-    for (Container container : containers) {
-      File desktopDir = container.getDesktopDir();
-      ArrayList<File> files = new ArrayList<>();
-      if (desktopDir.exists()) files.addAll(Arrays.asList(desktopDir.listFiles()));
-      if (files != null) {
-        for (File file : files) {
-          String fileName = file.getName();
-          if (fileName.endsWith(".lnk")) {
-            String filePath = file.getPath();
-            File desktopFile =
-                new File(filePath.substring(0, filePath.lastIndexOf(".")) + ".desktop");
-            if (!desktopFile.exists()) {
-              MSLink.createDesktopFile(file, context, container);
-              shortcuts.add(new Shortcut(container, desktopFile));
-            }
-          } else if (fileName.endsWith(".desktop")) {
-            shortcuts.add(new Shortcut(container, file));
-          }
-        }
-      }
-    }
 
-    shortcuts.sort(Comparator.comparing(a -> a.name));
-    return shortcuts;
-  }
-
-  public void upgradeShortcuts(final Runnable onDone) {
-    if (!shortcutUpgradeRunning.compareAndSet(false, true)) return;
-
-    new Thread(() -> {
-        try {
-            boolean changed = false;
-            for (Container container : getContainers()) {
-                File desktopDir = container.getDesktopDir();
-                if (!desktopDir.exists()) continue;
-                File[] files = desktopDir.listFiles();
-                if (files == null) continue;
-                for (File file : files) {
-                    if (file.getName().endsWith(".lnk")) {
-                        File desktopFile = new File(file.getPath().substring(0, file.getPath().lastIndexOf(".")) + ".desktop");
-                        boolean needsUpgrade = true;
-                        if (desktopFile.exists()) {
-                            String content = FileUtils.readString(desktopFile);
-                            if (content != null && content.contains("game_source=CUSTOM")) {
-                                needsUpgrade = false;
-                            }
-                        }
-                        if (needsUpgrade) {
-                            if (MSLink.createDesktopFile(file, context, container)) {
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-            if (changed && onDone != null) {
-                new Handler(Looper.getMainLooper()).post(onDone);
-            }
-        } finally {
-            shortcutUpgradeRunning.set(false);
-        }
-    }, "ShortcutUpgrade").start();
-  }
 
   public int getNextContainerId() {
     return maxContainerId + 1;
@@ -845,14 +705,6 @@ public class ContainerManager {
     return FileUtils.copy(source, target);
   }
 
-  public Container getContainerForShortcut(Shortcut shortcut) {
-    for (Container container : containers) {
-      if (container.id == shortcut.getContainerId()) {
-        return container;
-      }
-    }
-    return null;
-  }
 
   private void runOnUiThread(Runnable action) {
     new Handler(Looper.getMainLooper()).post(action);

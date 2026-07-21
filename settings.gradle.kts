@@ -22,7 +22,6 @@ rootProject.name = "Amphora"
 
 include(":app")
 include(":core:common")
-include(":core:ui")
 include(":core:native")
 include(":core:rootfs")
 include(":core:content")

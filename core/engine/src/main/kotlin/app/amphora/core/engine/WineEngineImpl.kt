@@ -252,10 +252,9 @@ class WineEngineImpl @Inject constructor(
         spec: LaunchSpec,
         envVars: EnvVars,
     ): GuestProgramLauncherComponent {
-        // wineProfile may be null (falls back to imageFs.getWinePath() inside the launcher);
-        // shortcut is null - Amphora has no shortcuts (D9 stripped).
+        // wineProfile may be null (falls back to imageFs.getWinePath() inside the launcher).
         val wineProfile = contentsManager.getProfileByEntryName(container.getWineVersion())
-        val launcher = GuestProgramLauncherComponent(contentsManager, wineProfile, null)
+        val launcher = GuestProgramLauncherComponent(contentsManager, wineProfile)
         launcher.setContainer(container)
         launcher.setWineInfo(wineInfo)
         // Stage the picked exe into the container's C: drive (drive_c) and launch it as a

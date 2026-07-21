@@ -12,7 +12,6 @@ import com.winlator.cmod.runtime.compat.box64.Box64PresetManager;
 import com.winlator.cmod.runtime.compat.fexcore.FEXCorePreset;
 import com.winlator.cmod.runtime.compat.fexcore.FEXCorePresetManager;
 import com.winlator.cmod.runtime.container.Container;
-import com.winlator.cmod.runtime.container.Shortcut;
 import com.winlator.cmod.runtime.content.ContentProfile;
 import com.winlator.cmod.runtime.content.ContentsManager;
 import com.winlator.cmod.runtime.display.connector.UnixSocketConfig;
@@ -51,7 +50,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
   private final ContentsManager contentsManager;
   private final ContentProfile wineProfile;
   private Container container;
-  private final Shortcut shortcut;
   private File workingDir;
   private Runnable preUnpackCallback;
   private boolean fexUnixLibsActive = false;
@@ -222,7 +220,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
     if (!"1".equals(envVars.get("PROTON_NO_ESYNC"))) envVars.put("WINEESYNC_WINLATOR", "1");
     mergeExternalEnvVars(envVars, envVars.get("LD_PRELOAD"));
-    FEXCorePresetManager.normalizeSmcChecksEnvVars(envVars, this.envVars);
+    if (wineInfo != null && wineInfo.isArm64EC()) {
+      FEXCorePresetManager.normalizeSmcChecksEnvVars(envVars, this.envVars);
+    }
 
     // For arm64ec Wine builds the wine binary is native ARM64 — call it directly
     // with a fully-qualified path. Wrapping with box64 causes it to fail ELF
@@ -309,8 +309,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     String box64Version = container.getBox64Version();
     if (box64Version == null) box64Version = "";
 
-    if (shortcut != null) box64Version = shortcut.getSettingExtra("box64Version", box64Version);
-
     Log.i(
         "GuestProgramLauncherComponent",
         "Launch runtime selected: Box64 version=" + box64Version);
@@ -367,13 +365,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     if (fexcoreVersion == null) fexcoreVersion = "";
 
     boolean unixLibsPref = container.isUseUnixLibs();
-    if (shortcut != null) {
-      emulator = shortcut.getSettingExtra("emulator", emulator);
-      emulator64 = shortcut.getSettingExtra("emulator64", emulator64);
-      wowbox64Version = shortcut.getSettingExtra("box64Version", wowbox64Version);
-      fexcoreVersion = shortcut.getSettingExtra("fexcoreVersion", fexcoreVersion);
-      unixLibsPref = "1".equals(shortcut.getSettingExtra("useUnixLibs", unixLibsPref ? "1" : "0"));
-    }
 
     boolean usesWowbox64 = emulator.equalsIgnoreCase("wowbox64");
     boolean usesFexcore =
@@ -482,10 +473,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
   }
 
   public GuestProgramLauncherComponent(
-      ContentsManager contentsManager, ContentProfile wineProfile, Shortcut shortcut) {
+      ContentsManager contentsManager, ContentProfile wineProfile) {
     this.contentsManager = contentsManager;
     this.wineProfile = wineProfile;
-    this.shortcut = shortcut;
   }
 
 
@@ -756,25 +746,19 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         && (container == null || !"wowbox64".equalsIgnoreCase(container.getEmulator()));
     boolean enableBox64Logs = emulatorLogs && !fexLogActive;
     boolean enableFexcoreLogs = emulatorLogs && fexLogActive;
-    boolean openWithAndroidBrowser = preferences.getBoolean("open_with_android_browser", false);
-    boolean shareAndroidClipboard = preferences.getBoolean("share_android_clipboard", false);
-
-    if (openWithAndroidBrowser) envVars.put("WINE_OPEN_WITH_ANDROID_BROWSER", "1");
-    if (shareAndroidClipboard) {
-      envVars.put("WINE_FROM_ANDROID_CLIPBOARD", "1");
-      envVars.put("WINE_TO_ANDROID_CLIPBOARD", "1");
-    }
 
     EnvVars envVars = new EnvVars();
 
     addBox64EnvVars(envVars, enableBox64Logs);
-    envVars.putAll(FEXCorePresetManager.getEnvVars(context, fexcorePreset));
+    if (wineInfo != null && wineInfo.isArm64EC()) {
+      envVars.putAll(FEXCorePresetManager.getEnvVars(context, fexcorePreset));
 
-    if (enableFexcoreLogs) {
-      // FEXCore is silent by default. Enable logging to stderr so its output is
-      // captured by the in-game logs pane and the per-session fexcore_*.txt log.
-      envVars.put("FEX_SILENTLOG", "0");
-      envVars.put("FEX_OUTPUTLOG", "stderr");
+      if (enableFexcoreLogs) {
+        // FEXCore is silent by default. Enable logging to stderr so its output is
+        // captured by the in-game logs pane and the per-session fexcore_*.txt log.
+        envVars.put("FEX_SILENTLOG", "0");
+        envVars.put("FEX_OUTPUTLOG", "stderr");
+      }
     }
 
     String renderer = GPUInformation.getRenderer(null, null);
@@ -940,20 +924,15 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
     // Preserve launcher-owned LD_PRELOAD while merging upstream env (driver/DXVK/wrapper).
     mergeExternalEnvVars(envVars, envVars.get("LD_PRELOAD"));
-    FEXCorePresetManager.normalizeSmcChecksEnvVars(envVars, this.envVars);
+    if (wineInfo != null && wineInfo.isArm64EC()) {
+      FEXCorePresetManager.normalizeSmcChecksEnvVars(envVars, this.envVars);
+    }
 
     String emulator = container.getEmulator();
     String emulator64 = container.getEmulator64();
-    if (shortcut != null) {
-      emulator = shortcut.getSettingExtra("emulator", container.getEmulator());
-      emulator64 = shortcut.getSettingExtra("emulator64", container.getEmulator64());
-    }
 
     if (wineInfo.isArm64EC()) {
       emulator64 = container.getEmulator64();
-      if (shortcut != null) {
-        emulator64 = shortcut.getSettingExtra("emulator64", container.getEmulator64());
-      }
     }
 
     repairRuntimeExecutablePermissions(context, imageFs);

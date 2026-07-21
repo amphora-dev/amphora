@@ -7,7 +7,6 @@ import com.winlator.cmod.runtime.wine.EnvVars;
 import com.winlator.cmod.shared.io.FileUtils;
 import com.winlator.cmod.shared.util.KeyValueSet;
 import com.winlator.cmod.runtime.wine.WineInfo;
-import com.winlator.cmod.runtime.wine.WineThemeManager;
 import com.winlator.cmod.runtime.compat.fexcore.FEXCorePreset;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
 
@@ -58,7 +57,7 @@ public class Container {
     private byte startupSelection = STARTUP_SELECTION_ESSENTIAL;
     private String cpuList;
     private String cpuListWoW64;
-    private String desktopTheme = WineThemeManager.DEFAULT_DESKTOP_THEME;
+    private String desktopTheme = "LIGHT,IMAGE,#0277bd";
     private String fexcoreVersion = "";
     private String fexcorePreset = FEXCorePreset.PERFORMANCE;
     private String box64Preset = Box64Preset.PERFORMANCE;
