@@ -5,10 +5,10 @@ import android.content.SharedPreferences;
 import android.util.Log;
 import androidx.preference.PreferenceManager;
 import com.winlator.cmod.runtime.wine.EnvVars;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Locale;
 
+/** Resolves Box64 preset IDs to env vars for guest launch (MVP: no preset UI/CRUD). */
 public abstract class Box64PresetManager {
   private static final String TAG = "Box64PresetManager";
 
@@ -101,23 +101,6 @@ public abstract class Box64PresetManager {
     return envVars;
   }
 
-  public static ArrayList<Box64Preset> getPresets(String prefix, Context context) {
-    ArrayList<Box64Preset> presets = new ArrayList<>();
-    // Hardcoded labels — amphora has no Winlator string resources for these presets.
-    presets.add(new Box64Preset(Box64Preset.STABILITY, "Stability"));
-    presets.add(new Box64Preset(Box64Preset.COMPATIBILITY, "Compatibility"));
-    presets.add(new Box64Preset(Box64Preset.INTERMEDIATE, "Intermediate"));
-    presets.add(new Box64Preset(Box64Preset.PERFORMANCE, "Performance"));
-    for (String[] preset : customPresetsIterator(prefix, context))
-      presets.add(new Box64Preset(preset[0], preset[1]));
-    return presets;
-  }
-
-  public static Box64Preset getPreset(String prefix, Context context, String id) {
-    for (Box64Preset preset : getPresets(prefix, context)) if (preset.id.equals(id)) return preset;
-    return null;
-  }
-
   private static Iterable<String[]> customPresetsIterator(String prefix, Context context) {
     SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
     final String customPresetsStr = preferences.getString(prefix + "_custom_presets", "");
@@ -135,86 +118,5 @@ public abstract class Box64PresetManager {
             return customPresets[index[0]++].split("\\|");
           }
         };
-  }
-
-  public static int getNextPresetId(Context context, String prefix) {
-    int maxId = 0;
-    for (String[] preset : customPresetsIterator(prefix, context)) {
-      maxId = Math.max(maxId, Integer.parseInt(preset[0].replace(Box64Preset.CUSTOM + "-", "")));
-    }
-    return maxId + 1;
-  }
-
-  public static void editPreset(
-      String prefix, Context context, String id, String name, EnvVars envVars) {
-    String key = prefix + "_custom_presets";
-    SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String customPresetsStr = preferences.getString(key, "");
-
-    if (id != null) {
-      String[] customPresets = customPresetsStr.split(",");
-      for (int i = 0; i < customPresets.length; i++) {
-        String[] preset = customPresets[i].split("\\|");
-        if (preset[0].equals(id)) {
-          customPresets[i] = id + "|" + name + "|" + envVars.toString();
-          break;
-        }
-      }
-      customPresetsStr = String.join(",", customPresets);
-    } else {
-      String preset =
-          Box64Preset.CUSTOM
-              + "-"
-              + getNextPresetId(context, prefix)
-              + "|"
-              + name
-              + "|"
-              + envVars.toString();
-      customPresetsStr += (!customPresetsStr.isEmpty() ? "," : "") + preset;
-    }
-    preferences.edit().putString(key, customPresetsStr).apply();
-  }
-
-  public static void duplicatePreset(String prefix, Context context, String id) {
-    ArrayList<Box64Preset> presets = getPresets(prefix, context);
-    Box64Preset originPreset = null;
-    for (Box64Preset preset : presets) {
-      if (preset.id.equals(id)) {
-        originPreset = preset;
-        break;
-      }
-    }
-    if (originPreset == null) return;
-
-    String newName;
-    for (int i = 1; ; i++) {
-      newName = originPreset.name + " (" + i + ")";
-      boolean found = false;
-      for (Box64Preset preset : presets) {
-        if (preset.name.equals(newName)) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) break;
-    }
-
-    editPreset(prefix, context, null, newName, getEnvVars(prefix, context, originPreset.id));
-  }
-
-  public static void removePreset(String prefix, Context context, String id) {
-    String key = prefix + "_custom_presets";
-    SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String oldCustomPresetsStr = preferences.getString(key, "");
-    String newCustomPresetsStr = "";
-
-    String[] customPresets = oldCustomPresetsStr.split(",");
-    for (int i = 0; i < customPresets.length; i++) {
-      String[] preset = customPresets[i].split("\\|");
-      if (!preset[0].equals(id))
-        newCustomPresetsStr += (!newCustomPresetsStr.isEmpty() ? "," : "") + customPresets[i];
-    }
-
-    preferences.edit().putString(key, newCustomPresetsStr).apply();
   }
 }

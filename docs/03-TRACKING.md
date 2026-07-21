@@ -23,6 +23,7 @@
 - ✅ WinHandler/手柄 stub 闭包清理: 删 `WinHandler`/`XServerDisplayActivity`/controls stubs/`rumble/*`; 按钮一律走 X 协议; `FakeInputWriter` 仅留 GPLC env 空环辅助; inputType 常量内联到 `Container`。
 - ✅ fakeinput 裁剪 + BuildConfig/R 收敛: GPLC 不再 copy/LD_PRELOAD `libfakeinput` / FAKE_EVDEV/udev; CMake 停编 fakeinput; 删 `FakeInputWriter` + 手写 `BuildConfig`; Vulkan validation 改读 `FLAG_DEBUGGABLE`; preset/拷贝文案硬编码，避开假 `R` ID。
 - ✅ 假 `R` 死 UI 闭包: 删手写 `R.java` + `DownloadProgressDialog`/`MultiSelectionComboBox`/`HttpUtils`/`AppUtils`; `ImageFsInstaller` 仅留 `LATEST_VERSION`; wallpaper 改纯色回退; Box64/FEX 去掉 Spinner/import-export 死路径。
+- ✅ MVP 再削: `WineThemeManager` 仅留默认串; 删 `MSBitmap`/`LogManager`/`CPUStatus`/`UnitUtils`/`fakeinput.cpp`; Box64/FEX 仅留 `getEnvVars`; 去掉 pulseaudio.tzst 旁路提取 + manifest `audio_plugin`（MVP ALSA-only，aserver 在 imagefs）。`:feature:settings` **保留**（v0.2 实质项）。
 - ⏭ 下一步 (v0.2 候选): settings 实质项; 键盘/手柄(真实现); 音频音量接线; Present/DRI3 完善。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |

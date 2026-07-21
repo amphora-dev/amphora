@@ -6,6 +6,7 @@ enum class ContentComponent {
     BOX64,
     TURNIP,
     DXVK,
+    /** Reserved: Pulse/PA modules archive; MVP is ALSA-only (plugin lives in imagefs). */
     AUDIO_PLUGIN,
 }
 

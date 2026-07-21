@@ -25,7 +25,7 @@ Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 
         ├─ :core:content     ContentSource / manifest / SHA 校验
         ├─ :core:container   ContainerManager 契约（瘦模型）
         ├─ :core:rootfs      RootfsInstaller 契约
-        ├─ :core:native      libwinlator.so + libfakeinput.so（arm64-v8a）
+        ├─ :core:native      libwinlator.so（arm64-v8a；fakeinput 已停编）
         └─ :core:common      协程 / AppResult
 ```
 
@@ -93,7 +93,7 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 ## 5. 内容与资产
 
 - **真源**：`core/content/src/main/assets/content_manifest.json`（派生自 `04-ASSET-MANIFEST.md`）
-- **组件**：Wine Proton / Box64 / Turnip wrapper / DXVK / PulseAudio（ROOTFS 由 `RootfsInstaller` 独占）
+- **组件**：Wine Proton / Box64 / Turnip wrapper / DXVK（ROOTFS 由 `RootfsInstaller` 独占；ALSA aserver 随 imagefs；`AUDIO_PLUGIN`/`pulseaudio.tzst` 未入 manifest）
 - **安装路径**：
   - `WCP` → `ContentsManager.extraContentFile` + `finishInstallContent` → `filesDir/contents/...`
   - `ARCHIVE` → `TarCompressorUtils` → `filesDir/amphora-content/<component>/<version>/`
@@ -112,7 +112,7 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 | `libwinlator.so` | X/Vulkan/AHB/压缩解压/socket/shmem/进程回收；adrenotools 静态链入；zstd+xz FetchContent |
 | ABI | **仅 arm64-v8a**；minSdk 26；NDK r28 |
 
-`libfakeinput.so` 不再构建（MVP 输入走 X inject）。`fakeinput.cpp` 源码仍在树内，手柄路径回归时再挂回 CMake。
+`libfakeinput.so` 不再构建（MVP 输入走 X inject）；源码已从树内移除，手柄路径回归时从 WinNative 再引入。
 
 JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包名保留，C 零改）。远程下载 JNI（`nativeDownloadFile` 等）为 stub——MVP 只走 APK 内联资产。
 

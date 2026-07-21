@@ -9,8 +9,8 @@ package app.amphora.core.nativelib
  * assets (BundledContentSource). JNI binding classes live in `:core:engine`.
  *
  * `libfakeinput.so` is no longer built: amphora routes input via XServer inject,
- * not the LD_PRELOAD evdev shim. Source remains under `cpp/winlator/fakeinput.cpp`
- * for a future gamepad path.
+ * not the LD_PRELOAD evdev shim. The former `fakeinput.cpp` source was removed
+ * with the MVP trim; reintroduce from WinNative when native gamepad returns.
  *
  * Note: this package is `app.amphora.core.nativelib` because `native` is a Java
  * keyword and cannot be an AGP namespace segment. Ported JNI classes keep

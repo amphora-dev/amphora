@@ -5,9 +5,9 @@ import android.content.SharedPreferences;
 import android.util.Log;
 import androidx.preference.PreferenceManager;
 import com.winlator.cmod.runtime.wine.EnvVars;
-import java.util.ArrayList;
 import java.util.Iterator;
 
+/** Resolves FEXCore preset IDs to env vars for guest launch (MVP: no preset UI/CRUD). */
 public class FEXCorePresetManager {
   private static final String TAG = "FEXCorePresetManager";
 
@@ -81,23 +81,6 @@ public class FEXCorePresetManager {
     }
   }
 
-  public static ArrayList<FEXCorePreset> getPresets(Context context) {
-    ArrayList<FEXCorePreset> presets = new ArrayList<>();
-    // Hardcoded labels — amphora has no Winlator string resources for these presets.
-    presets.add(new FEXCorePreset(FEXCorePreset.STABILITY, "Stability"));
-    presets.add(new FEXCorePreset(FEXCorePreset.COMPATIBILITY, "Compatibility"));
-    presets.add(new FEXCorePreset(FEXCorePreset.INTERMEDIATE, "Intermediate"));
-    presets.add(new FEXCorePreset(FEXCorePreset.PERFORMANCE, "Performance"));
-    for (String[] preset : customPresetsIterator(context))
-      presets.add(new FEXCorePreset(preset[0], preset[1]));
-    return presets;
-  }
-
-  public static FEXCorePreset getPreset(Context context, String id) {
-    for (FEXCorePreset preset : getPresets(context)) if (preset.id.equals(id)) return preset;
-    return null;
-  }
-
   private static Iterable<String[]> customPresetsIterator(Context context) {
     SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
     final String customPresetsStr = preferences.getString("fexcore_custom_presets", "");
@@ -115,85 +98,5 @@ public class FEXCorePresetManager {
             return customPresets[index[0]++].split("\\|");
           }
         };
-  }
-
-  public static int getNextPresetId(Context context) {
-    int maxId = 0;
-    for (String[] preset : customPresetsIterator(context)) {
-      maxId = Math.max(maxId, Integer.parseInt(preset[0].replace(FEXCorePreset.CUSTOM + "-", "")));
-    }
-    return maxId + 1;
-  }
-
-  public static void editPreset(Context context, String id, String name, EnvVars envVars) {
-    String key = "fexcore_custom_presets";
-    SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String customPresetsStr = preferences.getString(key, "");
-
-    if (id != null) {
-      String[] customPresets = customPresetsStr.split(",");
-      for (int i = 0; i < customPresets.length; i++) {
-        String[] preset = customPresets[i].split("\\|");
-        if (preset[0].equals(id)) {
-          customPresets[i] = id + "|" + name + "|" + envVars.toString();
-          break;
-        }
-      }
-      customPresetsStr = String.join(",", customPresets);
-    } else {
-      String preset =
-          FEXCorePreset.CUSTOM
-              + "-"
-              + getNextPresetId(context)
-              + "|"
-              + name
-              + "|"
-              + envVars.toString();
-      customPresetsStr += (!customPresetsStr.isEmpty() ? "," : "") + preset;
-    }
-    preferences.edit().putString(key, customPresetsStr).apply();
-  }
-
-  public static void duplicatePreset(Context context, String id) {
-    ArrayList<FEXCorePreset> presets = getPresets(context);
-    FEXCorePreset originPreset = null;
-    for (FEXCorePreset preset : presets) {
-      if (preset.id.equals(id)) {
-        originPreset = preset;
-        break;
-      }
-    }
-    if (originPreset == null) return;
-
-    String newName;
-    for (int i = 1; ; i++) {
-      newName = originPreset.name + " (" + i + ")";
-      boolean found = false;
-      for (FEXCorePreset preset : presets) {
-        if (preset.name.equals(newName)) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) break;
-    }
-
-    editPreset(context, null, newName, getEnvVars(context, originPreset.id));
-  }
-
-  public static void removePreset(Context context, String id) {
-    String key = "fexcore_custom_presets";
-    SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String oldCustomPresetsStr = preferences.getString(key, "");
-    String newCustomPresetsStr = "";
-
-    String[] customPresets = oldCustomPresetsStr.split(",");
-    for (int i = 0; i < customPresets.length; i++) {
-      String[] preset = customPresets[i].split("\\|");
-      if (!preset[0].equals(id))
-        newCustomPresetsStr += (!newCustomPresetsStr.isEmpty() ? "," : "") + customPresets[i];
-    }
-
-    preferences.edit().putString(key, newCustomPresetsStr).apply();
   }
 }

@@ -38,8 +38,9 @@ import java.security.MessageDigest
  * `curl` + `adb push` + `extraContentFile` workaround for production -- when the
  * `.wcp` files are bundled in APK assets, `resolve(WINE)` / `resolve(BOX64)` /
  * `resolve(DXVK)` installs them locally with no remote download. The ARCHIVE path
- * (TURNIP / AUDIO_PLUGIN) is a SHA-verified provisioning capability; the
- * ported kernel (`WineSessionPreparer.extractGraphicsDriverFiles`,
+ * (TURNIP) is a SHA-verified provisioning capability; MVP is ALSA-only so
+ * `AUDIO_PLUGIN`/`pulseaudio.tzst` is not in the shipped manifest (aserver lives
+ * in imagefs). The ported kernel (`WineSessionPreparer.extractGraphicsDriverFiles`,
  * `ImageFsRootfsInstaller`) still reads those assets from `context.assets`
  * directly today. `dxwrapper/d8vk-1.0.tzst` remains a kernel-direct asset for
  * DXVK < 2.4 (extractD8VKIfNeeded); modern bundled DXVK ships d3d8 itself.

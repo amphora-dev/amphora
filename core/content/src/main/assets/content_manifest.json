@@ -36,13 +36,6 @@
       "contentType": "DXVK",
       "verName": "3.0.2-gplasync",
       "verCode": 0
-    },
-    "audio_plugin": {
-      "assetPath": "pulseaudio.tzst",
-      "sha256": "357bb53fbcf91ab2adcd2e6a4b7fc3f2cb95f1555610681b08dbf6d412ac4bd8",
-      "version": "1",
-      "kind": "ARCHIVE",
-      "compression": "zstd"
     }
   }
 }

@@ -57,7 +57,7 @@ import javax.inject.Singleton
  *   directly. Amphora passes exe+env only (D9).
  * - Activity lifecycle: `isFinishing`/`isDestroyed`/`xServer` null guards --
  *   prep has no Activity/xServer (xServer is created in P3 setupXEnvironment).
- * - `desktopTheme` apply (`WineThemeManager.apply` needs `xServer.screenInfo`)
+ * - `desktopTheme` apply (WineThemeManager.apply removed for MVP)
  *   deferred to P3 post-xServer-creation.
  * - arm64ec (`ensureArm64EcRuntimeDllsReady` / zink_dlls branch) -- D5 rejects
  *   arm64ec, amphora is x86_64 + box64 only.
@@ -301,7 +301,7 @@ class XServerWineSessionPreparer @Inject constructor(
         // Steam / custom-shortcut visibility branches STRIPPED (D9: non-target).
         // Activity teardown guard (xServer/isFinishing/isDestroyed) STRIPPED --
         // prep has no Activity/xServer.
-        // desktopTheme apply (WineThemeManager.apply needs xServer.screenInfo)
+        // desktopTheme apply omitted (WineThemeManager.apply removed for MVP)
         // deferred to P3 setupXEnvironment (post xServer creation).
 
         WineStartMenuCreator.create(context, c)
@@ -890,7 +890,7 @@ class XServerWineSessionPreparer @Inject constructor(
     private fun applyGeneralPatches(c: Container) {
         val rootDir = imageFs.getRootDir()
         TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "container_pattern_common.tzst", rootDir)
-        TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "pulseaudio.tzst", File(context.filesDir, "pulseaudio"))
+        // MVP is ALSA-only; pulseaudio.tzst extract omitted (nobody consumed filesDir/pulseaudio).
         WineUtils.applySystemTweaks(context, wineInfo)
         c.putExtra("graphicsDriver", null)
         c.putExtra("desktopTheme", null)

@@ -195,6 +195,5 @@ target_link_libraries(winlator
         liblzma
 )
 
-# fakeinput LD_PRELOAD shim intentionally not built (MVP input is XServer inject;
-# gamepad/fake-evdev path removed). Reintroduce winlator/fakeinput.cpp here when
-# native gamepad support returns.
+# fakeinput LD_PRELOAD shim intentionally not built (MVP input is XServer inject).
+# Source removed from tree; reintroduce from WinNative when native gamepad returns.
