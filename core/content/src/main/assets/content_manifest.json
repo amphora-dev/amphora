@@ -105,7 +105,7 @@
     },
     {
       "assetPath": "wincomponents/directshow.tzst",
-      "sha256": "aa682b7ee6e5903e4571bfe5a8dc9b05d0a9f05cd860cfdc810f2ddd3745e9",
+      "sha256": "aa682b7be5a8dc9b05d0a9f05cd860cfdc810f2ddd3745e9b4",
       "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/directshow.tzst",
       "size": 2209278
     },

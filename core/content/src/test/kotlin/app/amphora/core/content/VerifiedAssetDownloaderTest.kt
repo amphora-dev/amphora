@@ -37,22 +37,26 @@ class VerifiedAssetDownloaderTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun rejectsPathTraversal() = runBlocking {
-        VerifiedAssetDownloader(DefaultDispatcherProvider()).acquire(
-            root = temporaryFolder.root,
-            relativePath = "../escape",
-            remoteUrl = "https://example.invalid/escape",
-            expectedSha256 = "0".repeat(64),
-        )
+    fun rejectsPathTraversal() {
+        runBlocking {
+            VerifiedAssetDownloader(DefaultDispatcherProvider()).acquire(
+                root = temporaryFolder.root,
+                relativePath = "../escape",
+                remoteUrl = "https://example.invalid/escape",
+                expectedSha256 = "0".repeat(64),
+            )
+        }
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun rejectsPlainHttp() = runBlocking {
-        VerifiedAssetDownloader(DefaultDispatcherProvider()).acquire(
-            root = temporaryFolder.root,
-            relativePath = "asset",
-            remoteUrl = "http://example.invalid/asset",
-            expectedSha256 = "0".repeat(64),
-        )
+    fun rejectsPlainHttp() {
+        runBlocking {
+            VerifiedAssetDownloader(DefaultDispatcherProvider()).acquire(
+                root = temporaryFolder.root,
+                relativePath = "asset",
+                remoteUrl = "http://example.invalid/asset",
+                expectedSha256 = "0".repeat(64),
+            )
+        }
     }
 }
