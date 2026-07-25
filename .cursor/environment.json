@@ -1,0 +1,4 @@
+{
+  "install": "bash scripts/setup-android-sdk.sh && ./gradlew :app:assembleDebug",
+  "start": "bash scripts/disable-cursor-coauthor.sh"
+}
