@@ -2,6 +2,7 @@
   "$comment": "amphora bundled-content manifest. Generated from docs/04-ASSET-MANIFEST.md. Each entry maps a ComponentId (lowercase ContentComponent name) to an APK-bundled asset, its pinned SHA-256 (null = pending lock, verification skipped), a version string, and a provisioning kind. ARCHIVE = tar extracted to filesDir/amphora-content/<component>/<version>/; WCP = Winlator Component Package installed via ContentsManager.extraContentFile (local extract, bypasses the D4 download stub); ROOTFS = owned by RootfsInstaller (not resolved by BundledContentSource).",
   "version": 1,
   "source": "docs/04-ASSET-MANIFEST.md",
+  "wcpCatalogUrl": "https://raw.githubusercontent.com/nicholasx417/WinNative-Components/main/default.json",
   "components": {
     "wine": {
       "assetPath": "Proton-10.0-4-x86_64.wcp",
@@ -10,23 +11,28 @@
       "kind": "WCP",
       "contentType": "Proton",
       "verName": "10.0-4-x86_64",
-      "verCode": 0
+      "verCode": 0,
+      "remoteUrl": "https://github.com/nicholasx417/WinNative-Components/releases/download/Proton/Proton-10.0-4-x86_64.wcp",
+      "size": 168648366
     },
     "box64": {
-      "assetPath": "Bionic-Box64-0.4.3-8ee3d8f2c.wcp",
-      "sha256": "eec659650ff31df151c13d2a522330b1636b98cd82dbf60ba3ff522759f528fd",
-      "version": "Box64-0.4.3-8ee3d8f2c-0",
+      "assetPath": "Box64-0.4.3-c08554e3f.wcp",
+      "sha256": "e78d0ecf26768dc7504a81648f14c907a1217908b93f02c5a7f0162249eafba6",
+      "version": "Box64-0.4.3-c08554e3f-0",
       "kind": "WCP",
       "contentType": "Box64",
-      "verName": "0.4.3-8ee3d8f2c",
-      "verCode": 0
+      "verName": "0.4.3-c08554e3f",
+      "verCode": 0,
+      "size": 2849816
     },
     "turnip": {
       "assetPath": "graphics_driver/wrapper.tzst",
       "sha256": "2651fbe6372af36c7d269664416b4f62d959125122ad3b8f79a787788e510fd8",
       "version": "1",
       "kind": "ARCHIVE",
-      "compression": "zstd"
+      "compression": "zstd",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/graphics_driver/wrapper.tzst",
+      "size": 3816921
     },
     "dxvk": {
       "assetPath": "Dxvk-3.0.2-gplasync.wcp",
@@ -35,7 +41,109 @@
       "kind": "WCP",
       "contentType": "DXVK",
       "verName": "3.0.2-gplasync",
-      "verCode": 0
+      "verCode": 0,
+      "size": 6741148
+    },
+    "rootfs": {
+      "assetPath": "imagefs.tzst",
+      "sha256": "0902e324b60a5c234aa29fcf457f6475a38ef8f61ac2be2118daaef4f236499a",
+      "version": "22",
+      "kind": "ROOTFS",
+      "compression": "zstd",
+      "remoteUrl": "https://media.githubusercontent.com/media/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/imagefs.tzst",
+      "size": 199788876
     }
-  }
+  },
+  "runtimeAssets": [
+    {
+      "assetPath": "graphics_driver/wrapper.tzst",
+      "sha256": "2651fbe6372af36c7d269664416b4f62d959125122ad3b8f79a787788e510fd8",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/graphics_driver/wrapper.tzst",
+      "size": 3816921
+    },
+    {
+      "assetPath": "graphics_driver/extra_libs.tzst",
+      "sha256": "e27859423f4f151ef48bb2f076043cda45fd46de1df5eea2ceed30bcf0ebd38a",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/graphics_driver/extra_libs.tzst",
+      "size": 21117082
+    },
+    {
+      "assetPath": "layers.tzst",
+      "sha256": "9beac20c3e2c7f2c224f2c18cc6dc253b0f70450006fc986970992c7a8814ffa",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/layers.tzst",
+      "size": 4447187
+    },
+    {
+      "assetPath": "container_pattern_common.tzst",
+      "sha256": "6f5a7b011f2ab79d8be60c4783de97f635289fd901fb624b26c2a3725fc8f479",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/container_pattern_common.tzst",
+      "size": 41560300
+    },
+    {
+      "assetPath": "wincomponents/wincomponents.json",
+      "sha256": "b0ef5a4279a5024807d6e2763ba1cf936e6c798b4fae5a7773be54c35ece7553",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/wincomponents.json",
+      "size": 1806
+    },
+    {
+      "assetPath": "wincomponents/direct3d.tzst",
+      "sha256": "149d55436e050bfa3fe8caf650cb97ddb2bc9fa99cd96869bd2bc4977b708fb5",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/direct3d.tzst",
+      "size": 31207067
+    },
+    {
+      "assetPath": "wincomponents/directsound.tzst",
+      "sha256": "72f0fd6242136b543ee2e1c8fb7daa9c0bcd0c318886ca502f84f456c83bbc43",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/directsound.tzst",
+      "size": 434853
+    },
+    {
+      "assetPath": "wincomponents/directmusic.tzst",
+      "sha256": "eb906732d14766641edfae0b2d722c36f4632de7fa321a5844037115b513b77e",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/directmusic.tzst",
+      "size": 337109
+    },
+    {
+      "assetPath": "wincomponents/directshow.tzst",
+      "sha256": "aa682b7ee6e5903e4571bfe5a8dc9b05d0a9f05cd860cfdc810f2ddd3745e9",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/directshow.tzst",
+      "size": 2209278
+    },
+    {
+      "assetPath": "wincomponents/directplay.tzst",
+      "sha256": "70eb81449230af66286f5b4d5922dca13057600c35d4cdfe91930e966c2386d9",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/directplay.tzst",
+      "size": 429728
+    },
+    {
+      "assetPath": "wincomponents/xaudio.tzst",
+      "sha256": "2f80fd6242136b543ee2e1c8fb7daa9c0bcd0c318886ca502f84f456c83bbc43",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/xaudio.tzst",
+      "size": 2329991
+    },
+    {
+      "assetPath": "wincomponents/vcrun2010.tzst",
+      "sha256": "9def7b4b5c31c839d155f05e372e0e9ce4968b57f815c1abf93b7735e7d0ceb7",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/vcrun2010.tzst",
+      "size": 1038731
+    },
+    {
+      "assetPath": "metadata/gpu_cards.json",
+      "sha256": "f24f5011cd7a0b538d48e3fbea0fd5048cf9ec9765081b955985bdea2e6dabb4",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/metadata/gpu_cards.json",
+      "size": 26566
+    },
+    {
+      "assetPath": "metadata/startmenu.json",
+      "sha256": "b66de92fb9de626d332098ac2a41c630ed87db26921895d251ea4cef190cc996",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/metadata/startmenu.json",
+      "size": 2111
+    },
+    {
+      "assetPath": "box86_64/default.box64rc",
+      "sha256": "652f51566dc050fbb58c06dc956638bc5667113accc2394e291703bd9f0aed18",
+      "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/box86_64/default.box64rc",
+      "size": 1262
+    }
+  ]
 }

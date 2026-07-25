@@ -63,12 +63,13 @@ amphoraContentStaging {
                 .get()
         ).resolve("app/src/main/assets")
     )
+    wcpCatalogUrl.set(
+        "https://raw.githubusercontent.com/nicholasx417/WinNative-Components/main/default.json"
+    )
     wcpDownloadUrls.set(
         mapOf(
             "Proton-10.0-4-x86_64.wcp" to
                 "https://github.com/nicholasx417/WinNative-Components/releases/download/Proton/Proton-10.0-4-x86_64.wcp",
-            "Bionic-Box64-0.4.3-8ee3d8f2c.wcp" to
-                "https://github.com/nicholasx417/WinNative-Components/releases/download/bionic-box64-nightly-0.4.3-8ee3d8f2c/Bionic-Box64-0.4.3-8ee3d8f2c.wcp",
             "Dxvk-3.0.2-gplasync.wcp" to
                 "https://github.com/nicholasx417/WinNative-Components/releases/download/Stable-Dxvk/Dxvk-3.0.2-gplasync.wcp",
         )

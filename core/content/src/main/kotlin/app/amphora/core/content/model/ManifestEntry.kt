@@ -20,6 +20,10 @@ package app.amphora.core.content.model
  *   minimal `ContentProfile` so `ContentsManager.getInstallDir` can be computed
  *   without a `syncContents()` round-trip (cache check only; the real profile is
  *   read from the `.wcp`'s `profile.json` during install).
+ * @property remoteUrl Optional pinned download URL. WCP entries may omit this
+ *   when their URL is discoverable from the manifest's stable upstream catalog.
+ * @property size Expected compressed size in bytes, used to reject truncated
+ *   downloads before installation.
  */
 data class ManifestEntry(
     val component: ContentComponent,
@@ -31,6 +35,8 @@ data class ManifestEntry(
     val contentType: String? = null,
     val verName: String? = null,
     val verCode: Int? = null,
+    val remoteUrl: String? = null,
+    val size: Long? = null,
 ) {
     /** How a [ManifestEntry] is provisioned from its bundled asset. */
     enum class Kind {

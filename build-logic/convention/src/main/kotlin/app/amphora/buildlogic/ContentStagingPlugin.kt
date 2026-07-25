@@ -2,11 +2,13 @@ package app.amphora.buildlogic
 
 import groovy.json.JsonSlurper
 import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.MapProperty
+import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Internal
@@ -36,6 +38,9 @@ abstract class ContentStagingExtension {
 
     /** `.wcp` download URLs keyed by assetPath (build-only; not part of the runtime manifest). */
     abstract val wcpDownloadUrls: MapProperty<String, String>
+
+    /** Stable upstream catalog used to discover `.wcp` release URLs by asset filename. */
+    abstract val wcpCatalogUrl: Property<String>
 
     /** Where staged assets land. Defaults to this module's `src/main/assets/`. */
     abstract val stagedAssetsDir: DirectoryProperty
@@ -67,6 +72,9 @@ abstract class StageBundledContentTask : DefaultTask() {
     @get:Input
     abstract val wcpDownloadUrls: MapProperty<String, String>
 
+    @get:Input
+    abstract val wcpCatalogUrl: Property<String>
+
     @get:Internal
     abstract val winnativeDir: DirectoryProperty
 
@@ -95,6 +103,31 @@ abstract class StageBundledContentTask : DefaultTask() {
             }
         }
         return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun catalogDownloadUrls(): Map<String, String> {
+        val catalogUrl = wcpCatalogUrl.orNull?.takeIf { it.isNotBlank() } ?: return emptyMap()
+        return try {
+            val conn = URI(catalogUrl).toURL().openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 30_000
+            if (conn.responseCode !in 200..299) {
+                throw IOException("HTTP ${conn.responseCode} ${conn.responseMessage}")
+            }
+            @Suppress("UNCHECKED_CAST")
+            val entries = conn.inputStream.bufferedReader().use { reader ->
+                JsonSlurper().parse(reader) as List<Map<String, Any?>>
+            }
+            entries.mapNotNull { entry ->
+                val remoteUrl = entry["remoteUrl"] as? String ?: return@mapNotNull null
+                val assetName = URI(remoteUrl).path.substringAfterLast('/')
+                assetName.takeIf { it.isNotBlank() }?.let { it to remoteUrl }
+            }.toMap()
+        } catch (t: Throwable) {
+            logger.warn("[stageBundledContent] cannot load WCP catalog $catalogUrl ($t); direct URL fallbacks remain available.")
+            emptyMap()
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -134,7 +167,7 @@ abstract class StageBundledContentTask : DefaultTask() {
         val stagedDir = stagedAssetsDir.get().asFile
         val cacheDir = wcpCacheDir.get().asFile
         val winnativeAssets = winnativeDir.orNull?.asFile
-        val urls = wcpDownloadUrls.get()
+        val urls = wcpDownloadUrls.get() + catalogDownloadUrls()
 
         for ((id, entry) in manifestComponents()) {
             val assetPath = entry["assetPath"] as String
@@ -212,16 +245,26 @@ abstract class StageBundledContentTask : DefaultTask() {
         cacheDir: File, urls: Map<String, String>,
     ) {
         if (staged.exists()) {
-            logger.lifecycle("[stageBundledContent] $id: already staged ($assetPath, sha256=${sha256(staged)}); skipping.")
-            return
+            val actualSha = sha256(staged)
+            if (expectedSha == null || actualSha == expectedSha) {
+                logger.lifecycle("[stageBundledContent] $id: already staged ($assetPath, sha256=$actualSha); skipping.")
+                return
+            }
+            logger.warn("[stageBundledContent] $id: removing stale staged asset $assetPath (expected $expectedSha, got $actualSha).")
+            staged.delete()
         }
         val url = urls[assetPath]
         if (url == null) {
-            logger.warn("[stageBundledContent] $id: no download URL mapped for $assetPath; skipping. Add it to wcpDownloadUrls.")
-            return
+            throw GradleException(
+                "[stageBundledContent] $id: $assetPath is absent from default WCP catalog and has no direct URL fallback."
+            )
         }
         cacheDir.mkdirs()
         val cached = File(cacheDir, assetPath)
+        if (cached.exists() && expectedSha != null && sha256(cached) != expectedSha) {
+            logger.warn("[stageBundledContent] $id: removing stale cached asset $assetPath.")
+            cached.delete()
+        }
         if (!cached.exists()) {
             logger.lifecycle("[stageBundledContent] $id: downloading $url ...")
             try {
@@ -236,15 +279,18 @@ abstract class StageBundledContentTask : DefaultTask() {
                     cached.outputStream().use { out -> input.copyTo(out, 64 * 1024) }
                 }
             } catch (t: Throwable) {
-                logger.warn("[stageBundledContent] $id: download failed ($t); skipping. Stage $assetPath manually if needed.")
                 cached.delete()
-                return
+                throw GradleException("[stageBundledContent] $id: download failed for $assetPath", t)
             }
         }
         cached.copyTo(staged, overwrite = false)
         val actualSha = sha256(staged)
         if (expectedSha != null && actualSha != expectedSha) {
-            logger.error("[stageBundledContent] $id: SHA-256 MISMATCH for $assetPath (expected $expectedSha, got $actualSha).")
+            staged.delete()
+            cached.delete()
+            throw GradleException(
+                "[stageBundledContent] $id: SHA-256 mismatch for $assetPath (expected $expectedSha, got $actualSha)."
+            )
         } else {
             logger.lifecycle("[stageBundledContent] $id: staged $assetPath (sha256=$actualSha).${if (expectedSha == null) " Paste into content_manifest.json to lock." else ""}")
         }
@@ -265,6 +311,7 @@ class ContentStagingConventionPlugin : Plugin<Project> {
         // Defaults local to the applying module.
         ext.stagedAssetsDir.convention(layout.projectDirectory.dir("src/main/assets"))
         ext.wcpCacheDir.convention(layout.buildDirectory.dir("content-cache"))
+        ext.wcpCatalogUrl.convention("")
 
         // Manifest acquisition is abstracted: single source of truth in :core:content,
         // resolved via project reference (not a hardcoded path in the consumer).
@@ -277,6 +324,7 @@ class ContentStagingConventionPlugin : Plugin<Project> {
         tasks.register<StageBundledContentTask>("stageBundledContent") {
             manifestFile.set(ext.manifestFile)
             wcpDownloadUrls.set(ext.wcpDownloadUrls)
+            wcpCatalogUrl.set(ext.wcpCatalogUrl)
             winnativeDir.set(ext.winnativeDir)
             stagedAssetsDir.set(ext.stagedAssetsDir)
             wcpCacheDir.set(ext.wcpCacheDir)

@@ -3,6 +3,7 @@ package com.winlator.cmod.shared.io;
 import android.content.Context;
 import android.net.Uri;
 import android.util.Log;
+import app.amphora.core.content.RuntimeAssetProvisioner;
 import com.github.luben.zstd.ZstdOutputStreamNoFinalizer;
 import com.winlator.cmod.shared.util.OnExtractFileListener;
 import java.io.BufferedInputStream;
@@ -175,6 +176,11 @@ public abstract class TarCompressorUtils {
       File destination,
       OnExtractFileListener onExtractFileListener) {
     if (context == null || assetFile == null || destination == null) return false;
+    File downloaded =
+        new File(RuntimeAssetProvisioner.runtimeAssetsDir(context), assetFile);
+    if (downloaded.isFile()) {
+      return extract(type, downloaded, destination, onExtractFileListener);
+    }
     int nativeType = toNativeType(type);
     try {
       if (NativeContentIO.extractAsset(

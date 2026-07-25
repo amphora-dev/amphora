@@ -14,6 +14,7 @@ import android.provider.OpenableColumns;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
+import app.amphora.core.content.RuntimeAssetProvisioner;
 import com.winlator.cmod.shared.util.Callback;
 import com.winlator.cmod.shared.util.StringUtils;
 import java.io.BufferedInputStream;
@@ -49,6 +50,8 @@ public abstract class FileUtils {
   private static final Map<String, String> URI_PATH_CACHE = new ConcurrentHashMap<>();
 
   public static byte[] read(Context context, String assetFile) {
+    File downloaded = downloadedAsset(context, assetFile);
+    if (downloaded.isFile()) return read(downloaded);
     try (InputStream inStream = context.getAssets().open(assetFile)) {
       return StreamUtils.copyToByteArray(inStream);
     } catch (IOException e) {
@@ -274,6 +277,12 @@ public abstract class FileUtils {
   }
 
   public static void copy(Context context, String assetFile, File dstFile) {
+    File downloaded = downloadedAsset(context, assetFile);
+    if (downloaded.isFile()) {
+      if (dstFile.isDirectory()) dstFile = new File(dstFile, getName(assetFile));
+      copy(downloaded, dstFile);
+      return;
+    }
     if (isDirectory(context, assetFile)) {
       if (!dstFile.isDirectory()) dstFile.mkdirs();
       try {
@@ -535,6 +544,8 @@ public abstract class FileUtils {
   }
 
   public static long getSize(Context context, String assetFile) {
+    File downloaded = downloadedAsset(context, assetFile);
+    if (downloaded.isFile()) return downloaded.length();
     try (InputStream inStream = context.getAssets().open(assetFile)) {
       return inStream.available();
     } catch (IOException e) {
@@ -551,6 +562,8 @@ public abstract class FileUtils {
   }
 
   public static boolean isDirectory(Context context, String assetFile) {
+    File downloaded = downloadedAsset(context, assetFile);
+    if (downloaded.isDirectory()) return true;
     try {
       String[] files = context.getAssets().list(assetFile);
       return files != null && files.length > 0;
@@ -586,6 +599,8 @@ public abstract class FileUtils {
   }
 
   public static String readAssetsFile(Context context, String fileName) {
+    File downloaded = downloadedAsset(context, fileName);
+    if (downloaded.isFile()) return readString(downloaded);
     try {
       String l;
       AssetManager assetManager = context.getAssets();
@@ -603,6 +618,10 @@ public abstract class FileUtils {
     } catch (IOException e) {
       return null;
     }
+  }
+
+  private static File downloadedAsset(Context context, String assetFile) {
+    return new File(RuntimeAssetProvisioner.runtimeAssetsDir(context), assetFile);
   }
 
   public static String getFileSuffix(File file) {

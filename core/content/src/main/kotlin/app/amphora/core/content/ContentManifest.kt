@@ -4,6 +4,7 @@ import android.content.Context
 import app.amphora.core.content.model.ComponentId
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
+import app.amphora.core.content.model.RuntimeAssetEntry
 import app.amphora.core.content.model.id
 import org.json.JSONObject
 
@@ -16,12 +17,16 @@ import org.json.JSONObject
  */
 class ContentManifest private constructor(
     private val entries: Map<ComponentId, ManifestEntry>,
+    val wcpCatalogUrl: String?,
+    private val runtimeAssetEntries: List<RuntimeAssetEntry>,
 ) {
     fun entry(component: ComponentId): ManifestEntry? = entries[component]
 
     fun entry(component: ContentComponent): ManifestEntry? = entries[component.id]
 
     fun all(): Collection<ManifestEntry> = entries.values
+
+    fun runtimeAssets(): List<RuntimeAssetEntry> = runtimeAssetEntries
 
     companion object {
         private const val ASSET_NAME = "content_manifest.json"
@@ -45,7 +50,25 @@ class ContentManifest private constructor(
                 val component = ContentComponent.valueOf(key.uppercase())
                 entries[component.id] = parseEntry(component, components.getJSONObject(key))
             }
-            return ContentManifest(entries)
+            val runtimeAssets = buildList {
+                val array = root.optJSONArray("runtimeAssets") ?: return@buildList
+                for (index in 0 until array.length()) {
+                    val obj = array.getJSONObject(index)
+                    add(
+                        RuntimeAssetEntry(
+                            assetPath = obj.getString("assetPath"),
+                            sha256 = obj.getString("sha256"),
+                            remoteUrl = obj.getString("remoteUrl"),
+                            size = optLongOrNull(obj, "size"),
+                        )
+                    )
+                }
+            }
+            return ContentManifest(
+                entries = entries,
+                wcpCatalogUrl = optString(root, "wcpCatalogUrl"),
+                runtimeAssetEntries = runtimeAssets,
+            )
         }
 
         private fun parseEntry(component: ContentComponent, obj: JSONObject): ManifestEntry {
@@ -64,6 +87,8 @@ class ContentManifest private constructor(
                 contentType = optString(obj, "contentType"),
                 verName = optString(obj, "verName"),
                 verCode = optIntOrNull(obj, "verCode"),
+                remoteUrl = optString(obj, "remoteUrl"),
+                size = optLongOrNull(obj, "size"),
             )
         }
 
@@ -72,5 +97,8 @@ class ContentManifest private constructor(
 
         private fun optIntOrNull(obj: JSONObject, key: String): Int? =
             if (obj.has(key) && !obj.isNull(key)) obj.getInt(key) else null
+
+        private fun optLongOrNull(obj: JSONObject, key: String): Long? =
+            if (obj.has(key) && !obj.isNull(key)) obj.getLong(key) else null
     }
 }

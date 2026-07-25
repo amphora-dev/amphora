@@ -5,9 +5,12 @@ import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.content.BundledAssetInstaller
-import app.amphora.core.content.BundledContentSource
 import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ContentSource
+import app.amphora.core.content.RemoteContentSource
+import app.amphora.core.content.RemoteUrlResolver
+import app.amphora.core.content.RuntimeAssetProvisioner
+import app.amphora.core.content.VerifiedAssetDownloader
 import app.amphora.core.engine.ImageFsRootfsInstaller
 import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.WineEngine
@@ -71,12 +74,38 @@ object EngineModule {
 
     @Provides
     @Singleton
+    fun provideVerifiedAssetDownloader(
+        dispatchers: DispatcherProvider,
+    ): VerifiedAssetDownloader = VerifiedAssetDownloader(dispatchers)
+
+    @Provides
+    @Singleton
+    fun provideRemoteUrlResolver(manifest: ContentManifest): RemoteUrlResolver =
+        RemoteUrlResolver(manifest)
+
+    @Provides
+    @Singleton
+    fun provideRuntimeAssetProvisioner(
+        @ApplicationContext context: Context,
+        manifest: ContentManifest,
+        downloader: VerifiedAssetDownloader,
+    ): RuntimeAssetProvisioner = RuntimeAssetProvisioner(context, manifest, downloader)
+
+    @Provides
+    @Singleton
     fun provideContentSource(
         @ApplicationContext context: Context,
         manifest: ContentManifest,
         installer: BundledAssetInstaller,
-        dispatchers: DispatcherProvider,
-    ): ContentSource = BundledContentSource(context, manifest, installer, dispatchers)
+        downloader: VerifiedAssetDownloader,
+        urlResolver: RemoteUrlResolver,
+    ): ContentSource = RemoteContentSource(
+        context = context,
+        manifest = manifest,
+        installer = installer,
+        downloader = downloader,
+        urlResolver = urlResolver,
+    )
 
     // --- sibling-interface bindings --------------------------------------------
 

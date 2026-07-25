@@ -2,6 +2,9 @@ package app.amphora.core.engine
 
 import android.content.Context
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.content.ContentManifest
+import app.amphora.core.content.VerifiedAssetDownloader
+import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.display.environment.ImageFs
@@ -10,10 +13,6 @@ import com.winlator.cmod.shared.io.TarCompressorUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.Callable
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -55,6 +54,8 @@ import javax.inject.Singleton
 class ImageFsRootfsInstaller @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
+    private val manifest: ContentManifest,
+    private val downloader: VerifiedAssetDownloader,
 ) : RootfsInstaller {
 
     override suspend fun ensureInstalled(spec: RootfsSpec): Boolean = withContext(dispatchers.io) {
@@ -66,12 +67,17 @@ class ImageFsRootfsInstaller @Inject constructor(
             return@withContext true // already up to date
         }
 
-        clearRootDir(rootDir)
-        val extracted = extractImageFs(rootDir)
-        if (extracted) {
-            imageFs.createImgVersionFile(desired)
+        val entry = requireNotNull(manifest.entry(ContentComponent.ROOTFS)) {
+            "content manifest does not define rootfs"
         }
-        extracted
+        val archive = downloader.acquire(
+            root = File(context.cacheDir, "amphora-rootfs"),
+            relativePath = entry.assetPath,
+            remoteUrl = requireNotNull(entry.remoteUrl) { "rootfs remoteUrl is missing" },
+            expectedSha256 = requireNotNull(entry.sha256) { "rootfs SHA-256 is missing" },
+            expectedSize = entry.size,
+        )
+        installAtomically(rootDir, archive, desired)
     }
 
     override suspend fun currentVersion(): String? = withContext(dispatchers.io) {
@@ -80,59 +86,61 @@ class ImageFsRootfsInstaller @Inject constructor(
         if (!imageFs.isValid) null else imageFs.getVersion().toString()
     }
 
-    // --- imagefs extraction (WinNative ImageFsInstaller.extractImageFs pattern) ---
+    private fun installAtomically(rootDir: File, archive: File, desired: Int): Boolean {
+        val staging = File(rootDir.parentFile, "${rootDir.name}.staging")
+        val backup = File(rootDir.parentFile, "${rootDir.name}.backup")
+        recoverInterruptedInstall(rootDir, staging, backup)
 
-    private fun extractImageFs(rootDir: File): Boolean {
-        val shards = listImageFsShards()
-        if (shards.isEmpty()) {
-            return TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD, context, IMAGEFS_ARCHIVE, rootDir,
-            )
+        FileUtils.delete(staging)
+        check(staging.mkdirs()) { "Unable to create rootfs staging directory: $staging" }
+        if (!TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, archive, staging)) {
+            FileUtils.delete(staging)
+            return false
         }
-        // Parallel shard extraction (WinNative: 2..availableProcessors threads).
-        val threads = maxOf(2, minOf(shards.size, Runtime.getRuntime().availableProcessors()))
-        val pool: ExecutorService = Executors.newFixedThreadPool(threads)
-        return try {
-            val futures: List<Future<Boolean>> = shards.map { shard ->
-                pool.submit(
-                    Callable {
-                        TarCompressorUtils.extract(
-                            TarCompressorUtils.Type.ZSTD, context, shard, rootDir,
-                        )
-                    }
-                )
+        val stagedImageFs = ImageFs.find(staging)
+        stagedImageFs.createImgVersionFile(desired)
+        if (!stagedImageFs.isValid) {
+            FileUtils.delete(staging)
+            return false
+        }
+
+        FileUtils.delete(backup)
+        if (rootDir.exists() && !rootDir.renameTo(backup)) {
+            FileUtils.delete(staging)
+            error("Unable to back up existing rootfs: $rootDir")
+        }
+        if (!staging.renameTo(rootDir)) {
+            if (backup.exists()) backup.renameTo(rootDir)
+            FileUtils.delete(staging)
+            return false
+        }
+
+        val oldHome = File(backup, "home")
+        if (oldHome.exists()) {
+            val newHome = File(rootDir, "home")
+            FileUtils.delete(newHome)
+            if (!oldHome.renameTo(newHome)) {
+                FileUtils.delete(rootDir)
+                check(backup.renameTo(rootDir)) { "Unable to roll back rootfs after home restore failure" }
+                return false
             }
-            futures.all { it.get() }
-        } finally {
-            pool.shutdown()
         }
+        FileUtils.delete(backup)
+        return true
     }
 
-    private fun listImageFsShards(): List<String> =
-        try {
-            context.assets.list("").orEmpty().filter { name ->
-                name.startsWith("imagefs.part") && name.endsWith(".tzst")
-            }
-        } catch (e: Exception) {
-            emptyList()
+    private fun recoverInterruptedInstall(rootDir: File, staging: File, backup: File) {
+        FileUtils.delete(staging)
+        if (!backup.exists()) return
+        if (!rootDir.exists()) {
+            check(backup.renameTo(rootDir)) { "Unable to restore interrupted rootfs install" }
+            return
         }
-
-    /**
-     * Clear the root dir before extraction, preserving `home/` (WinNative
-     * `clearRootDir` -- user data survives an imagefs reinstall).
-     */
-    private fun clearRootDir(rootDir: File) {
-        if (rootDir.isDirectory) {
-            rootDir.listFiles()?.forEach { file ->
-                if (file.isDirectory && file.name == "home") return@forEach
-                FileUtils.delete(file)
-            }
-        } else {
-            rootDir.mkdirs()
+        val oldHome = File(backup, "home")
+        val newHome = File(rootDir, "home")
+        if (oldHome.exists() && !newHome.exists()) {
+            check(oldHome.renameTo(newHome)) { "Unable to restore rootfs home directory" }
         }
-    }
-
-    private companion object {
-        const val IMAGEFS_ARCHIVE = "imagefs.tzst"
+        if (ImageFs.find(rootDir).isValid) FileUtils.delete(backup)
     }
 }

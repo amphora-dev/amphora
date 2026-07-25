@@ -318,6 +318,6 @@ class PreparerGraphicsDriverTest {
         private const val BOX64_ENTRY = "Box64-0.4.3-8ee3d8f2c-0"
         // Asset names (bundled in the app APK by stageBundledContent).
         private const val PROTON_WCP = "Proton-10.0-4-x86_64.wcp"
-        private const val BOX64_WCP = "Bionic-Box64-0.4.3-8ee3d8f2c.wcp"
+        private const val BOX64_WCP = "Box64-0.4.3-c08554e3f.wcp"
     }
 }

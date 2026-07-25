@@ -5,6 +5,7 @@ import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.container.model.Container as AmphoraContainer
+import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.engine.model.AudioSink
 import app.amphora.core.engine.model.InputSink
 import app.amphora.core.engine.model.LaunchSpec
@@ -81,6 +82,7 @@ class WineEngineImpl @Inject constructor(
     private val containerManager: ContainerManager,
     private val rootfsInstaller: RootfsInstaller,
     private val preparer: WineSessionPreparer,
+    private val runtimeAssets: RuntimeAssetProvisioner,
     private val dispatchers: DispatcherProvider,
 ) : WineEngine, GameSessionSurfaceProvider {
 
@@ -105,9 +107,12 @@ class WineEngineImpl @Inject constructor(
         // Ensure Wine stderr can land under filesDir (ProcessHelper has no PluviaApp).
         ProcessHelper.init(context)
 
-        // 1. imagefs rootfs (P2).
+        // 1. Kernel-direct archives/metadata are downloaded once and then served
+        //    transparently through the legacy asset-path IO bridge.
+        runtimeAssets.ensureAvailable()
+        // 2. imagefs rootfs.
         ensureRootfs()
-        // 2. Wine container / WINEPREFIX (P4 WinlatorContainerManager: installs bundled
+        // 3. Wine container / WINEPREFIX (P4 WinlatorContainerManager: installs
         //    Wine/Box64/DXVK content + creates the prefix from the Proton prefixPack).
         val container = containerManager.getOrCreate(spec.containerId)
         // This engine instance's ContentsManager needs the installed profiles loaded for

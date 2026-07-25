@@ -90,11 +90,17 @@ class ContentManifestTest {
         val manifest = ContentManifest.parse(
             File("src/main/assets/content_manifest.json").readText(),
         )
-        assertEquals("shipped manifest must define 4 bundled components", 4, manifest.all().size)
+        assertEquals("shipped manifest must define 5 remote components", 5, manifest.all().size)
         val unpinned = manifest.all().filter { it.sha256 == null }
         assertTrue(
             "un-pinned SHA-256 (gap #1 regression): ${unpinned.joinToString { it.component.id.value }}",
             unpinned.isEmpty(),
+        )
+        assertTrue("stable WCP catalog URL missing", manifest.wcpCatalogUrl!!.endsWith("/default.json"))
+        assertTrue("kernel runtime assets missing", manifest.runtimeAssets().isNotEmpty())
+        assertTrue(
+            "runtime asset SHA-256 missing",
+            manifest.runtimeAssets().all { it.sha256.matches(Regex("[0-9a-f]{64}")) },
         )
     }
 
