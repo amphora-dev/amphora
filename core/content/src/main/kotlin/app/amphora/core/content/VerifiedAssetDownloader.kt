@@ -6,6 +6,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
@@ -123,7 +124,7 @@ class VerifiedAssetDownloader(
                 throw IOException("HTTP $response ${connection.responseMessage} for $remoteUrl")
             }
             connection.inputStream.use { input ->
-                partial.outputStream(append = append).buffered(BUFFER_SIZE).use { output ->
+                FileOutputStream(partial, append).buffered(BUFFER_SIZE).use { output ->
                     input.copyTo(output, BUFFER_SIZE)
                 }
             }
