@@ -12,9 +12,9 @@ import app.amphora.core.engine.model.SessionState
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -28,7 +28,6 @@ import javax.inject.Inject
  *
  * Replaces the manual SAF-pick + Launch UI flow with a single command:
  * ```
- * ./gradlew :app:stageBundledContent        # one-time: bundle real assets into the APK
  * ./gradlew :app:connectedDebugAndroidTest --tests "app.amphora.GameSessionLaunchTest"
  * ```
  * On failure the full exception stack surfaces in the test report -- the UI path
@@ -37,8 +36,8 @@ import javax.inject.Inject
  *
  * The test exe (`notepad.exe`, Wine's own PE from the Proton `.wcp`) is staged in
  * `androidTest/assets/` and copied to `filesDir/exe/` before launch (mirrors
- * `LauncherViewModel`). Real runtime assets (`imagefs.tzst`, the `.wcp`s, the
- * preparer `.tzst`s) must be bundled in the *app* APK via `stageBundledContent`.
+ * `LauncherViewModel`). Runtime assets are downloaded, SHA-verified and installed
+ * on first run; subsequent runs exercise the no-network installed fast path.
  *
  * Device: Lenovo TB322FC, arm64-v8a, API 36, Adreno 830.
  */
@@ -60,14 +59,6 @@ class GameSessionLaunchTest {
 
     @Test
     fun launch_notepad_startsWineSession() = runBlocking {
-        // Real assets must be bundled in the app APK (stageBundledContent).
-        val topAssets = appCtx.assets.list("").orEmpty().toList()
-        assumeTrue(
-            "imagefs.tzst not bundled in app assets (have ${topAssets.size} entries: $topAssets); " +
-                "run ./gradlew :app:stageBundledContent first.",
-            "imagefs.tzst" in topAssets,
-        )
-
         val exe = stageExe("notepad.exe")
         val spec = LaunchSpec(
             exePath = exe.absolutePath,
@@ -81,7 +72,9 @@ class GameSessionLaunchTest {
         // (ProcessHelper.exec swallows pb.start() IOException), so WineEngineImpl.launch
         // -> markFailed propagates instead of silently marking RUNNING. On success this
         // returns a handle whose awaitReady reflects real component startup.
-        val handle = wineEngine.launch(spec)
+        // A cold device downloads roughly 450 MB before launch. Bound the whole
+        // provisioning phase without imposing the short warm-cache timeout.
+        val handle = withTimeout(15 * 60_000L) { wineEngine.launch(spec) }
         try {
             // First run takes ~30-60s (rootfs extract + Proton/Box64 install + prefix);
             // allow 120s so slow devices/cold caches don't flake.
