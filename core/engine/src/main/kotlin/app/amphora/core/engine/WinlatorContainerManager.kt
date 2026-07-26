@@ -208,7 +208,7 @@ class WinlatorContainerManager @Inject constructor(
         prefix: String,
     ): String {
         val entry = manifest.entry(component)
-        val manifestEntryName = entry?.version // e.g. DXVK-3.0.2-gplasync-0
+        val manifestEntryName = entry?.version // e.g. DXVK-2.4.1-gplasync-pre-reg-0
         if (manifestEntryName != null) {
             val profile = contentsManager.getProfileByEntryName(manifestEntryName)
             if (profile != null && ContentsManager.getInstallDir(context, profile).isDirectory) {
@@ -231,40 +231,25 @@ class WinlatorContainerManager @Inject constructor(
     }
 
     /**
-     * Rewrite [container]'s `dxwrapper` when it doesn't resolve to installed
-     * DXVK + VKD3D profiles (legacy `dxvk-1.0` / `vkd3d-None` / empty /
-     * mistyped). Clears the preparer gate extra so DLLs are re-applied on next
-     * launch.
+     * Rewrite [container]'s `dxwrapper` when it differs from the manifest-pinned
+     * [desired] token (legacy `dxvk-1.0` / `vkd3d-None` / version bumps such as
+     * DXVK 3.0.2 → 2.4.1-pre-reg for Adreno D3D9). Clears the preparer gate so
+     * DLLs are re-applied on next launch.
      */
     private fun ensureRealDxwrapper(container: WnContainer, desired: String) {
         val current = container.getDXWrapper() ?: ""
         if (current == desired) return
 
-        val parts = current.split(";")
-        val currentDxvk = parts.getOrNull(0).orEmpty()
-        val currentVkd3d = parts.getOrNull(1).orEmpty()
-        val dxvkOk = profileInstalled(currentDxvk)
-        val vkd3dOk = profileInstalled(currentVkd3d) &&
-            !currentVkd3d.contains("None", ignoreCase = true)
-
-        // Preserve a fully-working custom dxwrapper; otherwise migrate.
-        if (dxvkOk && vkd3dOk) return
-
+        // Always converge on the pinned desired form. Amphora has no UI to keep
+        // a custom dxwrapper; preserving an "installed but stale" token blocked
+        // DXVK downgrades needed for Adreno D3D9.
         android.util.Log.i(
             "WinlatorContainerManager",
-            "Migrating container dxwrapper '$current' -> '$desired' " +
-                "(dxvkOk=$dxvkOk vkd3dOk=$vkd3dOk)",
+            "Migrating container dxwrapper '$current' -> '$desired'",
         )
         container.setDXWrapper(desired)
-        // Force preparer extractDXWrapperFiles gate on next launch.
         container.putExtra("dxwrapper", "")
         container.saveData()
-    }
-
-    private fun profileInstalled(entryName: String): Boolean {
-        if (entryName.isBlank()) return false
-        val profile = contentsManager.getProfileByEntryName(entryName) ?: return false
-        return ContentsManager.getInstallDir(context, profile).isDirectory
     }
 
     /** `<prefix>-<verName>-<verCode>` — lowercase type prefix for preparer matching. */

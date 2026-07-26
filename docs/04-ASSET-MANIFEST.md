@@ -158,26 +158,26 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | | `Proton-10-arm64ec-original` / `-unix` | (arm64ec, D5 砍) |
 | **Box64** | `Bionic-Box64-0.4.3-8ee3d8f2c` (**匹配 Bionic imagefs**) | `.../releases/download/bionic-box64-nightly-.../Bionic-Box64-0.4.3-8ee3d8f2c.wcp` |
 | | `Box64-0.4.3` / `0.3.9` / `0.3.8` / `0.3.7` | `.../releases/download/Stable-Box64/...wcp` |
-| **DXVK** | `Dxvk-3.0.2-gplasync` (**amphora MVP 默认**) / `3.0-gplasync` / `1.7-async` / `1.7.3-async` / `1.7.2` | `.../releases/download/Stable-Dxvk/...wcp` |
+| **DXVK** | `Dxvk-2.4.1-pre-reg` (**amphora MVP 默认**) / `3.0.2-gplasync` / `a6xx-fix` / Sarek | `.../releases/download/Stable-Dxvk/...wcp` |
 | **VKD3D** | `Vkd3d-3.0.1-S6_9` (**amphora MVP 默认**, profile `verName=3.0.1-sm69`) / nightly | `.../releases/download/Stable-VKD3D/...wcp` |
 | Turnip / WineD3d | -- (不在 contents.json, 仍打包在 assets `graphics_driver/`/`dxwrapper/`) | -- |
 
-> WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 仅作 DXVK &lt; 2.4 的 d3d8 补丁 (`extractD8VKIfNeeded`); amphora MVP 默认装 nicholasx417 的 `Dxvk-3.0.2-gplasync.wcp` (d3d8/9/10core/11/dxgi) + `Vkd3d-3.0.1-S6_9.wcp` (d3d12/d3d12core), 经 `ContentSource.resolve(DXVK|VKD3D)` + `ContentsManager.applyContent`. 容器 `dxwrapper` 形如 `dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none`。
+> WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 仅作 DXVK &lt; 2.4 的 d3d8 补丁 (`extractD8VKIfNeeded`); amphora MVP 默认装 nicholasx417 的 `Dxvk-2.4.1-pre-reg.wcp` (d3d8/9/10core/11/dxgi) + `Vkd3d-3.0.1-S6_9.wcp` (d3d12/d3d12core), 经 `ContentSource.resolve(DXVK|VKD3D)` + `ContentsManager.applyContent`. 容器 `dxwrapper` 形如 `dxvk-2.4.1-gplasync-pre-reg-0;vkd3d-3.0.1-sm69-0;none`。
 
 
 ### 5.1 amphora 当前锁定版本
 
 | 组件 | 锁定包 | ContentsManager entry / wrapper token | 作用 |
 |---|---|---|---|
-| **DXVK** | `Dxvk-3.0.2-gplasync.wcp` | `DXVK-3.0.2-gplasync-0` → `dxvk-3.0.2-gplasync-0` | D3D8/9/10/11 → Vulkan（含 d3d8，无需旧 d8vk 补丁） |
+| **DXVK** | `Dxvk-2.4.1-pre-reg.wcp` | `DXVK-2.4.1-gplasync-pre-reg-0` → `dxvk-2.4.1-gplasync-pre-reg-0` | D3D8/9/10/11 → Vulkan；避开 3.x timeline-semaphore 在 Turnip/Adreno 上的 D3D9 黑屏 |
 | **VKD3D** | `Vkd3d-3.0.1-S6_9.wcp` | profile `verName=3.0.1-sm69` → `vkd3d-3.0.1-sm69-0` | D3D12 → Vulkan（替换 Wine stub `d3d12.dll`） |
 | **Proton** | `Proton-10.0-4-x86_64.wcp` | `Proton-10.0-4-x86_64-0` | Wine/Proton 运行时 + prefixPack |
 | **Box64** | `Box64-0.4.3-c08554e3f.wcp` | `Box64-0.4.3-c08554e3f-0` | x86_64 → ARM64 用户态翻译 |
 | **Turnip** | `graphics_driver/wrapper.tzst` | ARCHIVE `version=1` | Adreno Mesa Turnip + adrenotools wrapper ICD |
 
-容器默认 `dxwrapper`：`dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none`（第三段 `none` = 不用 cnc-ddraw）。
+容器默认 `dxwrapper`：`dxvk-2.4.1-gplasync-pre-reg-0;vkd3d-3.0.1-sm69-0;none`（第三段 `none` = 不用 cnc-ddraw）。
 
-选型原则：跟上游 **Stable** 目录里较新的 x86_64（非 arm64ec）构建；DXVK 选 **gplasync**（异步编译，移动端体感更好）；VKD3D 选 Stable 里带 **S6_9**（shader model 6.9）的 3.0.1 包。
+选型原则：跟上游 **Stable** x86_64（非 arm64ec）。DXVK 默认 **2.4.1-pre-reg**（非最新 3.0.2）：3.x 引入 timeline semaphore，在 Turnip-kgsl/Adreno 上 D3D9 常见「有 FPS 无画面」；10/11/12 可用 3.x，但 9 不行。VKD3D 仍锁 **3.0.1-S6_9**。
 
 ### 5.2 上游版本族怎么读（为何看起来「很多」）
 
@@ -191,7 +191,7 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | **`a6xx-*` / `special+d8` / `sp`** | **GPU 特化**：Adreno A6xx 系驱动补丁 / D3D8 特化（与 ABI 无关；手机 GPU 族名） | 仅当默认黑屏且社区明确点名；amphora 默认不碰 |
 | **`Sarek`**（可带 `arm64ec`） | 独立 DXVK fork，偏旧 Adreno / 兼容线 | 新 DXVK 在老 GPU 上挂时的备选，**非**默认 |
 | **`arm64ec`**（DXVK/VKD3D/Proton/D7VK/FEX 都有） | **ABI 路线**：Windows-on-ARM EC 二进制，配 **FEXCore** 翻 x86 游戏；**不是**「给 ARM 手机用的 DXVK」 | amphora **一律不用**（RFC D5：Box64 + **x86_64** Wine） |
-| **无 `arm64ec` 后缀**（如 `Dxvk-3.0.2-gplasync`） | **x86_64** PE，由 Box64 翻译整棵 Wine 树 | **amphora 默认选这类** |
+| **无 `arm64ec` 后缀**（如 `Dxvk-2.4.1-pre-reg`） | **x86_64** PE，由 Box64 翻译整棵 Wine 树 | **amphora 默认选这类** |
 | **VKD3D `S6_9` / `sm69`** | 暴露较高 Shader Model（6.9） | 较新 DX12；与 `VKD3D_SHADER_MODEL` env 配合 |
 | **VKD3D `3.0a` / `3.0b` / `Tfix` / `tilting`** | 同期实验/修复分支 | 默认 3.0.1-S6_9 出问题再试 |
 | **nightly + short hash** | 滚动构建，未进 Stable 目录 | 调试上游；不要当 MVP 默认 |

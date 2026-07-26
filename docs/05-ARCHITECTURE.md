@@ -86,7 +86,7 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 | Java 渲染 | `VulkanRenderer` | 加载 `winlator`，direct scene buffer |
 | Native | `vk_renderer.c` + adrenotools | swapchain / AHB 导入 / Turnip 或系统 `libvulkan.so` |
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
-| Guest 图形 | Turnip wrapper ICD + DXVK 3.0.2 gplasync + VKD3D 3.0.1；OpenGL/ddraw→WineD3D→Zink（需容器 `ZINK_*`/`TU_DEBUG`） | host renderer 与 guest 共用 adrenotools-wrapped driver |
+| Guest 图形 | Turnip wrapper ICD + DXVK 2.4.1-pre-reg + VKD3D 3.0.1；OpenGL/ddraw→WineD3D→Zink（需容器 `ZINK_*`/`TU_DEBUG`） | host renderer 与 guest 共用 adrenotools-wrapped driver |
 
 已知裁剪：无 OSK/字符注入；音频 `setVolume` 未接真实 `AudioTrack`；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 

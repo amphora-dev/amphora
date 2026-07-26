@@ -35,14 +35,14 @@
       "size": 3816921
     },
     "dxvk": {
-      "assetPath": "Dxvk-3.0.2-gplasync.wcp",
-      "sha256": "4a9f8a8c96c34745a576c0e9289dcc453adb8888a22e42ddabed1f2723f7d2f1",
-      "version": "DXVK-3.0.2-gplasync-0",
+      "assetPath": "Dxvk-2.4.1-pre-reg.wcp",
+      "sha256": "ab074c497ab76433fdf8469a6fa19de93194f0699c3fc982f2d3239c3a0eac04",
+      "version": "DXVK-2.4.1-gplasync-pre-reg-0",
       "kind": "WCP",
       "contentType": "DXVK",
-      "verName": "3.0.2-gplasync",
+      "verName": "2.4.1-gplasync-pre-reg",
       "verCode": 0,
-      "size": 6741148
+      "size": 3271732
     },
     "vkd3d": {
       "assetPath": "Vkd3d-3.0.1-S6_9.wcp",
