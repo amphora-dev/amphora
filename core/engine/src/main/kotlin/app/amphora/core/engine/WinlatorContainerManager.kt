@@ -157,12 +157,11 @@ class WinlatorContainerManager @Inject constructor(
      * profile.
      *
      * [dxwrapper] must be the ContentsManager-resolvable delimited token
-     * (`dxvk-<verName>-<verCode>;vkd3d-<verName>-<verCode>;dd7to9`) so
+     * (`dxvk-<verName>-<verCode>;vkd3d-<verName>-<verCode>;none`) so
      * `extractDXWrapperFiles` finds the installed profiles via
      * [ContentsManager.getProfileByEntryName] and `applyContent`s real d3d*
      * DLLs. Do **not** use `dxvk-1.0` / `vkd3d-None` — those never match a
-     * profile and fall through to Wine builtins / stubs. `dd7to9` routes
-     * DirectDraw/DX7 into D3D9→DXVK so it does not depend on Zink.
+     * profile and fall through to Wine builtins / stubs.
      */
     private fun createDefaultContainer(wineVersion: String, dxwrapper: String): WnContainer? {
         val data = JSONObject().apply {
@@ -200,7 +199,7 @@ class WinlatorContainerManager @Inject constructor(
             type = ContentProfile.ContentType.CONTENT_TYPE_VKD3D,
             prefix = "vkd3d",
         )
-        return "$dxvk;$vkd3d;dd7to9"
+        return "$dxvk;$vkd3d;none"
     }
 
     private fun resolveWrapperToken(
