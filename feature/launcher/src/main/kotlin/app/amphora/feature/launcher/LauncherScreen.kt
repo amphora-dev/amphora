@@ -37,6 +37,8 @@ fun LauncherScreen(
     onOpenSettings: () -> Unit,
     /** Optional test path: stage a deterministic PE fixture and launch Wine. */
     onDebugLaunchWine: (() -> Unit)? = null,
+    /** Same smoke PE with DXVK HUD + file logs (AIO DX9 black-screen triage). */
+    onDebugLaunchWineDiag: (() -> Unit)? = null,
     viewModel: LauncherViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -99,6 +101,13 @@ fun LauncherScreen(
                     onClick = onDebugLaunchWine,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Debug: Wine smoke test") }
+            }
+
+            if (onDebugLaunchWineDiag != null) {
+                Button(
+                    onClick = onDebugLaunchWineDiag,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Debug: Wine + DXVK diag") }
             }
         }
     }

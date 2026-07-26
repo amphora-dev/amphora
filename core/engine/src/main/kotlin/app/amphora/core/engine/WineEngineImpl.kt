@@ -237,6 +237,14 @@ class WineEngineImpl @Inject constructor(
         for ((key, value) in preparer.envVars()) envVars.put(key, value)
         // Caller-supplied env (LaunchSpec.env).
         for ((key, value) in spec.env) envVars.put(key, value)
+        if (envVars.get("DXVK_HUD") != null) {
+            Log.i(
+                "WineEngineImpl",
+                "Graphics diag env active: DXVK_HUD=${envVars.get("DXVK_HUD")} " +
+                    "DXVK_LOG_PATH=${envVars.get("DXVK_LOG_PATH")} " +
+                    "WINEDEBUG=${envVars.get("WINEDEBUG")}",
+            )
+        }
         // ALSA socket (RFC §8: MVP is ALSA-only; PulseAudio is a non-target).
         val rootPath = imageFs.getRootDir().path
         envVars.put("ANDROID_ALSA_SERVER", rootPath + UnixSocketConfig.ALSA_SERVER_PATH)

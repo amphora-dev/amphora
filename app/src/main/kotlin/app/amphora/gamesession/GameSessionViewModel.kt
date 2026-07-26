@@ -4,14 +4,18 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.container.model.ContainerId
+import android.util.Log
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.GameSessionSurfaceProvider
+import app.amphora.core.engine.GraphicsDiag
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.SessionHandle
 import app.amphora.core.engine.model.SessionState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +43,7 @@ import javax.inject.Inject
 class GameSessionViewModel @Inject constructor(
     private val wineEngine: WineEngine,
     private val surfaceProvider: GameSessionSurfaceProvider,
+    @ApplicationContext private val appContext: Context,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -58,23 +63,36 @@ class GameSessionViewModel @Inject constructor(
         val exePath = savedStateHandle.get<String>(EXE_PATH_ARG).orEmpty()
         val width = savedStateHandle.get<Int>(WIDTH_ARG) ?: DEFAULT_WIDTH
         val height = savedStateHandle.get<Int>(HEIGHT_ARG) ?: DEFAULT_HEIGHT
+        val graphicsDiag = savedStateHandle.get<Boolean>(GRAPHICS_DIAG_ARG) == true
         if (exePath.isEmpty()) {
             _launchError.value = "No game selected"
             _sessionState.value = SessionState.FAILED
         } else {
-            launch(exePath, width, height)
+            launch(exePath, width, height, graphicsDiag)
         }
     }
 
-    private fun launch(exePath: String, width: Int, height: Int) {
+    private fun launch(exePath: String, width: Int, height: Int, graphicsDiag: Boolean) {
         viewModelScope.launch {
             _sessionState.value = SessionState.STARTING
             try {
+                val diagEnv = if (graphicsDiag) {
+                    GraphicsDiag.clearStateCache(appContext)
+                    val env = GraphicsDiag.launchEnv(appContext)
+                    Log.i(
+                        GraphicsDiag.TAG,
+                        "Graphics diag ON; DXVK logs → ${env["DXVK_LOG_PATH"]}",
+                    )
+                    env
+                } else {
+                    emptyMap()
+                }
                 val spec = LaunchSpec(
                     exePath = exePath,
                     // MVP: single shared container (RFC §9: multi-prefix is v0.2).
                     containerId = ContainerId(DEFAULT_CONTAINER_ID),
                     displaySize = DisplaySize(width, height),
+                    env = diagEnv,
                 )
                 val h = wineEngine.launch(spec)
                 handle = h
@@ -113,6 +131,7 @@ class GameSessionViewModel @Inject constructor(
         const val EXE_PATH_ARG = "exePath"
         const val WIDTH_ARG = "width"
         const val HEIGHT_ARG = "height"
+        const val GRAPHICS_DIAG_ARG = "graphicsDiag"
         const val DEFAULT_WIDTH = 1280
         const val DEFAULT_HEIGHT = 720
         /** MVP single shared container id (RFC §9: multi-prefix is v0.2). */

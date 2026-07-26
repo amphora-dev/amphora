@@ -44,6 +44,16 @@ fun AmphoraNavHost(navController: NavHostController) {
                     gameSessionRoute(stageDebugWineExe(context), DEBUG_WIDTH, DEBUG_HEIGHT),
                 )
             },
+            onDebugLaunchWineDiag = {
+                navController.navigate(
+                    gameSessionRoute(
+                        stageDebugWineExe(context),
+                        DEBUG_WIDTH,
+                        DEBUG_HEIGHT,
+                        graphicsDiag = true,
+                    ),
+                )
+            },
         )
         settingsScreen(onBack = { navController.popBackStack() })
         gameSessionScreen(onExit = { navController.popBackStack() })

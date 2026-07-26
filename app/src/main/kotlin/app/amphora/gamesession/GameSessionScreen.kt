@@ -40,11 +40,17 @@ import com.winlator.cmod.runtime.display.xserver.XServer
 const val GameSessionRoute = "game_session"
 
 private const val GAME_SESSION_ROUTE_WITH_ARGS =
-    "$GameSessionRoute?exePath={exePath}&width={width}&height={height}"
+    "$GameSessionRoute?exePath={exePath}&width={width}&height={height}&graphicsDiag={graphicsDiag}"
 
 /** Builds the navigation URL for the game-session route (exe path URL-encoded). */
-fun gameSessionRoute(exePath: String, width: Int = 1280, height: Int = 720): String =
-    "$GameSessionRoute?exePath=${Uri.encode(exePath)}&width=$width&height=$height"
+fun gameSessionRoute(
+    exePath: String,
+    width: Int = 1280,
+    height: Int = 720,
+    graphicsDiag: Boolean = false,
+): String =
+    "$GameSessionRoute?exePath=${Uri.encode(exePath)}&width=$width&height=$height" +
+        "&graphicsDiag=$graphicsDiag"
 
 fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
     composable(
@@ -53,6 +59,7 @@ fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
             navArgument("exePath") { type = NavType.StringType; defaultValue = "" },
             navArgument("width") { type = NavType.IntType; defaultValue = 1280 },
             navArgument("height") { type = NavType.IntType; defaultValue = 720 },
+            navArgument("graphicsDiag") { type = NavType.BoolType; defaultValue = false },
         ),
     ) {
         GameSessionScreen(viewModel = hiltViewModel(), onExit = onExit)
