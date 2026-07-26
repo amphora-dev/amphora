@@ -117,8 +117,8 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 | 资产 | SHA-256 | 大小 | remoteUrl |
 |---|---|---:|---|
-| `Graphics-Test-32bit.exe` | `b5b802f365b8e36ce761f352b2b48d03a728f32378394afe82859f875feb7826` | 2,083,443 | `.../releases/download/amphora/AIO-Graphics-Test-32bit.exe` |
-| `Graphics-Test-64bit.exe` | `ddb210c65881e9347b045b5201eb11c2d6eeb318f1a5c4262b4f70d9573e80a4` | 2,065,494 | `.../releases/download/amphora/AIO-Graphics-Test-64bit.exe` |
+| `Graphics-Test-32bit.exe` | `75589dc37b72d509e23c9c3c043fdf8e03855e5d2f1ec846efe2672662719306` | 2,083,443 | `.../releases/download/amphora/AIO-Graphics-Test-32bit.exe` |
+| `Graphics-Test-64bit.exe` | `96d76d077139ef469eff31efbc75cd9202b99bf2906b97e3c5de07dc350f5c57` | 2,065,494 | `.../releases/download/amphora/AIO-Graphics-Test-64bit.exe` |
 
 CI 重建后 SHA 会变：更新本表与 `content_manifest.json` 即可。
 
