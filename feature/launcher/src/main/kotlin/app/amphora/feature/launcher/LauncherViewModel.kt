@@ -6,6 +6,8 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.engine.GraphicsDriverIds
+import app.amphora.core.engine.TurnipDriverProvisioner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,9 +35,19 @@ import javax.inject.Inject
 class LauncherViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
+    private val turnipProvisioner: TurnipDriverProvisioner,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(LauncherUiState())
+    private val prefs =
+        context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+
+    private val _uiState = MutableStateFlow(
+        LauncherUiState(
+            graphicsDriver = GraphicsDriverOption.fromDriverId(
+                prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+            ),
+        ),
+    )
     val uiState: StateFlow<LauncherUiState> = _uiState.asStateFlow()
 
     fun onExePicked(uri: Uri) {
@@ -55,6 +67,30 @@ class LauncherViewModel @Inject constructor(
 
     fun selectResolution(resolution: Resolution) {
         _uiState.update { it.copy(resolution = resolution) }
+    }
+
+    /** Persist adrenotools driver selection; downloads Turnip zip on first pick. */
+    fun selectGraphicsDriver(option: GraphicsDriverOption) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(driverBusy = true, stageError = null) }
+            try {
+                if (option == GraphicsDriverOption.TURNIP_BALANCED) {
+                    turnipProvisioner.ensureInstalled()
+                }
+                prefs.edit()
+                    .putString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, option.driverId)
+                    .apply()
+                _uiState.update { it.copy(graphicsDriver = option, driverBusy = false) }
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _uiState.update {
+                    it.copy(
+                        driverBusy = false,
+                        stageError = "Turnip install failed: ${e.message ?: e.javaClass.simpleName}",
+                    )
+                }
+            }
+        }
     }
 
     /** Copy the picked file into `filesDir/exe/<name>` (app-private, guest-readable). */
@@ -80,7 +116,21 @@ data class LauncherUiState(
     val staging: Boolean = false,
     val stageError: String? = null,
     val resolution: Resolution = Resolution.DEFAULT,
+    val graphicsDriver: GraphicsDriverOption = GraphicsDriverOption.WRAPPER,
+    val driverBusy: Boolean = false,
 )
+
+/** Adrenotools backend selectable from the launcher (persisted). */
+enum class GraphicsDriverOption(val driverId: String, val label: String) {
+    WRAPPER(GraphicsDriverIds.WRAPPER, "Wrapper"),
+    TURNIP_BALANCED(GraphicsDriverIds.TURNIP_BALANCED, "Turnip 1.06-b"),
+    ;
+
+    companion object {
+        fun fromDriverId(id: String?): GraphicsDriverOption =
+            entries.firstOrNull { it.driverId == GraphicsDriverIds.normalize(id) } ?: WRAPPER
+    }
+}
 
 /** A offered render resolution (maps to the Wine `explorer /desktop=shell,WxH` size). */
 enum class Resolution(val width: Int, val height: Int, val label: String) {

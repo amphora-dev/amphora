@@ -71,6 +71,7 @@ class WinlatorContainerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val contentSource: ContentSource,
     private val manifest: ContentManifest,
+    private val turnipProvisioner: TurnipDriverProvisioner,
     private val dispatchers: DispatcherProvider,
 ) : ContainerManager {
 
@@ -104,6 +105,8 @@ class WinlatorContainerManager @Inject constructor(
             // (dxvk-1.0 / vkd3d-None / missing profile). Clear the dxwrapper gate
             // extra so the preparer re-extracts DLLs on the next launch.
             ensureRealDxwrapper(wnContainer, dxwrapper)
+            // Optional adrenotools driver (wrapper default, Turnip when selected).
+            ensureAdrenotoolsDriver(wnContainer)
             // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
             wnContainerManager.activateContainer(wnContainer)
             wnContainer.toAmphora()
@@ -248,6 +251,32 @@ class WinlatorContainerManager @Inject constructor(
         )
         container.setDXWrapper(desired)
         container.putExtra("dxwrapper", "")
+        container.saveData()
+    }
+
+    /**
+     * Apply the user-selected adrenotools id (`graphicsDriverConfig.version`).
+     * Default [GraphicsDriverIds.WRAPPER]; optional [GraphicsDriverIds.TURNIP_BALANCED]
+     * downloads+installs the WN-Turnip zip first.
+     */
+    private suspend fun ensureAdrenotoolsDriver(container: WnContainer) {
+        val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+        val desired = GraphicsDriverIds.normalize(prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null))
+        if (desired == GraphicsDriverIds.TURNIP_BALANCED) {
+            turnipProvisioner.ensureInstalled()
+        }
+        val config = com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
+            .parseGraphicsDriverConfig(container.getGraphicsDriverConfig())
+        val current = config["version"] ?: GraphicsDriverIds.WRAPPER
+        if (current == desired) return
+        android.util.Log.i(
+            "WinlatorContainerManager",
+            "Migrating graphicsDriverConfig.version '$current' -> '$desired'",
+        )
+        config["version"] = desired
+        container.setGraphicsDriverConfig(
+            com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils.toGraphicsDriverConfig(config),
+        )
         container.saveData()
     }
 

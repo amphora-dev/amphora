@@ -177,7 +177,18 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 
 容器默认 `dxwrapper`：`dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none`（第三段 `none` = 不用 cnc-ddraw）。
 
-选型原则：跟上游 **Stable** x86_64（非 arm64ec）。DXVK 默认 **3.0.2-gplasync**：在 TB322FC（Adreno 830 / Turnip）上 DX10/11 可用；曾试 `2.4.1-pre-reg` 想修 D3D9 黑屏，结果 DX9–11 **闪退**，已回退。DX9「有 FPS 无画面」仍为开放项（3.x timeline semaphore × Turnip 嫌疑）。VKD3D 仍锁 **3.0.1-S6_9**。
+选型原则：跟上游 **Stable** x86_64（非 arm64ec）。DXVK 默认 **3.0.2-gplasync**：在 TB322FC（Adreno 830 / Turnip）上 DX10/11 可用；曾试 `2.4.1-pre-reg` 想修 D3D9 黑屏，结果 DX9–11 **闪退**，已回退。DX9「有 FPS 无画面」仍为开放项（已定位 FF PSO compile `-13`）。VKD3D 仍锁 **3.0.1-S6_9**。
+
+### 5.3 可选 adrenotools Turnip（WN-Turnip）
+
+默认 **不**启用。启动器 **GPU driver** 可选：
+
+| 选项 | `graphicsDriverConfig.version` | 含义 |
+|---|---|---|
+| **Wrapper**（默认） | `wrapper` | Guest ICD=`wrapper_icd`；adrenotools NAME 不设 → 系统 Adreno |
+| **Turnip 1.06-b** | `WN-Turnip-1.06-b` | 下载 `Drivers@v1.06` Balanced zip → `contents/adrenotools/WN-Turnip-1.06-b/`；Guest 仍用 wrapper ICD，但设 `ADRENOTOOLS_DRIVER_PATH/NAME=libvulkan_freedreno.so`；Host 同 id |
+
+资产 pin：`runtimeAssets` 条目 `adrenotools/WN-Turnip-1.06-b_Axxx.zip`（SHA 见 manifest）。首次点选时 `TurnipDriverProvisioner` 下载并 `AdrenotoolsManager.installFromZip`。
 
 ### 5.2 上游版本族怎么读（为何看起来「很多」）
 

@@ -620,25 +620,19 @@ class XServerWineSessionPreparer @Inject constructor(
     }
 
     /**
-     * amphora: install the bundled Turnip driver to the adrenotools content
+     * amphora: install the bundled wrapper ICD into the adrenotools content
      * directory (`filesDir/contents/adrenotools/<id>/`) so the host-side
-     * `VulkanRenderer` can load it via `adrenotools_open_libvulkan`. The
-     * `wrapper.tzst` asset (extracted into `imagefs/usr/lib/` by
+     * `VulkanRenderer` can load it via `adrenotools_open_libvulkan`. Used for
+     * the default [GraphicsDriverIds.WRAPPER] id only — optional WN-Turnip
+     * packages are installed by [TurnipDriverProvisioner] and must not be
+     * overwritten here.
+     *
+     * `wrapper.tzst` (extracted into `imagefs/usr/lib/` by
      * [extractGraphicsDriverFilesCore]) ships `libvulkan_wrapper.so` and the
      * ICD JSON; the adrenotools loader expects the `.so` plus a `meta.json`
      * (with `libraryName`) at its own content path. This bridges the two
      * locations — without it, the host falls back to the system Adreno driver
-     * while the guest uses Turnip, producing a black screen.
-     *
-     * `libvulkan_wrapper.so` was built in Termux and has `NEEDED` entries for
-     * `libandroid-sysvshm.so`, `libxcb*.so`, `libdrm.so`, `libX11-xcb.so` etc.
-     * (RUNPATH points at a Termux path that doesn't exist on device). The
-     * guest finds them via `LD_LIBRARY_PATH=imagefs/usr/lib`, but the host's
-     * adrenotools namespace only searches `nativeLibraryDir` + system paths —
-     * so we copy the imagefs-hosted deps into the adrenotools driver dir too.
-     *
-     * Idempotent: skips when both `meta.json` and the driver `.so` already exist
-     * (the driver `.so` is ~19 MB + deps ~10 MB, no need to recopy every boot).
+     * while the guest uses the wrapper ICD, producing a black screen.
      */
     private fun installAdrenotoolsDriverIfNeeded(driverId: String, libraryName: String) {
         if (driverId.isEmpty()) {
@@ -794,26 +788,42 @@ class XServerWineSessionPreparer @Inject constructor(
         }
 
         if (adrenoToolsDriverId.isNotEmpty() && adrenoToolsDriverId != "System") {
-            // amphora: install the bundled Turnip driver to the adrenotools content
-            // directory so the host VulkanRenderer can load it via
-            // adrenotools_open_libvulkan. The driver .so + ICD JSON ship inside
-            // graphics_driver/wrapper.tzst (extracted above into imagefs/usr/lib/
-            // and imagefs/usr/share/vulkan/icd.d/). The host-side adrenotools
-            // loader (vulkan.c:get_driver_path) looks for the driver at
-            // filesDir/contents/adrenotools/<id>/<libraryName>, with a companion
-            // meta.json naming the library — so copy both from the imagefs
-            // extract location. Idempotent: skips the copy if meta.json already
-            // exists (the driver .so is ~19 MB, no need to recopy every boot).
             val adrenotoolsManager = AdrenotoolsManager(context)
             val driverLibrary = adrenotoolsManager.getLibraryName(adrenoToolsDriverId)
             Log.i(TAG, "Loading graphics/Turnip driver: id='$adrenoToolsDriverId' library='$driverLibrary'")
-            installAdrenotoolsDriverIfNeeded(adrenoToolsDriverId, driverLibrary)
-            // Do NOT set ADRENOTOOLS_DRIVER_PATH/NAME for the guest here. The ICD loads
-            // libvulkan_wrapper.so; forcing NAME=libvulkan_freedreno.so broke DXVK
-            // (DX9–11) on Adreno 830 (2026-07-26 regression). Leave unset so the
-            // wrapper uses its built-in load path (same as the previously working
-            // DX10/11 sessions).
-            if (wantLeegao) envState.put("ADRENOTOOLS_HOOKS_PATH", imageFs.getLibDir().path)
+            // Only seed wrapper.so from imagefs for the bundled "wrapper" id.
+            // Optional WN-Turnip packages are installed by TurnipDriverProvisioner
+            // and must not be overwritten with libvulkan_wrapper.so.
+            if (adrenoToolsDriverId == "wrapper" ||
+                driverLibrary.isEmpty() ||
+                driverLibrary == "libvulkan_wrapper.so"
+            ) {
+                installAdrenotoolsDriverIfNeeded(
+                    adrenoToolsDriverId,
+                    if (driverLibrary.isNotEmpty()) driverLibrary else "libvulkan_wrapper.so",
+                )
+            }
+            val libraryName = adrenotoolsManager.getLibraryName(adrenoToolsDriverId)
+                .ifEmpty { driverLibrary }
+            // Guest: wrapper ICD + adrenotools backend. For the default wrapper
+            // id leave PATH/NAME unset so wrapper uses system Adreno. For an
+            // optional Turnip package (libraryName=libvulkan_freedreno.so), set
+            // PATH/NAME/HOOKS like WinNative setDriverById.
+            if (libraryName == "libvulkan_freedreno.so" &&
+                adrenotoolsManager.isInstalled(adrenoToolsDriverId)
+            ) {
+                val driverDir = adrenotoolsManager.getDriverDir(adrenoToolsDriverId)
+                envState.put("ADRENOTOOLS_DRIVER_PATH", driverDir.path + "/")
+                envState.put("ADRENOTOOLS_DRIVER_NAME", libraryName)
+                envState.put("ADRENOTOOLS_HOOKS_PATH", imageFs.getLibDir().path)
+                envState.put("ADRENOTOOLS_DRIVER_CUSTOM", "1")
+                Log.i(
+                    TAG,
+                    "Guest adrenotools backend: PATH=${driverDir.path} NAME=$libraryName",
+                )
+            } else if (wantLeegao) {
+                envState.put("ADRENOTOOLS_HOOKS_PATH", imageFs.getLibDir().path)
+            }
         } else {
             Log.w(
                 TAG,

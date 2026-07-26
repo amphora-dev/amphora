@@ -59,10 +59,10 @@
     `DxvkGraphicsPipeline: Failed to compile pipeline: -13`（`VK_ERROR_UNKNOWN`），阶段为 **FF VS / FF FS**（D3D9 固定管线）。Swapchain/Present 正常（`B8G8R8A8` / `IMMEDIATE`，故 FPS 仍跳），画面黑是因为主绘制 PSO 编不过。
   - 设备：`Wrapper(Adreno (TM) 830)`，DXVK `v3.0.2-gplasync`，`timelineSemaphore: 1`。
   - 曾试 `Dxvk-2.4.1-pre-reg` → DX9–11 **闪退**，已回退 3.0.2；勿再盲换 2.4.1。
-  - **定位入口**: 启动器 **Debug: Wine + DXVK diag** → AIO DX9；日志 `{filesDir}/wine_stderr.log`（`DXVK_LOG_PATH` 目录本次为空，stderr 已够）。
-  - 下一步候选（按侵入性）：试 **2.7.x pre-regress / Sarek**（旧 FF 路径，避开 3.x FF→SPIR-V）；或升 Turnip wrapper；或抓 Turnip shader dump。勿先碰 freedreno adrenotools。
-- ⚠️ **AIO OpenGL/DX7 黑屏+FPS** (2026-07-26): 已修 launch 合并 `ZINK_*`/`TU_DEBUG` + 始终下发 `WINE_D3D_CONFIG`。续试注入 `ADRENOTOOLS_*=freedreno` / `renderer=vulkan` / `dd7to9` **回退**——在 TB322FC 上导致 DX9–11 也挂（log：`ADRENOTOOLS_DRIVER_NAME=libvulkan_freedreno.so`）。OpenGL/DX7 黑屏仍为开放项；勿再盲注 freedreno。`ddrawrapper/*` runtimeAssets 保留（nglide 提取不再 404）。
-- ⏭ 下一步: **DX9 黑屏**（勿用 2.4.1）；**Exit ANR 根治**（见上方 §专项）; v0.2 候选 settings / 键盘手柄 / 音频音量 / Present·DRI3。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
+  - **定位入口**: 启动器 **Debug: Wine + DXVK diag** → AIO DX9；日志 `{filesDir}/wine_stderr.log`。
+  - **可选 Turnip**: 启动器 **GPU driver → Turnip 1.06-b**（`Drivers@v1.06` Balanced，工程化下载/adrenotools 安装；默认仍 Wrapper）。用于验证开源后端是否改善 FF PSO；非默认。
+- ⚠️ **AIO OpenGL/DX7 黑屏+FPS** (2026-07-26): 已修 launch 合并 `ZINK_*`/`TU_DEBUG` + 始终下发 `WINE_D3D_CONFIG`。续试注入 `ADRENOTOOLS_*=freedreno` / `renderer=vulkan` / `dd7to9` **回退**——在 TB322FC 上导致 DX9–11 也挂（log：`ADRENOTOOLS_DRIVER_NAME=libvulkan_freedreno.so`）。OpenGL/DX7 黑屏仍为开放项；完整 Turnip 请用启动器可选 **Turnip 1.06-b**（勿再盲注 NAME）。`ddrawrapper/*` runtimeAssets 保留（nglide 提取不再 404）。
+- ⏭ 下一步: 用可选 Turnip 验证 DX9 PSO；**Exit ANR 根治**；v0.2 候选 settings / 键盘手柄。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
 |---|---|

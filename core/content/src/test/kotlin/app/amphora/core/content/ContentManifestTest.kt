@@ -114,6 +114,10 @@ class ContentManifestTest {
             "16626857f415672f66b952b71c16ca9f3ddc51658715796b46a645a1bce16898",
             runtimeAssets["winnative/Graphics-Test-64bit.exe"]?.sha256,
         )
+        assertEquals(
+            "c88c6ee2983f8d0814479f895e815e37fa4caa1e61020f4f1ac736026183f785",
+            runtimeAssets["adrenotools/WN-Turnip-1.06-b_Axxx.zip"]?.sha256,
+        )
     }
 
     private companion object {

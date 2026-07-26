@@ -78,6 +78,12 @@
       "size": 21117082
     },
     {
+      "assetPath": "adrenotools/WN-Turnip-1.06-b_Axxx.zip",
+      "sha256": "c88c6ee2983f8d0814479f895e815e37fa4caa1e61020f4f1ac736026183f785",
+      "remoteUrl": "https://github.com/WinNative-Emu/Drivers/releases/download/v1.06/WN-Turnip-1.06-b_Axxx.zip",
+      "size": 2694674
+    },
+    {
       "assetPath": "layers.tzst",
       "sha256": "9beac20c3e2c7f2c224f2c18cc6dc253b0f70450006fc986970992c7a8814ffa",
       "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/layers.tzst",

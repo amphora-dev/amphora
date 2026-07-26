@@ -78,6 +78,15 @@ fun LauncherScreen(
                 onSelect = viewModel::selectResolution,
             )
 
+            GraphicsDriverSelector(
+                selected = uiState.graphicsDriver,
+                enabled = !uiState.driverBusy && !uiState.staging,
+                onSelect = viewModel::selectGraphicsDriver,
+            )
+            if (uiState.driverBusy) {
+                Text("Installing Turnip…", style = MaterialTheme.typography.bodySmall)
+            }
+
             // --- launch -------------------------------------------------------
             Button(
                 onClick = {
@@ -86,7 +95,7 @@ fun LauncherScreen(
                         onLaunch(path, uiState.resolution.width, uiState.resolution.height)
                     }
                 },
-                enabled = uiState.stagedExePath != null && !uiState.staging,
+                enabled = uiState.stagedExePath != null && !uiState.staging && !uiState.driverBusy,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Launch") }
 
@@ -128,6 +137,37 @@ private fun ResolutionSelector(selected: Resolution, onSelect: (Resolution) -> U
                     selected = res == selected,
                     onClick = { onSelect(res) },
                     label = { Text(res.label) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GraphicsDriverSelector(
+    selected: GraphicsDriverOption,
+    enabled: Boolean,
+    onSelect: (GraphicsDriverOption) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("GPU driver", style = MaterialTheme.typography.labelLarge)
+        Text(
+            "Wrapper = system Adreno (default). Turnip = optional Mesa freedreno.",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+        ) {
+            GraphicsDriverOption.entries.forEach { option ->
+                FilterChip(
+                    selected = option == selected,
+                    onClick = { onSelect(option) },
+                    enabled = enabled,
+                    label = { Text(option.label) },
                 )
             }
         }
