@@ -49,6 +49,8 @@ class RemoteContentSourceTest {
         assertTrue("wine entry missing", ContentComponent.WINE in ids)
         assertTrue("box64 entry missing", ContentComponent.BOX64 in ids)
         assertTrue("turnip entry missing", ContentComponent.TURNIP in ids)
+        assertTrue("dxvk entry missing", ContentComponent.DXVK in ids)
+        assertTrue("vkd3d entry missing", ContentComponent.VKD3D in ids)
         // Each WCP entry must carry enough to compute getInstallDir.
         val wine = manifest.entry(ContentComponent.WINE)!!
         assertNotNull("wine contentType required for getInstallDir", wine.contentType)

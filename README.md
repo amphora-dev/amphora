@@ -34,7 +34,7 @@ Contracts live in the lower modules; Winlator-backed implementations live in `:c
 ```
 
 The APK stays slim. On first launch, the device downloads SHA-pinned Rootfs,
-Proton, Box64, DXVK and runtime assets; installed assets are reused on later
+Proton, Box64, DXVK, VKD3D and runtime assets; installed assets are reused on later
 launches.
 
 Instrumented E2E (ARM64 Adreno device recommended):

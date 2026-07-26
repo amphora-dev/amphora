@@ -59,8 +59,8 @@ MainActivity → AmphoraNavHost
 GameSessionViewModel
   → WineEngine.launch(LaunchSpec)   // MVP 容器 id = "1"
        1. RootfsInstaller.ensureInstalled()          // imagefs.tzst
-       2. WinlatorContainerManager.getOrCreate()     // WINE/BOX64/DXVK .wcp + prefix
-       3. XServerWineSessionPreparer                 // prefix 修复 / DXVK DLL / Turnip env
+       2. WinlatorContainerManager.getOrCreate()     // WINE/BOX64/DXVK/VKD3D .wcp + prefix
+       3. XServerWineSessionPreparer                 // prefix 修复 / DXVK+VKD3D DLL / Turnip env
        4. XServer + GameSessionSurface               // 暴露给 UI
        5. XEnvironment + SysV / XServer / ALSA / Net
        6. stageExeIntoPrefix → C:\<exe>              // Z: 映 rootfs，宿主路径不可直传
@@ -85,7 +85,7 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 | Java 渲染 | `VulkanRenderer` | 加载 `winlator`，direct scene buffer |
 | Native | `vk_renderer.c` + adrenotools | swapchain / AHB 导入 / Turnip 或系统 `libvulkan.so` |
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
-| Guest 图形 | Turnip wrapper ICD + DXVK 3.0.2 gplasync | host renderer 与 guest 共用 adrenotools-wrapped driver |
+| Guest 图形 | Turnip wrapper ICD + DXVK 3.0.2 gplasync + VKD3D 3.0.1 | host renderer 与 guest 共用 adrenotools-wrapped driver |
 
 已知裁剪：无 OSK/字符注入；音频 `setVolume` 未接真实 `AudioTrack`；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 
@@ -94,7 +94,7 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 ## 5. 内容与资产
 
 - **真源**：`core/content/src/main/assets/content_manifest.json`（派生自 `04-ASSET-MANIFEST.md`）
-- **组件**：Wine Proton / Box64 / Turnip wrapper / DXVK（ROOTFS 由 `RootfsInstaller` 独占；ALSA aserver 随 imagefs；pulseaudio.tzst 未入 manifest）
+- **组件**：Wine Proton / Box64 / Turnip wrapper / DXVK / VKD3D（ROOTFS 由 `RootfsInstaller` 独占；ALSA aserver 随 imagefs；pulseaudio.tzst 未入 manifest）
 - **安装路径**：
   - `WCP` → `ContentsManager.extraContentFile` + `finishInstallContent` → `filesDir/contents/...`
   - `ARCHIVE` → `TarCompressorUtils` → `filesDir/amphora-content/<component>/<version>/`

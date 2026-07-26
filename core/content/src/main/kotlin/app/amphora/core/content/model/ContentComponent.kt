@@ -6,6 +6,7 @@ enum class ContentComponent {
     BOX64,
     TURNIP,
     DXVK,
+    VKD3D,
 }
 
 @JvmInline

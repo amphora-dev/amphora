@@ -33,7 +33,7 @@ app/build/outputs/apk/debug/app-debug.apk
 app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 ```
 
-The debug APK is intentionally slim. Rootfs, Proton, Box64, DXVK and
+The debug APK is intentionally slim. Rootfs, Proton, Box64, DXVK, VKD3D and
 kernel-direct archives are not required in `app/src/main/assets`. On first
 launch, the device downloads pinned HTTPS artifacts from
 `content_manifest.json`, verifies their SHA-256 and size, and atomically installs

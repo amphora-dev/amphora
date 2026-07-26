@@ -44,6 +44,16 @@
       "verCode": 0,
       "size": 6741148
     },
+    "vkd3d": {
+      "assetPath": "Vkd3d-3.0.1-S6_9.wcp",
+      "sha256": "91fa02bfc6032dd847755477027e0a56a4ded92f1cb60da40f92a657d53e40c1",
+      "version": "VKD3D-3.0.1-sm69-0",
+      "kind": "WCP",
+      "contentType": "VKD3D",
+      "verName": "3.0.1-sm69",
+      "verCode": 0,
+      "size": 3396516
+    },
     "rootfs": {
       "assetPath": "imagefs.tzst",
       "sha256": "0902e324b60a5c234aa29fcf457f6475a38ef8f61ac2be2118daaef4f236499a",

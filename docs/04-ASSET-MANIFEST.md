@@ -158,11 +158,11 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | | `Proton-10-arm64ec-original` / `-unix` | (arm64ec, D5 砍) |
 | **Box64** | `Bionic-Box64-0.4.3-8ee3d8f2c` (**匹配 Bionic imagefs**) | `.../releases/download/bionic-box64-nightly-.../Bionic-Box64-0.4.3-8ee3d8f2c.wcp` |
 | | `Box64-0.4.3` / `0.3.9` / `0.3.8` / `0.3.7` | `.../releases/download/Stable-Box64/...wcp` |
-| **DXVK** | `Dxvk-3.0.2-gplasync` (**amphora MVP bundled**) / `3.0-gplasync` / `1.7-async` / `1.7.3-async` / `1.7.2` | `.../releases/download/Stable-Dxvk/...wcp` |
-| **VKD3D** | `Vkd3d-3.0a` / `3.0b` / `3.0b-Tfix` | `.../releases/download/Stable-VKD3D/...wcp` |
+| **DXVK** | `Dxvk-3.0.2-gplasync` (**amphora MVP 默认**) / `3.0-gplasync` / `1.7-async` / `1.7.3-async` / `1.7.2` | `.../releases/download/Stable-Dxvk/...wcp` |
+| **VKD3D** | `Vkd3d-3.0.1-S6_9` (**amphora MVP 默认**, profile `verName=3.0.1-sm69`) / nightly | `.../releases/download/Stable-VKD3D/...wcp` |
 | Turnip / WineD3d | -- (不在 contents.json, 仍打包在 assets `graphics_driver/`/`dxwrapper/`) | -- |
 
-> WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 仅作 DXVK &lt; 2.4 的 d3d8 补丁 (`extractD8VKIfNeeded`); amphora MVP 默认装 nicholasx417 的 `Dxvk-3.0.2-gplasync.wcp` (含 d3d8/9/10core/11/dxgi, 经 `ContentSource.resolve(DXVK)` + `ContentsManager.applyContent`).
+> WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 仅作 DXVK &lt; 2.4 的 d3d8 补丁 (`extractD8VKIfNeeded`); amphora MVP 默认装 nicholasx417 的 `Dxvk-3.0.2-gplasync.wcp` (d3d8/9/10core/11/dxgi) + `Vkd3d-3.0.1-S6_9.wcp` (d3d12/d3d12core), 经 `ContentSource.resolve(DXVK|VKD3D)` + `ContentsManager.applyContent`. 容器 `dxwrapper` 形如 `dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none`。
 
 **⚠️ D4 download stub (amphora 当前)**: `native_content_io.cpp:783` `nativeDownloadFile` 返回 `JNI_FALSE`, `nativeFetchContentLength` 返回 `-1` (RFC §10 D4 -- MVP 不做远程抓取, 符号保留避免 UnsatisfiedLinkError). 故 amphora 当前**无法在设备上直接 `syncContents`/下载 `.wcp`**.
 - **preparer 真验可行路径** (绕过 stub): host `curl` 下载 `.wcp` -> `adb push` -> `ContentsManager.extraContentFile(Uri, callback)` 本地装 (走 `nativeExtractArchive`, 非 download) -> `createContainer` (抽 Wine prefix) -> 跑 preparer.
