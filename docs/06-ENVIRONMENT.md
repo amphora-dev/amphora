@@ -266,7 +266,31 @@ An active Wine imagefs contains directory symlinks and can contain cycles. Tests
 must verify fixed structural paths and must not recursively follow the entire
 installed tree.
 
-## 6. Teardown
+## 6. CNB continuous testing
+
+Amphora uses Cloud Native Build (CNB) via `.cnb.yml`. On every branch push, and
+on pull requests targeting `main`, CNB runs:
+
+1. `scripts/setup-android-sdk.sh` (SDK/NDK packages, cached under `/opt/android-sdk`)
+2. `scripts/ci-jvm-test.sh` (`:core:common:test` and `:core:content:test`)
+3. `:app:assembleDebug` and `:app:assembleDebugAndroidTest` (compile gate)
+
+The build image is `.cnb/Dockerfile` (Temurin JDK 17). Gradle and Android SDK
+directories use CNB `cow` volumes so warm runs skip most downloads.
+
+Physical-device instrumented tests are **not** part of CNB. Run them manually
+with the Tailscale ADB flow above. CNB verifies JVM logic and that the app still
+compiles into installable APKs.
+
+Local equivalent:
+
+```bash
+bash scripts/setup-android-sdk.sh
+bash scripts/ci-jvm-test.sh
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+```
+
+## 7. Teardown
 
 Stop the Mac forward:
 

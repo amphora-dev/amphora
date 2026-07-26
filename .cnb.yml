@@ -1,0 +1,12 @@
+# Cloud Native Build (CNB) continuous testing for Amphora.
+# Docs: https://docs.cnb.cool/zh/build/intro.html
+#
+# Pipeline coverage:
+# - JVM unit tests (`:core:common:test`, `:core:content:test`)
+# - Debug APK + androidTest APK assemble (compile gate)
+#
+# Physical-device instrumented tests stay manual (Tailscale ADB); see
+# docs/06-ENVIRONMENT.md.
+
+include:
+  - .cnb/continuous-test.yml
