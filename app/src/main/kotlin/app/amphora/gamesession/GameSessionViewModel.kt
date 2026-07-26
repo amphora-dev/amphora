@@ -91,15 +91,16 @@ class GameSessionViewModel @Inject constructor(
     }
 
     fun stop() {
-        viewModelScope.launch { handle?.stop() }
+        // Teardown joins native X connector threads — never block Main (ANR).
+        viewModelScope.launch(Dispatchers.IO) { handle?.stop() }
     }
 
     fun resume() {
-        viewModelScope.launch { handle?.resume() }
+        viewModelScope.launch(Dispatchers.IO) { handle?.resume() }
     }
 
     fun pause() {
-        viewModelScope.launch { handle?.pause() }
+        viewModelScope.launch(Dispatchers.IO) { handle?.pause() }
     }
 
     override fun onCleared() {

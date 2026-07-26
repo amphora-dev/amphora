@@ -69,12 +69,7 @@ public class XConnectorEpoll implements Runnable {
     running = false;
     requestShutdown();
 
-    while (epollThread.isAlive()) {
-      try {
-        epollThread.join();
-      } catch (InterruptedException e) {
-      }
-    }
+    joinOrGiveUp(epollThread, JOIN_TIMEOUT_MS);
     epollThread = null;
   }
 
@@ -142,14 +137,7 @@ public class XConnectorEpoll implements Runnable {
     if (multithreadedClients) {
       if (Thread.currentThread() != client.pollThread) {
         client.requestShutdown();
-
-        while (client.pollThread.isAlive()) {
-          try {
-            client.pollThread.join();
-          } catch (InterruptedException e) {
-          }
-        }
-
+        joinOrGiveUp(client.pollThread, JOIN_TIMEOUT_MS);
         client.pollThread = null;
       }
       closeFd(client.shutdownFd);
@@ -162,6 +150,27 @@ public class XConnectorEpoll implements Runnable {
       connectedClients.remove(client.clientSocket.fd);
     }
   }
+
+  /** Bounded join so a stuck native recv cannot freeze session teardown forever. */
+  private static void joinOrGiveUp(Thread thread, long timeoutMs) {
+    if (thread == null) return;
+    final long deadline = System.currentTimeMillis() + timeoutMs;
+    while (thread.isAlive()) {
+      final long remaining = deadline - System.currentTimeMillis();
+      if (remaining <= 0) {
+        thread.interrupt();
+        return;
+      }
+      try {
+        thread.join(remaining);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+  }
+
+  private static final long JOIN_TIMEOUT_MS = 2_000L;
 
   private void shutdown() {
     while (true) {
