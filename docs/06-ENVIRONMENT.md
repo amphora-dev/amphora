@@ -271,45 +271,25 @@ installed tree.
 Amphora uses Cloud Native Build (CNB) via a single root `.cnb.yml`, written with
 reusable `.fragment` keys and `!reference` (see CNB simplify-configuration).
 
-### 6.1 `continuous-test` (amd64)
-
-Triggers on every branch `push` (`$`) and on pull requests targeting `main`.
+Pipeline `continuous-test` runs on `cnb:arch:amd64` for every branch `push`
+(`$`) and for pull requests targeting `main`:
 
 1. `scripts/setup-android-sdk.sh`
 2. `scripts/ci-jvm-test.sh` (`:core:common:test`, `:core:content:test`)
 3. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
 
-Runner tag: `cnb:arch:amd64`.
+Gradle and Android SDK directories use CNB `copy-on-write` volumes.
 
-### 6.2 `redroid-test` (arm64, manual)
+CNB SaaS does **not** run Android emulator/redroid instrumented tests (rootless
+DinD, no binder, arm64-only APK). Physical-device coverage stays on Tailscale
+ADB above. Tests marked `@RequiresGraphicsDriver` are for Adreno devices only.
 
-**Not** on every push/PR. Trigger via CNB `web_trigger_redroid` /
-`api_trigger_redroid` only.
-
-Observed on CNB SaaS `cnb:arch:arm64:v8` DinD (2026-07-26):
-
-- Docker **rootless** + `no-new-privileges`
-- **No** `binder_linux` / ashmem device nodes
-- Google SDK `platform-tools/adb` is **x86_64-only** → on arm64:
-  `qemu-x86_64: Could not open '/lib64/ld-linux-x86-64.so.2'`
-
-So automatic redroid CI is not viable on current CNB SaaS. The script now:
-
-1. Prefers distro/native `adb` (`scripts/ensure-native-adb.sh`)
-2. Pulls/runs redroid with `--platform linux/arm64`
-3. **Fails fast** on rootless Docker or missing binder
-
-Viable later on a self-hosted Linux arm64 runner with binder + non-rootless
-Docker. Until then, instrumented coverage stays on physical devices
-(Tailscale ADB).
-
-Local redroid (capable host):
+Local equivalent:
 
 ```bash
 bash scripts/setup-android-sdk.sh
-bash scripts/ensure-native-adb.sh
-# sudo modprobe binder_linux devices="binder,hwbinder,vndbinder"
-bash scripts/ci-redroid-test.sh
+bash scripts/ci-jvm-test.sh
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
 ## 7. Teardown
