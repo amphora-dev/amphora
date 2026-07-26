@@ -281,47 +281,36 @@ Triggers on every branch `push` (`$`) and on pull requests targeting `main`.
 
 Runner tag: `cnb:arch:amd64`.
 
-### 6.2 `redroid-test` (arm64)
+### 6.2 `redroid-test` (arm64, manual)
 
-Same triggers. Runs on `cnb:arch:arm64:v8` because the app packages **only**
-`arm64-v8a`.
+**Not** on every push/PR. Trigger via CNB `web_trigger_redroid` /
+`api_trigger_redroid` only.
 
-Uses [redroid](https://github.com/remote-android/redroid-doc) (Android userspace
-in Docker) instead of the Google SDK emulator:
+Observed on CNB SaaS `cnb:arch:arm64:v8` DinD (2026-07-26):
 
-1. CNB `services: [docker]` (DinD)
-2. `scripts/setup-android-sdk.sh` (platform-tools + build toolchain)
-3. `scripts/ci-redroid-test.sh` — `docker run --privileged` with
-   `redroid/redroid:13.0.0_64only-latest`, `adb connect`, then
-   `scripts/ci-instrumented-no-gpu.sh`
+- Docker **rootless** + `no-new-privileges`
+- **No** `binder_linux` / ashmem device nodes
+- Google SDK `platform-tools/adb` is **x86_64-only** → on arm64:
+  `qemu-x86_64: Could not open '/lib64/ld-linux-x86-64.so.2'`
 
-Why redroid: **no `/dev/kvm` required**. It needs host kernel `binder_linux`
-(and often `ashmem_linux`). If CNB's DinD host lacks those modules, the job
-fails with container logs — that is the gate for whether SaaS redroid works.
+So automatic redroid CI is not viable on current CNB SaaS. The script now:
 
-Emulator-safe coverage (excludes `@RequiresGraphicsDriver`):
+1. Prefers distro/native `adb` (`scripts/ensure-native-adb.sh`)
+2. Pulls/runs redroid with `--platform linux/arm64`
+3. **Fails fast** on rootless Docker or missing binder
 
-- `RemoteContentSourceTest` (manifest + Wine WCP resolve)
-- `ImagefsExtractionTest` (remote rootfs provision)
+Viable later on a self-hosted Linux arm64 runner with binder + non-rootless
+Docker. Until then, instrumented coverage stays on physical devices
+(Tailscale ADB).
 
-Still device-only:
-
-- Turnip archive resolve
-- `PreparerGraphicsDriverTest`
-- `GameSessionLaunchTest`
-- `XServerSurfaceViewInitTest`
-
-Local redroid (arm64 Linux host with Docker + binder):
+Local redroid (capable host):
 
 ```bash
 bash scripts/setup-android-sdk.sh
-# optional: sudo modprobe binder_linux devices="binder,hwbinder,vndbinder"
+bash scripts/ensure-native-adb.sh
+# sudo modprobe binder_linux devices="binder,hwbinder,vndbinder"
 bash scripts/ci-redroid-test.sh
 ```
-
-The Google AVD path (`scripts/setup-android-emulator.sh` +
-`scripts/ci-emulator-test.sh`) remains for hosts that already have the SDK
-emulator; CNB no longer uses it.
 
 ## 7. Teardown
 

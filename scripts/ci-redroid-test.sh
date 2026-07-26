@@ -2,10 +2,8 @@
 # Boot redroid (Android-in-Docker, no KVM) on arm64 and run Amphora's
 # non-graphics instrumented suite.
 #
-# Requires:
-#   - docker CLI + daemon (CNB: services: [docker])
-#   - host/DinD kernel modules binder_linux (+ ashmem_linux when available)
-#   - arm64 runner when using *_64only images with an arm64-only APK
+# Requires a Docker host that is NOT rootless and has binder_linux. CNB SaaS
+# DinD is typically rootless + no binder — this script fails fast there.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,10 +11,10 @@ cd "$root"
 
 export ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-export PATH="$ANDROID_HOME/platform-tools:$PATH"
 
 CONTAINER_NAME="${AMPHORA_REDROID_NAME:-amphora-redroid}"
 REDROID_IMAGE="${REDROID_IMAGE:-redroid/redroid:13.0.0_64only-latest}"
+REDROID_PLATFORM="${REDROID_PLATFORM:-linux/arm64}"
 ADB_ENDPOINT="${AMPHORA_REDROID_ADB:-127.0.0.1:5555}"
 BOOT_TIMEOUT_SEC="${AMPHORA_REDROID_BOOT_TIMEOUT_SEC:-600}"
 DATA_VOLUME="${AMPHORA_REDROID_VOLUME:-amphora-redroid-data}"
@@ -31,14 +29,31 @@ if ! command -v docker >/dev/null; then
   exit 1
 fi
 
+bash scripts/ensure-native-adb.sh
+# ensure-native-adb may install /usr/bin/adb; keep it ahead of x86_64 SDK tools.
+export PATH="/usr/bin:${ANDROID_HOME}/platform-tools:${PATH}"
+hash -r
+echo "adb resolved to $(command -v adb) ($(file -b "$(command -v adb)" 2>/dev/null || echo '?'))"
+
 echo "=== redroid host probe ==="
 uname -a || true
-docker info 2>/dev/null | sed -n '1,40p' || true
+echo "adb=$(command -v adb) ($(file -b "$(command -v adb)" 2>/dev/null || echo '?'))"
+docker info 2>/dev/null | sed -n '1,60p' || true
 ls -l /dev/binder* /dev/ashmem /dev/binderfs 2>/dev/null || true
 lsmod 2>/dev/null | grep -E 'binder|ashmem' || echo "(no binder/ashmem modules listed)"
 
+security="$(docker info 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+if echo "$security" | grep -q 'rootless'; then
+  cat >&2 <<'EOF'
+CNB/Docker is running rootless (see `docker info` Security Options).
+redroid needs privileged access to binder and typically fails under rootless DinD.
+Skip automatic CI for this environment; use a self-hosted Linux arm64 runner
+with binder_linux, or keep relying on physical-device Tailscale ADB.
+EOF
+  exit 2
+fi
+
 try_load_modules() {
-  # Best-effort: works on bare-metal / privileged hosts; often blocked in SaaS DinD.
   if command -v modprobe >/dev/null; then
     modprobe binder_linux devices="binder,hwbinder,vndbinder" 2>/dev/null || true
     modprobe ashmem_linux 2>/dev/null || true
@@ -51,19 +66,22 @@ try_load_modules() {
 try_load_modules
 
 if ! ls /dev/binder* >/dev/null 2>&1 && [[ ! -e /dev/binderfs/binder ]]; then
-  echo "WARNING: binder device nodes not visible in this environment." >&2
-  echo "redroid usually needs binder_linux on the Docker host kernel." >&2
-  echo "Continuing anyway — container start will fail loudly if unsupported." >&2
+  cat >&2 <<'EOF'
+No binder device nodes visible. redroid requires binder_linux on the Docker host.
+CNB SaaS DinD usually does not expose it. Failing fast.
+EOF
+  exit 2
 fi
 
-echo "Pulling $REDROID_IMAGE …"
-docker pull "$REDROID_IMAGE"
+echo "Pulling $REDROID_IMAGE ($REDROID_PLATFORM)…"
+docker pull --platform "$REDROID_PLATFORM" "$REDROID_IMAGE"
 
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 docker volume create "$DATA_VOLUME" >/dev/null
 
 echo "Starting redroid ($CONTAINER_NAME)…"
 docker run -d --name "$CONTAINER_NAME" --privileged \
+  --platform "$REDROID_PLATFORM" \
   --pull missing \
   -v "${DATA_VOLUME}:/data" \
   -p 5555:5555 \
@@ -105,7 +123,6 @@ if (( connected != 1 )); then
   exit 1
 fi
 
-# Prefer the redroid serial for subsequent adb commands.
 export ANDROID_SERIAL="$ADB_ENDPOINT"
 sleep 10
 
