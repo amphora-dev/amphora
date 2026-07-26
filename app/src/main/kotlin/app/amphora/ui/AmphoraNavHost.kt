@@ -1,7 +1,6 @@
 package app.amphora.ui
 
 import android.content.Context
-import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -13,27 +12,23 @@ import app.amphora.feature.settings.navigation.SettingsRoute
 import app.amphora.feature.settings.navigation.settingsScreen
 import app.amphora.gamesession.gameSessionRoute
 import app.amphora.gamesession.gameSessionScreen
-import java.io.File
 
 /**
  * Flip to `true` for the "open app → Wine session" iteration loop (bypasses SAF).
  * Normal builds leave this `false` and start at [LauncherRoute]; the launcher still
- * exposes a **Debug: Notepad** button that uses the same staging helper.
+ * exposes a **Debug: Wine smoke test** button that uses the same staging helper.
  */
-private const val DEBUG_AUTO_LAUNCH_NOTEPAD = false
+private const val DEBUG_AUTO_LAUNCH_WINE = false
 
-private const val TAG = "AmphoraNavHost"
-private const val NOTEPAD_ASSET = "exe/notepad.exe"
-private const val NOTEPAD_WIDTH = 1280
-private const val NOTEPAD_HEIGHT = 720
+private const val DEBUG_WIDTH = 1280
+private const val DEBUG_HEIGHT = 720
 
 @Composable
 fun AmphoraNavHost(navController: NavHostController) {
     val context = LocalContext.current
     val startRoute = remember {
-        if (DEBUG_AUTO_LAUNCH_NOTEPAD) {
-            stageNotepadExe(context)?.let { gameSessionRoute(it, NOTEPAD_WIDTH, NOTEPAD_HEIGHT) }
-                ?: LauncherRoute
+        if (DEBUG_AUTO_LAUNCH_WINE) {
+            gameSessionRoute(stageDebugWineExe(context), DEBUG_WIDTH, DEBUG_HEIGHT)
         } else {
             LauncherRoute
         }
@@ -44,10 +39,10 @@ fun AmphoraNavHost(navController: NavHostController) {
                 navController.navigate(gameSessionRoute(exePath, width, height))
             },
             onOpenSettings = { navController.navigate(SettingsRoute) },
-            onDebugLaunchNotepad = {
-                stageNotepadExe(context)?.let { path ->
-                    navController.navigate(gameSessionRoute(path, NOTEPAD_WIDTH, NOTEPAD_HEIGHT))
-                }
+            onDebugLaunchWine = {
+                navController.navigate(
+                    gameSessionRoute(stageDebugWineExe(context), DEBUG_WIDTH, DEBUG_HEIGHT),
+                )
             },
         )
         settingsScreen(onBack = { navController.popBackStack() })
@@ -55,18 +50,6 @@ fun AmphoraNavHost(navController: NavHostController) {
     }
 }
 
-/** Stage `assets/exe/notepad.exe` into app-private storage; null if the asset is absent. */
-internal fun stageNotepadExe(context: Context): String? {
-    return try {
-        val exe = File(context.filesDir, "exe/notepad.exe").apply { parentFile?.mkdirs() }
-        if (!exe.exists() || exe.length() == 0L) {
-            context.assets.open(NOTEPAD_ASSET).use { input ->
-                exe.outputStream().use { input.copyTo(it) }
-            }
-        }
-        exe.absolutePath
-    } catch (e: Exception) {
-        Log.w(TAG, "notepad asset missing — run :app:stageBundledContent (needs exe/notepad.exe)", e)
-        null
-    }
-}
+/** Stage the deterministic PE smoke-test fixture into app-private storage. */
+internal fun stageDebugWineExe(context: Context): String =
+    DebugWineFixture.stage(context).absolutePath

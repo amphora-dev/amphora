@@ -54,7 +54,7 @@ Hilt 绑定集中在 `EngineModule`；三个 sibling 接口已无 stub。
 ```
 MainActivity → AmphoraNavHost
   ├─ [默认] launcher → SAF .exe → filesDir/exe/ → game_session
-  └─ [测试] Debug: Notepad 按钮 / DEBUG_AUTO_LAUNCH_NOTEPAD=true → notepad session
+  └─ [测试] Debug: Wine smoke test / DEBUG_AUTO_LAUNCH_WINE=true → Wine session
 
 GameSessionViewModel
   → WineEngine.launch(LaunchSpec)   // MVP 容器 id = "1"

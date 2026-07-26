@@ -47,7 +47,7 @@ Instrumented E2E (ARM64 Adreno device recommended):
 
 - `stageBundledContent` is **not** wired to `preBuild` (keeps routine debug APKs slim).
 - Remote/cloud ADB setup and reliable manual test commands: [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md).
-- Debug notepad path: launcher **Debug: Notepad** button, or flip `DEBUG_AUTO_LAUNCH_NOTEPAD` in `AmphoraNavHost` (default starts at launcher).
+- Debug Wine path: launcher **Debug: Wine smoke test** button, or flip `DEBUG_AUTO_LAUNCH_WINE` in `AmphoraNavHost` (default starts at launcher).
 - `targetSdk` is **28** on purpose (exec box64/Wine from `filesDir`); do not bump without an exec-path redesign — see `ConventionHelpers.kt`.
 
 ## Docs

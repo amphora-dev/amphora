@@ -35,8 +35,8 @@ import java.io.File
 fun LauncherScreen(
     onLaunch: (exePath: String, width: Int, height: Int) -> Unit,
     onOpenSettings: () -> Unit,
-    /** Optional test path: stage bundled notepad.exe and launch (wired from app NavHost). */
-    onDebugLaunchNotepad: (() -> Unit)? = null,
+    /** Optional test path: stage a deterministic PE fixture and launch Wine. */
+    onDebugLaunchWine: (() -> Unit)? = null,
     viewModel: LauncherViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -94,11 +94,11 @@ fun LauncherScreen(
 
             Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) { Text("Settings") }
 
-            if (onDebugLaunchNotepad != null) {
+            if (onDebugLaunchWine != null) {
                 Button(
-                    onClick = onDebugLaunchNotepad,
+                    onClick = onDebugLaunchWine,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Debug: Notepad") }
+                ) { Text("Debug: Wine smoke test") }
             }
         }
     }
