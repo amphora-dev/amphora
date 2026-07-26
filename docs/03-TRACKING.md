@@ -25,6 +25,11 @@
 ### 已知残留 / 专项目标
 超时放弃后可能留下**会话级**残留：epoll/client 线程、socket FD、ancillary FD、尚未释放的 direct ByteBuffer。优于 ANR，但多次进出会话可能泄漏或二次启动异常。
 
+2026-07-26 续：返回/Exit 后偶发 **整进程闪退** —
+`XClientRequestHandler.handleNormalRequest` 对已 `releaseIOStreams()` 的 null
+`XInputStream` 调 `available()` → NPE（`XConnectorEpoll` 在 `inputStream==null`
+时仍误调 `handleRequest`）。已加 null 守卫 + teardown 竞态吞 RuntimeException。
+
 专项验收建议：
 - [ ] Exit 后 5s 内 UI 回到 launcher，**永不** ANR（已基本满足）
 - [ ] logcat 无持续增长的 FD / thread（多次 Exit→再开）

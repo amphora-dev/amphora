@@ -112,16 +112,25 @@ public class XConnectorEpoll implements Runnable {
 
     XInputStream inputStream = client.getInputStream();
     try {
-      if (inputStream != null) {
-        if (inputStream.readMoreData(canReceiveAncillaryMessages) > 0) {
-          int activePosition = 0;
-          while (running && requestHandler.handleRequest(client))
-            activePosition = inputStream.getActivePosition();
+      if (inputStream == null) {
+        // Streams not ready yet, or already released during teardown.
+        if (!client.connected) return;
+        return;
+      }
+      if (inputStream.readMoreData(canReceiveAncillaryMessages) > 0) {
+        int activePosition = 0;
+        while (running && client.connected && requestHandler.handleRequest(client))
+          activePosition = inputStream.getActivePosition();
+        // inputStream may have been released mid-loop during teardown.
+        if (client.getInputStream() == inputStream) {
           inputStream.setActivePosition(activePosition);
-        } else killConnection(client);
-      } else requestHandler.handleRequest(client);
+        }
+      } else killConnection(client);
     } catch (IOException e) {
       killConnection(client);
+    } catch (RuntimeException e) {
+      // Teardown races (null streams) must not crash the Android process.
+      if (client.connected) killConnection(client);
     }
   }
 

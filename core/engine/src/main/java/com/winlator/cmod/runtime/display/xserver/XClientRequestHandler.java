@@ -32,6 +32,9 @@ public class XClientRequestHandler implements RequestHandler {
     XClient xClient = (XClient) client.getTag();
     XInputStream inputStream = client.getInputStream();
     XOutputStream outputStream = client.getOutputStream();
+    if (xClient == null || inputStream == null || outputStream == null) {
+      return false;
+    }
 
     if (xClient.isAuthenticated()) {
       return handleNormalRequest(xClient, inputStream, outputStream);
