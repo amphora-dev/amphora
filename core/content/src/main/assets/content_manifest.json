@@ -146,13 +146,13 @@
     {
       "assetPath": "winnative/Graphics-Test-32bit.exe",
       "sha256": "e2419df09ea9e21295656802556b13fbb0607056ae4e1323a0838ed193d3a67b",
-      "remoteUrl": "https://cnb.cool/atowerlight/aio-graphics-test/-/releases/download/amphora/Graphics-Test-32bit.exe",
+      "remoteUrl": "https://cnb.cool/atowerlight/aio-graphics-test/-/releases/download/amphora/AIO-Graphics-Test-32bit.exe",
       "size": 2063777
     },
     {
       "assetPath": "winnative/Graphics-Test-64bit.exe",
       "sha256": "5e0e8ded4ae0398db730b5e51581a0bf98394ed80075960053e8dea907b13dbb",
-      "remoteUrl": "https://cnb.cool/atowerlight/aio-graphics-test/-/releases/download/amphora/Graphics-Test-64bit.exe",
+      "remoteUrl": "https://cnb.cool/atowerlight/aio-graphics-test/-/releases/download/amphora/AIO-Graphics-Test-64bit.exe",
       "size": 2049388
     },
     {
