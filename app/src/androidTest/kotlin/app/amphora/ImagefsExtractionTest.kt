@@ -3,56 +3,62 @@ package app.amphora
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.winlator.cmod.shared.io.TarCompressorUtils
+import app.amphora.core.rootfs.RootfsInstaller
+import app.amphora.core.rootfs.model.RootfsSpec
+import com.winlator.cmod.runtime.display.environment.ImageFsInstaller
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
+import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.nio.file.Files
+import javax.inject.Inject
 
 /**
- * P2 end-to-end verification of the rootfs extraction path on real hardware.
+ * End-to-end verification of remote rootfs provisioning on real hardware.
  *
- * Exercises the exact code path `ImageFsRootfsInstaller` relies on:
- * `TarCompressorUtils.extract(Type.ZSTD, ctx, "imagefs.tzst", outDir)` ->
- * `NativeContentIO.extractAsset` (native, `libwinlator.so`, zstd). The 190 MB
- * real `imagefs.tzst` asset (SHA `0902e324...`, WinNative Git LFS) is bundled in
- * the *app* APK by `./gradlew :app:stageBundledContent` (git-ignored `*.tzst`;
- * see `docs/04-ASSET-MANIFEST.md`).
+ * A cold run downloads, verifies and atomically installs `imagefs.tzst`; a warm
+ * run validates the installed-version fast path without requiring APK assets.
  *
  * Device: Lenovo TB322FC, arm64-v8a, API 36, Adreno 830.
  */
+@HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class ImagefsExtractionTest {
 
+    @get:Rule
+    val hiltRule = HiltAndroidRule(this)
+
+    @Inject
+    lateinit var rootfsInstaller: RootfsInstaller
+
+    @Before
+    fun setUp() = hiltRule.inject()
+
     @Test
-    fun extractRealImagefsAsset() {
-        // imagefs.tzst is bundled in the *app* APK by stageBundledContent
-        // (same source as GameSessionLaunchTest / PreparerGraphicsDriverTest).
+    fun provisionRealImagefsFromRemoteSource() = runBlocking {
         val appCtx = ApplicationProvider.getApplicationContext<Context>()
-        val assetName = "imagefs.tzst"
-
-        val assets = appCtx.assets.list("").orEmpty().toList()
-        // The 190MB imagefs.tzst is git-ignored (*.tzst); skip (not fail) when not staged.
-        assumeTrue(
-            "imagefs.tzst not bundled in app assets (have: $assets); " +
-                "run ./gradlew :app:stageBundledContent first (see docs/04-ASSET-MANIFEST.md)",
-            assetName in assets,
-        )
-
-        // Extract into the app's internal filesDir (where ImageFs.find() resolves).
-        val outDir = File(appCtx.filesDir, "imagefs_test_extract")
-        outDir.deleteRecursively()
-        assertTrue("mkdirs failed", outDir.mkdirs())
+        val outDir = File(appCtx.filesDir, "imagefs")
 
         val t0 = System.currentTimeMillis()
-        val ok = TarCompressorUtils.extract(
-            TarCompressorUtils.Type.ZSTD, appCtx, assetName, outDir,
+        val ok = rootfsInstaller.ensureInstalled(
+            RootfsSpec(
+                targetRoot = outDir.absolutePath,
+                imagefsVersion = ImageFsInstaller.LATEST_VERSION.toString(),
+                termuxfsSha256 = "",
+            ),
         )
         val dtMs = System.currentTimeMillis() - t0
-        assertTrue("TarCompressorUtils.extract returned false (dt=${dtMs}ms)", ok)
+        assertTrue("remote rootfs provisioning failed (dt=${dtMs}ms)", ok)
+        assertEquals(
+            ImageFsInstaller.LATEST_VERSION.toString(),
+            rootfsInstaller.currentVersion(),
+        )
 
         // --- verify extracted Bionic rootfs structure ---
         assertTrue("usr/lib missing", File(outDir, "usr/lib").isDirectory)
@@ -83,6 +89,6 @@ class ImagefsExtractionTest {
         val count = outDir.walkTopDown().count()
         assertTrue("extracted entry count too low: $count (expect >5000)", count > 5000)
 
-        println("IMAGEFS_EXTRACT_OK entries=$count dt_ms=$dtMs out=${outDir.absolutePath}")
+        println("IMAGEFS_PROVISION_OK entries=$count dt_ms=$dtMs out=${outDir.absolutePath}")
     }
 }

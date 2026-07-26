@@ -1,48 +1,50 @@
 package app.amphora
 
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
-import app.amphora.core.content.BundledContentSource
 import app.amphora.core.content.ContentManifest
+import app.amphora.core.content.ContentSource
 import app.amphora.core.content.model.ContentArtifact
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.id
-import app.amphora.core.engine.WinlatorBundledAssetInstaller
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
+import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import javax.inject.Inject
 
 /**
- * Real-device verification of [BundledContentSource] -- the production
- * replacement for the `PreparerGraphicsDriverTest` host `curl` + `adb push`
- * workaround. When the `.wcp` / `.tzst` assets are bundled in the *app* APK
- * `assets/`, `resolve()` SHA-verifies and installs them locally with no remote
- * download (bypasses the D4 `nativeDownloadFile` stub via
- * `ContentsManager.extraContentFile`).
+ * Real-device verification of the production remote [ContentSource].
  *
- * Three tiers, each `assumeTrue`-gated on the corresponding asset being staged
- * in `app/src/main/assets/` (assets are git-ignored `*.tzst`/`*.wcp`; see
- * `docs/04-ASSET-MANIFEST.md`):
- *  1. Manifest load (always -- verifies the shipped `content_manifest.json`).
- *  2. TURNIP ARCHIVE resolve (needs `graphics_driver/wrapper.tzst`).
- *  3. WINE WCP resolve (needs `Proton-10.0-4-x86_64.wcp`).
+ * A cold run downloads and SHA-verifies each component; a warm run resolves the
+ * installed component without network access. No large APK assets are required.
  *
  * Device: Lenovo TB322FC, arm64-v8a, API 36, Adreno 830.
  */
+@HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
-class BundledContentSourceTest {
+class RemoteContentSourceTest {
 
-    private val appCtx = ApplicationProvider.getApplicationContext<android.content.Context>()
+    @get:Rule
+    val hiltRule = HiltAndroidRule(this)
+
+    @Inject
+    lateinit var manifest: ContentManifest
+
+    @Inject
+    lateinit var source: ContentSource
+
+    @Before
+    fun setUp() = hiltRule.inject()
 
     @Test
     fun manifest_loadsAndParsesAllEntries() {
-        val manifest = ContentManifest.load(appCtx)
         val ids = manifest.all().map { it.component }.toSet()
         assertTrue("wine entry missing", ContentComponent.WINE in ids)
         assertTrue("box64 entry missing", ContentComponent.BOX64 in ids)
@@ -55,15 +57,7 @@ class BundledContentSourceTest {
     }
 
     @Test
-    fun resolve_turnip_archive_extractsWithShaVerify() = runBlocking {
-        val present = appCtx.assets.list("graphics_driver").orEmpty().toList()
-        assumeTrue(
-            "graphics_driver/wrapper.tzst not bundled in app assets (have: $present); " +
-                "stage it from WinNative checkout (see docs/04-ASSET-MANIFEST.md §2.1)",
-            "wrapper.tzst" in present,
-        )
-
-        val source = newSource()
+    fun resolve_turnip_archive_installsWithShaVerify() = runBlocking {
         val resolved = source.resolve(ContentComponent.TURNIP.id)
 
         assertTrue("expected Resolved artifact", resolved is ContentArtifact.Resolved)
@@ -85,16 +79,7 @@ class BundledContentSourceTest {
     }
 
     @Test
-    fun resolve_wine_wcp_installsLocally() = runBlocking {
-        val topAssets = appCtx.assets.list("").orEmpty().toList()
-        assumeTrue(
-            "Proton-10.0-4-x86_64.wcp not bundled in app assets (have: $topAssets); " +
-                "stage it (see docs/04-ASSET-MANIFEST.md §5). This is the production " +
-                "replacement for the test's host curl+adb push workaround.",
-            "Proton-10.0-4-x86_64.wcp" in topAssets,
-        )
-
-        val source = newSource()
+    fun resolve_wine_wcp_installsFromRemoteSource() = runBlocking {
         val resolved = source.resolve(ContentComponent.WINE.id)
 
         assertTrue("expected Resolved artifact", resolved is ContentArtifact.Resolved)
@@ -109,11 +94,5 @@ class BundledContentSourceTest {
             resolved.path.walkTopDown().any { it.name.startsWith("prefixPack") },
         )
         println("WINE_RESOLVED path=${resolved.path} version=${resolved.version}")
-    }
-
-    private fun newSource(): BundledContentSource {
-        val manifest = ContentManifest.load(appCtx)
-        val installer = WinlatorBundledAssetInstaller(appCtx)
-        return BundledContentSource(appCtx, manifest, installer, DefaultDispatcherProvider())
     }
 }

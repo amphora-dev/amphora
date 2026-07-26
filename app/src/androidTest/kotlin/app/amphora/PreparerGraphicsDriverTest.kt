@@ -7,14 +7,23 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.container.model.ContainerId
+import app.amphora.core.content.ContentSource
+import app.amphora.core.content.RuntimeAssetProvisioner
+import app.amphora.core.content.model.ContentComponent
+import app.amphora.core.content.model.id
 import app.amphora.core.engine.XServerWineSessionPreparer
+import app.amphora.core.rootfs.RootfsInstaller
+import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.container.Container as WnContainer
 import com.winlator.cmod.runtime.container.ContainerManager
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.content.ContentsManager.InstallFailedReason
 import com.winlator.cmod.runtime.content.ContentsManager.OnInstallFinishedCallback
+import com.winlator.cmod.runtime.display.environment.ImageFsInstaller
 import com.winlator.cmod.shared.io.TarCompressorUtils
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -22,15 +31,18 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
+import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 
 /**
  * P2 real-device verification of [XServerWineSessionPreparer] graphics-driver
- * extraction, exercised end-to-end against real runtime assets.
+ * extraction, exercised end-to-end against remotely provisioned runtime assets.
  *
  * Proves the "local .wcp install" workaround for the D4 download stub
  * (native_content_io.cpp:783 `nativeDownloadFile` returns JNI_FALSE): the `.wcp`
@@ -53,43 +65,50 @@ import java.util.concurrent.TimeUnit
  *  5. Verify `envVars()` (unconditional). Conditionally verify `wrapper.tzst`
  *     extraction (needs the app APK to bundle `graphics_driver/wrapper.tzst`).
  *
- * Prerequisite: `./gradlew :app:stageBundledContent` (or the aggregate
- * `connectedAndroidTestWithContent` task) must bundle `imagefs.tzst`, the two
- * `.wcp`s, and `graphics_driver/wrapper.tzst` into the app APK. Missing assets
- * `assumeTrue`-skip the corresponding tier rather than fail.
- *
  * Device: Lenovo TB322FC, arm64-v8a, API 36, Adreno 830.
  */
+@HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class PreparerGraphicsDriverTest {
+
+    @get:Rule
+    val hiltRule = HiltAndroidRule(this)
+
+    @Inject
+    lateinit var contentSource: ContentSource
+
+    @Inject
+    lateinit var rootfsInstaller: RootfsInstaller
+
+    @Inject
+    lateinit var runtimeAssets: RuntimeAssetProvisioner
+
+    @Before
+    fun setUp() = hiltRule.inject()
 
     @Test
     fun installRuntimes_createContainer_extractGraphicsDriver() = runBlocking {
         val appCtx = ApplicationProvider.getApplicationContext<Context>()
 
         // --- Phase 0: ensure imagefs at filesDir/imagefs ----------------------
-        // imagefs.tzst is bundled in the *app* APK by stageBundledContent
-        // (same source as GameSessionLaunchTest / ImagefsExtractionTest).
         val imagefsDir = File(appCtx.filesDir, "imagefs")
-        ensureImagefs(appCtx, imagefsDir)
+        assertTrue(
+            "remote rootfs provisioning failed",
+            rootfsInstaller.ensureInstalled(
+                RootfsSpec(
+                    targetRoot = imagefsDir.absolutePath,
+                    imagefsVersion = ImageFsInstaller.LATEST_VERSION.toString(),
+                    termuxfsSha256 = "",
+                ),
+            ),
+        )
         assertTrue("imagefs/usr/lib missing", File(imagefsDir, "usr/lib").isDirectory)
         assertTrue("imagefs/usr/share missing", File(imagefsDir, "usr/share").isDirectory)
 
-        // --- Phase 1: install Proton + Box64 .wcp (local, bypasses D4 stub) ---
-        // .wcp files are bundled in the app APK by stageBundledContent; stage
-        // them to temp files and install via extraContentFile (routes through
-        // nativeExtractArchive, NOT the stubbed nativeDownloadFile).
-        val topAssets = appCtx.assets.list("").orEmpty().toList()
-        assumeTrue(
-            "Proton .wcp not bundled in app assets (have: $topAssets); " +
-                "run ./gradlew :app:stageBundledContent first.",
-            PROTON_WCP in topAssets,
-        )
-        assumeTrue(
-            "Box64 .wcp not bundled in app assets (have: $topAssets); " +
-                "run ./gradlew :app:stageBundledContent first.",
-            BOX64_WCP in topAssets,
-        )
+        // --- Phase 1: provision Proton + Box64 + kernel-direct assets --------
+        runtimeAssets.ensureAvailable()
+        contentSource.resolve(ContentComponent.WINE.id)
+        contentSource.resolve(ContentComponent.BOX64.id)
 
         val cm = ContentsManager(appCtx)
         cm.syncContents()
@@ -201,17 +220,11 @@ class PreparerGraphicsDriverTest {
         assertTrue("WRAPPER_EXTENSION_BLACKLIST missing", env.containsKey("WRAPPER_EXTENSION_BLACKLIST"))
         assertTrue("envVars unexpectedly empty", env.isNotEmpty())
 
-        // --- Phase 4b: wrapper.tzst extraction (conditional on app asset) ---
+        // --- Phase 4b: downloaded wrapper.tzst extraction -------------------
         // extractGraphicsDriverFilesCore extracts graphics_driver/wrapper.tzst into
-        // imagefs root when firstTimeBoot. The asset lives in the *app* APK assets
-        // (app/src/main/assets/), not the test APK. If the app doesn't bundle it the
-        // extraction silently no-ops (return value unchecked) — envVars still set.
-        val driverAssets = try {
-            appCtx.assets.list("graphics_driver").orEmpty().toList()
-        } catch (e: Throwable) {
-            emptyList()
-        }
-        if (firstTimeBoot && driverAssets.contains("wrapper.tzst")) {
+        // imagefs root when firstTimeBoot. FileUtils transparently serves the
+        // SHA-verified copy under filesDir/runtime-assets.
+        if (firstTimeBoot) {
             // wrapper.tzst ships Mesa Vulkan ICD wrapper libs into imagefs root.
             val shareDir = File(imagefsDir, "usr/share/vulkan/icd.d")
             assertTrue(
@@ -220,11 +233,7 @@ class PreparerGraphicsDriverTest {
             )
             println("WRAPPER_EXTRACTED graphics_driver/wrapper.tzst into $imagefsDir")
         } else {
-            println(
-                "SKIP wrapper.tzst extraction check: firstTimeBoot=$firstTimeBoot " +
-                    "driverAssets=$driverAssets (app APK does not bundle " +
-                    "graphics_driver/wrapper.tzst). envVars verified above (Tier 1).",
-            )
+            println("SKIP wrapper extraction check: existing prefix was reused")
         }
 
         println(
@@ -315,7 +324,7 @@ class PreparerGraphicsDriverTest {
     private companion object {
         // Entry names = type-verName-verCode (versionCode=0 in both .wcp profile.json).
         private const val PROTON_ENTRY = "Proton-10.0-4-x86_64-0"
-        private const val BOX64_ENTRY = "Box64-0.4.3-8ee3d8f2c-0"
+        private const val BOX64_ENTRY = "Box64-0.4.3-c08554e3f-0"
         // Asset names (bundled in the app APK by stageBundledContent).
         private const val PROTON_WCP = "Proton-10.0-4-x86_64.wcp"
         private const val BOX64_WCP = "Box64-0.4.3-c08554e3f.wcp"
