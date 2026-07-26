@@ -46,8 +46,8 @@ Instrumented E2E (ARM64 Adreno device recommended):
 CNB continuous testing (`.cnb.yml` + `!reference` fragments):
 
 - **amd64** `continuous-test`: JVM unit tests + debug/androidTest assemble
-- **arm64:v8** `emulator-test`: instrumented suite **without**
-  `@RequiresGraphicsDriver` (no Turnip / Vulkan / Wine session)
+- **arm64:v8** `redroid-test`: redroid Android-in-Docker + instrumented suite
+  **without** `@RequiresGraphicsDriver` (no Turnip / Vulkan / Wine session)
 
 Physical Adreno / graphics-driver runs stay manual — see
 [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) §6.

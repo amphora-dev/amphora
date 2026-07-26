@@ -281,40 +281,47 @@ Triggers on every branch `push` (`$`) and on pull requests targeting `main`.
 
 Runner tag: `cnb:arch:amd64`.
 
-### 6.2 `emulator-test` (arm64)
+### 6.2 `redroid-test` (arm64)
 
 Same triggers. Runs on `cnb:arch:arm64:v8` because the app packages **only**
 `arm64-v8a`.
 
-1. SDK + `scripts/setup-android-emulator.sh` (API 30 `google_apis` arm64 AVD)
-2. `scripts/ci-emulator-test.sh` — boots the emulator (software GPU;
-   hardware accel only if `/dev/kvm` exists) and runs instrumented tests
-   **excluding** `@RequiresGraphicsDriver`
+Uses [redroid](https://github.com/remote-android/redroid-doc) (Android userspace
+in Docker) instead of the Google SDK emulator:
 
-Emulator-safe coverage today:
+1. CNB `services: [docker]` (DinD)
+2. `scripts/setup-android-sdk.sh` (platform-tools + build toolchain)
+3. `scripts/ci-redroid-test.sh` — `docker run --privileged` with
+   `redroid/redroid:13.0.0_64only-latest`, `adb connect`, then
+   `scripts/ci-instrumented-no-gpu.sh`
+
+Why redroid: **no `/dev/kvm` required**. It needs host kernel `binder_linux`
+(and often `ashmem_linux`). If CNB's DinD host lacks those modules, the job
+fails with container logs — that is the gate for whether SaaS redroid works.
+
+Emulator-safe coverage (excludes `@RequiresGraphicsDriver`):
 
 - `RemoteContentSourceTest` (manifest + Wine WCP resolve)
 - `ImagefsExtractionTest` (remote rootfs provision)
 
-Excluded (need Adreno / Turnip / Vulkan / live Wine session):
+Still device-only:
 
-- `RemoteContentSourceTest.resolve_turnip_archive_installsWithShaVerify`
+- Turnip archive resolve
 - `PreparerGraphicsDriverTest`
 - `GameSessionLaunchTest`
 - `XServerSurfaceViewInitTest`
 
-CNB SaaS containers usually do **not** expose `/dev/kvm`. Expect slower
-software-emulator boots; first cold run also downloads large remote assets.
-Physical Adreno / Wine / Turnip verification remains the Tailscale ADB flow
-above.
-
-Local equivalent (must be an arm64 host, or use a remote arm64 runner):
+Local redroid (arm64 Linux host with Docker + binder):
 
 ```bash
 bash scripts/setup-android-sdk.sh
-bash scripts/setup-android-emulator.sh
-bash scripts/ci-emulator-test.sh
+# optional: sudo modprobe binder_linux devices="binder,hwbinder,vndbinder"
+bash scripts/ci-redroid-test.sh
 ```
+
+The Google AVD path (`scripts/setup-android-emulator.sh` +
+`scripts/ci-emulator-test.sh`) remains for hosts that already have the SDK
+emulator; CNB no longer uses it.
 
 ## 7. Teardown
 

@@ -7,7 +7,7 @@
 #
 # 覆盖：
 #   - continuous-test (amd64): JVM 单测 + Debug/androidTest assemble
-#   - emulator-test (arm64:v8): 无显卡驱动 instrumented（排除 @RequiresGraphicsDriver）
+#   - redroid-test (arm64:v8): redroid Android-in-Docker + 无显卡 instrumented
 # 真机 Adreno / Wine / Turnip 仍走 Tailscale ADB，见 docs/06-ENVIRONMENT.md
 
 # ---- 可复用片段 ----
@@ -34,17 +34,14 @@
     timeout: 3600s
     script: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
 
-.emulator-test-stages:
+.redroid-test-stages:
   - !reference [.chmod-scripts, 0]
   - name: setup-android-sdk
     timeout: 1800s
     script: bash scripts/setup-android-sdk.sh
-  - name: setup-android-emulator
-    timeout: 3600s
-    script: bash scripts/setup-android-emulator.sh
-  - name: emulator-instrumented-no-gpu
+  - name: redroid-instrumented-no-gpu
     timeout: 7200s
-    script: bash scripts/ci-emulator-test.sh
+    script: bash scripts/ci-redroid-test.sh
 
 .continuous-test-pipelines:
   - name: continuous-test
@@ -59,28 +56,30 @@
       ANDROID_SDK_ROOT: /opt/android-sdk
     stages: !reference [.continuous-test-stages]
 
-.emulator-test-pipelines:
-  - name: emulator-test
-    # APK is arm64-v8a only — must run on arm64 hosts / arm64 system images.
+.redroid-test-pipelines:
+  - name: redroid-test
+    # APK is arm64-v8a only; redroid *_64only image matches.
     runner:
       cpus: 8
       tags: cnb:arch:arm64:v8
+    services:
+      - docker
     docker: !reference [.ci-docker]
     git:
       submodules: true
     env:
       ANDROID_HOME: /opt/android-sdk
       ANDROID_SDK_ROOT: /opt/android-sdk
-      AMPHORA_EMU_API: "30"
-    stages: !reference [.emulator-test-stages]
+      REDROID_IMAGE: redroid/redroid:13.0.0_64only-latest
+    stages: !reference [.redroid-test-stages]
 
 # ---- 触发绑定 ----
 main:
   pull_request:
     - !reference [.continuous-test-pipelines, 0]
-    - !reference [.emulator-test-pipelines, 0]
+    - !reference [.redroid-test-pipelines, 0]
 
 $:
   push:
     - !reference [.continuous-test-pipelines, 0]
-    - !reference [.emulator-test-pipelines, 0]
+    - !reference [.redroid-test-pipelines, 0]

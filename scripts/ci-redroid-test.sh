@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Boot redroid (Android-in-Docker, no KVM) on arm64 and run Amphora's
+# non-graphics instrumented suite.
+#
+# Requires:
+#   - docker CLI + daemon (CNB: services: [docker])
+#   - host/DinD kernel modules binder_linux (+ ashmem_linux when available)
+#   - arm64 runner when using *_64only images with an arm64-only APK
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+
+export ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
+export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+export PATH="$ANDROID_HOME/platform-tools:$PATH"
+
+CONTAINER_NAME="${AMPHORA_REDROID_NAME:-amphora-redroid}"
+REDROID_IMAGE="${REDROID_IMAGE:-redroid/redroid:13.0.0_64only-latest}"
+ADB_ENDPOINT="${AMPHORA_REDROID_ADB:-127.0.0.1:5555}"
+BOOT_TIMEOUT_SEC="${AMPHORA_REDROID_BOOT_TIMEOUT_SEC:-600}"
+DATA_VOLUME="${AMPHORA_REDROID_VOLUME:-amphora-redroid-data}"
+
+cleanup() {
+  docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+if ! command -v docker >/dev/null; then
+  echo "docker not found; declare CNB services: [docker]" >&2
+  exit 1
+fi
+
+echo "=== redroid host probe ==="
+uname -a || true
+docker info 2>/dev/null | sed -n '1,40p' || true
+ls -l /dev/binder* /dev/ashmem /dev/binderfs 2>/dev/null || true
+lsmod 2>/dev/null | grep -E 'binder|ashmem' || echo "(no binder/ashmem modules listed)"
+
+try_load_modules() {
+  # Best-effort: works on bare-metal / privileged hosts; often blocked in SaaS DinD.
+  if command -v modprobe >/dev/null; then
+    modprobe binder_linux devices="binder,hwbinder,vndbinder" 2>/dev/null || true
+    modprobe ashmem_linux 2>/dev/null || true
+  fi
+  if [[ -d /dev/binderfs ]] && ! mountpoint -q /dev/binderfs 2>/dev/null; then
+    mkdir -p /dev/binderfs
+    mount -t binder binder /dev/binderfs 2>/dev/null || true
+  fi
+}
+try_load_modules
+
+if ! ls /dev/binder* >/dev/null 2>&1 && [[ ! -e /dev/binderfs/binder ]]; then
+  echo "WARNING: binder device nodes not visible in this environment." >&2
+  echo "redroid usually needs binder_linux on the Docker host kernel." >&2
+  echo "Continuing anyway — container start will fail loudly if unsupported." >&2
+fi
+
+echo "Pulling $REDROID_IMAGE …"
+docker pull "$REDROID_IMAGE"
+
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+docker volume create "$DATA_VOLUME" >/dev/null
+
+echo "Starting redroid ($CONTAINER_NAME)…"
+docker run -d --name "$CONTAINER_NAME" --privileged \
+  --pull missing \
+  -v "${DATA_VOLUME}:/data" \
+  -p 5555:5555 \
+  "$REDROID_IMAGE" \
+  androidboot.redroid_gpu_mode=guest \
+  androidboot.redroid_width=1280 \
+  androidboot.redroid_height=720 \
+  androidboot.redroid_dpi=320 \
+  ro.secure=0
+
+echo "Waiting for redroid ADB at $ADB_ENDPOINT (timeout ${BOOT_TIMEOUT_SEC}s)…"
+adb kill-server >/dev/null 2>&1 || true
+adb start-server >/dev/null
+
+deadline=$((SECONDS + BOOT_TIMEOUT_SEC))
+connected=0
+while (( SECONDS < deadline )); do
+  if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    echo "redroid container exited early; docker logs:" >&2
+    docker logs "$CONTAINER_NAME" 2>&1 | tail -n 120 >&2 || true
+    exit 1
+  fi
+  adb connect "$ADB_ENDPOINT" >/dev/null 2>&1 || true
+  if adb devices | awk -v ep="$ADB_ENDPOINT" '$1==ep && $2=="device"{found=1} END{exit !found}'; then
+    boot="$(adb -s "$ADB_ENDPOINT" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
+    if [[ "$boot" == "1" ]]; then
+      connected=1
+      break
+    fi
+  fi
+  sleep 5
+done
+
+if (( connected != 1 )); then
+  echo "redroid failed to become adb-ready; diagnostics:" >&2
+  docker ps -a --filter "name=$CONTAINER_NAME" >&2 || true
+  docker logs "$CONTAINER_NAME" 2>&1 | tail -n 200 >&2 || true
+  adb devices -l >&2 || true
+  exit 1
+fi
+
+# Prefer the redroid serial for subsequent adb commands.
+export ANDROID_SERIAL="$ADB_ENDPOINT"
+sleep 10
+
+bash scripts/ci-instrumented-no-gpu.sh
+echo "redroid non-graphics suite passed"

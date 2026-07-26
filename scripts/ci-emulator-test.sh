@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Start the Amphora AVD (if needed), then run instrumented tests that do NOT
-# require a real graphics driver / Vulkan / Turnip path.
+# Start the Amphora AVD (if needed), then run non-graphics instrumented tests.
+# Prefer scripts/ci-redroid-test.sh on CNB arm64 (no KVM). This AVD path remains
+# for local hosts that already have the SDK emulator installed.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,7 +14,6 @@ export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$PATH"
 API_LEVEL="${AMPHORA_EMU_API:-30}"
 AVD_NAME="${AMPHORA_AVD_NAME:-amphora_api${API_LEVEL}_arm64}"
 BOOT_TIMEOUT_SEC="${AMPHORA_EMU_BOOT_TIMEOUT_SEC:-600}"
-TEST_TIMEOUT_SEC="${AMPHORA_EMU_TEST_TIMEOUT_SEC:-2400}"
 
 EMU_PID=""
 cleanup() {
@@ -66,34 +66,8 @@ if ! adb devices | awk 'NR>1 && $2=="device"{found=1} END{exit !found}'; then
     fi
     sleep 5
   done
-  # Extra settle time for package manager / storage.
   sleep 15
 fi
 
-adb devices -l
-adb shell 'wm dismiss-keyguard || true' >/dev/null 2>&1 || true
-adb shell settings put global window_animation_scale 0 || true
-adb shell settings put global transition_animation_scale 0 || true
-adb shell settings put global animator_duration_scale 0 || true
-
-echo "Assembling APKs…"
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
-
-echo "Installing APKs…"
-adb install -r -t app/build/outputs/apk/debug/app-debug.apk
-adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-
-# Emulator suite: remote provisioning + rootfs. Excludes Turnip / Vulkan /
-# Wine-session / preparer graphics-driver coverage.
-echo "Running non-graphics instrumented tests…"
-timeout --signal=INT "${TEST_TIMEOUT_SEC}s" adb shell am instrument -w -r \
-  -e notAnnotation app.amphora.RequiresGraphicsDriver \
-  app.amphora.test/app.amphora.HiltTestRunner \
-  | tee "${TMPDIR:-/tmp}/amphora-emulator-instrument.log"
-
-if ! grep -Eq 'OK \\([1-9][0-9]* tests?\\)' "${TMPDIR:-/tmp}/amphora-emulator-instrument.log"; then
-  echo "Instrumented suite did not report OK" >&2
-  exit 1
-fi
-
+bash scripts/ci-instrumented-no-gpu.sh
 echo "Emulator non-graphics suite passed"
