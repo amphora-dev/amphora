@@ -764,9 +764,12 @@ class XServerWineSessionPreparer @Inject constructor(
                 Log.d(TAG, "Disabling Wrapper PATCH_OPCONSTCOMP SPIR-V pass")
                 envState.put("WRAPPER_NO_PATCH_OPCONSTCOMP", "1")
             }
-        } else {
-            WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
         }
+        // Always set WINE_D3D_CONFIG. DXVK replaces d3d8/9/10/11 DLLs, but ddraw/DX7
+        // and any residual WineD3D path still read this (renderer=gl → Zink).
+        // Previously skipped whenever dxwrapper contained "dxvk", leaving DX7 without
+        // csmt/FBO/renderer knobs on the OpenGL→Zink stack.
+        WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
 
         envState.put("GALLIUM_DRIVER", "zink")
         envState.put("LIBGL_KOPPER_DISABLE", "true")

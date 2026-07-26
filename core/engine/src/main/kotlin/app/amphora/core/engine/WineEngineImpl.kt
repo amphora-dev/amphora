@@ -146,8 +146,8 @@ class WineEngineImpl @Inject constructor(
             graphicsDriver = hostDriver,
             presentMode = driverConfig["presentMode"],
         )
-        // 6. Launch env: session essentials + preparer (driver/DXVK/wrapper) + caller + ALSA.
-        val envVars = buildLaunchEnvVars(spec)
+        // 6. Launch env: container Zink/Turnip defaults + preparer + caller + ALSA.
+        val envVars = buildLaunchEnvVars(spec, wnContainer)
         // 7. XEnvironment + service components (GPLC added separately so the handle can wire its
         //    termination callback first).
         val environment = buildEnvironment(xServer, envVars)
@@ -210,13 +210,30 @@ class WineEngineImpl @Inject constructor(
             )
     }
 
-    private fun buildLaunchEnvVars(spec: LaunchSpec): EnvVars {
+    /**
+     * Build guest launch env (XSDA `setupXEnvironment` merge order):
+     * locale / prefix → container defaults → preparer (driver/DXVK/wrapper) →
+     * [LaunchSpec.env] → ALSA.
+     *
+     * Container [WinNativeContainer.getEnvVars] carries `ZINK_*` / `TU_DEBUG` /
+     * `mesa_glthread` from [WinNativeContainer.DEFAULT_ENV_VARS]. OpenGL and
+     * ddraw→WineD3D present through Mesa Zink; without those knobs Adreno often
+     * advances SwapBuffers (AIO FPS ticks) while frames stay black. DXVK/Vulkan
+     * never hit Zink, which is why DX10/11 could work while GL/DX7 did not.
+     */
+    private fun buildLaunchEnvVars(spec: LaunchSpec, container: WinNativeContainer): EnvVars {
         val envVars = EnvVars()
         envVars.put("LC_ALL", LocaleEnv.normalize(LocaleEnv.deriveFromDevice()))
         envVars.put("WINEPREFIX", imageFs.wineprefix)
         envVars.put("WINEDEBUG", "-all")
-        // Preparer-computed wrapper / GPU / DXVK env (GALLIUM_DRIVER, VK_ICD_FILENAMES,
-        // WRAPPER_*, DXVK_* ...). XSDA accumulates these in `envVars` during prep.
+        // Container Zink/Turnip defaults (before preparer so WRAPPER_*/DXVK_* win).
+        val containerEnv = container.getEnvVars()
+        if (!containerEnv.isNullOrBlank()) {
+            envVars.putAll(containerEnv)
+        } else {
+            envVars.putAll(WinNativeContainer.DEFAULT_ENV_VARS)
+        }
+        // Preparer-computed wrapper / GPU / DXVK / WineD3D env.
         for ((key, value) in preparer.envVars()) envVars.put(key, value)
         // Caller-supplied env (LaunchSpec.env).
         for ((key, value) in spec.env) envVars.put(key, value)

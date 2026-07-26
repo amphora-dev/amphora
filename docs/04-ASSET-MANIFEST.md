@@ -195,7 +195,9 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | **VKD3D `3.0a` / `3.0b` / `Tfix` / `tilting`** | 同期实验/修复分支 | 默认 3.0.1-S6_9 出问题再试 |
 | **nightly + short hash** | 滚动构建，未进 Stable 目录 | 调试上游修复；不要当 MVP 默认 |
 
-**和 WineD3D 的关系**：`dxwrapper` 也可走 `wined3d`（OpenGL/Zink），那是另一条栈，不是换一个 DXVK 版本。AIO 里「有 FPS 但黑屏」的 OpenGL/旧 DX 模式，多半落在 WineD3D/Zink/ddraw，与 DXVK/VKD3D 选型是不同问题。
+**和 WineD3D / Zink 的关系**：`dxwrapper` 装的是 DXVK DLL，但 AIO **OpenGL** 与 **DX7/ddraw** 并不走 DXVK——它们是 Wine `opengl32` / Wine `ddraw` → WineD3D → Mesa **Zink**（`GALLIUM_DRIVER=zink`）→ Turnip。换 DXVK 版本治不了这条栈。
+
+「有 FPS 但黑屏」典型原因（amphora 已修）：launch env 漏合并容器 `DEFAULT_ENV_VARS`（`ZINK_DESCRIPTORS` / `TU_DEBUG=noconform,sysmem` / `mesa_glthread`），SwapBuffers 仍返回（HUD FPS 涨）但帧黑；同时在默认 DXVK 模式下仍需下发 `WINE_D3D_CONFIG`（`renderer=gl`）给 ddraw→WineD3D。见 `WineEngineImpl.buildLaunchEnvVars` + `XServerWineSessionPreparer.extractGraphicsDriverFilesCore`。
 
 **默认目录**：设备端下载走 manifest `wcpCatalogUrl`（`default.json`），当前 Stable 默认只挂少数条目（含我们锁定的 DXVK/VKD3D）；完整历史包仍在 GitHub `Stable-Dxvk` / `Stable-VKD3D` release 资产列表里。
 
