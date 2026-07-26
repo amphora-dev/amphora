@@ -73,6 +73,7 @@ GameSessionScreen
 ```
 
 Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停环境并回收 Wine 子进程。
+> **专项**：Exit 曾因 Main 线程 `XConnectorEpoll.join` 卡在 `recvAncillaryMsg` 触发 ANR；已 IO + 2s join 超时止血，根治见 [`03-TRACKING.md` §专项](03-TRACKING.md)。
 
 ---
 

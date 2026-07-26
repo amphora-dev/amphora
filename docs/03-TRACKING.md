@@ -1,8 +1,37 @@
 # 03 - 进度跟踪 / Handoff
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-07-21 · **v0.1 端到端已跑通** (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。P0–P4 全接线后的关键修复: `ecc7ee3` (desktop surface + relative touch + `GameSessionLaunchTest`) · `65e180f` (真实 DXVK WCP `Dxvk-3.0.2-gplasync` + adrenotools-wrapped Turnip) · `04ec6f5` (host Vulkan 跟容器 graphicsDriverConfig + wine debug logs)。架构真源见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)。
+> 最后更新: 2026-07-26 · **v0.1 端到端已跑通** (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。P0–P4 全接线后的关键修复: `ecc7ee3` (desktop surface + relative touch + `GameSessionLaunchTest`) · `65e180f` (真实 DXVK WCP `Dxvk-3.0.2-gplasync` + adrenotools-wrapped Turnip) · `04ec6f5` (host Vulkan 跟容器 graphicsDriverConfig + wine debug logs)。后续: VKD3D 默认接入 · Exit ANR 止血 (见 §专项)。架构真源见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)。
 > 必读: [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) · [`01-RFC.md`](01-RFC.md) · [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
+
+---
+
+## 专项 · Exit ANR / 会话 teardown（待根治）
+
+> 状态: **已止血，未根治** · 记档 2026-07-26 · 提交 `7dc3dc9`
+
+### 现象
+点 GameSession **Exit** 后主线程卡死 → 系统「应用无响应」(ANR)。
+
+### 根因（已核实）
+1. `GameSessionViewModel.stop/pause/resume` 原先在 `viewModelScope`（默认 **Main**）上调用 `SessionHandle.stop()`。
+2. teardown 路径会 `XConnectorEpoll.stop()` → `Thread.join()` **无限等待**。
+3. client poll 线程堵在 native `ClientSocket.recvAncillaryMsg`（ancillary FD 收包），`requestShutdown` 未必能立刻唤醒，join 永久挂起 → Main ANR。
+
+### 已做止血（`7dc3dc9`）
+- ViewModel：`stop` / `pause` / `resume` 改到 `Dispatchers.IO`（`cleanupScope` 亦用 IO）。
+- `XConnectorEpoll`：`joinOrGiveUp(..., JOIN_TIMEOUT_MS=2000)`，epoll / client poll 最多等 2s 后 `interrupt` 放弃。
+
+### 已知残留 / 专项目标
+超时放弃后可能留下**会话级**残留：epoll/client 线程、socket FD、ancillary FD、尚未释放的 direct ByteBuffer。优于 ANR，但多次进出会话可能泄漏或二次启动异常。
+
+专项验收建议：
+- [ ] Exit 后 5s 内 UI 回到 launcher，**永不** ANR（已基本满足）
+- [ ] logcat 无持续增长的 FD / thread（多次 Exit→再开）
+- [ ] 根治：shutdown 路径强制关闭 client FD / 唤醒阻塞中的 `recv*`，使 join 在超时前正常结束；评估是否仍需 timeout 兜底
+- [ ] 回归：`GameSessionLaunchTest` + 真机 Exit 连点 / 快速重开
+
+相关代码：`GameSessionViewModel.kt` · `XConnectorEpoll.java` · `ClientSocket.recvAncillaryMsg`
 
 ---
 

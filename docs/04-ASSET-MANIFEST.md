@@ -164,6 +164,41 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 
 > WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 仅作 DXVK &lt; 2.4 的 d3d8 补丁 (`extractD8VKIfNeeded`); amphora MVP 默认装 nicholasx417 的 `Dxvk-3.0.2-gplasync.wcp` (d3d8/9/10core/11/dxgi) + `Vkd3d-3.0.1-S6_9.wcp` (d3d12/d3d12core), 经 `ContentSource.resolve(DXVK|VKD3D)` + `ContentsManager.applyContent`. 容器 `dxwrapper` 形如 `dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none`。
 
+
+### 5.1 amphora 当前锁定版本
+
+| 组件 | 锁定包 | ContentsManager entry / wrapper token | 作用 |
+|---|---|---|---|
+| **DXVK** | `Dxvk-3.0.2-gplasync.wcp` | `DXVK-3.0.2-gplasync-0` → `dxvk-3.0.2-gplasync-0` | D3D8/9/10/11 → Vulkan（含 d3d8，无需旧 d8vk 补丁） |
+| **VKD3D** | `Vkd3d-3.0.1-S6_9.wcp` | profile `verName=3.0.1-sm69` → `vkd3d-3.0.1-sm69-0` | D3D12 → Vulkan（替换 Wine stub `d3d12.dll`） |
+| **Proton** | `Proton-10.0-4-x86_64.wcp` | `Proton-10.0-4-x86_64-0` | Wine/Proton 运行时 + prefixPack |
+| **Box64** | `Box64-0.4.3-c08554e3f.wcp` | `Box64-0.4.3-c08554e3f-0` | x86_64 → ARM64 用户态翻译 |
+| **Turnip** | `graphics_driver/wrapper.tzst` | ARCHIVE `version=1` | Adreno Mesa Turnip + adrenotools wrapper ICD |
+
+容器默认 `dxwrapper`：`dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none`（第三段 `none` = 不用 cnc-ddraw）。
+
+选型原则：跟上游 **Stable** 目录里较新的 x86_64（非 arm64ec）构建；DXVK 选 **gplasync**（异步编译，移动端体感更好）；VKD3D 选 Stable 里带 **S6_9**（shader model 6.9）的 3.0.1 包。
+
+### 5.2 上游版本族怎么读（为何看起来「很多」）
+
+同一组件在 `Stable-*` / nightly / Sarek 等 tag 下会有大量 `.wcp`，名字后缀大致表示：
+
+| 后缀 / 系列 | 含义 | 何时考虑 |
+|---|---|---|
+| **主版本号**（`1.x` / `2.x` / `3.x`） | 上游 DXVK / vkd3d-proton 大版本；API 覆盖与驱动假设不同 | 新游戏偏新；老游戏黑屏/崩溃可回退旧线 |
+| **`gplasync` / `async` / `dyasync`** | 社区异步着色器编译补丁（减少卡顿 stutter） | **默认优先**；纯 vanilla 同步版兼容偶发更好但更卡 |
+| **`pre-reg` / `pre-regress`** | 针对特定回归的回退/特化构建 | 某游戏在最新 gplasync 坏、旧构建好时 |
+| **`a6xx-fix` / `special+d8` / `sp`** | Adreno / D3D8 等设备或特性特化 | 仅当默认黑屏且社区明确点名 |
+| **`Sarek`** | 独立 fork（偏旧 Adreno / 兼容线） | 新 DXVK 在老 GPU 上挂时的备选，**非** amphora 默认 |
+| **`arm64ec`** | Windows-on-ARM / FEX 路径用的 EC 构建 | amphora **不用**（D5 砍 arm64ec；我们是 Box64 + x86_64 Wine） |
+| **VKD3D `S6_9` / `sm69`** | 暴露较高 Shader Model（6.9） | 较新 DX12 游戏；与 `VKD3D_SHADER_MODEL` env 配合 |
+| **VKD3D `3.0a` / `3.0b` / `Tfix` / `tilting`** | 同期实验/修复分支 | 默认 3.0.1-S6_9 出问题再试 |
+| **nightly + short hash** | 滚动构建，未进 Stable 目录 | 调试上游修复；不要当 MVP 默认 |
+
+**和 WineD3D 的关系**：`dxwrapper` 也可走 `wined3d`（OpenGL/Zink），那是另一条栈，不是换一个 DXVK 版本。AIO 里「有 FPS 但黑屏」的 OpenGL/旧 DX 模式，多半落在 WineD3D/Zink/ddraw，与 DXVK/VKD3D 选型是不同问题。
+
+**默认目录**：设备端下载走 manifest `wcpCatalogUrl`（`default.json`），当前 Stable 默认只挂少数条目（含我们锁定的 DXVK/VKD3D）；完整历史包仍在 GitHub `Stable-Dxvk` / `Stable-VKD3D` release 资产列表里。
+
 **⚠️ D4 download stub (amphora 当前)**: `native_content_io.cpp:783` `nativeDownloadFile` 返回 `JNI_FALSE`, `nativeFetchContentLength` 返回 `-1` (RFC §10 D4 -- MVP 不做远程抓取, 符号保留避免 UnsatisfiedLinkError). 故 amphora 当前**无法在设备上直接 `syncContents`/下载 `.wcp`**.
 - **preparer 真验可行路径** (绕过 stub): host `curl` 下载 `.wcp` -> `adb push` -> `ContentsManager.extraContentFile(Uri, callback)` 本地装 (走 `nativeExtractArchive`, 非 download) -> `createContainer` (抽 Wine prefix) -> 跑 preparer.
 - **v0.3**: 恢复 curl body 解除 stub -> 设备直接下载.
