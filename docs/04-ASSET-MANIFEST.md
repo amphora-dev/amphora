@@ -177,7 +177,7 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 
 容器默认 `dxwrapper`：`dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none`（第三段 `none` = 不用 cnc-ddraw）。
 
-选型原则：跟上游 **Stable** x86_64（非 arm64ec）。DXVK 默认 **3.0.2-gplasync**：在 TB322FC（Adreno 830 / Turnip）上 DX10/11 可用；曾试 `2.4.1-pre-reg` 想修 D3D9 黑屏，结果 DX9–11 **闪退**，已回退。DX9「有 FPS 无画面」仍为开放项（已定位 FF PSO compile `-13`）。VKD3D 仍锁 **3.0.1-S6_9**。
+选型原则：跟上游 **Stable** x86_64（非 arm64ec）。DXVK 默认 **3.0.2-gplasync**：在 TB322FC（Adreno 830 / Turnip）上 DX10/11 可用；曾试 `2.4.1-pre-reg` 想修 D3D9 黑屏，结果 DX9–11 **闪退**，已回退。DX8/DX9「有 FPS 无画面」仍为开放项（已定位 FF PSO compile `-13`；DX8 = DXVK D3D8 compatibility → 同一条 FF 路径）。候选未默认启用：`2.4.1-a6xx-fix` / `2.4.1-special+d8`。VKD3D 仍锁 **3.0.1-S6_9**。
 
 ### 5.3 可选 adrenotools Turnip（WN-Turnip）
 
