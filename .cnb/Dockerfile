@@ -7,6 +7,7 @@ RUN apt-get update \
         ca-certificates \
         curl \
         git \
+        python3 \
         unzip \
         zip \
     && rm -rf /var/lib/apt/lists/*
