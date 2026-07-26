@@ -41,6 +41,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     androidTestImplementation(project(":core:engine"))
+    androidTestImplementation(project(":core:rootfs"))
     androidTestImplementation(libs.kotlinx.coroutines.test)
 }
 
