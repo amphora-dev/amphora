@@ -54,13 +54,14 @@
 - ✅ 假 `R` 死 UI 闭包: 删手写 `R.java` + `DownloadProgressDialog`/`MultiSelectionComboBox`/`HttpUtils`/`AppUtils`; `ImageFsInstaller` 仅留 `LATEST_VERSION`; wallpaper 改纯色回退; Box64/FEX 去掉 Spinner/import-export 死路径。
 - ✅ MVP 再削: `WineThemeManager` 仅留默认串; 删 `MSBitmap`/`LogManager`/`CPUStatus`/`UnitUtils`/`fakeinput.cpp`; Box64/FEX 仅留 `getEnvVars`; 去掉 pulseaudio.tzst 旁路提取 + manifest `audio_plugin`（MVP ALSA-only，aserver 在 imagefs）。`:feature:settings` **保留**（v0.2 实质项）。
 - ✅ 内核再削 (2026-07-21): 删 Shortcut / PE 图标 / WineThemeManager / EffectComposer；GPLC 去 shortcut 与浏览器/剪贴板 prefs；ContainerManager 去 duplicate/shortcuts；ContentsManager 去 remote profiles；`NativeContentIO` 去 download JNI 包装；`AssetPaths` 仅留 GPU_CARDS+WINE_STARTMENU；un-include `:core:ui`（目录保留）。
-- ⚠️ **AIO DX9 黑屏+FPS** (2026-07-26): DX10–12 正常、仅 DX9 有 FPS 无画面。
+- ⚠️ **AIO DX8/DX9 黑屏+FPS** (2026-07-26): DX10–12 正常；DX8/DX9 有 FPS 无画面。
+  - DX8 走 DXVK **D3D8→D3D9 compatibility mode**（日志：`operating in D3D8 compatibility mode`），与 DX9 同栈。
   - ~~嫌疑 timeline semaphore~~ → **日志已定位**：`wine_stderr` 在 `D3D9DeviceEx::ResetSwapChain` 后出现  
-    `DxvkGraphicsPipeline: Failed to compile pipeline: -13`（`VK_ERROR_UNKNOWN`），阶段为 **FF VS / FF FS**（D3D9 固定管线）。Swapchain/Present 正常（`B8G8R8A8` / `IMMEDIATE`，故 FPS 仍跳），画面黑是因为主绘制 PSO 编不过。
+    `DxvkGraphicsPipeline: Failed to compile pipeline: -13`（`VK_ERROR_UNKNOWN`），阶段为 **FF VS / FF FS**（固定管线）。Swapchain/Present 正常（`B8G8R8A8` / `IMMEDIATE`，故 FPS 仍跳），画面黑是因为主绘制 PSO 编不过。
   - 设备：`Wrapper(Adreno (TM) 830)`，DXVK `v3.0.2-gplasync`，`timelineSemaphore: 1`。
-  - 曾试 `Dxvk-2.4.1-pre-reg` → DX9–11 **闪退**，已回退 3.0.2；勿再盲换 2.4.1。
-  - **定位入口**: 启动器 **Debug: Wine + DXVK diag** → AIO DX9；日志 `{filesDir}/wine_stderr.log`。
-  - **可选 Turnip**: 启动器 **GPU driver → Turnip 1.06-b**（`Drivers@v1.06` Balanced，工程化下载/adrenotools 安装；默认仍 Wrapper）。用于验证开源后端是否改善 FF PSO；非默认。
+  - 曾试 `Dxvk-2.4.1-pre-reg` → DX9–11 **闪退**，已回退 3.0.2；勿再盲换 2.4.1。候选未试：`2.4.1-a6xx-fix` / `2.4.1-special+d8`（需可选入口，勿改默认）。
+  - **可选 Turnip** 已可加载（Host log：`loading custom driver: …/libvulkan_freedreno.so` + MESA），但 **未能消掉** FF PSO `-13`；DX8/9 黑屏仍开放。
+  - **定位入口**: 启动器 **Debug: Wine + DXVK diag** → AIO DX8/DX9；日志 `{filesDir}/wine_stderr.log`。Diag 的 `WINEDEBUG` 仅 `+err`（勿开 `+seh`，会把启动拖成数分钟并淹没 DXVK 日志）。
 - ⚠️ **AIO OpenGL/DX7 黑屏+FPS** (2026-07-26): 已修 launch 合并 `ZINK_*`/`TU_DEBUG` + 始终下发 `WINE_D3D_CONFIG`。续试注入 `ADRENOTOOLS_*=freedreno` / `renderer=vulkan` / `dd7to9` **回退**——在 TB322FC 上导致 DX9–11 也挂（log：`ADRENOTOOLS_DRIVER_NAME=libvulkan_freedreno.so`）。OpenGL/DX7 黑屏仍为开放项；完整 Turnip 请用启动器可选 **Turnip 1.06-b**（勿再盲注 NAME）。`ddrawrapper/*` runtimeAssets 保留（nglide 提取不再 404）。
 - ⏭ 下一步: 用可选 Turnip 验证 DX9 PSO；**Exit ANR 根治**；v0.2 候选 settings / 键盘手柄。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 

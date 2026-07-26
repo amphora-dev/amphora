@@ -30,12 +30,14 @@ object GraphicsDiag {
     fun launchEnv(context: Context): Map<String, String> {
         val logDir = ensureLogDir(context)
         return mapOf(
-            // On-screen: confirm present + API (D3D9 vs 11) while scene is black.
+            // On-screen: confirm present + API (D3D8/9 vs 11) while scene is black.
             "DXVK_HUD" to "fps,devinfo,api,version,memory,gpuload",
             "DXVK_LOG_LEVEL" to "info",
             "DXVK_LOG_PATH" to logDir.absolutePath,
-            // Override the hardcoded WINEDEBUG=-all so ProcessHelper captures wine_stderr.log.
-            "WINEDEBUG" to "+err,+seh,warn+d3d",
+            // Override WINEDEBUG=-all so ProcessHelper captures wine_stderr.log.
+            // Do NOT enable +seh: Box64 SEH traces flood the log and stall session start
+            // for minutes (observed on TB322FC with AIO DX8/9).
+            "WINEDEBUG" to "+err",
             // Harmless on stock DXVK; required on binsem builds if we trial those later.
             "DXVK_DISABLE_TIMELINE_SEMAPHORES" to "1",
         )
@@ -45,6 +47,12 @@ object GraphicsDiag {
         val dir = File(context.filesDir, LOG_DIR_NAME)
         if (!dir.isDirectory && !dir.mkdirs()) {
             Log.w(TAG, "Failed to create DXVK log dir: ${dir.absolutePath}")
+        }
+        // DXVK writes *.log here; drop stray non-log files (e.g. a misplaced .so).
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile && !f.name.endsWith(".log", ignoreCase = true)) {
+                if (f.delete()) Log.i(TAG, "Removed stray file from DXVK log dir: ${f.name}")
+            }
         }
         return dir
     }
