@@ -188,12 +188,15 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | **主版本号**（`1.x` / `2.x` / `3.x`） | 上游 DXVK / vkd3d-proton 大版本；API 覆盖与驱动假设不同 | 新游戏偏新；老游戏黑屏/崩溃可回退旧线 |
 | **`gplasync` / `async` / `dyasync`** | 社区异步着色器编译补丁（减少卡顿 stutter） | **默认优先**；纯 vanilla 同步版兼容偶发更好但更卡 |
 | **`pre-reg` / `pre-regress`** | 针对特定回归的回退/特化构建 | 某游戏在最新 gplasync 坏、旧构建好时 |
-| **`a6xx-fix` / `special+d8` / `sp`** | Adreno / D3D8 等设备或特性特化 | 仅当默认黑屏且社区明确点名 |
-| **`Sarek`** | 独立 fork（偏旧 Adreno / 兼容线） | 新 DXVK 在老 GPU 上挂时的备选，**非** amphora 默认 |
-| **`arm64ec`** | Windows-on-ARM / FEX 路径用的 EC 构建 | amphora **不用**（D5 砍 arm64ec；我们是 Box64 + x86_64 Wine） |
-| **VKD3D `S6_9` / `sm69`** | 暴露较高 Shader Model（6.9） | 较新 DX12 游戏；与 `VKD3D_SHADER_MODEL` env 配合 |
+| **`a6xx-*` / `special+d8` / `sp`** | **GPU 特化**：Adreno A6xx 系驱动补丁 / D3D8 特化（与 ABI 无关；手机 GPU 族名） | 仅当默认黑屏且社区明确点名；amphora 默认不碰 |
+| **`Sarek`**（可带 `arm64ec`） | 独立 DXVK fork，偏旧 Adreno / 兼容线 | 新 DXVK 在老 GPU 上挂时的备选，**非**默认 |
+| **`arm64ec`**（DXVK/VKD3D/Proton/D7VK/FEX 都有） | **ABI 路线**：Windows-on-ARM EC 二进制，配 **FEXCore** 翻 x86 游戏；**不是**「给 ARM 手机用的 DXVK」 | amphora **一律不用**（RFC D5：Box64 + **x86_64** Wine） |
+| **无 `arm64ec` 后缀**（如 `Dxvk-3.0.2-gplasync`） | **x86_64** PE，由 Box64 翻译整棵 Wine 树 | **amphora 默认选这类** |
+| **VKD3D `S6_9` / `sm69`** | 暴露较高 Shader Model（6.9） | 较新 DX12；与 `VKD3D_SHADER_MODEL` env 配合 |
 | **VKD3D `3.0a` / `3.0b` / `Tfix` / `tilting`** | 同期实验/修复分支 | 默认 3.0.1-S6_9 出问题再试 |
-| **nightly + short hash** | 滚动构建，未进 Stable 目录 | 调试上游修复；不要当 MVP 默认 |
+| **nightly + short hash** | 滚动构建，未进 Stable 目录 | 调试上游；不要当 MVP 默认 |
+
+> **易混点**：真机是 **arm64-v8a Android**，但 guest 里跑的是 **x86_64 Wine**（外面套 Box64）。所以要下 **不带 `arm64ec`** 的 `.wcp`。带 `arm64ec` 的包是给「arm64ec Proton + FEX」那条 WinNative 路线的；装错 ABI 会直接对不上 `ContentsManager`/DLL 架构。`a6xx` 则是 **Adreno GPU** 名，和 `arm64ec` 不是一类东西。
 
 **和 WineD3D / Zink 的关系**：`dxwrapper` 装的是 DXVK DLL，但 AIO **OpenGL** 与 **DX7/ddraw** 并不走 DXVK——它们是 Wine `opengl32` / Wine `ddraw` → WineD3D → Mesa **Zink**（`GALLIUM_DRIVER=zink`）→ Turnip。换 DXVK 版本治不了这条栈。
 
