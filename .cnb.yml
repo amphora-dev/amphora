@@ -1,12 +1,53 @@
-# Cloud Native Build (CNB) continuous testing for Amphora.
-# Docs: https://docs.cnb.cool/zh/build/intro.html
+# CNB 云原生构建配置 — Amphora 持续测试
+# Docs:
+#   https://docs.cnb.cool/zh/build/intro.html
+#   https://docs.cnb.cool/zh/build/simplify-configuration.html  (!reference 复用)
+# Schema: https://docs.cnb.cool/conf-schema-zh.json
 #
-# Pipeline coverage:
-# - JVM unit tests (`:core:common:test`, `:core:content:test`)
-# - Debug APK + androidTest APK assemble (compile gate)
-#
-# Physical-device instrumented tests stay manual (Tailscale ADB); see
-# docs/06-ENVIRONMENT.md.
+# 覆盖：
+#   - JVM 单测（:core:common:test / :core:content:test）
+#   - Debug APK + androidTest APK assemble（编译门禁）
+# 真机 instrumented 仍走 Tailscale ADB 手工跑，见 docs/06-ENVIRONMENT.md
 
-include:
-  - .cnb/continuous-test.yml
+# ---- 可复用片段 ----
+.ci-docker:
+  build: .cnb/Dockerfile
+  volumes:
+    - /root/.gradle:copy-on-write
+    - /opt/android-sdk:copy-on-write
+
+.chmod-scripts:
+  - name: chmod scripts
+    script: chmod +x scripts/*.sh gradlew
+
+.continuous-test-stages:
+  - !reference [.chmod-scripts, 0]
+  - name: setup-android-sdk
+    timeout: 1800s
+    script: bash scripts/setup-android-sdk.sh
+  - name: jvm-unit-tests
+    timeout: 1800s
+    script: bash scripts/ci-jvm-test.sh
+  - name: assemble-debug
+    timeout: 3600s
+    script: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+
+.continuous-test-pipelines:
+  - name: continuous-test
+    runner:
+      cpus: 8
+      tags: cnb:arch:amd64
+    docker: !reference [.ci-docker]
+    git:
+      submodules: true
+    env:
+      ANDROID_HOME: /opt/android-sdk
+      ANDROID_SDK_ROOT: /opt/android-sdk
+    stages: !reference [.continuous-test-stages]
+
+# ---- 触发绑定 ----
+main:
+  pull_request: !reference [.continuous-test-pipelines]
+
+$:
+  push: !reference [.continuous-test-pipelines]

@@ -268,15 +268,22 @@ installed tree.
 
 ## 6. CNB continuous testing
 
-Amphora uses Cloud Native Build (CNB) via `.cnb.yml`. On every branch push, and
-on pull requests targeting `main`, CNB runs:
+Amphora uses Cloud Native Build (CNB) via a single root `.cnb.yml`, written with
+reusable `.fragment` keys and `!reference` (see CNB simplify-configuration).
+
+Triggers:
+
+- every branch `push` (`$`)
+- pull requests targeting `main`
+
+Pipeline `continuous-test`:
 
 1. `scripts/setup-android-sdk.sh` (SDK/NDK packages, cached under `/opt/android-sdk`)
 2. `scripts/ci-jvm-test.sh` (`:core:common:test` and `:core:content:test`)
 3. `:app:assembleDebug` and `:app:assembleDebugAndroidTest` (compile gate)
 
 The build image is `.cnb/Dockerfile` (Temurin JDK 17). Gradle and Android SDK
-directories use CNB `cow` volumes so warm runs skip most downloads.
+directories use CNB `copy-on-write` volumes so warm runs skip most downloads.
 
 Physical-device instrumented tests are **not** part of CNB. Run them manually
 with the Tailscale ADB flow above. CNB verifies JVM logic and that the app still

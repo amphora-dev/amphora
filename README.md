@@ -43,9 +43,9 @@ Instrumented E2E (ARM64 Adreno device recommended):
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-CNB continuous testing (`.cnb.yml`): JVM unit tests + debug/androidTest assemble
-on every push and on PRs to `main`. Device instrumented runs stay manual — see
-[`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) §6.
+CNB continuous testing (`.cnb.yml` + `!reference` fragments): JVM unit tests and
+debug/androidTest assemble on every push and on PRs to `main`. Device
+instrumented runs stay manual — see [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) §6.
 
 **Notes**
 
