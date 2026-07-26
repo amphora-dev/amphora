@@ -808,7 +808,17 @@ class XServerWineSessionPreparer @Inject constructor(
             val driverLibrary = adrenotoolsManager.getLibraryName(adrenoToolsDriverId)
             Log.i(TAG, "Loading graphics/Turnip driver: id='$adrenoToolsDriverId' library='$driverLibrary'")
             installAdrenotoolsDriverIfNeeded(adrenoToolsDriverId, driverLibrary)
-            if (wantLeegao) envState.put("ADRENOTOOLS_HOOKS_PATH", imageFs.getLibDir().path)
+            // Guest ICD loads libvulkan_wrapper.so; the wrapper then adrenotools-loads
+            // Turnip (freedreno). Without these, getenv falls back to
+            // /system/lib64/libvulkan.so — DXVK may still present, but Zink/WineD3D-GL
+            // often gets FPS-with-black-frames (incomplete WSI on the OEM path).
+            val libDir = imageFs.getLibDir()
+            envState.put("ADRENOTOOLS_DRIVER_PATH", libDir.path + "/")
+            envState.put("ADRENOTOOLS_DRIVER_NAME", "libvulkan_freedreno.so")
+            envState.put("ADRENOTOOLS_HOOKS_PATH", libDir.path)
+            if (wantLeegao) {
+                // leegao hooks stay on the same lib dir; already set above.
+            }
         } else {
             Log.w(
                 TAG,

@@ -65,8 +65,10 @@ public final class WineD3DConfigUtils {
 
     public static void setEnvVars(Context context, KeyValueSet config, EnvVars vars) {
         String deviceID = getDeviceIdFromGPUName(context, config.get("gpuName"));
-        String vendorID = getVendorIdFromGPUName(context, config.get("vendorID"));
-        String wined3dConfig = "csmt=0x" + config.get("csmt") + ",strict_shader_math=0x" + config.get("strict_shader_math") + ",OffscreenRenderingMode=" + config.get("OffscreenRenderingMode") + ",VideoMemorySize=" + config.get("videoMemorySize") + ",VideoPciDeviceID=" + deviceID + ",VideoPciVendorID=" + vendorID + ",renderer=" + config.get("renderer");
+        String vendorID = getVendorIdFromGPUName(context, config.get("gpuName"));
+        String renderer = config.get("renderer");
+        if (renderer == null || renderer.isEmpty()) renderer = "vulkan";
+        String wined3dConfig = "csmt=0x" + config.get("csmt") + ",strict_shader_math=0x" + config.get("strict_shader_math") + ",OffscreenRenderingMode=" + config.get("OffscreenRenderingMode") + ",VideoMemorySize=" + config.get("videoMemorySize") + ",VideoPciDeviceID=" + deviceID + ",VideoPciVendorID=" + vendorID + ",renderer=" + renderer;
         vars.put("WINE_D3D_CONFIG", wined3dConfig);
     }
 }
