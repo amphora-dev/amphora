@@ -145,15 +145,15 @@
     },
     {
       "assetPath": "winnative/Graphics-Test-32bit.exe",
-      "sha256": "6dabca7d32c1522ff107355b040b1ff882e6214a6c3297a74be99a806dcb986c",
-      "remoteUrl": "https://github.com/The412Banner/AIO-Graphics-Test/releases/download/v1.6.1/AIO-Graphics-Test-32bit.exe",
-      "size": 2087210
+      "sha256": "e2419df09ea9e21295656802556b13fbb0607056ae4e1323a0838ed193d3a67b",
+      "remoteUrl": "https://cnb.cool/atowerlight/aio-graphics-test/-/releases/download/amphora/Graphics-Test-32bit.exe",
+      "size": 2063777
     },
     {
       "assetPath": "winnative/Graphics-Test-64bit.exe",
-      "sha256": "8bc8d2533dd27e7ad17c7c2cceda287e62ddde50353b6dad5d3c482696b53805",
-      "remoteUrl": "https://github.com/The412Banner/AIO-Graphics-Test/releases/download/v1.6.1/AIO-Graphics-Test-64bit.exe",
-      "size": 2065592
+      "sha256": "5e0e8ded4ae0398db730b5e51581a0bf98394ed80075960053e8dea907b13dbb",
+      "remoteUrl": "https://cnb.cool/atowerlight/aio-graphics-test/-/releases/download/amphora/Graphics-Test-64bit.exe",
+      "size": 2049388
     },
     {
       "assetPath": "metadata/gpu_cards.json",

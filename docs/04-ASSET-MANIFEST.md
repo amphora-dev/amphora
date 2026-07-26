@@ -108,15 +108,19 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 [`The412Banner/AIO-Graphics-Test`](https://github.com/The412Banner/AIO-Graphics-Test)
 `cube_d3d8.c`：窗口模式 `FullScreen_PresentationInterval` 必须为
 `D3DPRESENT_INTERVAL_DEFAULT`，否则 DXVK D3D8 `CreateDevice` 返回
-`D3DERR_INVALIDCALL`）。PE 暂存在本仓 `testdata/aio-graphics-test/`，由设备端
-下载器验证后复制到 Wine `ProgramData/Microsoft/Windows`：
+`D3DERR_INVALIDCALL`）。
 
-| 资产 | SHA-256 | 大小 |
-|---|---|---:|
-| `Graphics-Test-32bit.exe` | `6dabca7d32c1522ff107355b040b1ff882e6214a6c3297a74be99a806dcb986c` | 2,087,210 |
-| `Graphics-Test-64bit.exe` | `8bc8d2533dd27e7ad17c7c2cceda287e62ddde50353b6dad5d3c482696b53805` | 2,065,592 |
+公开源与固定 Release：[`cnb.cool/atowerlight/aio-graphics-test`](https://cnb.cool/atowerlight/aio-graphics-test)
+标签 **`amphora`**（每次 `main` 推送由 CI 覆盖附件，不保留历史版本）。设备端按
+`content_manifest.json` 的 `remoteUrl` 下载并校验后复制到 Wine
+`ProgramData/Microsoft/Windows`（APK assets / `testdata/aio-graphics-test/` 作离线兜底）：
 
-源码补丁：`AIO-Graphics-Test` 分支 `fix/d3d8-windowed-present-interval`（待上游合并发版后改回 Release URL）。
+| 资产 | SHA-256 | 大小 | remoteUrl |
+|---|---|---:|---|
+| `Graphics-Test-32bit.exe` | `e2419df09ea9e21295656802556b13fbb0607056ae4e1323a0838ed193d3a67b` | 2,063,777 | `.../releases/download/amphora/Graphics-Test-32bit.exe` |
+| `Graphics-Test-64bit.exe` | `5e0e8ded4ae0398db730b5e51581a0bf98394ed80075960053e8dea907b13dbb` | 2,049,388 | `.../releases/download/amphora/Graphics-Test-64bit.exe` |
+
+CI 重建后 SHA 会变：更新本表与 `content_manifest.json` 即可。
 
 > `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。Amphora 生产路径由 `RemoteContentSource` 在设备上下载并校验 manifest 中固定的 Proton WCP，不再要求 build 时打入 APK。
 

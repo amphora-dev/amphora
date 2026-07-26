@@ -107,11 +107,11 @@ class ContentManifestTest {
         )
         val runtimeAssets = manifest.runtimeAssets().associateBy { it.assetPath }
         assertEquals(
-            "6dabca7d32c1522ff107355b040b1ff882e6214a6c3297a74be99a806dcb986c",
+            "e2419df09ea9e21295656802556b13fbb0607056ae4e1323a0838ed193d3a67b",
             runtimeAssets["winnative/Graphics-Test-32bit.exe"]?.sha256,
         )
         assertEquals(
-            "8bc8d2533dd27e7ad17c7c2cceda287e62ddde50353b6dad5d3c482696b53805",
+            "5e0e8ded4ae0398db730b5e51581a0bf98394ed80075960053e8dea907b13dbb",
             runtimeAssets["winnative/Graphics-Test-64bit.exe"]?.sha256,
         )
         assertEquals(

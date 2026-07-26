@@ -14,9 +14,10 @@ import java.security.MessageDigest
  *
  * Order per entry:
  * 1. Trust an already-verified file under `filesDir/runtime-assets/`.
- * 2. Copy from the APK asset of the same relative path when present (used for
- *    patched AIO Graphics Test PEs that are not yet on an upstream Release).
- * 3. Fall back to HTTPS download via [VerifiedAssetDownloader].
+ * 2. Copy from the APK asset of the same relative path when present (offline
+ *    fallback for patched AIO Graphics Test PEs).
+ * 3. Fall back to HTTPS download via [VerifiedAssetDownloader] (CNB fixed
+ *    Release `amphora` on `atowerlight/aio-graphics-test`).
  */
 class RuntimeAssetProvisioner(
     private val context: Context,

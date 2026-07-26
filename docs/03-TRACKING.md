@@ -55,7 +55,7 @@
 - ✅ MVP 再削: `WineThemeManager` 仅留默认串; 删 `MSBitmap`/`LogManager`/`CPUStatus`/`UnitUtils`/`fakeinput.cpp`; Box64/FEX 仅留 `getEnvVars`; 去掉 pulseaudio.tzst 旁路提取 + manifest `audio_plugin`（MVP ALSA-only，aserver 在 imagefs）。`:feature:settings` **保留**（v0.2 实质项）。
 - ✅ 内核再削 (2026-07-21): 删 Shortcut / PE 图标 / WineThemeManager / EffectComposer；GPLC 去 shortcut 与浏览器/剪贴板 prefs；ContainerManager 去 duplicate/shortcuts；ContentsManager 去 remote profiles；`NativeContentIO` 去 download JNI 包装；`AssetPaths` 仅留 GPU_CARDS+WINE_STARTMENU；un-include `:core:ui`（目录保留）。
 - ⚠️ **AIO DX8/DX9 黑屏+FPS** (2026-07-26): DX10–12 正常；DX9 有 FPS 无画面（FF PSO `-13`）。
-  - **DX8 CreateDevice 失败**（弹窗 “Could not create a Direct3D 8 device”）已定位并修：AIO 在 windowed 下传 `FullScreen_PresentationInterval=IMMEDIATE`，DXVK D3D8 只允许 `DEFAULT` → `D3DERR_INVALIDCALL`。已打补丁重建 PE，锁进 `testdata/aio-graphics-test/` + manifest SHA。
+  - **DX8 CreateDevice 失败**（弹窗 “Could not create a Direct3D 8 device”）已定位并修：AIO 在 windowed 下传 `FullScreen_PresentationInterval=IMMEDIATE`，DXVK D3D8 只允许 `DEFAULT` → `D3DERR_INVALIDCALL`。补丁源与固定 Release：公开仓 [`atowerlight/aio-graphics-test`](https://cnb.cool/atowerlight/aio-graphics-test) 标签 `amphora`（CI 每次覆盖）；manifest `remoteUrl` 指向该下载地址。
   - DX8 走 DXVK **D3D8→D3D9 compatibility mode**，与 DX9 同栈；CreateDevice 通过后仍可能撞上 FF PSO `-13` 黑屏（开放）。
   - 曾试 `Dxvk-2.4.1-pre-reg` → DX9–11 **闪退**，已回退 3.0.2；勿再盲换 2.4.1。
   - **可选 Turnip** 已可加载，但 **未能消掉** FF PSO `-13`。
