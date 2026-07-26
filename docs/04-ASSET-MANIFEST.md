@@ -102,7 +102,22 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 | `proton-9.0-arm64ec_container_pattern.tzst` | `9826ac61405f641ca8326335208c3e1ed5cec107f4b0354f813825ec398b841b` | arm64ec (D5 砍) |
 | `proton-9.0-arm64ec.txz` | `63938f0b90d6ec9b2213bd419b27949768d5766af0da541831ce0d0f962c9381` | arm64ec (D5 砍, LFS) |
 
-> `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。amphora `BundledContentSource` 已接线 (manifest WINE=`Proton-10.0-4-x86_64.wcp`, WCP 本地安装路径绕过 D4 stub, 见 §4); 生产需 build 时 staging `.wcp` 进 `app/src/main/assets/`。
+### 2.6 AIO Graphics Test
+
+开始菜单中的 32/64 位图形诊断程序固定为
+[`The412Banner/AIO-Graphics-Test` v1.6.1](https://github.com/The412Banner/AIO-Graphics-Test/releases/tag/v1.6.1)，
+由设备端下载器验证后复制到 Wine `ProgramData/Microsoft/Windows`：
+
+| 资产 | SHA-256 | 大小 |
+|---|---|---:|
+| `Graphics-Test-32bit.exe` | `2df71f8e4a80119a0a9e579aab137cc989cb5c71176495e093f6b2285cdff78e` | 2,344,186 |
+| `Graphics-Test-64bit.exe` | `16626857f415672f66b952b71c16ca9f3ddc51658715796b46a645a1bce16898` | 2,372,292 |
+
+源码固定在 tag commit `928e83aa171e6c63da06322d27c78a3d2c7fada7`。Linux 上使用
+mingw-w64、Vulkan-Headers `sdk-1.3.239.0` 和 glslang 可同时交叉编译 PE32/PE32+；
+设备下载使用上游 Release 的已发布产物摘要。
+
+> `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。Amphora 生产路径由 `RemoteContentSource` 在设备上下载并校验 manifest 中固定的 Proton WCP，不再要求 build 时打入 APK。
 
 ---
 
@@ -121,8 +136,8 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 - [x] `:core:content` `BundledContentSource` (2026-07-13): `content_manifest.json` (本表派生) + SHA-256 流式校验 + ARCHIVE(`TarCompressorUtils`)/WCP(`ContentsManager.extraContentFile`) 双路径。`.wcp` SHA 已锁 ✅ (2026-07-14, gap #1)。详见 03-TRACKING §P2 #8。
 - [x] build 时资产 staging `:app:stageBundledContent` (2026-07-14): manifest 驱动; ARCHIVE 从 WinNative 拷 (SHA 校验) + WCP 从 nicholasx417 GitHub releases 下载, 入 `app/src/main/assets/` (git-ignored)。Best-effort (不破构建), standalone (不 wire preBuild -- 避免 160M Proton 膨胀每次 debug APK)。`.wcp` SHA 已锁 ✅ (2026-07-14, gap #1; wine=`e61d29be8c736abe13f662d33ff4b14fae2b7294b011283be53c8e33665d2b48` / box64=`eec659650ff31df151c13d2a522330b1636b98cd82dbf60ba3ff522759f528fd`)。详见 03-TRACKING §P2 #9。
-- [ ] 真机 preparer 验证: host 下载 Proton/Box64 `.wcp` (§5) + adb push + `ContentsManager.extraContentFile` 本地装 (绕过 D4 download stub) + `createContainer` + 跑 `extractGraphicsDriverFiles`
-- [ ] v0.3 `RemoteContentSource`: 恢复 `nativeDownloadFile` curl body (D4 stub 解除) -> 设备上直接 `syncContents` + 下载 `.wcp`
+- [x] 真机 preparer 验证: `RemoteContentSource` 下载 Proton/Box64 `.wcp` + `createContainer` + `extractGraphicsDriverFiles`
+- [x] `RemoteContentSource`: Kotlin HTTPS 下载、续传、SHA/大小校验和设备缓存；`nativeDownloadFile` 保持非生产 stub
 
 ---
 

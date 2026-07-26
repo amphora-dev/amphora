@@ -102,6 +102,15 @@ class ContentManifestTest {
             "runtime asset SHA-256 missing",
             manifest.runtimeAssets().all { it.sha256.matches(Regex("[0-9a-f]{64}")) },
         )
+        val runtimeAssets = manifest.runtimeAssets().associateBy { it.assetPath }
+        assertEquals(
+            "2df71f8e4a80119a0a9e579aab137cc989cb5c71176495e093f6b2285cdff78e",
+            runtimeAssets["winnative/Graphics-Test-32bit.exe"]?.sha256,
+        )
+        assertEquals(
+            "16626857f415672f66b952b71c16ca9f3ddc51658715796b46a645a1bce16898",
+            runtimeAssets["winnative/Graphics-Test-64bit.exe"]?.sha256,
+        )
     }
 
     private companion object {

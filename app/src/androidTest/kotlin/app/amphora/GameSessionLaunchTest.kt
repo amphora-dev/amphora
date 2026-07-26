@@ -20,6 +20,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 import javax.inject.Inject
 
 /**
@@ -63,6 +64,18 @@ class GameSessionLaunchTest {
             assertTrue(
                 "awaitReady timed out (state=${handle.state.value}); see logcat",
                 ready != null,
+            )
+            val graphicsTestDir = File(
+                appContext.filesDir,
+                "imagefs/home/xuser-1/.wine/drive_c/ProgramData/Microsoft/Windows",
+            )
+            assertTrue(
+                "32-bit AIO Graphics Test was not staged",
+                File(graphicsTestDir, "Graphics-Test-32bit.exe").length() == 2_344_186L,
+            )
+            assertTrue(
+                "64-bit AIO Graphics Test was not staged",
+                File(graphicsTestDir, "Graphics-Test-64bit.exe").length() == 2_372_292L,
             )
 
             delay(5_000L)

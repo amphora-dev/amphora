@@ -128,6 +128,18 @@
       "size": 1038731
     },
     {
+      "assetPath": "winnative/Graphics-Test-32bit.exe",
+      "sha256": "2df71f8e4a80119a0a9e579aab137cc989cb5c71176495e093f6b2285cdff78e",
+      "remoteUrl": "https://github.com/The412Banner/AIO-Graphics-Test/releases/download/v1.6.1/AIO-Graphics-Test-32bit.exe",
+      "size": 2344186
+    },
+    {
+      "assetPath": "winnative/Graphics-Test-64bit.exe",
+      "sha256": "16626857f415672f66b952b71c16ca9f3ddc51658715796b46a645a1bce16898",
+      "remoteUrl": "https://github.com/The412Banner/AIO-Graphics-Test/releases/download/v1.6.1/AIO-Graphics-Test-64bit.exe",
+      "size": 2372292
+    },
+    {
       "assetPath": "metadata/gpu_cards.json",
       "sha256": "f24f5011cd7a0b538d48e3fbea0fd5048cf9ec9765081b955985bdea2e6dabb4",
       "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/metadata/gpu_cards.json",

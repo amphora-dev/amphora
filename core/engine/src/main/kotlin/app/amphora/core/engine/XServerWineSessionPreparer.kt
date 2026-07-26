@@ -6,6 +6,7 @@ import android.content.Context
 import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
+import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.engine.model.LaunchSpec
 import com.winlator.cmod.runtime.container.Container
 import com.winlator.cmod.runtime.container.ContainerManager
@@ -305,6 +306,7 @@ class XServerWineSessionPreparer @Inject constructor(
         // deferred to P3 setupXEnvironment (post xServer creation).
 
         WineStartMenuCreator.create(context, c)
+        stageGraphicsTestExes(c)
         WineUtils.createDosdevicesSymlinks(c, getActiveGameDirectoryPath(), isSteamShortcut())
 
         val inputType = c.getInputType()
@@ -915,6 +917,53 @@ class XServerWineSessionPreparer @Inject constructor(
     }
 
     /**
+     * Copies the pinned AIO Graphics Test executables into the paths referenced
+     * by `metadata/startmenu.json`.
+     *
+     * RuntimeAssetProvisioner downloads and verifies the source files before
+     * preparation. A digest sidecar prevents rewriting ~4.7 MB on every launch
+     * while still replacing same-sized binaries when the manifest pin changes.
+     */
+    private fun stageGraphicsTestExes(container: Container) {
+        val destinationDir = File(
+            container.getRootDir(),
+            ".wine/drive_c/ProgramData/Microsoft/Windows",
+        )
+        if (!destinationDir.isDirectory && !destinationDir.mkdirs()) {
+            Log.e(TAG, "Unable to create graphics test directory: $destinationDir")
+            return
+        }
+
+        val runtimeRoot = RuntimeAssetProvisioner.runtimeAssetsDir(context)
+        for (assetPath in GRAPHICS_TEST_ASSETS) {
+            val source = File(runtimeRoot, assetPath)
+            val sourceMarker = File(source.absolutePath + ".sha256")
+            if (!source.isFile || !sourceMarker.isFile) {
+                Log.e(TAG, "Verified graphics test asset is missing: $assetPath")
+                continue
+            }
+
+            val destination = File(destinationDir, FileUtils.getName(assetPath))
+            val destinationMarker = File(destination.absolutePath + ".sha256")
+            val digest = sourceMarker.readText().trim()
+            if (destination.isFile &&
+                destination.length() == source.length() &&
+                destinationMarker.isFile &&
+                destinationMarker.readText().trim().equals(digest, ignoreCase = true)
+            ) {
+                continue
+            }
+
+            if (FileUtils.copy(source, destination)) {
+                destinationMarker.writeText(digest)
+                Log.i(TAG, "Staged ${destination.name} (${destination.length()} bytes)")
+            } else {
+                Log.e(TAG, "Failed to stage graphics test asset: $assetPath")
+            }
+        }
+    }
+
+    /**
      * getDxvkFrameRateOverride (XSDA L627) -- stubbed to 0. The XSDA version reads
      * per-game/global refresh-rate overrides from the shortcut + SharedPreferences;
      * Amphora has neither (D9: no shortcuts). Wire to container/user prefs when
@@ -965,6 +1014,10 @@ class XServerWineSessionPreparer @Inject constructor(
     private companion object {
         private const val TAG = "WineSessionPreparer"
         private const val D8VK_ASSET_PATH = "dxwrapper/d8vk-1.0.tzst"
+        private val GRAPHICS_TEST_ASSETS = arrayOf(
+            "winnative/Graphics-Test-32bit.exe",
+            "winnative/Graphics-Test-64bit.exe",
+        )
         private val DXWRAPPER_DLLS = arrayOf(
             "d3d10.dll", "d3d10_1.dll", "d3d10core.dll",
             "d3d11.dll", "d3d12.dll", "d3d12core.dll",
