@@ -271,30 +271,49 @@ installed tree.
 Amphora uses Cloud Native Build (CNB) via a single root `.cnb.yml`, written with
 reusable `.fragment` keys and `!reference` (see CNB simplify-configuration).
 
-Triggers:
+### 6.1 `continuous-test` (amd64)
 
-- every branch `push` (`$`)
-- pull requests targeting `main`
+Triggers on every branch `push` (`$`) and on pull requests targeting `main`.
 
-Pipeline `continuous-test`:
+1. `scripts/setup-android-sdk.sh`
+2. `scripts/ci-jvm-test.sh` (`:core:common:test`, `:core:content:test`)
+3. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
 
-1. `scripts/setup-android-sdk.sh` (SDK/NDK packages, cached under `/opt/android-sdk`)
-2. `scripts/ci-jvm-test.sh` (`:core:common:test` and `:core:content:test`)
-3. `:app:assembleDebug` and `:app:assembleDebugAndroidTest` (compile gate)
+Runner tag: `cnb:arch:amd64`.
 
-The build image is `.cnb/Dockerfile` (Temurin JDK 17). Gradle and Android SDK
-directories use CNB `copy-on-write` volumes so warm runs skip most downloads.
+### 6.2 `emulator-test` (arm64)
 
-Physical-device instrumented tests are **not** part of CNB. Run them manually
-with the Tailscale ADB flow above. CNB verifies JVM logic and that the app still
-compiles into installable APKs.
+Same triggers. Runs on `cnb:arch:arm64:v8` because the app packages **only**
+`arm64-v8a`.
 
-Local equivalent:
+1. SDK + `scripts/setup-android-emulator.sh` (API 30 `google_apis` arm64 AVD)
+2. `scripts/ci-emulator-test.sh` — boots the emulator (software GPU;
+   hardware accel only if `/dev/kvm` exists) and runs instrumented tests
+   **excluding** `@RequiresGraphicsDriver`
+
+Emulator-safe coverage today:
+
+- `RemoteContentSourceTest` (manifest + Wine WCP resolve)
+- `ImagefsExtractionTest` (remote rootfs provision)
+
+Excluded (need Adreno / Turnip / Vulkan / live Wine session):
+
+- `RemoteContentSourceTest.resolve_turnip_archive_installsWithShaVerify`
+- `PreparerGraphicsDriverTest`
+- `GameSessionLaunchTest`
+- `XServerSurfaceViewInitTest`
+
+CNB SaaS containers usually do **not** expose `/dev/kvm`. Expect slower
+software-emulator boots; first cold run also downloads large remote assets.
+Physical Adreno / Wine / Turnip verification remains the Tailscale ADB flow
+above.
+
+Local equivalent (must be an arm64 host, or use a remote arm64 runner):
 
 ```bash
 bash scripts/setup-android-sdk.sh
-bash scripts/ci-jvm-test.sh
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+bash scripts/setup-android-emulator.sh
+bash scripts/ci-emulator-test.sh
 ```
 
 ## 7. Teardown

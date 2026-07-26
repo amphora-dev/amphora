@@ -28,6 +28,7 @@ import org.junit.runner.RunWith
  * (loaded by `Drawable`'s static init during `new XServer`), which is always in
  * the app APK.
  */
+@RequiresGraphicsDriver
 @RunWith(AndroidJUnit4::class)
 class XServerSurfaceViewInitTest {
 

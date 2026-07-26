@@ -2,12 +2,13 @@
 # Docs:
 #   https://docs.cnb.cool/zh/build/intro.html
 #   https://docs.cnb.cool/zh/build/simplify-configuration.html  (!reference 复用)
+#   https://docs.cnb.cool/zh/build/build-node.html              (amd64 / arm64:v8)
 # Schema: https://docs.cnb.cool/conf-schema-zh.json
 #
 # 覆盖：
-#   - JVM 单测（:core:common:test / :core:content:test）
-#   - Debug APK + androidTest APK assemble（编译门禁）
-# 真机 instrumented 仍走 Tailscale ADB 手工跑，见 docs/06-ENVIRONMENT.md
+#   - continuous-test (amd64): JVM 单测 + Debug/androidTest assemble
+#   - emulator-test (arm64:v8): 无显卡驱动 instrumented（排除 @RequiresGraphicsDriver）
+# 真机 Adreno / Wine / Turnip 仍走 Tailscale ADB，见 docs/06-ENVIRONMENT.md
 
 # ---- 可复用片段 ----
 .ci-docker:
@@ -15,6 +16,7 @@
   volumes:
     - /root/.gradle:copy-on-write
     - /opt/android-sdk:copy-on-write
+    - /root/.android:copy-on-write
 
 .chmod-scripts:
   - name: chmod scripts
@@ -32,6 +34,18 @@
     timeout: 3600s
     script: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
 
+.emulator-test-stages:
+  - !reference [.chmod-scripts, 0]
+  - name: setup-android-sdk
+    timeout: 1800s
+    script: bash scripts/setup-android-sdk.sh
+  - name: setup-android-emulator
+    timeout: 3600s
+    script: bash scripts/setup-android-emulator.sh
+  - name: emulator-instrumented-no-gpu
+    timeout: 7200s
+    script: bash scripts/ci-emulator-test.sh
+
 .continuous-test-pipelines:
   - name: continuous-test
     runner:
@@ -45,9 +59,28 @@
       ANDROID_SDK_ROOT: /opt/android-sdk
     stages: !reference [.continuous-test-stages]
 
+.emulator-test-pipelines:
+  - name: emulator-test
+    # APK is arm64-v8a only — must run on arm64 hosts / arm64 system images.
+    runner:
+      cpus: 8
+      tags: cnb:arch:arm64:v8
+    docker: !reference [.ci-docker]
+    git:
+      submodules: true
+    env:
+      ANDROID_HOME: /opt/android-sdk
+      ANDROID_SDK_ROOT: /opt/android-sdk
+      AMPHORA_EMU_API: "30"
+    stages: !reference [.emulator-test-stages]
+
 # ---- 触发绑定 ----
 main:
-  pull_request: !reference [.continuous-test-pipelines]
+  pull_request:
+    - !reference [.continuous-test-pipelines, 0]
+    - !reference [.emulator-test-pipelines, 0]
 
 $:
-  push: !reference [.continuous-test-pipelines]
+  push:
+    - !reference [.continuous-test-pipelines, 0]
+    - !reference [.emulator-test-pipelines, 0]
