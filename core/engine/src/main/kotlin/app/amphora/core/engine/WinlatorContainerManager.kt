@@ -208,7 +208,7 @@ class WinlatorContainerManager @Inject constructor(
         prefix: String,
     ): String {
         val entry = manifest.entry(component)
-        val manifestEntryName = entry?.version // e.g. DXVK-2.4.1-gplasync-pre-reg-0
+        val manifestEntryName = entry?.version // e.g. DXVK-3.0.2-gplasync-0
         if (manifestEntryName != null) {
             val profile = contentsManager.getProfileByEntryName(manifestEntryName)
             if (profile != null && ContentsManager.getInstallDir(context, profile).isDirectory) {
@@ -232,9 +232,8 @@ class WinlatorContainerManager @Inject constructor(
 
     /**
      * Rewrite [container]'s `dxwrapper` when it differs from the manifest-pinned
-     * [desired] token (legacy `dxvk-1.0` / `vkd3d-None` / version bumps such as
-     * DXVK 3.0.2 → 2.4.1-pre-reg for Adreno D3D9). Clears the preparer gate so
-     * DLLs are re-applied on next launch.
+     * [desired] token (legacy `dxvk-1.0` / `vkd3d-None` / version bumps). Clears
+     * the preparer gate so DLLs are re-applied on next launch.
      */
     private fun ensureRealDxwrapper(container: WnContainer, desired: String) {
         val current = container.getDXWrapper() ?: ""
@@ -242,7 +241,7 @@ class WinlatorContainerManager @Inject constructor(
 
         // Always converge on the pinned desired form. Amphora has no UI to keep
         // a custom dxwrapper; preserving an "installed but stale" token blocked
-        // DXVK downgrades needed for Adreno D3D9.
+        // DXVK pin migrations (e.g. rolling back a bad 2.4.1 trial).
         android.util.Log.i(
             "WinlatorContainerManager",
             "Migrating container dxwrapper '$current' -> '$desired'",

@@ -54,9 +54,9 @@
 - ✅ 假 `R` 死 UI 闭包: 删手写 `R.java` + `DownloadProgressDialog`/`MultiSelectionComboBox`/`HttpUtils`/`AppUtils`; `ImageFsInstaller` 仅留 `LATEST_VERSION`; wallpaper 改纯色回退; Box64/FEX 去掉 Spinner/import-export 死路径。
 - ✅ MVP 再削: `WineThemeManager` 仅留默认串; 删 `MSBitmap`/`LogManager`/`CPUStatus`/`UnitUtils`/`fakeinput.cpp`; Box64/FEX 仅留 `getEnvVars`; 去掉 pulseaudio.tzst 旁路提取 + manifest `audio_plugin`（MVP ALSA-only，aserver 在 imagefs）。`:feature:settings` **保留**（v0.2 实质项）。
 - ✅ 内核再削 (2026-07-21): 删 Shortcut / PE 图标 / WineThemeManager / EffectComposer；GPLC 去 shortcut 与浏览器/剪贴板 prefs；ContainerManager 去 duplicate/shortcuts；ContentsManager 去 remote profiles；`NativeContentIO` 去 download JNI 包装；`AssetPaths` 仅留 GPU_CARDS+WINE_STARTMENU；un-include `:core:ui`（目录保留）。
-- ✅ **AIO DX9 黑屏+FPS** (2026-07-26): DX10–12 正常、仅 DX9 黑。根因倾向 DXVK **3.0.2 timeline semaphore** × Turnip-kgsl；默认 DXVK 改锁 **`Dxvk-2.4.1-pre-reg`**（`verName=2.4.1-gplasync-pre-reg`），并让 `ensureRealDxwrapper` 在 manifest pin 变化时强制迁移。
+- ⚠️ **AIO DX9 黑屏+FPS** (2026-07-26): DX10–12 正常、仅 DX9 有 FPS 无画面。嫌疑 DXVK 3.0.2 timeline semaphore × Turnip。曾试默认改锁 `Dxvk-2.4.1-pre-reg` → **DX9–11 闪退**（log 确认迁移到 2.4.1 后立刻挂），已回退 **`Dxvk-3.0.2-gplasync`**。DX9 黑屏仍开放；勿再盲换 2.4.1。
 - ⚠️ **AIO OpenGL/DX7 黑屏+FPS** (2026-07-26): 已修 launch 合并 `ZINK_*`/`TU_DEBUG` + 始终下发 `WINE_D3D_CONFIG`。续试注入 `ADRENOTOOLS_*=freedreno` / `renderer=vulkan` / `dd7to9` **回退**——在 TB322FC 上导致 DX9–11 也挂（log：`ADRENOTOOLS_DRIVER_NAME=libvulkan_freedreno.so`）。OpenGL/DX7 黑屏仍为开放项；勿再盲注 freedreno。`ddrawrapper/*` runtimeAssets 保留（nglide 提取不再 404）。
-- ⏭ 下一步: **Exit ANR 根治**（见上方 §专项）; v0.2 候选 settings / 键盘手柄 / 音频音量 / Present·DRI3。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
+- ⏭ 下一步: **DX9 黑屏**（勿用 2.4.1）；**Exit ANR 根治**（见上方 §专项）; v0.2 候选 settings / 键盘手柄 / 音频音量 / Present·DRI3。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
 |---|---|

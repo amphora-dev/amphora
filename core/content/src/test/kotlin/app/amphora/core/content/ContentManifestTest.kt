@@ -93,7 +93,7 @@ class ContentManifestTest {
         assertEquals("shipped manifest must define 6 remote components", 6, manifest.all().size)
         assertNotNull(manifest.entry(ContentComponent.VKD3D))
         assertEquals("3.0.1-sm69", manifest.entry(ContentComponent.VKD3D)!!.verName)
-        assertEquals("2.4.1-gplasync-pre-reg", manifest.entry(ContentComponent.DXVK)!!.verName)
+        assertEquals("3.0.2-gplasync", manifest.entry(ContentComponent.DXVK)!!.verName)
         val unpinned = manifest.all().filter { it.sha256 == null }
         assertTrue(
             "un-pinned SHA-256 (gap #1 regression): ${unpinned.joinToString { it.component.id.value }}",

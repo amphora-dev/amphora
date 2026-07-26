@@ -229,7 +229,7 @@ class XServerWineSessionPreparer @Inject constructor(
         var localDxwrapper = dxwrapper
 
         // amphora: WinlatorContainerManager writes the full delimited form
-        // ("dxvk-2.4.1-gplasync-pre-reg-0;vkd3d-3.0.1-sm69-0;none") into `dxwrapper` and
+        // ("dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none") into `dxwrapper` and
         // leaves `dxwrapperConfig` empty. WinNative's XSDA, by contrast, stores the
         // short form ("dxvk+vkd3d") in `dxwrapper` and reconstructs the delimited
         // form from `dxwrapperConfig` below. Detect which shape we have and only rebuild
