@@ -3,7 +3,6 @@ package app.amphora
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import app.amphora.core.container.model.ContainerId
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.model.DisplaySize
@@ -20,6 +19,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.Base64
 import javax.inject.Inject
 
 /**
@@ -34,10 +34,11 @@ import javax.inject.Inject
  * (`GameSessionViewModel`'s `Throwable` boundary) only keeps `message`, which hid
  * the root cause during hand testing.
  *
- * The test exe (`notepad.exe`, Wine's own PE from the Proton `.wcp`) is staged in
- * `androidTest/assets/` and copied to `filesDir/exe/` before launch (mirrors
- * `LauncherViewModel`). Runtime assets are downloaded, SHA-verified and installed
- * on first run; subsequent runs exercise the no-network installed fast path.
+ * A tiny x86-64 PE liveness fixture is decoded into `filesDir/exe/` before launch
+ * (mirrors `LauncherViewModel`). Keeping it inline avoids relying on ignored,
+ * machine-local `.exe` assets. Runtime assets are downloaded, SHA-verified and
+ * installed on first run; subsequent runs exercise the no-network installed fast
+ * path.
  *
  * Device: Lenovo TB322FC, arm64-v8a, API 36, Adreno 830.
  */
@@ -52,14 +53,13 @@ class GameSessionLaunchTest {
     lateinit var wineEngine: WineEngine
 
     private val appCtx = ApplicationProvider.getApplicationContext<Context>()
-    private val testCtx get() = InstrumentationRegistry.getInstrumentation().context
 
     @Before
     fun setUp() = hiltRule.inject()
 
     @Test
     fun launch_notepad_startsWineSession() = runBlocking {
-        val exe = stageExe("notepad.exe")
+        val exe = stageExe()
         val spec = LaunchSpec(
             exePath = exe.absolutePath,
             containerId = ContainerId("1"),
@@ -101,12 +101,21 @@ class GameSessionLaunchTest {
         }
     }
 
-    /** Copy the test exe from androidTest/assets into filesDir/exe/<name> (mirrors LauncherViewModel). */
-    private fun stageExe(name: String): File {
-        val out = File(appCtx.filesDir, "exe/$name").apply { parentFile?.mkdirs() }
+    /** Decode a freestanding PE that stays alive until Wine is stopped by the test. */
+    private fun stageExe(): File {
+        val out = File(appCtx.filesDir, "exe/wine-liveness.exe").apply { parentFile?.mkdirs() }
         if (!out.exists()) {
-            testCtx.assets.open(name).use { input -> out.outputStream().use { input.copyTo(it) } }
+            out.writeBytes(Base64.getDecoder().decode(LIVENESS_EXE_BASE64))
         }
         return out
+    }
+
+    private companion object {
+        // Built from: void mainCRTStartup(void) { for (;;) { __asm__ volatile("pause"); } }
+        // clang --target=x86_64-pc-windows-msvc -c -nostdlib fixture.c
+        // ld -mi386pep --entry mainCRTStartup --subsystem console fixture.obj
+        // strip --strip-all wine-liveness.exe
+        const val LIVENESS_EXE_BASE64 =
+            "TVqQAAMAAAAEAAAA//8AALgAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAA4fug4AtAnNIbgBTM0hVGhpcyBwcm9ncmFtIGNhbm5vdCBiZSBydW4gaW4gRE9TIG1vZGUuDQ0KJAAAAAAAAABQRQAAZIYCAEFyZWoAAAAAAAAAAPAALwILAgIqAAIAAAACAAAAAAAAABAAAAAQAAAAAABAAQAAAAAQAAAAAgAABAAAAAAAAAAFAAIAAAAAAAAwAAAAAgAAWpAAAAMAAAEAACAAAAAAAAAQAAAAAAAAAAAQAAAAAAAAEAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAIAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAudGV4dAAAADAAAAAAEAAAAAIAAAACAAAAAAAAAAAAAAAAAAAgAABgLmlkYXRhAAAYAAAAACAAAAACAAAABAAAAAAAAAAAAAAAAAAAQAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADpAAAAAPOQ6fn///8PH0AA//////////8AAAAAAAAAAP//////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     }
 }
