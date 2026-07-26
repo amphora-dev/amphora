@@ -93,7 +93,7 @@
     },
     {
       "assetPath": "wincomponents/directsound.tzst",
-      "sha256": "72f0fd6242136b543ee2e1c8fb7daa9c0bcd0c318886ca502f84f456c83bbc43",
+      "sha256": "72f0e880eef1387a55602ac02b07ef26778d23c2f70d931bd2d13e92f8dc99d4",
       "remoteUrl": "https://raw.githubusercontent.com/WinNative-Emu/WinNative/48fe6b9b6fda36512a30950df255eed99e175de1/app/src/main/assets/wincomponents/directsound.tzst",
       "size": 434853
     },
