@@ -2,14 +2,10 @@
 # Docs:
 #   https://docs.cnb.cool/zh/build/intro.html
 #   https://docs.cnb.cool/zh/build/simplify-configuration.html  (!reference 复用)
-#   https://docs.cnb.cool/zh/build/build-node.html              (amd64 / arm64:v8)
-#   https://docs.cnb.cool/zh/build/web-trigger.html
 # Schema: https://docs.cnb.cool/conf-schema-zh.json
 #
-# 覆盖：
-#   - continuous-test (amd64): JVM 单测 + Debug/androidTest assemble
-#   - redroid-test (arm64:v8): 仅 web/api 手动触发（CNB SaaS DinD 为 rootless
-#     且无 binder，自动 push/PR 跑不通；见 docs/06-ENVIRONMENT.md）
+# 覆盖：JVM 单测 + Debug/androidTest assemble（amd64）
+# 真机 instrumented（含显卡）走 Tailscale ADB，见 docs/06-ENVIRONMENT.md
 
 # ---- 可复用片段 ----
 .ci-docker:
@@ -17,7 +13,6 @@
   volumes:
     - /root/.gradle:copy-on-write
     - /opt/android-sdk:copy-on-write
-    - /root/.android:copy-on-write
 
 .chmod-scripts:
   - name: chmod scripts
@@ -35,15 +30,6 @@
     timeout: 3600s
     script: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
 
-.redroid-test-stages:
-  - !reference [.chmod-scripts, 0]
-  - name: setup-android-sdk
-    timeout: 1800s
-    script: bash scripts/setup-android-sdk.sh
-  - name: redroid-instrumented-no-gpu
-    timeout: 7200s
-    script: bash scripts/ci-redroid-test.sh
-
 .continuous-test-pipelines:
   - name: continuous-test
     runner:
@@ -57,31 +43,9 @@
       ANDROID_SDK_ROOT: /opt/android-sdk
     stages: !reference [.continuous-test-stages]
 
-.redroid-test-pipelines:
-  - name: redroid-test
-    runner:
-      cpus: 8
-      tags: cnb:arch:arm64:v8
-    services:
-      - docker
-    docker: !reference [.ci-docker]
-    git:
-      submodules: true
-    env:
-      ANDROID_HOME: /opt/android-sdk
-      ANDROID_SDK_ROOT: /opt/android-sdk
-      REDROID_IMAGE: redroid/redroid:13.0.0_64only-latest
-      REDROID_PLATFORM: linux/arm64
-    stages: !reference [.redroid-test-stages]
-
 # ---- 触发绑定 ----
 main:
   pull_request: !reference [.continuous-test-pipelines]
 
 $:
   push: !reference [.continuous-test-pipelines]
-
-# Manual only: CNB SaaS DinD is rootless and lacks binder_linux.
-"**":
-  web_trigger_redroid: !reference [.redroid-test-pipelines]
-  api_trigger_redroid: !reference [.redroid-test-pipelines]

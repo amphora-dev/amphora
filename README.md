@@ -43,14 +43,9 @@ Instrumented E2E (ARM64 Adreno device recommended):
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-CNB continuous testing (`.cnb.yml` + `!reference` fragments):
-
-- **amd64** `continuous-test` (every push / PR to `main`): JVM unit tests +
-  debug/androidTest assemble
-- **arm64 redroid**: manual `web_trigger_redroid` only — CNB SaaS DinD is
-  rootless and has no `binder_linux`
-
-Physical Adreno / graphics-driver runs stay manual — see
+CNB continuous testing (`.cnb.yml`): amd64 `continuous-test` on every push /
+PR to `main` — JVM unit tests + debug/androidTest assemble. Device
+instrumented and graphics-driver coverage stay on Tailscale ADB — see
 [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) §6.
 
 **Notes**
