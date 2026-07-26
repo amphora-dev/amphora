@@ -46,6 +46,7 @@ __pycache__/
 *.wcp
 *.exe
 !docs/**
+!testdata/aio-graphics-test/*.exe
 
 # stageBundledContent output: app/src/main/assets/ is populated by
 # ./gradlew :app:stageBundledContent from the WinNative checkout. Entire dir is

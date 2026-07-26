@@ -104,18 +104,19 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 ### 2.6 AIO Graphics Test
 
-开始菜单中的 32/64 位图形诊断程序固定为
-[`The412Banner/AIO-Graphics-Test` v1.6.1](https://github.com/The412Banner/AIO-Graphics-Test/releases/tag/v1.6.1)，
-由设备端下载器验证后复制到 Wine `ProgramData/Microsoft/Windows`：
+开始菜单中的 32/64 位图形诊断程序固定为 patched AIO Graphics Test（基于
+[`The412Banner/AIO-Graphics-Test`](https://github.com/The412Banner/AIO-Graphics-Test)
+`cube_d3d8.c`：窗口模式 `FullScreen_PresentationInterval` 必须为
+`D3DPRESENT_INTERVAL_DEFAULT`，否则 DXVK D3D8 `CreateDevice` 返回
+`D3DERR_INVALIDCALL`）。PE 暂存在本仓 `testdata/aio-graphics-test/`，由设备端
+下载器验证后复制到 Wine `ProgramData/Microsoft/Windows`：
 
 | 资产 | SHA-256 | 大小 |
 |---|---|---:|
-| `Graphics-Test-32bit.exe` | `2df71f8e4a80119a0a9e579aab137cc989cb5c71176495e093f6b2285cdff78e` | 2,344,186 |
-| `Graphics-Test-64bit.exe` | `16626857f415672f66b952b71c16ca9f3ddc51658715796b46a645a1bce16898` | 2,372,292 |
+| `Graphics-Test-32bit.exe` | `6dabca7d32c1522ff107355b040b1ff882e6214a6c3297a74be99a806dcb986c` | 2,087,210 |
+| `Graphics-Test-64bit.exe` | `8bc8d2533dd27e7ad17c7c2cceda287e62ddde50353b6dad5d3c482696b53805` | 2,065,592 |
 
-源码固定在 tag commit `928e83aa171e6c63da06322d27c78a3d2c7fada7`。Linux 上使用
-mingw-w64、Vulkan-Headers `sdk-1.3.239.0` 和 glslang 可同时交叉编译 PE32/PE32+；
-设备下载使用上游 Release 的已发布产物摘要。
+源码补丁：`AIO-Graphics-Test` 分支 `fix/d3d8-windowed-present-interval`（待上游合并发版后改回 Release URL）。
 
 > `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。Amphora 生产路径由 `RemoteContentSource` 在设备上下载并校验 manifest 中固定的 Proton WCP，不再要求 build 时打入 APK。
 
