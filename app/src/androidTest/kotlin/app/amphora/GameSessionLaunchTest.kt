@@ -29,7 +29,6 @@ import javax.inject.Inject
  * The launcher and this test share [DebugWineFixture], so the visible debug
  * button exercises the same executable as this automated path.
  */
-@RequiresGraphicsDriver
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class GameSessionLaunchTest {

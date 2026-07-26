@@ -56,7 +56,6 @@ class RemoteContentSourceTest {
         println("MANIFEST_OK entries=${ids.size} wine=${wine.version} turnip=${manifest.entry(ContentComponent.TURNIP)!!.version}")
     }
 
-    @RequiresGraphicsDriver
     @Test
     fun resolve_turnip_archive_installsWithShaVerify() = runBlocking {
         val resolved = source.resolve(ContentComponent.TURNIP.id)

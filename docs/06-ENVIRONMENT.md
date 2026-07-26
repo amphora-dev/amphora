@@ -282,7 +282,11 @@ Gradle and Android SDK directories use CNB `copy-on-write` volumes.
 
 CNB SaaS does **not** run Android emulator/redroid instrumented tests (rootless
 DinD, no binder, arm64-only APK). Physical-device coverage stays on Tailscale
-ADB above. Tests marked `@RequiresGraphicsDriver` are for Adreno devices only.
+ADB above.
+
+`scripts/ci-jvm-test.sh` also prints JaCoCo line/branch coverage for
+`:core:common` and `:core:content` (HTML under each module's
+`build/reports/coverage/`).
 
 Local equivalent:
 

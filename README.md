@@ -44,8 +44,8 @@ Instrumented E2E (ARM64 Adreno device recommended):
 ```
 
 CNB continuous testing (`.cnb.yml`): amd64 `continuous-test` on every push /
-PR to `main` — JVM unit tests + debug/androidTest assemble. Device
-instrumented and graphics-driver coverage stay on Tailscale ADB — see
+PR to `main` — JVM unit tests with JaCoCo coverage summary + debug/androidTest
+assemble. Device instrumented coverage stays on Tailscale ADB — see
 [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) §6.
 
 **Notes**

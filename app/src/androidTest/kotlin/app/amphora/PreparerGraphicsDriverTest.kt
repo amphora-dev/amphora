@@ -67,7 +67,6 @@ import javax.inject.Inject
  *
  * Device: Lenovo TB322FC, arm64-v8a, API 36, Adreno 830.
  */
-@RequiresGraphicsDriver
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class PreparerGraphicsDriverTest {

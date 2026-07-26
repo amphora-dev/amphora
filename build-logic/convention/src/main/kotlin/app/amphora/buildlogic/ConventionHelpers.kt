@@ -32,6 +32,12 @@ internal fun CommonExtension.configureCommonAndroid() {
     compileOptions.targetCompatibility = JavaVersion.VERSION_17
     testOptions.unitTests.isReturnDefaultValues = true
     testOptions.unitTests.isIncludeAndroidResources = true
+    // JVM unit-test coverage reports (createDebugUnitTestCoverageReport).
+    buildTypes.configureEach {
+        if (name == "debug") {
+            enableUnitTestCoverage = true
+        }
+    }
 }
 
 internal fun Project.addCommonTestDependencies() {
