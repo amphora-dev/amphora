@@ -2,12 +2,15 @@ package app.amphora.feature.launcher
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -51,10 +54,12 @@ fun LauncherScreen(
     Scaffold(
         topBar = { TopAppBar(title = { Text("Amphora") }) },
     ) { padding ->
+        // Landscape (and short viewports) overflow the chip/button stack — must scroll.
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -130,6 +135,7 @@ private fun ResolutionSelector(selected: Resolution, onSelect: (Resolution) -> U
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(top = 8.dp),
         ) {
             Resolution.entries.forEach { res ->
@@ -160,6 +166,7 @@ private fun GraphicsDriverSelector(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(top = 8.dp),
         ) {
             GraphicsDriverOption.entries.forEach { option ->
