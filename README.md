@@ -43,9 +43,9 @@ Instrumented E2E (ARM64 Adreno device recommended):
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-CNB continuous testing (`.cnb.yml`): amd64 `continuous-test` on every push /
-PR to `main` — JVM unit tests with JaCoCo coverage summary + debug/androidTest
-assemble. Device instrumented coverage stays on Tailscale ADB — see
+GitHub Actions CI (`.github/workflows/ci.yml`): `continuous-test` on every push
+/ PR - JVM unit tests with JaCoCo coverage summary + debug/androidTest assemble.
+Device instrumented coverage stays on Tailscale ADB - see
 [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) §6.
 
 **Notes**

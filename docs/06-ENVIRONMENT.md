@@ -266,27 +266,34 @@ An active Wine imagefs contains directory symlinks and can contain cycles. Tests
 must verify fixed structural paths and must not recursively follow the entire
 installed tree.
 
-## 6. CNB continuous testing
+## 6. GitHub Actions CI
 
-Amphora uses Cloud Native Build (CNB) via a single root `.cnb.yml`, written with
-reusable `.fragment` keys and `!reference` (see CNB simplify-configuration).
+Amphora uses GitHub Actions via `.github/workflows/ci.yml`.
 
-Pipeline `continuous-test` runs on `cnb:arch:amd64` for every branch `push`
-(`$`) and for pull requests targeting `main`:
+Job `continuous-test` runs on `ubuntu-24.04` for every branch `push` and for
+pull requests:
 
-1. `scripts/setup-android-sdk.sh`
-2. `scripts/ci-jvm-test.sh` (`:core:common:test`, `:core:content:test`)
-3. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
+1. Free disk space — removes unused preinstalled toolchains (NDK, .NET, Swift,
+   PowerShell, Chromium) via `eclipse-score/more-disk-space@v1.1` (level 1)
+2. Install NDK `28.0.13004108` + CMake `3.31.1` — the runner preinstalls the
+   rest of the Android SDK (cmdline-tools, platform-tools, platforms, build-tools)
+3. `scripts/ci-jvm-test.sh` (`:core:common:test`, `:core:content:test`)
+4. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
 
-Gradle and Android SDK directories use CNB `copy-on-write` volumes.
+Gradle User Home is cached via `gradle/actions/setup-gradle` (basic provider).
+NDK and CMake are cached via `actions/cache`.
 
-CNB SaaS does **not** run Android emulator/redroid instrumented tests (rootless
-DinD, no binder, arm64-only APK). Physical-device coverage stays on Tailscale
-ADB above.
+GitHub Actions does **not** run Android emulator/redroid instrumented tests
+(rootless DinD, no binder, arm64-only APK). Physical-device coverage stays on
+Tailscale ADB above.
 
 `scripts/ci-jvm-test.sh` also prints JaCoCo line/branch coverage for
 `:core:common` and `:core:content` (HTML under each module's
 `build/reports/coverage/`).
+
+`scripts/setup-android-sdk.sh` remains for local / Cursor Cloud SDK bootstrap
+(see `.cursor/environment.json`); CI relies on the runner's preinstalled SDK
+instead.
 
 Local equivalent:
 

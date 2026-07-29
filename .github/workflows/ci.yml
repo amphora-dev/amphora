@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  continuous-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Disk usage (before)
+        run: df -h /
+
+      - name: Free disk space
+        uses: eclipse-score/more-disk-space@v1.1
+        with:
+          level: 1
+
+      - name: Cache NDK and CMake
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/lib/android/sdk/ndk/28.0.13004108
+            /usr/local/lib/android/sdk/cmake/3.31.1
+          key: android-extras-${{ hashFiles('build-logic/convention/src/main/kotlin/app/amphora/buildlogic/ConventionHelpers.kt') }}
+
+      - name: Install NDK and CMake
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;28.0.13004108" "cmake;3.31.1"
+
+      - name: Write local.properties
+        run: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
+      - name: chmod scripts
+        run: chmod +x scripts/*.sh gradlew
+
+      - name: JVM unit tests
+        run: bash scripts/ci-jvm-test.sh
+        timeout-minutes: 30
+
+      - name: Assemble debug
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+        timeout-minutes: 60
+
+      - name: Disk usage (after)
+        if: always()
+        run: df -h /
