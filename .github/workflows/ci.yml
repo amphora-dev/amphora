@@ -15,11 +15,6 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-provider: basic
-
-      - name: Write local.properties
-        run: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 
       - name: JVM unit tests
         run: bash scripts/ci-jvm-test.sh
