@@ -24,16 +24,8 @@ jobs:
         with:
           cache-provider: basic
 
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          android: false
-
       - name: Write local.properties
         run: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
-
-      - name: chmod scripts
-        run: chmod +x scripts/*.sh gradlew
 
       - name: JVM unit tests
         run: bash scripts/ci-jvm-test.sh

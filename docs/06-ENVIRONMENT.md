@@ -273,11 +273,8 @@ Amphora uses GitHub Actions via `.github/workflows/ci.yml`.
 Job `continuous-test` runs on `ubuntu-24.04` for every branch `push` and for
 pull requests:
 
-1. Free disk space - removes unused preinstalled toolchains (.NET, Haskell,
-   large packages, Docker images, swap) via `jlumbroso/free-disk-space`
-   (Android SDK kept)
-2. `scripts/ci-jvm-test.sh` (`:core:common:test`, `:core:content:test`)
-3. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
+1. `scripts/ci-jvm-test.sh` (`:core:common:test`, `:core:content:test`)
+2. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
 
 The runner's preinstalled Android SDK (NDK `28.2.13676358`, CMake `3.31.5`) is
 used directly. Gradle User Home is cached via `gradle/actions/setup-gradle`
