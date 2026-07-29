@@ -21,6 +21,110 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 
 ---
 
+## 0.5 分类总览 (按落地根与安装机制)
+
+> 2026-07-29 实测归类。下面各节按 WinNative 的 assets 目录组织（来源视角），本节按
+> **解压后落到哪个根** + **谁负责安装** 组织（行为视角）。后者才决定覆盖域、冲突范围和
+> 更新代价。体积为实测值，条目数为 `tar -tf` 计数。
+
+### A. Linux rootfs 层 — 落 imagefs 根，`usr/` 布局
+
+四个包叠加到**同一个根**，因此是共享覆盖域、**提取顺序敏感**。
+
+| 资产 | 压缩 | 大小 | 条目 | 内容 | 安装者 |
+|---|---|---|---|---|---|
+| `imagefs.tzst` | zstd | 199.8 MB | 10892 | rootfs 本体（`bin`/`etc`/`lib`/`opt`/`usr`…）| `RootfsInstaller` |
+| `extra_libs.tzst` | zstd | 21.1 MB | 14 | `usr/lib` 的 Mesa `libGL`+`libglapi` / Turnip / vkBasalt / bcn_layer，`usr/share/vulkan` 的 ICD + 隐式层 JSON | `TarCompressorUtils` |
+| `layers.tzst` | zstd | 4.4 MB | 3 | `usr/lib/libVkLayer_khronos_validation.so` | `TarCompressorUtils` |
+| `wrapper.tzst` | zstd | 3.8 MB | 12 | `usr/lib` 的 `libadrenotools` + `libvulkan_wrapper`（19 MB）+ 4 个 hook，`usr/share/vulkan/icd.d/wrapper_icd.aarch64.json` | `TarCompressorUtils` |
+
+### B. 模拟器 / Wine 运行时 — WCP，落 imagefs
+
+| 资产 | 压缩 | 大小 | 内容 |
+|---|---|---|---|
+| `Proton-10.0-4-x86_64.wcp` | **zstd** | 168.6 MB | `bin/` `lib/` `share/` `prefixPack.txz` `profile.json` |
+| `Box64-0.4.3-c08554e3f.wcp` | xz | 2.8 MB | `box64` + `profile.json`（仅 2 条目）|
+
+### C. DirectX 翻译层 — WCP，但内容是 Windows DLL，落容器 `system32`/`syswow64`
+
+| 资产 | 压缩 | 大小 | 提供 |
+|---|---|---|---|
+| `Dxvk-3.0.2-gplasync.wcp` | xz | 6.7 MB | `d3d8` `d3d9` `d3d10core` `d3d11` `dxgi` |
+| `Vkd3d-3.0.1-S6_9.wcp` | xz | 3.4 MB | `d3d12` `d3d12core` |
+
+### D. 微软可再发行组件 — tzst，与 C 同构但无 `profile.json`
+
+按 `wincomponents.json` 选装。全部是 `system32/` + `syswow64/` 的 DLL 覆盖。
+
+| 资产 | 大小 | DLL/EXE 数 | 提供 |
+|---|---|---|---|
+| `direct3d.tzst` | 31.2 MB | 98 | `d3dx9_*` `d3dcompiler_*` `d3dx10_*` `d3dx11_*` `d3dcsx_*` |
+| `xaudio.tzst` | 2.3 MB | 82 | `xaudio2_*` `xactengine*` `x3daudio1_*` `xapofx1_*` |
+| `directshow.tzst` | 2.2 MB | 12 | `quartz` `amstream` `qasf` `qcap` `qedit` `qdvd` |
+| `vcrun2010.tzst` | 1.0 MB | 8 | `msvcr100` `msvcp100` `atl100` `vcomp100` |
+| `directmusic.tzst` | 0.34 MB | 10 | `dmusic` `dmsynth` `dmband` `dmime` … |
+| `directplay.tzst` | 0.43 MB | 8 | `dplayx` `dpnet` `dpwsockx` `dpnsvr.exe` … |
+| `directsound.tzst` | 0.43 MB | 2 | `dsound` |
+
+### E. DirectDraw / Glide 包装器 — tzst，落容器 `syswow64`
+
+| 资产 | 大小 | 提供 | 备注 |
+|---|---|---|---|
+| `dd7to9.tzst` | 3.0 MB | `ddraw.dll` + `dxwrapper.dll` + `.ini` | ⚠️ 与 `cnc-ddraw` **互斥** |
+| `nglide.tzst` | 1.2 MB | `glide` `glide2x` `glide3x` `3DfxSpl*` | Glide，不与前两者冲突 |
+| `cnc-ddraw.tzst` | 0.17 MB | `ddraw.dll` | ⚠️ 与 `dd7to9` **互斥** |
+
+### F. 容器模板 — 落容器目录，**每个容器一份**
+
+| 资产 | 大小 | 条目 | 内容 |
+|---|---|---|---|
+| `container_pattern_common.tzst` | 41.6 MB | 102 | `home/xuser/.wine`（prefix 模板）|
+
+体积几乎全是 CJK 字体：`msyh.ttc` 19.7 MB、`08源柔ゴシック` 11.6 MB、`SimHei` 9.8 MB、
+`PMingLiU` 8.6 MB、`SourceHanSansCN-Regular.otf` 8.3 MB、`07Yasashisa` 4.7 MB、
+`方正粗黑宋简体` 2.8 MB，解压后约 65 MB。另含一份内置 `syswow64/cnc-ddraw`（4.9 MB）。
+
+### G. 可选 GPU 驱动包 — 落 `filesDir/contents/adrenotools/<id>/`
+
+| 资产 | 大小 | 内容 |
+|---|---|---|
+| `WN-Turnip-1.06-b_Axxx.zip` | 2.7 MB (zip) | `libvulkan_freedreno.so` 14.8 MB + `meta.json` |
+
+### H. 裸配置 / 元数据 — 不压缩，直接拷
+
+`gpu_cards.json`（26.5 KB，GPU 名 → vendor/device ID）·`startmenu.json`（2.1 KB）·
+`wincomponents.json`（1.8 KB，D 类的选装清单）·`default.box64rc`（1.3 KB）
+
+### 归类暴露出的问题
+
+**C 与 D 同构却用两套机制。** 两者解压后都是 `system32/` + `syswow64/` 的 DLL 覆盖，
+唯一区别是 C 多一个 `profile.json` 声明 `files[]` 映射并走 `ContentsManager`，D 靠固定
+路径走 `TarCompressorUtils`。分野的实际理由是版本管理需求——DXVK/VKD3D 要允许用户换
+版本，微软 redist 不需要——而不是技术差异。
+
+**`.wcp` 有两种压缩格式。** `Proton` 是 zstd，`Box64`/`Dxvk`/`Vkd3d` 是 xz。所以
+`ContentsManager.extraContentFile` 必须先试 ZSTD 再试 XZ，§5 里「`.wcp` = xz 压缩 tar」
+的表述不准确。
+
+**`cnc-ddraw` 与 `dd7to9` 互斥。** 两者都提供 `syswow64/ddraw.dll`，同时提取后者覆盖
+前者。`03-TRACKING.md` 里记的「注入 dd7to9 回退导致 DX9–11 挂」很可能与这个覆盖有关。
+
+**Turnip 有两份并存且版本不同。** `extra_libs.tzst` 里 11.5 MB（2025-08-07，已 strip），
+`WN-Turnip` zip 里 14.8 MB（2026-07-22）。后者装到 `filesDir/contents/adrenotools/`，通过
+`ADRENOTOOLS_DRIVER_PATH` 指定，不覆盖前者。imagefs 本身不带 Turnip。
+
+**A 类的覆盖顺序有实际后果。** `wrapper.tzst` 的 4 个 hook 会覆盖 imagefs 里的同名文件，
+而两者版本不同（imagefs 66 KB 一份，wrapper 6–41 KB 一份），APK 里我们自建的又是第三份。
+这是 `ADRENOTOOLS_HOOKS_PATH` 应当指向 `nativeLibraryDir` 的另一个理由。
+
+**`extra_libs.tzst` 73.3% 是调试符号。** 实测 `.debug_*` + 符号表占 82.2 MB / 112.2 MB
+（解压后）：`libGL.so.1.5.0` 80.7 MB 里 66.5 MB 是调试信息，strip 后 14.2 MB；
+`libvkbasalt.so` 17.5 MB → 3.3 MB；只有 `libvulkan_freedreno.so` 上游已 strip。
+另外 `libvkbasalt.so` 的隐式层要求 `ENABLE_VKBASALT=1`，而代码库中无处设置，
+在目标设备上它与 `libbcn_layer.so`（条件为非高通）都不会加载。
+
+---
+
 ## 1. 根文件系统 (rootfs / imagefs)
 
 | 资产 | 压缩 | 大小 (字节) | SHA-256 | 来源 |
