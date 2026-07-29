@@ -708,6 +708,23 @@ class XServerWineSessionPreparer @Inject constructor(
         }
     }
 
+    /**
+     * `hookLibDir` for adrenotools. `adrenotools/driver.h` requires this to be
+     * exactly `getApplicationInfo().nativeLibraryDir`: the hooks are dlopen'd
+     * into the driver's linker namespace from that path, and pointing elsewhere
+     * makes `adrenotools_open_libvulkan` return a valid handle whose hook then
+     * fails, so the driver either silently falls back to the system Adreno blob
+     * or `vkEnumeratePhysicalDevices` reports zero devices.
+     *
+     * The four hooks (`libmain_hook` / `libhook_impl` / `libfile_redirect_hook`
+     * / `libgsl_alloc_hook`) ship in the APK from our own adrenotools submodule,
+     * and `useLegacyPackaging = true` (see `AndroidApplicationConventionPlugin`)
+     * extracts them to disk so this path is populated. imagefs also carries a
+     * copy, but those are upstream prebuilts that can drift from the submodule
+     * pin, and a trimmed self-built imagefs may not carry them at all.
+     */
+    private fun adrenotoolsHooksPath(): String = context.applicationInfo.nativeLibraryDir
+
     private fun compareVersion(varA: String, varB: String): Int {
         val a = parseSemverLoose(varA)
         val b = parseSemverLoose(varB)
@@ -815,14 +832,14 @@ class XServerWineSessionPreparer @Inject constructor(
                 val driverDir = adrenotoolsManager.getDriverDir(adrenoToolsDriverId)
                 envState.put("ADRENOTOOLS_DRIVER_PATH", driverDir.path + "/")
                 envState.put("ADRENOTOOLS_DRIVER_NAME", libraryName)
-                envState.put("ADRENOTOOLS_HOOKS_PATH", imageFs.getLibDir().path)
+                envState.put("ADRENOTOOLS_HOOKS_PATH", adrenotoolsHooksPath())
                 envState.put("ADRENOTOOLS_DRIVER_CUSTOM", "1")
                 Log.i(
                     TAG,
                     "Guest adrenotools backend: PATH=${driverDir.path} NAME=$libraryName",
                 )
             } else if (wantLeegao) {
-                envState.put("ADRENOTOOLS_HOOKS_PATH", imageFs.getLibDir().path)
+                envState.put("ADRENOTOOLS_HOOKS_PATH", adrenotoolsHooksPath())
             }
         } else {
             Log.w(
