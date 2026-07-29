@@ -273,15 +273,15 @@ Amphora uses GitHub Actions via `.github/workflows/ci.yml`.
 Job `continuous-test` runs on `ubuntu-24.04` for every branch `push` and for
 pull requests:
 
-1. Free disk space — removes unused preinstalled toolchains (NDK, .NET, Swift,
-   PowerShell, Chromium) via `eclipse-score/more-disk-space@v1.1` (level 1)
-2. Install NDK `28.0.13004108` + CMake `3.31.1` — the runner preinstalls the
-   rest of the Android SDK (cmdline-tools, platform-tools, platforms, build-tools)
-3. `scripts/ci-jvm-test.sh` (`:core:common:test`, `:core:content:test`)
-4. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
+1. Free disk space - removes unused preinstalled toolchains (.NET, Haskell,
+   large packages, Docker images, swap) via `jlumbroso/free-disk-space`
+   (Android SDK kept)
+2. `scripts/ci-jvm-test.sh` (`:core:common:test`, `:core:content:test`)
+3. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
 
-Gradle User Home is cached via `gradle/actions/setup-gradle` (basic provider).
-NDK and CMake are cached via `actions/cache`.
+The runner's preinstalled Android SDK (NDK `28.2.13676358`, CMake `3.31.5`) is
+used directly. Gradle User Home is cached via `gradle/actions/setup-gradle`
+(basic provider).
 
 GitHub Actions does **not** run Android emulator/redroid instrumented tests
 (rootless DinD, no binder, arm64-only APK). Physical-device coverage stays on

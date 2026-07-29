@@ -16,8 +16,8 @@ internal const val SDK_COMPILE = 37
 // memfd exec launcher. See WineEngineImpl.launch / GuestProgramLauncherComponent.
 internal const val SDK_TARGET = 28
 internal const val SDK_MIN = 26
-internal const val NDK_VERSION = "28.0.13004108"
-internal const val CMAKE_VERSION = "3.31.1"
+internal const val NDK_VERSION = "28.2.13676358"
+internal const val CMAKE_VERSION = "3.31.5"
 
 internal val Project.libs: VersionCatalog
     get() = extensions.getByType<VersionCatalogsExtension>().named("libs")

@@ -41,8 +41,8 @@ install_packages() {
     "platform-tools" \
     "platforms;android-37.0" \
     "build-tools;36.0.0" \
-    "ndk;28.0.13004108" \
-    "cmake;3.31.1"
+    "ndk;28.2.13676358" \
+    "cmake;3.31.5"
 }
 
 write_local_properties() {

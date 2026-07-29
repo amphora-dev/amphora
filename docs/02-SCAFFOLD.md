@@ -20,8 +20,8 @@
 | activity-compose | 1.13.0 | |
 | navigation-compose | 2.9.8 | |
 | hilt-navigation-compose | 1.3.0 | |
-| NDK | 28.0.13004108 (r28) | RFC 写 r27/r29，r28 实测可用 |
-| CMake | 3.31.1 | |
+| NDK | 28.2.13676358 (r28) | 对齐 GitHub Actions runner 预装版本 |
+| CMake | 3.31.5 | 对齐 GitHub Actions runner 预装版本 |
 | compileSdk / targetSdk / minSdk | **37** / **28** / 26 | 平台包名 `platforms;android-37.0`（带 `.0`）。targetSdk **刻意 28**（`filesDir` 执行 box64/Wine，见 `ConventionHelpers.kt`）；scaffold 时写的 36 已纠正 |
 | JDK | 17 (Gradle 跑 JBR 21) | |
 
