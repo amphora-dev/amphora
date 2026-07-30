@@ -645,66 +645,86 @@ class XServerWineSessionPreparer @Inject constructor(
         val dstDriver = File(adrenotoolsDir, resolvedLibraryName)
         // Require both meta + .so — a lone meta.json from a partial install would
         // otherwise skip forever and leave the host on the system Adreno driver.
-        if (metaFile.exists() && dstDriver.exists()) {
-            Log.d(TAG, "Adrenotools driver already installed: $driverId ($resolvedLibraryName)")
-            return
-        }
-        if (!adrenotoolsDir.exists() && !adrenotoolsDir.mkdirs()) {
-            Log.w(TAG, "installAdrenotoolsDriverIfNeeded: failed to mkdir $adrenotoolsDir")
-            return
-        }
-
-        // Source: the wrapper.tzst extract landed the driver .so at imagefs/usr/lib/.
-        val srcDriver = File(imageFs.getLibDir(), resolvedLibraryName)
-        if (!srcDriver.exists()) {
-            Log.w(TAG, "installAdrenotoolsDriverIfNeeded: driver .so not found at $srcDriver — re-extracting wrapper.tzst")
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/wrapper.tzst", imageFs.getRootDir())
-        }
-        if (srcDriver.exists()) {
-            if (FileUtils.copy(srcDriver, dstDriver)) {
-                Log.i(TAG, "Installed Adrenotools driver .so: $srcDriver -> $dstDriver")
-            } else {
-                Log.e(TAG, "installAdrenotoolsDriverIfNeeded: copy failed $srcDriver -> $dstDriver")
+        val alreadyInstalled = metaFile.exists() && dstDriver.exists()
+        if (!alreadyInstalled) {
+            if (!adrenotoolsDir.exists() && !adrenotoolsDir.mkdirs()) {
+                Log.w(TAG, "installAdrenotoolsDriverIfNeeded: failed to mkdir $adrenotoolsDir")
                 return
             }
+
+            // Source: the wrapper.tzst extract landed the driver .so at imagefs/usr/lib/.
+            val srcDriver = File(imageFs.getLibDir(), resolvedLibraryName)
+            if (!srcDriver.exists()) {
+                Log.w(TAG, "installAdrenotoolsDriverIfNeeded: driver .so not found at $srcDriver — re-extracting wrapper.tzst")
+                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/wrapper.tzst", imageFs.getRootDir())
+            }
+            if (srcDriver.exists()) {
+                if (FileUtils.copy(srcDriver, dstDriver)) {
+                    Log.i(TAG, "Installed Adrenotools driver .so: $srcDriver -> $dstDriver")
+                } else {
+                    Log.e(TAG, "installAdrenotoolsDriverIfNeeded: copy failed $srcDriver -> $dstDriver")
+                    return
+                }
+            } else {
+                Log.e(TAG, "installAdrenotoolsDriverIfNeeded: driver .so still missing after re-extract: $srcDriver")
+                return
+            }
+
+            // Write meta.json so AdrenotoolsManager.getLibraryName can report the
+            // library to vulkan.c's JNI callback at nativeCreate time.
+            val metaJson = """{"libraryName":"$resolvedLibraryName"}"""
+            if (FileUtils.writeString(metaFile, metaJson)) {
+                Log.i(TAG, "Wrote Adrenotools meta.json: $metaFile ($metaJson)")
+            } else {
+                Log.e(TAG, "installAdrenotoolsDriverIfNeeded: failed to write $metaFile")
+            }
         } else {
-            Log.e(TAG, "installAdrenotoolsDriverIfNeeded: driver .so still missing after re-extract: $srcDriver")
-            return
+            Log.d(TAG, "Adrenotools driver already installed: $driverId ($resolvedLibraryName)")
         }
 
-        // Copy the driver's runtime deps that live in imagefs/usr/lib/ — the
-        // host adrenotools namespace doesn't search that path, so without
-        // copies here dlopen fails with "library not found" for each NEEDED
-        // entry that isn't in nativeLibraryDir or /system/lib64.
+        // Always (re)seed runtime deps — Turnip zip is so+meta only; without these
+        // copies adrenotools' driver namespace cannot dlopen NEEDED libs from
+        // imagefs and silently falls back to proprietary Adreno.
+        seedAdrenotoolsRuntimeDeps(adrenotoolsDir)
+    }
+
+    /**
+     * Copy imagefs libs that wrapper/Turnip `DT_NEEDED` into the adrenotools
+     * driver dir. The custom-driver linker namespace searches `customDriverDir`
+     * (+ hooks dir), not guest `LD_LIBRARY_PATH`, so missing copies look like
+     * "Turnip selected" while DXVK still reports `Wrapper(Adreno …)`.
+     */
+    private fun seedAdrenotoolsRuntimeDeps(adrenotoolsDir: File) {
+        if (!adrenotoolsDir.isDirectory) return
         val imageFsLibDir = imageFs.getLibDir()
-        val wrapperDeps = listOf(
-            // SysV shmem shim (built in imagefs, not in APK nativeLibraryDir).
+        val deps = listOf(
+            // SysV shmem — must export libandroid_shm* (see imagefs android-sysvshm).
             "libandroid-sysvshm.so",
-            // X11 / DRM — Mesa Zink + WSI need these at dlopen time.
+            // Compression / C++ — Turnip + wrapper.
+            "libc++_shared.so", "libz.so.1", "libz.so", "libzstd.so.1",
+            // X11 / DRM / sync — Mesa WSI.
             "libxcb.so", "libX11-xcb.so", "libxcb-dri3.so", "libxcb-present.so",
             "libxcb-sync.so", "libxcb-randr.so", "libxcb-shm.so", "libdrm.so",
-            "libxkbcommon.so",
+            "libxshmfence.so", "libexpat.so.1", "libxkbcommon.so",
         )
         var copiedDeps = 0
-        for (dep in wrapperDeps) {
+        for (dep in deps) {
             val src = File(imageFsLibDir, dep)
             if (!src.exists()) {
-                Log.w(TAG, "installAdrenotoolsDriverIfNeeded: dep $dep not found at $src (skipping)")
+                Log.w(TAG, "seedAdrenotoolsRuntimeDeps: dep $dep not found at $src (skipping)")
                 continue
             }
             val dst = File(adrenotoolsDir, dep)
-            if (dst.exists()) continue
-            if (FileUtils.copy(src, dst)) copiedDeps++ else Log.w(TAG, "installAdrenotoolsDriverIfNeeded: copy failed for dep $dep")
+            // Refresh when imagefs was hot-fixed (e.g. libandroid_shm* aliases).
+            if (dst.exists() && dst.length() == src.length() && dst.lastModified() >= src.lastModified()) {
+                continue
+            }
+            if (FileUtils.copy(src, dst)) copiedDeps++ else {
+                Log.w(TAG, "seedAdrenotoolsRuntimeDeps: copy failed for dep $dep")
+            }
         }
-        if (copiedDeps > 0) Log.i(TAG, "Installed $copiedDeps Adrenotools driver dep(s) from $imageFsLibDir")
-
-        // Write meta.json so AdrenotoolsManager.getLibraryName can report the
-        // library to vulkan.c's JNI callback at nativeCreate time.
-        val metaJson = """{"libraryName":"$resolvedLibraryName"}"""
-        if (FileUtils.writeString(metaFile, metaJson)) {
-            Log.i(TAG, "Wrote Adrenotools meta.json: $metaFile ($metaJson)")
-        } else {
-            Log.e(TAG, "installAdrenotoolsDriverIfNeeded: failed to write $metaFile")
+        if (copiedDeps > 0) {
+            Log.i(TAG, "Seeded $copiedDeps adrenotools runtime dep(s) into $adrenotoolsDir")
         }
     }
 
@@ -760,7 +780,23 @@ class XServerWineSessionPreparer @Inject constructor(
     // --- extractGraphicsDriverFiles (XSDA L7537) ------------------------------
 
     private fun extractGraphicsDriverFilesCore() {
-        val adrenoToolsDriverId = graphicsDriverConfig["version"] ?: ""
+        // Launcher SharedPreferences is the source of truth for adrenotools id
+        // (selectGraphicsDriver only writes prefs). Container version= can lag;
+        // using a stale wrapper id here leaves ADRENOTOOLS_DRIVER_* unset so the
+        // guest silently runs proprietary Adreno (DX9 FF PSO -13 with HUD).
+        val prefsDriverId = GraphicsDriverIds.normalize(
+            context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+        )
+        val containerDriverId = GraphicsDriverIds.normalize(graphicsDriverConfig["version"])
+        val adrenoToolsDriverId = prefsDriverId
+        if (adrenoToolsDriverId != containerDriverId) {
+            Log.i(
+                TAG,
+                "Using prefs adrenotools id '$adrenoToolsDriverId' (container had '$containerDriverId')",
+            )
+            graphicsDriverConfig["version"] = adrenoToolsDriverId
+        }
         Log.i(TAG, "Launch graphics driver selected: graphicsDriver='$graphicsDriver' driverId='$adrenoToolsDriverId'")
 
         // applyPreferredRefreshRate() STRIPPED (D9: Activity/Window refresh UI -> Compose P3).
@@ -830,6 +866,9 @@ class XServerWineSessionPreparer @Inject constructor(
                 adrenotoolsManager.isInstalled(adrenoToolsDriverId)
             ) {
                 val driverDir = adrenotoolsManager.getDriverDir(adrenoToolsDriverId)
+                // Turnip zip is so+meta only — seed NEEDED libs from imagefs every
+                // launch (same namespace constraint as installAdrenotoolsDriverIfNeeded).
+                seedAdrenotoolsRuntimeDeps(driverDir)
                 envState.put("ADRENOTOOLS_DRIVER_PATH", driverDir.path + "/")
                 envState.put("ADRENOTOOLS_DRIVER_NAME", libraryName)
                 envState.put("ADRENOTOOLS_HOOKS_PATH", adrenotoolsHooksPath())
