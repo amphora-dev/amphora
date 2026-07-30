@@ -6,6 +6,7 @@ import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.content.BundledAssetInstaller
 import app.amphora.core.content.ContentManifest
+import app.amphora.core.content.ContentManifestLoader
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.RemoteContentSource
 import app.amphora.core.content.RemoteUrlResolver
@@ -66,7 +67,7 @@ object EngineModule {
     @Provides
     @Singleton
     fun provideContentManifest(@ApplicationContext context: Context): ContentManifest =
-        ContentManifest.load(context)
+        ContentManifestLoader.load(context)
 
     @Provides
     @Singleton

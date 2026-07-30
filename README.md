@@ -33,6 +33,12 @@ Contracts live in the lower modules; Winlator-backed implementations live in `:c
 # APK: app/build/outputs/apk/debug/app-debug.apk  (arm64-v8a only)
 ```
 
+The APK stays slim. `content_manifest.json` is fetched at runtime from
+GitHub (`main` raw URL, MiceWine-style remote index) with the APK copy as
+offline fallback — pin URL/SHA changes no longer require rebuilding the APK
+(bump `rootfs.version` / `ImageFsInstaller.LATEST_VERSION` when the installed
+imagefs tree must be replaced).
+
 The APK stays slim. On first launch, the device downloads SHA-pinned Rootfs,
 Proton, Box64, DXVK, VKD3D and runtime assets; installed assets are reused on later
 launches.
