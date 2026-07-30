@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  continuous-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: JVM unit tests
+        run: bash scripts/ci-jvm-test.sh
+        timeout-minutes: 30
+
+      - name: Assemble debug
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+        timeout-minutes: 60

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CNB / local CI entrypoint for Amphora JVM unit tests + coverage summary.
+# CI entrypoint for Amphora JVM unit tests + coverage summary (GitHub Actions / local).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
