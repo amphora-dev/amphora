@@ -36,8 +36,8 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 | 资产 | 压缩 | 大小 | 条目 | 内容 | 安装者 | 更新通道 |
 |---|---|---|---|---|---|---|
 | `imagefs.tzst` | zstd | 199.8 MB | 10892 | rootfs 本体（`bin`/`etc`/`lib`/`opt`/`usr`…）| `RootfsInstaller` | **imagefs**（基线） |
-| `extra_libs.tzst` | zstd | 21.1 MB | 14 | `usr/lib` 的 Mesa `libGL`+`libglapi` / Turnip / vkBasalt / bcn_layer，`usr/share/vulkan` 的 ICD + 隐式层 JSON | `TarCompressorUtils` | graphics（待拆） |
-| `layers.tzst` | zstd | 4.4 MB | 3 | `usr/lib/libVkLayer_khronos_validation.so` | `TarCompressorUtils` | graphics（调试可选） |
+| `extra_libs.tzst` | zstd | 21.1 MB | 14 | `usr/lib` 的 Mesa `libGL`+`libglapi` / Turnip / vkBasalt / bcn_layer，`usr/share/vulkan` 的 ICD + 隐式层 JSON | `TarCompressorUtils` | **废止** → §0.6 `mesa-gl` |
+| `layers.tzst` | zstd | 4.4 MB | 3 | `usr/lib/libVkLayer_khronos_validation.so` | `TarCompressorUtils` | **可选调试**（§0.6） |
 | `wrapper.tzst` | zstd | 3.8 MB | 12 | `usr/lib` 的 `libadrenotools` + `libvulkan_wrapper` +（历史）4 个 hook，`usr/share/vulkan/icd.d/wrapper_icd.aarch64.json` | `TarCompressorUtils` | **wrapper+hooks（独立）** |
 
 ### B. 模拟器 / Wine 运行时 — WCP，落 imagefs
