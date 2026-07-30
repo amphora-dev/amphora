@@ -184,7 +184,9 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 
 1. **imagefs** 唯一基线；换 TLS/媒体/**Mesa GL** 才重发；**永不**因换 wrapper/hooks/Turnip/字体重打。
 2. **wrapper + hooks** 同通道单独发版（上一决策不变）：hooks → APK；wrapper → ARCHIVE。
-   **必须同版本**——`HookImplParams` 跨 `.so` 传 C++ 结构体，见下「未决风险」。
+   **必须同版本**——`HookImplParams` 跨 `.so` 传 C++ 结构体，见下「ABI」一节。
+   **hooks 全局只保留一份**（APK）：自建 imagefs 不打包，重打 `wrapper.tzst` 时剔除，
+   见下「收敛到只有一份 hooks」。
 3. **Mesa GL 不单独拆包**，理由见下「为什么 Mesa GL 进 imagefs 而 wrapper 不进」。
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
 5. **ddraw** 默认 `none`；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份。
@@ -309,6 +311,29 @@ _ZN14HookImplParamsC2EiPKcS1_S1_S1_S1_P23adrenotools_gpu_mapping
 尽管如此，§0.6 的「wrapper 与 hooks 同通道共版」规则保留：这条 ABI 边界是真实存在的，
 只是当前两版恰好一致。**任何一侧升级都必须重新比对这个 mangled 构造签名。**
 
+### 收敛到「只有一份 hooks」还差两步
+
+**运行时引用**已经只有一份：APK 的 `nativeLibraryDir`。实测 `app-debug.apk` 内
+`lib/arm64-v8a/` 有 `libmain_hook.so`(8320) / `libhook_impl.so`(203280) /
+`libfile_redirect_hook.so`(6800) / `libgsl_alloc_hook.so`(8320)，由 submodule `8483dfd`
+经 `add_subdirectory(adrenotools)` → `src/hook` 编出；`libadrenotools` 本身**不是**独立
+`.so`（静态链进 `libwinlator.so`，host 侧用）。
+
+但**磁盘上仍会落下第二份**，因为两处提取仍来自上游包：
+
+| 来源 | 落点 | 现状 | 消除方式 |
+|---|---|---|---|
+| APK（submodule `8483dfd`） | `nativeLibraryDir` | ✅ 唯一被引用 | — |
+| 官方 `imagefs.tzst` | `imagefs/usr/lib/` | 仍会解出 | **切自建 imagefs**（配方不打 hooks） |
+| 官方 `wrapper.tzst` | `imagefs/usr/lib/`（覆盖上一行）| 仍会解出，见 `XServerWineSessionPreparer` firstTimeBoot 与 `installAdrenotoolsDriverIfNeeded` | **重打 `wrapper.tzst`，剔除 4 个 hook**，只留 `libvulkan_wrapper.so` + `libadrenotools.so` + `wrapper_icd.aarch64.json` |
+
+这两步做完，磁盘上就只剩 APK 那一份，`imagefs/usr/lib/` 不再有 hook 文件。在那之前
+残留文件无害（无人引用），但**版本对比时容易误判**，所以两步都列为收尾动作。
+
+> `winlator-imagefs` 的 `build-native-libs.sh` 也会编这 4 个 hook 进
+> `native-libs.tar.xz`——那是该仓**对比上游 blob 的复现验证产物**，既不进 `imagefs.txz`，
+> 也不是 amphora 的 hook 来源。不要把它接成第四个来源。
+
 排查 OpenGL/DX7 黑屏时若要频繁试不同 Mesa，用 `mesa-gl-override.tzst`（表 14b，
 带上同版本 `libglapi`）——**调试手段，不是发布结构**。
 
@@ -327,6 +352,7 @@ hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
 | 决策 | 状态 |
 |---|---|
 | wrapper + adrenotools hooks 单独更新、不焊 imagefs | ✅ |
+| hooks 全局唯一来源 = APK（自建 imagefs 不打包 + 重打 wrapper 剔除）| ✅ 决策；2 步收尾待做 |
 | 自建 imagefs 为唯一默认 rootfs；官方 199 MB 退出默认 | ✅ |
 | `extra_libs` 废止；strip 后的 Mesa GL **并入 imagefs**（不单独拆包，见上）；砍 vkBasalt/BCn/包内 Turnip | ✅ |
 | `layers` / WN-Turnip / ddraw 包装器 = 可选 | ✅ |
