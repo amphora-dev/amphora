@@ -171,7 +171,11 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     envVars.put("HOME", imageFs.home_path);
     envVars.put("USER", ImageFs.USER);
     envVars.put("TMPDIR", imageFs.getRootDir().getPath() + "/tmp");
-    envVars.put("DISPLAY", ":0");
+    // Self-built libX11 hardcodes /tmp/.X11-unix (ignores TMPDIR). Amphora does not
+    // chroot into imagefs, so point Wine at the real AF_UNIX socket explicitly.
+    envVars.put(
+        "DISPLAY",
+        "unix:" + imageFs.getRootDir().getPath() + UnixSocketConfig.XSERVER_PATH);
 
     String winePath =
         wineProfile == null
@@ -790,7 +794,8 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     envVars.put("WRAPPER_CACHE_PATH", rootDir.getPath() + "/usr/var/cache");
     envVars.put("WINE_NO_DUPLICATE_EXPLORER", "1");
     envVars.put("PREFIX", rootDir.getPath() + "/usr");
-    envVars.put("DISPLAY", ":0");
+    // See earlier DISPLAY note — unix: absolute path required for non-chroot imagefs.
+    envVars.put("DISPLAY", "unix:" + rootDir.getPath() + UnixSocketConfig.XSERVER_PATH);
     envVars.put("WINE_DISABLE_FULLSCREEN_HACK", "1");
     envVars.put("GST_PLUGIN_FEATURE_RANK", "ximagesink:3000");
     envVars.put(
