@@ -272,7 +272,7 @@ hook 文件的地方」。
 submodule `8483dfd` 一份），并让 hooks 与 APK 内静态链入 `libwinlator.so` 的
 `libadrenotools` 同源。
 
-### ⚠️ 未决风险：`HookImplParams` 的跨 `.so` ABI
+### `HookImplParams` 的跨 `.so` ABI — 已实测，混搭安全
 
 `libadrenotools` 把一个 **C++ 结构体**（含 `std::string`）跨 `.so` 边界传给 `libhook_impl`：
 
@@ -284,18 +284,30 @@ initHookParam(new HookImplParams(featureFlags, tmpLibDir, hookLibDir, ...));
 
 **所以 `libadrenotools` 与 4 个 hook 必须同版本编译**，字段增删即布局错配。
 
-而 guest 侧的 `libvulkan_wrapper.so` 是**上游预编译 blob**，其 NEEDED 指名
-`libadrenotools.so`（同样来自 `wrapper.tzst` 的上游 blob）。把 `ADRENOTOOLS_HOOKS_PATH`
-指向 APK 里**我们自建 `8483dfd`** 的 hooks，构成「上游 `libadrenotools` + 自建
-`libhook_impl`」的混搭——若两版 `HookImplParams` 布局不同，症状与原 bug 一样隐蔽
-（handle 有效但 hook 失效 → 静默回退系统 Adreno 或 0 devices）。
+guest 侧 `libvulkan_wrapper.so` 是**上游预编译 blob**，NEEDED 指名 `libadrenotools.so`
+（同样是 `wrapper.tzst` 的上游 blob），而 hooks 现在来自 APK 里自建 submodule `8483dfd`
+——两版混搭。**2026-07-30 实测比对，两侧一致：**
 
-**待办**：真机验证前先比对 `wrapper.tzst` 内 `libadrenotools` 与 submodule `8483dfd` 的
-`HookImplParams` 布局；若不一致，二选一——
-(a) `ADRENOTOOLS_HOOKS_PATH` 回指 `wrapper.tzst` 提供的那份（保证与 wrapper 同源），或
-(b) 连 `libadrenotools` 一起用自建版覆盖 wrapper 内的那份。
-这正是 §0.6 「wrapper 与 hooks 同通道共版」规则的硬依据：**它们的边界上有 ABI，不能各自
-升级。**
+上游 `libadrenotools.so`（stripped，NDK **r28c**）仍以 weak symbol 导出了构造函数：
+
+```
+_ZN14HookImplParamsC2EiPKcS1_S1_S1_S1_P23adrenotools_gpu_mapping
+  → HookImplParams::HookImplParams(int, char const*, char const*, char const*,
+                                   char const*, char const*, adrenotools_gpu_mapping*)
+```
+
+与 submodule `8483dfd` 的 `hook_impl_params.h:22` 逐参对齐（`int` + **5×** `const char*`
++ `adrenotools_gpu_mapping*`）。字段集相同 → 布局相同（`int` + 5×`std::string` + 指针；
+两侧同为 NDK `libc++_shared`，`_LIBCPP_ABI_VERSION=1` 下 `std::string` 恒 24 字节）。
+**结论：hooks 指向 APK 自建版不构成 ABI 错配。**
+
+顺带测出的第二件事：guest `libvulkan_wrapper.so` 对 `libadrenotools` 的**未定义符号只有
+一个** `adrenotools_open_libvulkan`（不引用 `patch_bcn` / `set_turbo` / `get_bcn_type`）。
+所以若将来要让 guest 侧也用自建 `libadrenotools.so` 覆盖 wrapper 内那份，符号面是够的
+（我们的 `driver.h` 导出集覆盖它）——这是备选方案 (b)，当前**不需要**执行。
+
+尽管如此，§0.6 的「wrapper 与 hooks 同通道共版」规则保留：这条 ABI 边界是真实存在的，
+只是当前两版恰好一致。**任何一侧升级都必须重新比对这个 mangled 构造签名。**
 
 排查 OpenGL/DX7 黑屏时若要频繁试不同 Mesa，用 `mesa-gl-override.tzst`（表 14b，
 带上同版本 `libglapi`）——**调试手段，不是发布结构**。
