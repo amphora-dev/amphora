@@ -1,7 +1,8 @@
 # 04 - 资产清单 / SHA 锁 (Asset Manifest)
 
 > P2 资产获取轨产物。锁定 amphora 运行时所需的全部镜像/驱动/组件资产的来源、版本与 SHA-256。
-> 最后更新: 2026-07-12 · 资产源: WinNative @ `48fe6b9` (Git LFS) + `winlator-imagefs` 可复现构建配方
+> 最后更新: 2026-07-30 · 资产源: WinNative @ `48fe6b9` (Git LFS) + `winlator-imagefs` 可复现构建配方
+> **目标结构决策见 §0.6**（已拍板项会覆盖 §0.5 现状描述中的过渡安排）。
 
 ---
 
@@ -29,14 +30,15 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 
 ### A. Linux rootfs 层 — 落 imagefs 根，`usr/` 布局
 
-四个包叠加到**同一个根**，因此是共享覆盖域、**提取顺序敏感**。
+多个包可叠加到**同一个根**，因此是共享覆盖域、**提取顺序敏感**。
+其中 **`wrapper.tzst` 虽落同一根，但版本通道独立**（见 §0.6）——换 wrapper/hooks **不**重打 imagefs。
 
-| 资产 | 压缩 | 大小 | 条目 | 内容 | 安装者 |
-|---|---|---|---|---|---|
-| `imagefs.tzst` | zstd | 199.8 MB | 10892 | rootfs 本体（`bin`/`etc`/`lib`/`opt`/`usr`…）| `RootfsInstaller` |
-| `extra_libs.tzst` | zstd | 21.1 MB | 14 | `usr/lib` 的 Mesa `libGL`+`libglapi` / Turnip / vkBasalt / bcn_layer，`usr/share/vulkan` 的 ICD + 隐式层 JSON | `TarCompressorUtils` |
-| `layers.tzst` | zstd | 4.4 MB | 3 | `usr/lib/libVkLayer_khronos_validation.so` | `TarCompressorUtils` |
-| `wrapper.tzst` | zstd | 3.8 MB | 12 | `usr/lib` 的 `libadrenotools` + `libvulkan_wrapper`（19 MB）+ 4 个 hook，`usr/share/vulkan/icd.d/wrapper_icd.aarch64.json` | `TarCompressorUtils` |
+| 资产 | 压缩 | 大小 | 条目 | 内容 | 安装者 | 更新通道 |
+|---|---|---|---|---|---|---|
+| `imagefs.tzst` | zstd | 199.8 MB | 10892 | rootfs 本体（`bin`/`etc`/`lib`/`opt`/`usr`…）| `RootfsInstaller` | **imagefs**（基线） |
+| `extra_libs.tzst` | zstd | 21.1 MB | 14 | `usr/lib` 的 Mesa `libGL`+`libglapi` / Turnip / vkBasalt / bcn_layer，`usr/share/vulkan` 的 ICD + 隐式层 JSON | `TarCompressorUtils` | graphics（待拆） |
+| `layers.tzst` | zstd | 4.4 MB | 3 | `usr/lib/libVkLayer_khronos_validation.so` | `TarCompressorUtils` | graphics（调试可选） |
+| `wrapper.tzst` | zstd | 3.8 MB | 12 | `usr/lib` 的 `libadrenotools` + `libvulkan_wrapper` +（历史）4 个 hook，`usr/share/vulkan/icd.d/wrapper_icd.aarch64.json` | `TarCompressorUtils` | **wrapper+hooks（独立）** |
 
 ### B. 模拟器 / Wine 运行时 — WCP，落 imagefs
 
@@ -113,15 +115,52 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 `WN-Turnip` zip 里 14.8 MB（2026-07-22）。后者装到 `filesDir/contents/adrenotools/`，通过
 `ADRENOTOOLS_DRIVER_PATH` 指定，不覆盖前者。imagefs 本身不带 Turnip。
 
-**A 类的覆盖顺序有实际后果。** `wrapper.tzst` 的 4 个 hook 会覆盖 imagefs 里的同名文件，
-而两者版本不同（imagefs 66 KB 一份，wrapper 6–41 KB 一份），APK 里我们自建的又是第三份。
-这是 `ADRENOTOOLS_HOOKS_PATH` 应当指向 `nativeLibraryDir` 的另一个理由。
+**A 类的覆盖顺序有实际后果（过渡期）。** 现状三份 hook：imagefs / `wrapper.tzst` /
+APK `nativeLibraryDir`，版本彼此漂移。**目标（已拍板）**：hooks 只认 `nativeLibraryDir`；
+imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新通道**，不焊进 imagefs
+（见 §0.6）。
 
 **`extra_libs.tzst` 73.3% 是调试符号。** 实测 `.debug_*` + 符号表占 82.2 MB / 112.2 MB
 （解压后）：`libGL.so.1.5.0` 80.7 MB 里 66.5 MB 是调试信息，strip 后 14.2 MB；
 `libvkbasalt.so` 17.5 MB → 3.3 MB；只有 `libvulkan_freedreno.so` 上游已 strip。
 另外 `libvkbasalt.so` 的隐式层要求 `ENABLE_VKBASALT=1`，而代码库中无处设置，
 在目标设备上它与 `libbcn_layer.so`（条件为非高通）都不会加载。
+
+---
+
+## 0.6 目标包结构（按更新频率切开）
+
+> 原则：一根基线包、按更新频率切开、可替换独立、同构用同一机制。
+> 2026-07-30 起陆续拍板；未标注「已拍板」的仍待确认。
+
+| 通道 | 典型产物 | 落地 | 更新节奏 | 状态 |
+|---|---|---|---|---|
+| **imagefs** | 自建 `imagefs.tzst`/`txz` | imagefs 根 | 慢（libc/media/TLS 基线） | 配方仓推进中 |
+| **wrapper + adrenotools hooks** | `wrapper.tzst`（`libvulkan_wrapper` / `libadrenotools` / ICD）+ 4 hook `.so` | wrapper → imagefs `usr/lib`+ICD；**hooks → 仅 `nativeLibraryDir`** | **独立、可单独发版** | **已拍板** |
+| **graphics（其余）** | 从 `extra_libs` 拆出的 libGL / 可选 Turnip / layers… | imagefs `usr/` 或 `contents/adrenotools/` | 中 | 待拆分定稿 |
+| **runtime** | Proton / Box64 `.wcp` | WCP → imagefs | 中–快 | 现状保留 |
+| **dx** | DXVK / VKD3D `.wcp` | 容器 `system32`/`syswow64` | 快 | 现状保留 |
+| **wincomponents** | 微软 redist tzst | 容器 DLL 覆盖 | 慢 | 是否改 WCP 待定 |
+| **ddraw** | cnc-ddraw / dd7to9 / nglide | 容器 `syswow64`（互斥单选） | 按需 | 互斥 UI 待做 |
+| **container-pattern** | prefix 模板（建议拆共享 fonts） | 每容器一份 | 慢 | 字体共享待定 |
+| **meta** | json / box64rc | 直拷 | 随配置 | 现状保留 |
+
+### 已拍板：`wrapper` + adrenotools hooks 单独更新
+
+1. **不焊进 imagefs。** 换 wrapper ICD / hooks **不得**要求重打或重下整包 imagefs。
+   自建 imagefs **不再打包** 4 个 adrenotools hook（官方 blob 里若有同名文件，运行时也
+   **不以** imagefs/`wrapper.tzst` 内 hook 为准）。
+2. **hooks 契约。** `ADRENOTOOLS_HOOKS_PATH` **必须**是
+   `ApplicationInfo.nativeLibraryDir`（`adrenotools/driver.h`）；APK 经 `useLegacyPackaging`
+   解压落盘。hooks 随 APK / native 产物发版，与 imagefs 版本解耦。
+3. **wrapper 仍是独立 ARCHIVE。** `graphics_driver/wrapper.tzst`（或后续同名通道产物）
+   单独 SHA 锁定、单独发布；guest 侧 ICD/`libvulkan_wrapper`/`libadrenotools` 从该包提取。
+   历史包内若仍含 hook `.so`，只作兼容残留，**运行时不依赖**它们。
+4. **同通道共版。** wrapper ICD 与 hooks 视为一条「Vulkan adrenotools 栈」——可同一次
+   Release 发两个附件，但**绝不是** imagefs 附件；也**不要**并回 `extra_libs` 一锅。
+
+可选 Turnip（`WN-Turnip-*.zip` → `contents/adrenotools/<id>/`）继续走驱动插拔通道，
+不与 wrapper+hooks 绑死；默认 Wrapper 模式不设 `ADRENOTOOLS_DRIVER_NAME`。
 
 ---
 
