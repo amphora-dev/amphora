@@ -2,7 +2,7 @@
 
 > P2 资产获取轨产物。锁定 amphora 运行时所需的全部镜像/驱动/组件资产的来源、版本与 SHA-256。
 > 最后更新: 2026-07-30 · 资产源: WinNative @ `48fe6b9` (Git LFS) + `winlator-imagefs` 可复现构建配方
-> **目标结构决策见 §0.6**（已拍板项会覆盖 §0.5 现状描述中的过渡安排）。
+> **最终包结构定稿见 §0.6**（覆盖 §0.5 过渡现状；能缩尽缩）。
 
 ---
 
@@ -128,39 +128,88 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 
 ---
 
-## 0.6 目标包结构（按更新频率切开）
+## 0.6 最终包结构（定稿 · 能缩尽缩）
 
-> 原则：一根基线包、按更新频率切开、可替换独立、同构用同一机制。
-> 2026-07-30 起陆续拍板；未标注「已拍板」的仍待确认。
+> **2026-07-30 定稿。** 原则：一根基线、按更新频率切开、默认可跑通、可选另下、同构同机制、目标设备（Adreno）上无消费者的一律不进默认集。
+> 下面「默认」= 冷启动必备；「可选」= 目录/点选再下；「砍掉」= Amphora 不再发布/不再提取。
 
-| 通道 | 典型产物 | 落地 | 更新节奏 | 状态 |
-|---|---|---|---|---|
-| **imagefs** | 自建 `imagefs.tzst`/`txz` | imagefs 根 | 慢（libc/media/TLS 基线） | 配方仓推进中 |
-| **wrapper + adrenotools hooks** | `wrapper.tzst`（`libvulkan_wrapper` / `libadrenotools` / ICD）+ 4 hook `.so` | wrapper → imagefs `usr/lib`+ICD；**hooks → 仅 `nativeLibraryDir`** | **独立、可单独发版** | **已拍板** |
-| **graphics（其余）** | 从 `extra_libs` 拆出的 libGL / 可选 Turnip / layers… | imagefs `usr/` 或 `contents/adrenotools/` | 中 | 待拆分定稿 |
-| **runtime** | Proton / Box64 `.wcp` | WCP → imagefs | 中–快 | 现状保留 |
-| **dx** | DXVK / VKD3D `.wcp` | 容器 `system32`/`syswow64` | 快 | 现状保留 |
-| **wincomponents** | 微软 redist tzst | 容器 DLL 覆盖 | 慢 | 是否改 WCP 待定 |
-| **ddraw** | cnc-ddraw / dd7to9 / nglide | 容器 `syswow64`（互斥单选） | 按需 | 互斥 UI 待做 |
-| **container-pattern** | prefix 模板（建议拆共享 fonts） | 每容器一份 | 慢 | 字体共享待定 |
-| **meta** | json / box64rc | 直拷 | 随配置 | 现状保留 |
+### 总表
 
-### 已拍板：`wrapper` + adrenotools hooks 单独更新
+| # | 通道 / 产物 | 角色 | 体积目标（压缩） | 落地 | 默认？ |
+|---|---|---|---|---|---|
+| 1 | **`imagefs`**（自建 `imagefs.tzst`） | Bionic 基线：Wine unix 依赖（**gnutls 链 + GStreamer**）、ALSA、X11 客户端链、pulse **客户端**… | **~25–28 MB**（现状 CI 27.5 MB xz） | `filesDir/imagefs` | ✅ 唯一 rootfs |
+| 2 | **`wrapper.tzst`** | `libvulkan_wrapper` + `libadrenotools` + `wrapper_icd` | **~3.7 MB**（去掉包内 hook 后几乎不变） | imagefs `usr/lib` + ICD | ✅ **独立发版** |
+| 3 | **adrenotools hooks**（4× `.so`） | `main_hook` / `file_redirect_hook` / `gsl_alloc_hook` / `hook_impl` | **~0.3 MB**（随 APK） | **仅** `nativeLibraryDir` | ✅ **与 wrapper 同通道、独立于 imagefs** |
+| 4 | **`mesa-gl.tzst`**（新建，取代 `extra_libs`） | **strip 后** `libGL.so.1*` + `libglapi`（+ 必要 soname 链） | **~4–6 MB**（现状解压 82 MB 调试符号 → strip 后 ~15 MB） | imagefs `usr/lib` | ✅ |
+| 5 | **`Proton-*.wcp`** | Wine 运行时 | ~169 MB | WCP → imagefs | ✅ |
+| 6 | **`Box64-*.wcp`** | x86_64 翻译 | ~2.8 MB | WCP → imagefs | ✅ |
+| 7 | **`Dxvk-*.wcp`** | D3D8–11 → Vulkan | ~6.7 MB | 容器 `system32`/`syswow64` | ✅ |
+| 8 | **`Vkd3d-*.wcp`** | D3D12 → Vulkan | ~3.4 MB | 同上 | ✅ |
+| 9 | **`container_pattern.tzst`**（瘦身） | prefix 骨架（**无字体、无内嵌 ddraw**） | **≲ 2 MB** | 每容器一份 | ✅ |
+| 10 | **`fonts.tzst`**（新建，共享） | **一份** CJK：`SourceHanSansCN-Regular.otf`（或等价单文件） | **~6–9 MB** | 共享目录，容器 Fonts **符号链接/拷一次** | ✅ |
+| 11 | **`wincomponents/*.tzst`** | 微软 redist（保持 tzst，**不**改 WCP） | 目录合计 ~38 MB；按 `FALLBACK` 选装 | 容器 DLL | ✅ 按需提取，机制不变 |
+| 12 | **`WN-Turnip-*.zip`** | 可选完整 Turnip | ~2.7 MB zip / ~15 MB `.so` | `contents/adrenotools/<id>/` | ⚪ 可选 |
+| 13 | **`ddrawrapper/{cnc-ddraw,dd7to9,nglide}.tzst`** | DX7/Glide；**互斥单选**，默认 `none` | 各 0.2–3 MB | 容器 `syswow64` | ⚪ 可选 |
+| 14 | **`layers.tzst`** | Vulkan validation | ~4.4 MB | imagefs | ⚪ **仅调试包** |
+| 15 | **FFmpeg 附加包**（可选） | `winedmo` 硬依赖；默认媒体走 GStreamer | 视自建拆包 | imagefs 叠加或并入 imagefs 变体 | ⚪ 可选（默认可不含） |
 
-1. **不焊进 imagefs。** 换 wrapper ICD / hooks **不得**要求重打或重下整包 imagefs。
-   自建 imagefs **不再打包** 4 个 adrenotools hook（官方 blob 里若有同名文件，运行时也
-   **不以** imagefs/`wrapper.tzst` 内 hook 为准）。
-2. **hooks 契约。** `ADRENOTOOLS_HOOKS_PATH` **必须**是
-   `ApplicationInfo.nativeLibraryDir`（`adrenotools/driver.h`）；APK 经 `useLegacyPackaging`
-   解压落盘。hooks 随 APK / native 产物发版，与 imagefs 版本解耦。
-3. **wrapper 仍是独立 ARCHIVE。** `graphics_driver/wrapper.tzst`（或后续同名通道产物）
-   单独 SHA 锁定、单独发布；guest 侧 ICD/`libvulkan_wrapper`/`libadrenotools` 从该包提取。
-   历史包内若仍含 hook `.so`，只作兼容残留，**运行时不依赖**它们。
-4. **同通道共版。** wrapper ICD 与 hooks 视为一条「Vulkan adrenotools 栈」——可同一次
-   Release 发两个附件，但**绝不是** imagefs 附件；也**不要**并回 `extra_libs` 一锅。
+### 默认集体积对照
 
-可选 Turnip（`WN-Turnip-*.zip` → `contents/adrenotools/<id>/`）继续走驱动插拔通道，
-不与 wrapper+hooks 绑死；默认 Wrapper 模式不设 `ADRENOTOOLS_DRIVER_NAME`。
+| | 现状典型目录（WinNative 原样） | **本定稿默认集** |
+|---|---|---|
+| rootfs | 官方 `imagefs.tzst` **199.8 MB**（解压 ~877 MB） | 自建 **~27.5 MB**（解压 ~187 MB） |
+| 图形叠加 | `extra_libs` 21.1 + `layers` 4.4 + `wrapper` 3.8 ≈ **29 MB**（含未用层/双份 Turnip/调试符号） | `wrapper` 3.7 + `mesa-gl` ~5 + hooks@APK ≈ **~9 MB** |
+| 容器模板 | `container_pattern_common` **41.6 MB**（字体堆 + 内嵌 cnc-ddraw） | pattern ≲2 + **单字体** ~8 ≈ **~10 MB** |
+| 运行时+DX | Proton+Box64+DXVK+VKD3D ≈ **181 MB** | **同左**（暂不自砍 Proton） |
+| **默认合计（量级）** | **≳ 450 MB** 资产面 | **~230–240 MB**（再去掉可选 FFmpeg/Turnip/ddraw/layers） |
+
+### 砍掉 / 不再进默认（有据）
+
+| 项 | 理由 |
+|---|---|
+| 官方全量 imagefs | 自建子集已覆盖 Wine NEEDED；terminfo/doc/locale/man/Tcl/编码器二进制无消费者 |
+| `extra_libs.tzst` 整包 | 拆成 `mesa-gl`；包内 Turnip 与 `WN-Turnip` **双份不同版本**；73% 调试符号 |
+| `libvkbasalt.so` + JSON | 代码从不设 `ENABLE_VKBASALT=1`，目标设备不加载 |
+| `libbcn_layer.so` + JSON | 条件为非高通；Adreno 830 默认路径不走 |
+| `extra_libs` 内 `libvulkan_freedreno` + freedreno ICD | 默认 Wrapper 模式用系统 Adreno；完整 Turnip 只走可选 zip |
+| `layers.tzst`（默认） | validation 仅调试 |
+| `wrapper.tzst` / imagefs 内的 4 hook | 契约只认 `nativeLibraryDir`；避免三份版本漂移 |
+| `wrapper-leegao` / `virgl-*` / `zink-*` / `pulseaudio.tzst` | Amphora MVP 不用 |
+| pattern 内多字体（日文装饰体等）+ 内嵌 `cnc-ddraw` | 默认 `ddrawrapper=none`；字体共享单文件 |
+| `d8vk-1.0.tzst` | 默认 DXVK ≥ 3.x 已带 d3d8 |
+| wincomponents → WCP | 无版本轮换需求，改格式零收益；**维持 tzst** |
+
+### 通道规则（必须遵守）
+
+1. **imagefs** 唯一基线；换 TLS/媒体库才重发；**永不**因换 wrapper/hooks/Turnip/字体重打。
+2. **wrapper + hooks** 同通道单独发版（上一决策不变）：hooks → APK；wrapper → ARCHIVE。
+3. **`mesa-gl`** 与 imagefs 分开：Zink/OpenGL 需要时更新 Mesa，不碰 rootfs 配方。
+4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
+5. **ddraw** 默认 `none`；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份。
+6. **字体** 全局一份；多容器不重复打进 pattern。
+7. **发布面**：默认产物进公开 `amphora-assets`（或等价）固定标签；可选包同仓另附件，不塞进默认 APK。
+
+### 默认冷启动安装顺序
+
+```
+imagefs → mesa-gl → wrapper
+       → Proton.wcp → Box64.wcp
+       → Dxvk.wcp → Vkd3d.wcp
+       → fonts（共享）→ container_pattern（瘦）→ wincomponents（FALLBACK）
+hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
+```
+
+### 已拍板摘要
+
+| 决策 | 状态 |
+|---|---|
+| wrapper + adrenotools hooks 单独更新、不焊 imagefs | ✅ |
+| 自建 imagefs 为唯一默认 rootfs；官方 199 MB 退出默认 | ✅ |
+| `extra_libs` 废止 → strip 后的 `mesa-gl`；砍 vkBasalt/BCn/包内 Turnip | ✅ |
+| `layers` / WN-Turnip / ddraw 包装器 = 可选 | ✅ |
+| 字体从 pattern 拆出共享；pattern 去内嵌 ddraw | ✅ |
+| wincomponents 保持 tzst + 选装，不改 WCP | ✅ |
+| FFmpeg 不挡默认媒体（GStreamer 优先）；可作 imagefs 变体/附加包 | ✅ |
 
 ---
 
