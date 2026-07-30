@@ -139,7 +139,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 |---|---|---|---|---|---|
 | 1 | **`imagefs`**（自建 `imagefs.tzst`） | Bionic 基线：Wine unix 依赖（**gnutls 链 + GStreamer**）、ALSA、X11 客户端链、pulse **客户端**… | **~25–28 MB**（现状 CI 27.5 MB xz） | `filesDir/imagefs` | ✅ 唯一 rootfs |
 | 2 | **`wrapper.tzst`** | `libvulkan_wrapper` + `libadrenotools` + `wrapper_icd` | **~3.7 MB**（去掉包内 hook 后几乎不变） | imagefs `usr/lib` + ICD | ✅ **独立发版** |
-| 3 | **adrenotools hooks**（4× `.so`） | `main_hook` / `file_redirect_hook` / `gsl_alloc_hook` / `hook_impl` | **~0.3 MB**（随 APK） | **仅** `nativeLibraryDir` | ✅ **与 wrapper 同通道、独立于 imagefs** |
+| 3 | **adrenotools hooks**（4× `.so`） | `main_hook` / `file_redirect_hook` / `gsl_alloc_hook` / `hook_impl` | **~0.3 MB**（随 APK） | `nativeLibraryDir`（首选；见「约束有多硬」） | ✅ **与 wrapper 同通道共版**（ABI 耦合） |
 | 4 | **Mesa GL 进 imagefs**（不再独立包） | **strip 后** `libGL.so.1*` + `libglapi`，由 `winlator-imagefs` 配方直接编进基线 | 使 imagefs 增约 **+4–6 MB**（解压 +~15 MB） | imagefs `usr/lib` | ✅ 随 imagefs |
 | 5 | **`Proton-*.wcp`** | Wine 运行时 | ~169 MB | WCP → imagefs | ✅ |
 | 6 | **`Box64-*.wcp`** | x86_64 翻译 | ~2.8 MB | WCP → imagefs | ✅ |
@@ -184,6 +184,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 
 1. **imagefs** 唯一基线；换 TLS/媒体/**Mesa GL** 才重发；**永不**因换 wrapper/hooks/Turnip/字体重打。
 2. **wrapper + hooks** 同通道单独发版（上一决策不变）：hooks → APK；wrapper → ARCHIVE。
+   **必须同版本**——`HookImplParams` 跨 `.so` 传 C++ 结构体，见下「未决风险」。
 3. **Mesa GL 不单独拆包**，理由见下「为什么 Mesa GL 进 imagefs 而 wrapper 不进」。
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
 5. **ddraw** 默认 `none`；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份。
@@ -233,11 +234,68 @@ imagefs 的 `libxcb` / `libdrm` / `libandroid-sysvshm`，它照样独立发版�
 - **重打成本已经很低**：imagefs 现在是我们自己 CI 的产物（一次 CI + 一个 Release 附件），
   不再是当年重下 199 MB 外部 blob，所以「避免重打 imagefs」不再是拆包动机。
 
-**wrapper + hooks — 必须拆。** 两条硬理由，libGL 都不具备：
-1. `ADRENOTOOLS_HOOKS_PATH` **必须**是 `nativeLibraryDir`（`adrenotools/driver.h`），
-   物理上不可能待在 imagefs 里；
-2. Vulkan 驱动是**真实插拔点**（Wrapper 默认 / 可选 Turnip 二选一，有 UI），ICD 与 hooks
-   要能独立于 rootfs 换版。
+**wrapper + hooks — 拆。** 理由是插拔点 + hooks 的打包位置约束（下节澄清其真实强度），
+libGL 两者都不具备：Vulkan 驱动是**真实插拔点**（Wrapper 默认 / 可选 Turnip 二选一，有 UI），
+ICD 与 hooks 要能独立于 rootfs 换版。
+
+### hooks 路径：`nativeLibraryDir` 的约束到底有多硬
+
+**先纠正一个说法**：先前写「hooks 物理上不可能待在 imagefs 里」是错的。读 adrenotools 实现：
+
+```cpp
+// src/driver.cpp:75
+auto hookNs{android_create_namespace("adrenotools-libvulkan", hookLibDir, nullptr,
+                                     ANDROID_NAMESPACE_TYPE_SHARED, nullptr, nullptr)};
+// 随后从该 namespace 解析:
+linkernsbypass_namespace_dlopen("libhook_impl.so", RTLD_NOW, hookNs);
+linkernsbypass_namespace_dlopen("libmain_hook.so", RTLD_GLOBAL, hookNs);
+```
+
+`hookLibDir` 只是新建 linker namespace 的 **`ld_library_path`**。平台并不要求它等于
+`nativeLibraryDir`——任何「hook `.so` 确实存在且可 `dlopen`」的目录都能解析。
+
+`driver.h` 那句 "MUST point to `nativeLibraryDir`" 的实际语境是**打包**：上游把 hooks 放
+`jniLibs`，于是该目录就是 `nativeLibraryDir`；而 `useLegacyPackaging = false` 时 Android
+直接从 APK 读 `.so`、不解压落盘，那个目录里就是空的——所以它警告的是「别指到一个没有
+hook 文件的地方」。
+
+**因此之前（WinNative / amphora 移植初期）的做法是可行的**：hooks 打进 `wrapper.tzst` →
+`imagefs/usr/lib/`，`ADRENOTOOLS_HOOKS_PATH` 指 `imageFs.getLibDir()`。能工作因为
+(a) imagefs 在 app 私有 `filesDir` 下、同 uid、非 sdcard，`dlopen` 允许；
+(b) WinNative 与 amphora 都是 **targetSdk 28**，走 legacy SELinux domain；
+(c) `ld_library_path` 接受任意目录。
+它还有个优点：hooks 与 guest 侧 `libvulkan_wrapper.so` **同包同版本**，且路径在 imagefs 内
+自洽（未来若引入 mount namespace，guest 视角也一定可见）。
+
+**改指 `nativeLibraryDir` 的真实收益**不是「否则跑不起来」，而是消除**三份 hook 版本漂移**
+（imagefs 内上游预编译一份 66 KB / `wrapper.tzst` 内 6–41 KB 一份 / APK 里我们自建
+submodule `8483dfd` 一份），并让 hooks 与 APK 内静态链入 `libwinlator.so` 的
+`libadrenotools` 同源。
+
+### ⚠️ 未决风险：`HookImplParams` 的跨 `.so` ABI
+
+`libadrenotools` 把一个 **C++ 结构体**（含 `std::string`）跨 `.so` 边界传给 `libhook_impl`：
+
+```cpp
+// src/driver.cpp:108
+initHookParam(new HookImplParams(featureFlags, tmpLibDir, hookLibDir, ...));
+// struct HookImplParams { int; std::string ×5; adrenotools_gpu_mapping *; }
+```
+
+**所以 `libadrenotools` 与 4 个 hook 必须同版本编译**，字段增删即布局错配。
+
+而 guest 侧的 `libvulkan_wrapper.so` 是**上游预编译 blob**，其 NEEDED 指名
+`libadrenotools.so`（同样来自 `wrapper.tzst` 的上游 blob）。把 `ADRENOTOOLS_HOOKS_PATH`
+指向 APK 里**我们自建 `8483dfd`** 的 hooks，构成「上游 `libadrenotools` + 自建
+`libhook_impl`」的混搭——若两版 `HookImplParams` 布局不同，症状与原 bug 一样隐蔽
+（handle 有效但 hook 失效 → 静默回退系统 Adreno 或 0 devices）。
+
+**待办**：真机验证前先比对 `wrapper.tzst` 内 `libadrenotools` 与 submodule `8483dfd` 的
+`HookImplParams` 布局；若不一致，二选一——
+(a) `ADRENOTOOLS_HOOKS_PATH` 回指 `wrapper.tzst` 提供的那份（保证与 wrapper 同源），或
+(b) 连 `libadrenotools` 一起用自建版覆盖 wrapper 内的那份。
+这正是 §0.6 「wrapper 与 hooks 同通道共版」规则的硬依据：**它们的边界上有 ABI，不能各自
+升级。**
 
 排查 OpenGL/DX7 黑屏时若要频繁试不同 Mesa，用 `mesa-gl-override.tzst`（表 14b，
 带上同版本 `libglapi`）——**调试手段，不是发布结构**。
