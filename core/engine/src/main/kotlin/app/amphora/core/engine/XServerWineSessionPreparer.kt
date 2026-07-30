@@ -729,21 +729,20 @@ class XServerWineSessionPreparer @Inject constructor(
     }
 
     /**
-     * `hookLibDir` for adrenotools. `adrenotools/driver.h` requires this to be
-     * exactly `getApplicationInfo().nativeLibraryDir`: the hooks are dlopen'd
-     * into the driver's linker namespace from that path, and pointing elsewhere
-     * makes `adrenotools_open_libvulkan` return a valid handle whose hook then
-     * fails, so the driver either silently falls back to the system Adreno blob
-     * or `vkEnumeratePhysicalDevices` reports zero devices.
+     * `hookLibDir` for **guest** adrenotools (env consumed by imagefs
+     * `libvulkan_wrapper.so` → `libadrenotools.so`).
      *
-     * The four hooks (`libmain_hook` / `libhook_impl` / `libfile_redirect_hook`
-     * / `libgsl_alloc_hook`) ship in the APK from our own adrenotools submodule,
-     * and `useLegacyPackaging = true` (see `AndroidApplicationConventionPlugin`)
-     * extracts them to disk so this path is populated. imagefs also carries a
-     * copy, but those are upstream prebuilts that can drift from the submodule
-     * pin, and a trimmed self-built imagefs may not carry them at all.
+     * Must match the guest `libadrenotools.so` vintage: that blob ships in
+     * `wrapper.tzst` / imagefs and only successfully `dlopen`s the hook set
+     * extracted beside it under `imageFs.getLibDir()`. Pointing at APK
+     * `nativeLibraryDir` (our submodule hooks) makes guest adrenotools log
+     * `Couldn't preload the hook implementation`, so Turnip never loads and
+     * every DXVK path returns `vkCreateInstance -9`.
+     *
+     * Host [VulkanRenderer] still uses `nativeLibraryDir` via JNI — that path
+     * links adrenotools into `libwinlator.so` and is a separate binary.
      */
-    private fun adrenotoolsHooksPath(): String = context.applicationInfo.nativeLibraryDir
+    private fun adrenotoolsHooksPath(): String = imageFs.getLibDir().path
 
     private fun compareVersion(varA: String, varB: String): Int {
         val a = parseSemverLoose(varA)
