@@ -62,15 +62,21 @@ class ImageFsRootfsInstaller @Inject constructor(
     override suspend fun ensureInstalled(spec: RootfsSpec): Boolean = withContext(dispatchers.io) {
         val rootDir = File(spec.targetRoot)
         val imageFs = ImageFs.find(rootDir)
-        val desired = spec.imagefsVersion.toIntOrNull() ?: 0
+        val entry = requireNotNull(manifest.entry(ContentComponent.ROOTFS)) {
+            "content manifest does not define rootfs"
+        }
+        // Prefer the remote/bundled manifest pin so publishing a new imagefs
+        // (URL + SHA + version) does not require an APK rebuild. Spec value is
+        // the floor from ImageFsInstaller.LATEST_VERSION.
+        val desired = maxOf(
+            entry.version.toIntOrNull() ?: 0,
+            spec.imagefsVersion.toIntOrNull() ?: 0,
+        )
 
         if (desired > 0 && imageFs.isValid && imageFs.getVersion() >= desired) {
             return@withContext true // already up to date
         }
 
-        val entry = requireNotNull(manifest.entry(ContentComponent.ROOTFS)) {
-            "content manifest does not define rootfs"
-        }
         val archive = downloader.acquire(
             root = File(context.cacheDir, "amphora-rootfs"),
             relativePath = entry.assetPath,
