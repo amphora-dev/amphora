@@ -330,9 +330,10 @@ _ZN14HookImplParamsC2EiPKcS1_S1_S1_S1_P23adrenotools_gpu_mapping
 这两步做完，磁盘上就只剩 APK 那一份，`imagefs/usr/lib/` 不再有 hook 文件。在那之前
 残留文件无害（无人引用），但**版本对比时容易误判**，所以两步都列为收尾动作。
 
-> `winlator-imagefs` 的 `build-native-libs.sh` 也会编这 4 个 hook 进
-> `native-libs.tar.xz`——那是该仓**对比上游 blob 的复现验证产物**，既不进 `imagefs.txz`，
-> 也不是 amphora 的 hook 来源。不要把它接成第四个来源。
+> `winlator-imagefs` 曾用 `build-native-libs.sh` 编这 4 个 hook（连同 proot /
+> virglrenderer）进 `native-libs.tar.xz`。**2026-07-30 已删除该脚本与对应 CI 阶段**：
+> 那些都不是 imagefs 内容，也不是 amphora 的来源，留着只会变成 hook 的第四个版本源。
+> 该仓现在只产 `imagefs.txz`。
 
 排查 OpenGL/DX7 黑屏时若要频繁试不同 Mesa，用 `mesa-gl-override.tzst`（表 14b，
 带上同版本 `libglapi`）——**调试手段，不是发布结构**。
@@ -359,6 +360,60 @@ hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
 | 字体从 pattern 拆出共享；pattern 去内嵌 ddraw | ✅ |
 | wincomponents 保持 tzst + 选装，不改 WCP | ✅ |
 | FFmpeg 不挡默认媒体（GStreamer 优先）；可作 imagefs 变体/附加包 | ✅ |
+
+---
+
+## 0.7 整体分布总览（谁产出 → 落到哪）
+
+> 一张表看清全局。**产出方**列指真正的构建/发布源，**通道**对应 §0.6，
+> **落地**指设备上的最终位置。体积为压缩后实测值。
+
+### 按产出方
+
+| 产出方 | 产物 | 通道 | 体积 | 落地 | 状态 |
+|---|---|---|---|---|---|
+| **amphora APK**（本仓 `:core:native`） | `libwinlator.so`（含**静态** adrenotools + 19 shader + zstd/xz）| — | 2.5 MB | `nativeLibraryDir` | ✅ |
+| 同上 | **4× adrenotools hook** `.so`（submodule `8483dfd`）| wrapper+hooks | 0.23 MB | `nativeLibraryDir` | ✅ **hooks 唯一来源** |
+| 同上 | `libfakeinput.so` | — | 小 | `nativeLibraryDir` | ✅ |
+| **`winlator-imagefs`**（cnb 自建配方）| `imagefs.txz`（43 包 Bionic 基线）| imagefs | 27.5 MB（解压 187 MB）| imagefs 根 | 🟡 PR #1 待合 |
+| 同上（规划） | + strip 后 Mesa `libGL`+`libglapi` | imagefs | +4–6 MB | imagefs `usr/lib` | ⬜ 待做 |
+| **`nicholasx417/WinNative-Components`**（GitHub Release）| `Proton-10.0-4-x86_64.wcp` | runtime | 168.6 MB | WCP → imagefs | ✅ |
+| 同上 | `Box64-0.4.3-*.wcp` | runtime | 2.8 MB | WCP → imagefs | ✅ |
+| 同上 | `Dxvk-3.0.2-gplasync.wcp` | dx | 6.7 MB | 容器 `system32`/`syswow64` | ✅ |
+| 同上 | `Vkd3d-3.0.1-S6_9.wcp` | dx | 3.4 MB | 同上 | ✅ |
+| **`WinNative-Emu/WinNative`**（GitHub LFS，上游）| `wrapper.tzst` | wrapper+hooks | 3.8 MB | imagefs `usr/lib` + ICD | 🟡 待重打剔 hook |
+| 同上 | `container_pattern_common.tzst` | container-pattern | 41.6 MB | 每容器一份 | 🟡 待瘦身+拆字体 |
+| 同上 | `wincomponents/*.tzst`（7 个）| wincomponents | ~38 MB | 容器 DLL | ✅ 机制不变 |
+| 同上 | `ddrawrapper/*.tzst`（3 个）| ddraw | 0.2–3 MB | 容器 `syswow64` | ⚪ 可选，默认 `none` |
+| 同上 | `imagefs.tzst`（官方 199.8 MB）| — | 199.8 MB | imagefs 根 | ⛔ 待自建替换 |
+| 同上 | `extra_libs.tzst` | — | 21.1 MB | — | ⛔ 废止（GL 并入 imagefs）|
+| 同上 | `layers.tzst` | 调试 | 4.4 MB | imagefs | ⚪ 仅调试 |
+| 同上 | 裸配置（`gpu_cards` / `startmenu` / `wincomponents` json / `default.box64rc`）| meta | 31 KB | 直拷 | ✅ |
+| **`WinNative-Emu/Drivers`** | `WN-Turnip-*.zip` | 可选驱动 | 2.7 MB | `contents/adrenotools/<id>/` | ⚪ 可选 |
+| **`amphora-assets`**（cnb 镜像）| 上述 24 个资产的固定标签镜像 | 发布面 | — | — | 🟡 仍 Private |
+| **`aio-graphics-test`**（cnb）| 图形自测 PE | 测试 | 小 | 容器 `drive_c` | ✅ |
+
+### 按落地根（覆盖域视角）
+
+| 落地根 | 谁写入 | 冲突风险 |
+|---|---|---|
+| `imagefs/`（rootfs） | `imagefs` + `wrapper.tzst` +（现）`extra_libs`/`layers` + Proton/Box64 WCP | **提取顺序敏感**；hooks 曾在此三份漂移 |
+| 容器 `system32`/`syswow64` | DXVK/VKD3D WCP + wincomponents + ddrawrapper | `cnc-ddraw` ↔ `dd7to9` **互斥** |
+| 容器 `.wine`（prefix） | `container_pattern` | 每容器一份，字体重复 |
+| `filesDir/contents/<type>/<ver>/` | `ContentsManager`（WCP） | 版本化，无冲突 |
+| `filesDir/contents/adrenotools/<id>/` | wrapper ICD 桥接 + 可选 Turnip | 单选 |
+| **`nativeLibraryDir`** | **APK 唯一** | 无——hooks 的唯一权威来源 |
+
+### 数量与体积汇总
+
+| | 现状 | 定稿目标 |
+|---|---|---|
+| 产出方数量 | 6 个外部源 + APK | 同（自建 imagefs 替掉官方 rootfs）|
+| 默认资产面 | ≳ 450 MB | **~230–240 MB** |
+| 其中 rootfs | 199.8 MB | **27.5 MB**（+Mesa GL ~33 MB）|
+| 其中图形叠加 | ~29 MB | **~4 MB** |
+| 其中容器模板 | 41.6 MB | **~10 MB** |
+| hooks 副本数 | 3（imagefs / wrapper / APK）| **1**（APK）|
 
 ---
 
