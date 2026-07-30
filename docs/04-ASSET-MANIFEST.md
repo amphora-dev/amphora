@@ -190,34 +190,57 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 6. **字体** 全局一份；多容器不重复打进 pattern。
 7. **发布面**：默认产物进公开 `amphora-assets`（或等价）固定标签；可选包同仓另附件，不塞进默认 APK。
 
+### 图形栈的依赖归属（实测）
+
+三个图形消费者对 imagefs 的 NEEDED（`readelf -dW`，2026-07-30 实测）：
+
+| imagefs 提供的库 | `libvulkan_wrapper` | `libvulkan_freedreno`（Turnip） | `libGL.so.1` | Wine unix 侧 |
+|---|:---:|:---:|:---:|:---:|
+| `libdrm.so` | ✅ | ✅ | ✅ | |
+| `libc++_shared.so` | ✅ | ✅ | ✅ | |
+| `libandroid-sysvshm.so` | ✅ | ✅ | | (LD_PRELOAD) |
+| `libxcb.so` `libX11-xcb.so` `libxcb-{dri3,present,sync,randr,shm}.so` | ✅ | ✅ | | |
+| `libz.so.1` `libzstd.so.1` | | ✅ | ✅ | |
+| `libX11.so` `libXext.so` | | | ✅ | ✅ `winex11.so` |
+| `libxshmfence.so` `libexpat.so.1` | | ✅ | | |
+| `libandroid-shmem.so` | | | ✅ | |
+| `libglapi.so.0` | | | ✅ | |
+| `libnativewindow.so` `liblog.so` `libm/libdl/libc` | ✅ | ✅ | ✅ | ✅ |
+
+**结论：这些库不属于 wrapper，也不属于 libGL，它们是多方共享的底座。**
+`libdrm` / `libc++_shared` 被三方同时链；`libX11` / `libXext` 连 Wine 的 `winex11.so`
+都要；`libz` / `libzstd` 是 Turnip 与 libGL 共用。**共享底座归 imagefs**，这与「它们看起来
+是图形相关」并不矛盾——图形栈的三个消费者都是**叠加在 imagefs 之上**的。
+
+真正跟 libGL 绑死的只有两项：`libglapi.so.0`（Mesa 自己的一半，**必须与 libGL 同版本**，
+1.4 MB）和 `libandroid-shmem.so`。
+
 ### 为什么 Mesa GL 进 imagefs，而 wrapper 不进
 
-一开始把 `libGL` 也列成独立包（`mesa-gl.tzst`），理由是「更新频率不同」。**这个理由不成立**：
+**修正一个论据**：先前写「拆开会 soname 错配」不准确。上表这些库的 soname 都很稳定
+（`libX11.so` 无后缀、`libdrm.so`、`libz.so.1`、`libzstd.so.1`、`libglapi.so.0`），更新也不
+频繁，所以错配风险其实不高。**「有依赖」本身不构成拆包的否决理由**——`wrapper` 同样依赖
+imagefs 的 `libxcb` / `libdrm` / `libandroid-sysvshm`，它照样独立发版。
 
-**（a）libGL 与 rootfs 是 soname 强耦合。** `libGL.so.1.5.0` 实测 NEEDED 11 项，其中 8 项
-由自建 imagefs 提供：
+判据应当是**是否存在独立换版需求**，以及**拆出去能否换来实际收益**：
 
-```
-libandroid-shmem.so  libglapi.so.0  libX11.so  libXext.so
-libdrm.so  libz.so.1  libzstd.so.1  libc++_shared.so
-```
+**libGL — 不拆。**
+- **无插拔需求**：OpenGL/DX7 走 Wine `opengl32` → WineD3D → **Zink** → Vulkan 驱动。
+  用户要换的是**下层 Vulkan 驱动**，不是 libGL 本身；没有「libGL 版本选择」这个 UI。
+- **拆了也省不下**：libGL 私有的只有 `libglapi`（1.4 MB）。底座留在 imagefs，
+  拆出去的包 ≈ libGL 自身体积，默认集总量不变，只多一个附件、多一次校验、多一处
+  版本组合。
+- **重打成本已经很低**：imagefs 现在是我们自己 CI 的产物（一次 CI + 一个 Release 附件），
+  不再是当年重下 199 MB 外部 blob，所以「避免重打 imagefs」不再是拆包动机。
 
-拆开发布意味着两个包各自演进 soname，错配的表现是**驱动加载失败即黑屏**（无报错），
-正是 `ci/verify-wine-deps.sh` 要防的那类问题。同一次构建产出、同一次校验，风险最低。
-
-**（b）它不是插拔点。** 用户不会「换 libGL 版本」——OpenGL/DX7 走 Wine `opengl32` →
-WineD3D → **Zink** → Vulkan 驱动，可换的是**下面的 Vulkan 驱动**，不是 libGL 本身。
-
-**（c）imagefs 现在是我们自己 CI 的产物。** 重打成本 = 一次 CI + 一个 Release 附件，
-不是当年那种要重下 199 MB 外部 blob 的代价，所以「避免重打 imagefs」不再是拆包动机。
-
-**wrapper + hooks 相反，两条硬理由：**
+**wrapper + hooks — 必须拆。** 两条硬理由，libGL 都不具备：
 1. `ADRENOTOOLS_HOOKS_PATH` **必须**是 `nativeLibraryDir`（`adrenotools/driver.h`），
-   物理上就不可能待在 imagefs 里；
-2. Vulkan 驱动是**真实插拔点**（Wrapper 默认 / 可选 Turnip），ICD 与 hooks 要能独立于
-   rootfs 换版。
+   物理上不可能待在 imagefs 里；
+2. Vulkan 驱动是**真实插拔点**（Wrapper 默认 / 可选 Turnip 二选一，有 UI），ICD 与 hooks
+   要能独立于 rootfs 换版。
 
-需要频繁试不同 `libGL` 时用 `mesa-gl-override.tzst`（表 14b）——**调试手段，不是发布结构**。
+排查 OpenGL/DX7 黑屏时若要频繁试不同 Mesa，用 `mesa-gl-override.tzst`（表 14b，
+带上同版本 `libglapi`）——**调试手段，不是发布结构**。
 
 ### 默认冷启动安装顺序
 
