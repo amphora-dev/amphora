@@ -66,10 +66,14 @@ class ImagefsExtractionTest {
         assertTrue("usr/bin missing", File(outDir, "usr/bin").isDirectory)
         assertTrue("usr/lib/libc.so missing", File(outDir, "usr/lib/libc.so").exists())
         assertTrue("usr/lib/libvulkan.so missing", File(outDir, "usr/lib/libvulkan.so").exists())
-        assertTrue("usr/lib/libpulse.so missing", File(outDir, "usr/lib/libpulse.so").exists())
         assertTrue(
-            "usr/lib/libpulseaudio.so missing",
-            File(outDir, "usr/lib/libpulseaudio.so").exists(),
+            "usr/lib/libasound.so missing",
+            File(outDir, "usr/lib/libasound.so").exists() ||
+                File(outDir, "usr/lib/libasound.so.2").exists(),
+        )
+        assertTrue(
+            "android_aserver ALSA plugin missing",
+            File(outDir, "usr/lib/asound_module_pcm_android_aserver.so").exists(),
         )
         assertTrue(
             "usr/etc/alsa/conf.d/android_aserver.conf missing",
