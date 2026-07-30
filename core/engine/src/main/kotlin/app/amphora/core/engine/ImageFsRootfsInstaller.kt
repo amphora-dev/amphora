@@ -5,6 +5,7 @@ import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.VerifiedAssetDownloader
 import app.amphora.core.content.model.ContentComponent
+import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.display.environment.ImageFs
@@ -78,10 +79,8 @@ class ImageFsRootfsInstaller @Inject constructor(
             expectedSize = entry.size,
         )
         val type = when (entry.compression) {
-            app.amphora.core.content.model.ManifestEntry.Compression.XZ ->
-                TarCompressorUtils.Type.XZ
-            app.amphora.core.content.model.ManifestEntry.Compression.ZSTD ->
-                TarCompressorUtils.Type.ZSTD
+            ManifestEntry.Compression.XZ -> TarCompressorUtils.Type.XZ
+            ManifestEntry.Compression.ZSTD -> TarCompressorUtils.Type.ZSTD
         }
         installAtomically(rootDir, archive, desired, type)
     }

@@ -188,7 +188,7 @@ class WineEngineImpl @Inject constructor(
             ),
         )
         check(installed) {
-            "Rootfs installation failed: imagefs.tzst extraction returned false " +
+            "Rootfs installation failed: imagefs extraction returned false " +
                 "(asset missing from APK assets or native extract error; see TarCompressor logs)."
         }
     }

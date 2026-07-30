@@ -22,8 +22,9 @@ import javax.inject.Inject
 /**
  * End-to-end verification of remote rootfs provisioning on real hardware.
  *
- * A cold run downloads, verifies and atomically installs `imagefs.tzst`; a warm
- * run validates the installed-version fast path without requiring APK assets.
+ * A cold run downloads, verifies and atomically installs the self-built
+ * `amphora-dev/imagefs` Release (`imagefs.txz`); a warm run validates the
+ * installed-version fast path without requiring APK assets.
  *
  * Device: Lenovo TB322FC, arm64-v8a, API 36, Adreno 830.
  */
