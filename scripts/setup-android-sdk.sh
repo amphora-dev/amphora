@@ -56,6 +56,11 @@ install_cmdline_tools
 install_packages
 write_local_properties
 
+# Optional: native compile accelerator (ccache). Best-effort; never fail bootstrap.
+if [[ -x "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup-ccache.sh" ]]; then
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup-ccache.sh" || true
+fi
+
 # Submodule needed for :core:native CMake (adrenotools).
 git -C "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" submodule update --init --recursive
 

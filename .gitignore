@@ -4,6 +4,9 @@ gradle-user/
 **/build/
 local.properties
 
+# Native compile caches (ccache + CMake FetchContent for zstd/xz)
+.native-cache/
+
 # Android / Studio
 *.iml
 .idea/

@@ -19,6 +19,17 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(amphora_native LANGUAGES C CXX)
 
+# Optional compile accelerator (CI + local). Prefer launcher set by Gradle
+# (-DCMAKE_C_COMPILER_LAUNCHER=ccache); fall back to PATH discovery.
+if(NOT CMAKE_C_COMPILER_LAUNCHER)
+    find_program(AMPHORA_CCACHE ccache)
+    if(AMPHORA_CCACHE)
+        set(CMAKE_C_COMPILER_LAUNCHER "${AMPHORA_CCACHE}" CACHE STRING "" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${AMPHORA_CCACHE}" CACHE STRING "" FORCE)
+        message(STATUS "amphora native: using ccache (${AMPHORA_CCACHE})")
+    endif()
+endif()
+
 # Match WinNative's global C flags. NDK r28 / clang 21 treats
 # -Wimplicit-function-declaration as an error by default in newer C modes; the
 # explicit flag keeps it a warning so the verbatim C sources compile untouched.

@@ -4,6 +4,10 @@ on:
   pull_request:
   push:
 
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.native-cache/ccache
+  CCACHE_MAXSIZE: 2G
+
 jobs:
   continuous-test:
     runs-on: ubuntu-24.04
@@ -13,13 +17,31 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install ccache
+        run: bash scripts/setup-ccache.sh
+
+      - name: Cache native compile artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .native-cache
+          key: native-${{ runner.os }}-${{ hashFiles('core/native/**/CMakeLists.txt', 'core/native/src/main/cpp/**/*.{c,cpp,h,hpp}', 'core/native/src/main/cpp/adrenotools/**/*.{c,cpp,h,hpp}', 'build-logic/convention/src/main/kotlin/app/amphora/buildlogic/AndroidNativeConventionPlugin.kt') }}
+          restore-keys: |
+            native-${{ runner.os }}-
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.ref != 'refs/heads/main' }}
 
       - name: JVM unit tests
         run: bash scripts/ci-jvm-test.sh
         timeout-minutes: 30
 
       - name: Assemble debug
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
         timeout-minutes: 60
+
+      - name: ccache stats
+        if: always()
+        run: ccache -s || true
