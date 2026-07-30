@@ -21,11 +21,13 @@ import javax.inject.Singleton
  * ([ImageFs] + [TarCompressorUtils]). Adapts WinNative's `ImageFsInstaller`
  * (RFC §7 / §11 / D7) into the clean amphora contract.
  *
- * **Scope (imagefs base only):** extracts the zstd-compressed imagefs archive
- * (`imagefs.tzst`, sharded as `imagefs.partNN.tzst`) into [RootfsSpec.targetRoot]
- * and writes the version marker (`.winlator/.img_version`). Wine / box64 / Turnip
- * / DXVK binaries are installed by [WineSessionPreparer] / [ContentSource]; the
- * Steam DLL marker clear (`clearSteamDllMarkers`) and container-version reset
+ * **Scope (imagefs base only):** extracts the imagefs archive from the content
+ * manifest (`ROOTFS` entry — currently self-built `imagefs.txz` / XZ from
+ * `amphora-dev/imagefs`) into [RootfsSpec.targetRoot] and writes the version
+ * marker (`.winlator/.img_version`). Compression follows
+ * [ManifestEntry.compression]. Wine / box64 / Turnip / DXVK binaries are
+ * installed by [WineSessionPreparer] / [ContentSource]; the Steam DLL marker
+ * clear (`clearSteamDllMarkers`) and container-version reset
  * (`resetContainerImgVersions`) from WinNative are stripped -- Steam is a
  * non-target (RFC §7) and container state belongs to `:core:container` (P4).
  * Activity / progress UI from WinNative was removed; amphora surfaces progress
@@ -44,11 +46,9 @@ import javax.inject.Singleton
  * to reproduce that path inside imagefs, but final verification waits on the real
  * asset + termuxfs SHA lock (P2 asset acquisition).
  *
- * **Compile-only:** the extraction path is correct against the restored
- * [TarCompressorUtils] native backend (P2: `native_content_io.cpp` extraction
- * restored with zstd+xz; curl/download stubbed per D4). End-to-end verification
- * waits on the real ~869 MB `imagefs.tzst` asset (`winlator-imagefs` build
- * product, P2 asset item -- currently a 134-byte placeholder in WinNative assets).
+ * Extraction uses the restored [TarCompressorUtils] native backend (zstd + xz;
+ * curl/download stubbed per D4). Production rootfs is the self-built
+ * `amphora-dev/imagefs` Release (`amphora` tag).
  */
 @Singleton
 class ImageFsRootfsInstaller @Inject constructor(
@@ -77,7 +77,13 @@ class ImageFsRootfsInstaller @Inject constructor(
             expectedSha256 = requireNotNull(entry.sha256) { "rootfs SHA-256 is missing" },
             expectedSize = entry.size,
         )
-        installAtomically(rootDir, archive, desired)
+        val type = when (entry.compression) {
+            app.amphora.core.content.model.ManifestEntry.Compression.XZ ->
+                TarCompressorUtils.Type.XZ
+            app.amphora.core.content.model.ManifestEntry.Compression.ZSTD ->
+                TarCompressorUtils.Type.ZSTD
+        }
+        installAtomically(rootDir, archive, desired, type)
     }
 
     override suspend fun currentVersion(): String? = withContext(dispatchers.io) {
@@ -86,14 +92,19 @@ class ImageFsRootfsInstaller @Inject constructor(
         if (!imageFs.isValid) null else imageFs.getVersion().toString()
     }
 
-    private fun installAtomically(rootDir: File, archive: File, desired: Int): Boolean {
+    private fun installAtomically(
+        rootDir: File,
+        archive: File,
+        desired: Int,
+        type: TarCompressorUtils.Type,
+    ): Boolean {
         val staging = File(rootDir.parentFile, "${rootDir.name}.staging")
         val backup = File(rootDir.parentFile, "${rootDir.name}.backup")
         recoverInterruptedInstall(rootDir, staging, backup)
 
         FileUtils.delete(staging)
         check(staging.mkdirs()) { "Unable to create rootfs staging directory: $staging" }
-        if (!TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, archive, staging)) {
+        if (!TarCompressorUtils.extract(type, archive, staging)) {
             FileUtils.delete(staging)
             return false
         }
