@@ -1,7 +1,7 @@
 package app.amphora
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import app.amphora.core.content.ContentManifest
+import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.model.ContentArtifact
 import app.amphora.core.content.model.ContentComponent
@@ -35,7 +35,7 @@ class RemoteContentSourceTest {
     val hiltRule = HiltAndroidRule(this)
 
     @Inject
-    lateinit var manifest: ContentManifest
+    lateinit var catalog: ContentCatalog
 
     @Inject
     lateinit var source: ContentSource
@@ -44,7 +44,8 @@ class RemoteContentSourceTest {
     fun setUp() = hiltRule.inject()
 
     @Test
-    fun manifest_loadsAndParsesAllEntries() {
+    fun manifest_loadsAndParsesAllEntries() = runBlocking {
+        val manifest = catalog.require()
         val ids = manifest.all().map { it.component }.toSet()
         assertTrue("wine entry missing", ContentComponent.WINE in ids)
         assertTrue("box64 entry missing", ContentComponent.BOX64 in ids)
