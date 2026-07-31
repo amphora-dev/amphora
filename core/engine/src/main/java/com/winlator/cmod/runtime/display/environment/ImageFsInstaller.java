@@ -6,7 +6,7 @@ package com.winlator.cmod.runtime.display.environment;
  * installer UI was removed with the handwritten {@code R} stub cleanup.
  */
 public final class ImageFsInstaller {
-  public static final byte LATEST_VERSION = 23;
+  public static final byte LATEST_VERSION = 24;
 
   private ImageFsInstaller() {}
 }
