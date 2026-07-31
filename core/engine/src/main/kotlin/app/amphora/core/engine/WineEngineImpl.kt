@@ -135,12 +135,22 @@ class WineEngineImpl @Inject constructor(
         val driverConfig = GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
             wnContainer.getGraphicsDriverConfig(),
         )
-        // Host VulkanRenderer must use the same adrenotools id as the guest ICD
-        // (config `version=`, default "wrapper"). Empty / "System" would dlopen the
-        // host Adreno and black-screen against guest Turnip.
-        val hostDriver = driverConfig["version"]
+        // Host VulkanRenderer must use the same adrenotools id as the guest.
+        // Prefs are the UI source of truth (container version= can lag).
+        val prefsDriver = GraphicsDriverIds.normalize(
+            context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+        )
+        val containerDriver = driverConfig["version"]
             ?.takeIf { it.isNotEmpty() && !it.equals("System", ignoreCase = true) }
-            ?: "wrapper"
+            ?.let { GraphicsDriverIds.normalize(it) }
+        val hostDriver = prefsDriver.ifEmpty { containerDriver ?: GraphicsDriverIds.WRAPPER }
+        if (containerDriver != null && containerDriver != hostDriver) {
+            Log.i(
+                "WineEngineImpl",
+                "Host graphics driver from prefs='$hostDriver' (container had '$containerDriver')",
+            )
+        }
         _surface.value = GameSessionSurface(
             xServer = xServer,
             graphicsDriver = hostDriver,
