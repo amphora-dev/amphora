@@ -8,8 +8,8 @@ import app.amphora.core.content.model.id
 import org.json.JSONObject
 
 /**
- * Parses the remote `content_manifest.json` (repo path
- * `core/content/content_manifest.json`, not packaged into the APK) into
+ * Parses the remote `content_manifest.json` (hosted in
+ * `amphora-dev/content_manifest`, not packaged into the APK) into
  * [ManifestEntry]s keyed by [ComponentId].
  *
  * Pure parsing is [parse] (no Android deps) so it is JVM-unit-testable.

@@ -10,12 +10,12 @@ class ContentManifestLoaderTest {
         assertTrue(ContentManifestLoader.DEFAULT_REMOTE_URL.startsWith("https://"))
         assertTrue(
             ContentManifestLoader.DEFAULT_REMOTE_URL.contains(
-                "amphora-dev/amphora"
+                "amphora-dev/content_manifest"
             )
         )
         assertTrue(
             ContentManifestLoader.DEFAULT_REMOTE_URL.endsWith(
-                "core/content/content_manifest.json"
+                "content_manifest.json"
             )
         )
     }
@@ -32,7 +32,10 @@ class ContentManifestLoaderTest {
 
     @Test
     fun parseShapeMatchesRepoManifest() {
-        val json = java.io.File("content_manifest.json").readText()
+        val json = javaClass.classLoader!!
+            .getResourceAsStream("content_manifest.json")!!
+            .bufferedReader()
+            .readText()
         val manifest = ContentManifest.parse(json)
         assertEquals(6, manifest.all().size)
         assertTrue(manifest.entry(app.amphora.core.content.model.ContentComponent.ROOTFS) != null)

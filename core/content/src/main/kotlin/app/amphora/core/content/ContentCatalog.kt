@@ -11,8 +11,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Remote-only content pin catalog. There is no APK-bundled fallback — pins live
- * on GitHub (`content_manifest.json` in the amphora repo) and are refreshed at
- * runtime so imagefs / WCP SHA bumps do not require an APK rebuild.
+ * in `amphora-dev/content_manifest` and are refreshed at runtime so imagefs /
+ * WCP SHA bumps do not require an APK rebuild.
  */
 class ContentCatalog(
     private val context: Context,

@@ -8,9 +8,9 @@ import java.net.URI
 
 /**
  * Loads [ContentManifest] exclusively from a remote HTTPS URL (MiceWine-style
- * remote index). There is **no** APK-bundled fallback — pin updates happen by
- * editing `core/content/content_manifest.json` on `main` (imagefs CI does this
- * after publishing a new rootfs).
+ * remote index). There is **no** APK-bundled fallback — pins live in
+ * `amphora-dev/content_manifest` and are refreshed at runtime so imagefs / WCP
+ * SHA bumps do not require an APK rebuild.
  */
 object ContentManifestLoader {
     private const val TAG = "ContentManifestLoader"
@@ -21,8 +21,8 @@ object ContentManifestLoader {
      * system property `amphora.content_manifest_url` (tests / debug).
      */
     const val DEFAULT_REMOTE_URL =
-        "https://raw.githubusercontent.com/amphora-dev/amphora/main/" +
-            "core/content/content_manifest.json"
+        "https://raw.githubusercontent.com/amphora-dev/content_manifest/main/" +
+            "content_manifest.json"
 
     /**
      * Fetch and parse the remote manifest. Throws when the URL is missing or

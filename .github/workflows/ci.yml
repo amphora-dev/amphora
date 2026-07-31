@@ -2,11 +2,7 @@ name: CI
 
 on:
   pull_request:
-    paths-ignore:
-      - 'core/content/content_manifest.json'
   push:
-    paths-ignore:
-      - 'core/content/content_manifest.json'
 
 env:
   CCACHE_DIR: ${{ github.workspace }}/.native-cache/ccache
