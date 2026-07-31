@@ -35,8 +35,11 @@ logcat*.txt
 dist/
 
 # Signing
+# The shared debug.keystore lives in-app and is intentionally committed so debug
+# APKs built on different machines share one signature (see AndroidApplicationConventionPlugin).
 *.jks
 *.keystore
+!app/debug.keystore
 signing.properties
 
 # Python tooling
