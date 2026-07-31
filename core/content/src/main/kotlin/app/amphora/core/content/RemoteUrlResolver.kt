@@ -7,29 +7,27 @@ import java.net.HttpURLConnection
 import java.net.URI
 
 /** Resolves pinned WCP filenames through the upstream stable `default.json`. */
-class RemoteUrlResolver(
-    private val manifest: ContentManifest,
-) {
+class RemoteUrlResolver {
     @Volatile
     private var catalog: Map<String, String>? = null
 
-    fun resolve(entry: ManifestEntry): String {
+    fun resolve(entry: ManifestEntry, wcpCatalogUrl: String?): String {
         entry.remoteUrl?.let { return it }
         require(entry.kind == ManifestEntry.Kind.WCP) {
             "A remoteUrl is required for non-WCP asset ${entry.assetPath}"
         }
-        return catalogUrls()[entry.assetPath]
+        return catalogUrls(wcpCatalogUrl)[entry.assetPath]
             ?: error(
                 "${entry.assetPath} is not present in the stable WCP catalog " +
-                    "(${manifest.wcpCatalogUrl})"
+                    "($wcpCatalogUrl)"
             )
     }
 
-    private fun catalogUrls(): Map<String, String> {
+    private fun catalogUrls(wcpCatalogUrl: String?): Map<String, String> {
         catalog?.let { return it }
         return synchronized(this) {
             catalog?.let { return@synchronized it }
-            val url = manifest.wcpCatalogUrl
+            val url = wcpCatalogUrl
                 ?: error("content manifest does not define wcpCatalogUrl")
             val connection = URI(url).toURL().openConnection() as HttpURLConnection
             connection.instanceFollowRedirects = true

@@ -88,7 +88,7 @@ class ContentManifestTest {
      */
     @Test fun realManifestHasAllShasPinned() {
         val manifest = ContentManifest.parse(
-            File("src/main/assets/content_manifest.json").readText(),
+            File("content_manifest.json").readText(),
         )
         assertEquals("shipped manifest must define 6 remote components", 6, manifest.all().size)
         assertNotNull(manifest.entry(ContentComponent.VKD3D))

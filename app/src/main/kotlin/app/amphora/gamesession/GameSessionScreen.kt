@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,7 +19,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -30,6 +31,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.model.SessionState
 import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
@@ -81,6 +83,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     val surface by viewModel.surface.collectAsState()
     val sessionState by viewModel.sessionState.collectAsState()
     val launchError by viewModel.launchError.collectAsState()
+    val provisionProgress by viewModel.provisionProgress.collectAsState()
 
     // Auto-exit when the guest process terminates normally (SessionHandle.markStopped).
     LaunchedEffect(sessionState) {
@@ -111,7 +114,11 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
             GameSurface(surface = sessionSurface, modifier = Modifier.fillMaxSize())
             TouchInputOverlay(xServer = sessionSurface.xServer, modifier = Modifier.fillMaxSize())
         } else {
-            SessionPlaceholder(sessionState = sessionState, launchError = launchError)
+            SessionPlaceholder(
+                sessionState = sessionState,
+                launchError = launchError,
+                provisionProgress = provisionProgress,
+            )
         }
 
         // Exit affordance (top-start): stops a running session (auto-exit follows on STOPPED),
@@ -207,7 +214,11 @@ private fun totalMove(x: Float, y: Float, downX: Float, downY: Float): Float =
     Math.abs(x - downX) + Math.abs(y - downY)
 
 @Composable
-private fun SessionPlaceholder(sessionState: SessionState?, launchError: String?) {
+private fun SessionPlaceholder(
+    sessionState: SessionState?,
+    launchError: String?,
+    provisionProgress: ProvisionProgress?,
+) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
@@ -222,8 +233,47 @@ private fun SessionPlaceholder(sessionState: SessionState?, launchError: String?
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
+            provisionProgress != null -> {
+                Text("Updating content…", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    listOfNotNull(
+                        provisionProgress.stage,
+                        provisionProgress.detail.takeIf { it.isNotBlank() },
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                val fraction = provisionProgress.fraction
+                if (fraction != null) {
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                    )
+                    provisionProgress.totalBytes?.let { total ->
+                        Text(
+                            "${formatBytes(provisionProgress.bytesDownloaded)} / ${formatBytes(total)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                    )
+                }
+            }
             sessionState == SessionState.STARTING -> Text("Starting session…")
             else -> Text("Initializing…")
         }
     }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
+    bytes >= 1_000 -> "%.1f KB".format(bytes / 1_000.0)
+    else -> "$bytes B"
 }

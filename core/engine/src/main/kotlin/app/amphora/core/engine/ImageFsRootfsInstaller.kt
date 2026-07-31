@@ -2,7 +2,9 @@ package app.amphora.core.engine
 
 import android.content.Context
 import app.amphora.core.common.dispatcher.DispatcherProvider
-import app.amphora.core.content.ContentManifest
+import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.ProvisionProgress
+import app.amphora.core.content.ProvisionProgressBus
 import app.amphora.core.content.VerifiedAssetDownloader
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
@@ -31,8 +33,7 @@ import javax.inject.Singleton
  * clear (`clearSteamDllMarkers`) and container-version reset
  * (`resetContainerImgVersions`) from WinNative are stripped -- Steam is a
  * non-target (RFC §7) and container state belongs to `:core:container` (P4).
- * Activity / progress UI from WinNative was removed; amphora surfaces progress
- * via Compose instead.
+ * Progress is published on [ProvisionProgressBus] for the Compose UI.
  *
  * **Why this lives in `:core:engine`, not `:core:rootfs`:** the dependency graph
  * is `engine -> rootfs` (RFC §6), so `:core:rootfs` cannot see
@@ -55,19 +56,21 @@ import javax.inject.Singleton
 class ImageFsRootfsInstaller @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
-    private val manifest: ContentManifest,
+    private val catalog: ContentCatalog,
     private val downloader: VerifiedAssetDownloader,
+    private val progressBus: ProvisionProgressBus,
 ) : RootfsInstaller {
 
     override suspend fun ensureInstalled(spec: RootfsSpec): Boolean = withContext(dispatchers.io) {
         val rootDir = File(spec.targetRoot)
         val imageFs = ImageFs.find(rootDir)
+        val manifest = catalog.require()
         val entry = requireNotNull(manifest.entry(ContentComponent.ROOTFS)) {
             "content manifest does not define rootfs"
         }
-        // Prefer the remote/bundled manifest pin so publishing a new imagefs
-        // (URL + SHA + version) does not require an APK rebuild. Spec value is
-        // the floor from ImageFsInstaller.LATEST_VERSION.
+        // Prefer the remote manifest pin so publishing a new imagefs (URL + SHA
+        // + version) does not require an APK rebuild. Spec value is the floor
+        // from ImageFsInstaller.LATEST_VERSION.
         val desired = maxOf(
             entry.version.toIntOrNull() ?: 0,
             spec.imagefsVersion.toIntOrNull() ?: 0,
@@ -77,12 +80,24 @@ class ImageFsRootfsInstaller @Inject constructor(
             return@withContext true // already up to date
         }
 
+        progressBus.update(
+            ProvisionProgress(
+                stage = "rootfs",
+                detail = "Downloading imagefs v$desired…",
+                bytesDownloaded = 0,
+                totalBytes = entry.size,
+            ),
+        )
         val archive = downloader.acquire(
             root = File(context.cacheDir, "amphora-rootfs"),
             relativePath = entry.assetPath,
             remoteUrl = requireNotNull(entry.remoteUrl) { "rootfs remoteUrl is missing" },
             expectedSha256 = requireNotNull(entry.sha256) { "rootfs SHA-256 is missing" },
             expectedSize = entry.size,
+            label = "imagefs.txz (v$desired)",
+        )
+        progressBus.update(
+            ProvisionProgress(stage = "extract", detail = "Extracting imagefs v$desired…"),
         )
         val type = when (entry.compression) {
             ManifestEntry.Compression.XZ -> TarCompressorUtils.Type.XZ

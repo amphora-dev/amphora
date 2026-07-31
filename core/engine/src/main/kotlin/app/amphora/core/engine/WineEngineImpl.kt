@@ -5,6 +5,9 @@ import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.container.model.Container as AmphoraContainer
+import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.ProvisionProgress
+import app.amphora.core.content.ProvisionProgressBus
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.engine.model.AudioSink
 import app.amphora.core.engine.model.InputSink
@@ -83,6 +86,8 @@ class WineEngineImpl @Inject constructor(
     private val rootfsInstaller: RootfsInstaller,
     private val preparer: WineSessionPreparer,
     private val runtimeAssets: RuntimeAssetProvisioner,
+    private val catalog: ContentCatalog,
+    private val progressBus: ProvisionProgressBus,
     private val dispatchers: DispatcherProvider,
 ) : WineEngine, GameSessionSurfaceProvider {
 
@@ -94,6 +99,7 @@ class WineEngineImpl @Inject constructor(
     // --- session surface (GameSessionSurfaceProvider) ---------------------------------------
     private val _surface = MutableStateFlow<GameSessionSurface?>(null)
     override val surface: StateFlow<GameSessionSurface?> = _surface.asStateFlow()
+    override val provisionProgress: StateFlow<ProvisionProgress?> = progressBus.progress
 
     private var currentXServer: XServer? = null
     private var currentHandle: XServerSessionHandle? = null
@@ -107,77 +113,89 @@ class WineEngineImpl @Inject constructor(
         // Ensure Wine stderr can land under filesDir (ProcessHelper has no PluviaApp).
         ProcessHelper.init(context)
 
-        // 1. Kernel-direct archives/metadata are downloaded once and then served
-        //    transparently through the legacy asset-path IO bridge.
-        runtimeAssets.ensureAvailable()
-        // 2. imagefs rootfs.
-        ensureRootfs()
-        // 3. Wine container / WINEPREFIX (P4 WinlatorContainerManager: installs
-        //    Wine/Box64/DXVK content + creates the prefix from the Proton prefixPack).
-        val container = containerManager.getOrCreate(spec.containerId)
-        // This engine instance's ContentsManager needs the installed profiles loaded for
-        // WineInfo.fromIdentifier (step 4) + buildGuestLauncher (getProfileByEntryName).
-        // The ContainerManager + preparer each sync their own ContentsManager instance
-        // (per-instance state -- see docs/03-TRACKING.md §P2 #7c).
-        contentsManager.syncContents()
-        // 3. Prefix + runtime files + DX wrapper + graphics driver (P2 WineSessionPreparer).
-        preparer.setupWineSystemFiles(spec, container)
-        preparer.extractGraphicsDriverFiles(container)
-        // 4. Resolve the WinNative Container + WineInfo the launcher needs (bridge, mirror
-        //    preparer.resolveState: amphora Container.rootPath -> WinNative Container by rootDir).
-        val wnContainer = resolveWinNativeContainer(container)
-        val wineVersion = wnContainer.getWineVersion()
-        val wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion)
-        imageFs.setWinePath(wineInfo.path)
-        // 5. XServer: the X render target + the input injection surface for the touch overlay.
-        val xServer = XServer(ScreenInfo(spec.displaySize.width, spec.displaySize.height))
-        currentXServer = xServer
-        val driverConfig = GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
-            wnContainer.getGraphicsDriverConfig(),
-        )
-        // Host VulkanRenderer must use the same adrenotools id as the guest.
-        // Prefs are the UI source of truth (container version= can lag).
-        val prefsDriver = GraphicsDriverIds.normalize(
-            context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
-                .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
-        )
-        val containerDriver = driverConfig["version"]
-            ?.takeIf { it.isNotEmpty() && !it.equals("System", ignoreCase = true) }
-            ?.let { GraphicsDriverIds.normalize(it) }
-        val hostDriver = prefsDriver.ifEmpty { containerDriver ?: GraphicsDriverIds.WRAPPER }
-        if (containerDriver != null && containerDriver != hostDriver) {
-            Log.i(
-                "WineEngineImpl",
-                "Host graphics driver from prefs='$hostDriver' (container had '$containerDriver')",
-            )
-        }
-        _surface.value = GameSessionSurface(
-            xServer = xServer,
-            graphicsDriver = hostDriver,
-            presentMode = driverConfig["presentMode"],
-        )
-        // 6. Launch env: container Zink/Turnip defaults + preparer + caller + ALSA.
-        val envVars = buildLaunchEnvVars(spec, wnContainer)
-        // 7. XEnvironment + service components (GPLC added separately so the handle can wire its
-        //    termination callback first).
-        val environment = buildEnvironment(xServer, envVars)
-        val handle = XServerSessionHandle(environment, xServer, dispatchers)
-        currentHandle = handle
-        // 8. Guest launcher: `box64 wine explorer /desktop=WxH "<exe>"` (D9: Amphora passes
-        //    exe + env only; it never rewrites getWineStartCommand).
-        val launcher = buildGuestLauncher(wnContainer, wineInfo, spec, envVars)
-        launcher.setTerminationCallback { handle.markStopped() }
-        environment.addComponent(launcher)
-        // 9. Start (GPLC starts last and execs the guest process).
-        handle.markStarting()
         try {
-            environment.startEnvironmentComponents()
-            handle.markRunning()
-        } catch (e: Exception) {
-            handle.markFailed(e)
-            throw e
+            progressBus.update(ProvisionProgress(stage = "manifest", detail = "Fetching content manifest…"))
+            catalog.require()
+
+            // 1. Kernel-direct archives/metadata are downloaded once and then served
+            //    transparently through the legacy asset-path IO bridge.
+            progressBus.update(ProvisionProgress(stage = "runtime", detail = "Preparing runtime assets…"))
+            runtimeAssets.ensureAvailable()
+            // 2. imagefs rootfs.
+            progressBus.update(ProvisionProgress(stage = "rootfs", detail = "Checking imagefs…"))
+            ensureRootfs()
+            // 3. Wine container / WINEPREFIX (P4 WinlatorContainerManager: installs
+            //    Wine/Box64/DXVK content + creates the prefix from the Proton prefixPack).
+            progressBus.update(ProvisionProgress(stage = "container", detail = "Preparing Wine container…"))
+            val container = containerManager.getOrCreate(spec.containerId)
+            // This engine instance's ContentsManager needs the installed profiles loaded for
+            // WineInfo.fromIdentifier (step 4) + buildGuestLauncher (getProfileByEntryName).
+            // The ContainerManager + preparer each sync their own ContentsManager instance
+            // (per-instance state -- see docs/03-TRACKING.md §P2 #7c).
+            contentsManager.syncContents()
+            // 3. Prefix + runtime files + DX wrapper + graphics driver (P2 WineSessionPreparer).
+            progressBus.update(ProvisionProgress(stage = "prefix", detail = "Setting up Wine prefix…"))
+            preparer.setupWineSystemFiles(spec, container)
+            preparer.extractGraphicsDriverFiles(container)
+            // 4. Resolve the WinNative Container + WineInfo the launcher needs (bridge, mirror
+            //    preparer.resolveState: amphora Container.rootPath -> WinNative Container by rootDir).
+            val wnContainer = resolveWinNativeContainer(container)
+            val wineVersion = wnContainer.getWineVersion()
+            val wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion)
+            imageFs.setWinePath(wineInfo.path)
+            // 5. XServer: the X render target + the input injection surface for the touch overlay.
+            progressBus.update(ProvisionProgress(stage = "session", detail = "Starting X session…"))
+            val xServer = XServer(ScreenInfo(spec.displaySize.width, spec.displaySize.height))
+            currentXServer = xServer
+            val driverConfig = GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
+                wnContainer.getGraphicsDriverConfig(),
+            )
+            // Host VulkanRenderer must use the same adrenotools id as the guest.
+            // Prefs are the UI source of truth (container version= can lag).
+            val prefsDriver = GraphicsDriverIds.normalize(
+                context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+                    .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+            )
+            val containerDriver = driverConfig["version"]
+                ?.takeIf { it.isNotEmpty() && !it.equals("System", ignoreCase = true) }
+                ?.let { GraphicsDriverIds.normalize(it) }
+            val hostDriver = prefsDriver.ifEmpty { containerDriver ?: GraphicsDriverIds.WRAPPER }
+            if (containerDriver != null && containerDriver != hostDriver) {
+                Log.i(
+                    "WineEngineImpl",
+                    "Host graphics driver from prefs='$hostDriver' (container had '$containerDriver')",
+                )
+            }
+            _surface.value = GameSessionSurface(
+                xServer = xServer,
+                graphicsDriver = hostDriver,
+                presentMode = driverConfig["presentMode"],
+            )
+            // 6. Launch env: container Zink/Turnip defaults + preparer + caller + ALSA.
+            val envVars = buildLaunchEnvVars(spec, wnContainer)
+            // 7. XEnvironment + service components (GPLC added separately so the handle can wire its
+            //    termination callback first).
+            val environment = buildEnvironment(xServer, envVars)
+            val handle = XServerSessionHandle(environment, xServer, dispatchers)
+            currentHandle = handle
+            // 8. Guest launcher: `box64 wine explorer /desktop=WxH "<exe>"` (D9: Amphora passes
+            //    exe + env only; it never rewrites getWineStartCommand).
+            val launcher = buildGuestLauncher(wnContainer, wineInfo, spec, envVars)
+            launcher.setTerminationCallback { handle.markStopped() }
+            environment.addComponent(launcher)
+            // 9. Start (GPLC starts last and execs the guest process).
+            handle.markStarting()
+            try {
+                environment.startEnvironmentComponents()
+                handle.markRunning()
+            } catch (e: Exception) {
+                handle.markFailed(e)
+                throw e
+            }
+            handle
+        } finally {
+            progressBus.clear()
         }
-        handle
     }
 
     override fun inputFeed(): InputSink =

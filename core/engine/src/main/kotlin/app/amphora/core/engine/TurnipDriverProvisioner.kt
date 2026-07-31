@@ -40,6 +40,7 @@ class TurnipDriverProvisioner @Inject constructor(
             remoteUrl = GraphicsDriverIds.TURNIP_ZIP_URL,
             expectedSha256 = GraphicsDriverIds.TURNIP_ZIP_SHA256,
             expectedSize = GraphicsDriverIds.TURNIP_ZIP_SIZE,
+            label = "Turnip ${GraphicsDriverIds.TURNIP_BALANCED}",
         )
         Log.i(TAG, "Installing Turnip from ${zip.absolutePath}")
         adrenotools.installFromZip(zip, driverId)

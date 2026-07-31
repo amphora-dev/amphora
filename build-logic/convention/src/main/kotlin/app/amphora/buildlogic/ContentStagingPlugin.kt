@@ -317,7 +317,7 @@ class ContentStagingConventionPlugin : Plugin<Project> {
         // resolved via project reference (not a hardcoded path in the consumer).
         rootProject.findProject(":core:content")?.let { content ->
             ext.manifestFile.convention(
-                content.layout.projectDirectory.file("src/main/assets/content_manifest.json")
+                content.layout.projectDirectory.file("content_manifest.json")
             )
         } ?: logger.warn("amphora.content.staging: :core:content not found; set amphoraContentStaging.manifestFile explicitly.")
 

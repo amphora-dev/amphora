@@ -1,6 +1,5 @@
 package app.amphora.core.content
 
-import android.content.Context
 import app.amphora.core.content.model.ComponentId
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
@@ -9,11 +8,11 @@ import app.amphora.core.content.model.id
 import org.json.JSONObject
 
 /**
- * Parses `content_manifest.json` (shipped in `:core:content` `assets/`, derived
- * from `docs/04-ASSET-MANIFEST.md`) into [ManifestEntry]s keyed by [ComponentId].
+ * Parses the remote `content_manifest.json` (repo path
+ * `core/content/content_manifest.json`, not packaged into the APK) into
+ * [ManifestEntry]s keyed by [ComponentId].
  *
- * Pure parsing is split into [parse] (no `Context`) so it is JVM-unit-testable;
- * [load] is the Android entry point that reads the asset.
+ * Pure parsing is [parse] (no Android deps) so it is JVM-unit-testable.
  */
 class ContentManifest private constructor(
     private val entries: Map<ComponentId, ManifestEntry>,
@@ -29,16 +28,6 @@ class ContentManifest private constructor(
     fun runtimeAssets(): List<RuntimeAssetEntry> = runtimeAssetEntries
 
     companion object {
-        private const val ASSET_NAME = "content_manifest.json"
-
-        /** Load and parse the manifest from the app/library merged assets. */
-        fun load(context: Context): ContentManifest {
-            val json = context.assets.open(ASSET_NAME).use { src ->
-                src.readBytes().toString(Charsets.UTF_8)
-            }
-            return parse(json)
-        }
-
         /** Parse a manifest JSON string. JVM-testable (no Android deps). */
         fun parse(json: String): ContentManifest {
             val root = JSONObject(json)

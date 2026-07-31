@@ -1,5 +1,5 @@
 {
-  "$comment": "amphora bundled-content manifest. Generated from docs/04-ASSET-MANIFEST.md. Each entry maps a ComponentId (lowercase ContentComponent name) to an APK-bundled asset, its pinned SHA-256 (null = pending lock, verification skipped), a version string, and a provisioning kind. ARCHIVE = tar extracted to filesDir/amphora-content/<component>/<version>/; WCP = Winlator Component Package installed via ContentsManager.extraContentFile (local extract, bypasses the D4 download stub); ROOTFS = owned by RootfsInstaller (not resolved by BundledContentSource).",
+  "$comment": "Remote-only content pin file (NOT packaged into the APK). Fetched at runtime from GitHub main. Each entry maps a ComponentId to a remote asset, pinned SHA-256, version, and kind. ARCHIVE/WCP install under filesDir; ROOTFS is owned by RootfsInstaller. imagefs CI rewrites components.rootfs after each Release publish.",
   "version": 1,
   "source": "docs/04-ASSET-MANIFEST.md",
   "wcpCatalogUrl": "https://raw.githubusercontent.com/nicholasx417/WinNative-Components/main/default.json",

@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class VerifiedAssetDownloader(
     private val dispatchers: DispatcherProvider,
+    private val progressBus: ProvisionProgressBus? = null,
 ) {
     private val locks = ConcurrentHashMap<String, Mutex>()
 
@@ -33,6 +34,7 @@ class VerifiedAssetDownloader(
         remoteUrl: String,
         expectedSha256: String,
         expectedSize: Long? = null,
+        label: String = relativePath,
     ): File = withContext(dispatchers.io) {
         require(expectedSha256.matches(SHA_PATTERN)) {
             "A pinned SHA-256 is required for $relativePath"
@@ -53,12 +55,29 @@ class VerifiedAssetDownloader(
             var lastFailure: Throwable? = null
             repeat(MAX_ATTEMPTS) { attempt ->
                 try {
-                    downloadOnce(remoteUrl, partial)
+                    downloadOnce(remoteUrl, partial, expectedSize) { bytes, total ->
+                        progressBus?.update(
+                            ProvisionProgress(
+                                stage = "download",
+                                detail = label,
+                                bytesDownloaded = bytes,
+                                totalBytes = total,
+                            ),
+                        )
+                    }
                     if (expectedSize != null && partial.length() != expectedSize) {
                         throw IOException(
                             "Truncated asset $relativePath: expected $expectedSize bytes, got ${partial.length()}"
                         )
                     }
+                    progressBus?.update(
+                        ProvisionProgress(
+                            stage = "verify",
+                            detail = label,
+                            bytesDownloaded = partial.length(),
+                            totalBytes = expectedSize ?: partial.length(),
+                        ),
+                    )
                     val actual = sha256(partial)
                     if (!actual.equals(expectedSha256, ignoreCase = true)) {
                         partial.delete()
@@ -109,7 +128,12 @@ class VerifiedAssetDownloader(
         return valid
     }
 
-    private fun downloadOnce(remoteUrl: String, partial: File) {
+    private fun downloadOnce(
+        remoteUrl: String,
+        partial: File,
+        expectedSize: Long?,
+        onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
+    ) {
         val existing = partial.length()
         val connection = URI(remoteUrl).toURL().openConnection() as HttpURLConnection
         connection.instanceFollowRedirects = true
@@ -123,9 +147,29 @@ class VerifiedAssetDownloader(
             if (response !in 200..299) {
                 throw IOException("HTTP $response ${connection.responseMessage} for $remoteUrl")
             }
+            if (!append && existing > 0) {
+                partial.delete()
+            }
+            val startAt = if (append) existing else 0L
+            val contentLength = connection.contentLengthLong.takeIf { it >= 0 }
+            val total = when {
+                expectedSize != null -> expectedSize
+                contentLength != null && append -> startAt + contentLength
+                contentLength != null -> contentLength
+                else -> null
+            }
+            var written = startAt
+            onProgress(written, total)
+            val buffer = ByteArray(BUFFER_SIZE)
             connection.inputStream.use { input ->
                 FileOutputStream(partial, append).buffered(BUFFER_SIZE).use { output ->
-                    input.copyTo(output, BUFFER_SIZE)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        written += count
+                        onProgress(written, total)
+                    }
                 }
             }
         } finally {

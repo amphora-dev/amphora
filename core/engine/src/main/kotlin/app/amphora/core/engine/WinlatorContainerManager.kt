@@ -2,6 +2,7 @@ package app.amphora.core.engine
 
 import android.content.Context
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.model.ContentComponent
@@ -70,7 +71,7 @@ import kotlin.coroutines.resume
 class WinlatorContainerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val contentSource: ContentSource,
-    private val manifest: ContentManifest,
+    private val catalog: ContentCatalog,
     private val turnipProvisioner: TurnipDriverProvisioner,
     private val dispatchers: DispatcherProvider,
 ) : ContainerManager {
@@ -81,6 +82,7 @@ class WinlatorContainerManager @Inject constructor(
 
     override suspend fun getOrCreate(id: ContainerId): AmphoraContainer =
         withContext(dispatchers.io) {
+            val manifest = catalog.require()
             // 1. Bundled Wine (Proton) + Box64 + DXVK + VKD3D must be installed
             //    before a container can be created / launched. Idempotent.
             contentSource.resolve(ContentComponent.WINE.id)
@@ -90,8 +92,8 @@ class WinlatorContainerManager @Inject constructor(
             // 2. Load the installed profiles into this manager's ContentsManager.
             contentsManager.syncContents()
 
-            val wineVersion = resolveWineVersion()
-            val dxwrapper = resolveDxwrapper()
+            val wineVersion = resolveWineVersion(manifest)
+            val dxwrapper = resolveDxwrapper(manifest)
             val targetId = parseContainerId(id)
 
             wnContainerManager.loadContainers()
@@ -137,7 +139,7 @@ class WinlatorContainerManager @Inject constructor(
      * Proton profile, then WinNative's bundled `MAIN_WINE_VERSION` (last resort
      * -- no prefixPack, createContainer's extract step will fail gracefully).
      */
-    private fun resolveWineVersion(): String {
+    private fun resolveWineVersion(manifest: ContentManifest): String {
         val manifestVersion = manifest.entry(ContentComponent.WINE)?.version
         if (manifestVersion != null) {
             val profile = contentsManager.getProfileByEntryName(manifestVersion)
@@ -191,13 +193,15 @@ class WinlatorContainerManager @Inject constructor(
      * field. Prefers manifest-pinned entries; falls back to any installed
      * profiles of each type.
      */
-    private fun resolveDxwrapper(): String {
+    private fun resolveDxwrapper(manifest: ContentManifest): String {
         val dxvk = resolveWrapperToken(
+            manifest = manifest,
             component = ContentComponent.DXVK,
             type = ContentProfile.ContentType.CONTENT_TYPE_DXVK,
             prefix = "dxvk",
         )
         val vkd3d = resolveWrapperToken(
+            manifest = manifest,
             component = ContentComponent.VKD3D,
             type = ContentProfile.ContentType.CONTENT_TYPE_VKD3D,
             prefix = "vkd3d",
@@ -206,6 +210,7 @@ class WinlatorContainerManager @Inject constructor(
     }
 
     private fun resolveWrapperToken(
+        manifest: ContentManifest,
         component: ContentComponent,
         type: ContentProfile.ContentType,
         prefix: String,

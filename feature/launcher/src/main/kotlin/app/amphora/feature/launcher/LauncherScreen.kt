@@ -14,9 +14,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -25,13 +27,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.ProvisionProgress
 import java.io.File
 
 /**
  * MVP launcher (RFC §3 v0.1 / §6): pick a Windows .exe, choose a render
- * resolution, then launch. The picked file is staged app-private (see
- * [LauncherViewModel]) and the resulting path + resolution are forwarded to the
- * game-session route, which builds the [app.amphora.core.engine.model.LaunchSpec].
+ * resolution, then launch. Shows app / imagefs versions and live download
+ * progress when remote content is being fetched.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,7 +67,11 @@ fun LauncherScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("v0.1", style = MaterialTheme.typography.bodyMedium)
+            VersionBlock(uiState = uiState, onRefresh = viewModel::refreshContentInfo)
+
+            uiState.provisionProgress?.let { progress ->
+                ProvisionProgressBlock(progress)
+            }
 
             // --- exe picker ---------------------------------------------------
             Button(
@@ -100,7 +107,10 @@ fun LauncherScreen(
                         onLaunch(path, uiState.resolution.width, uiState.resolution.height)
                     }
                 },
-                enabled = uiState.stagedExePath != null && !uiState.staging && !uiState.driverBusy,
+                enabled = uiState.stagedExePath != null &&
+                    !uiState.staging &&
+                    !uiState.driverBusy &&
+                    uiState.catalogStatus is ContentCatalog.Status.Ready,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Launch") }
 
@@ -125,6 +135,79 @@ fun LauncherScreen(
             }
         }
     }
+}
+
+@Composable
+private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("App ${uiState.appVersion}", style = MaterialTheme.typography.titleMedium)
+        val installed = uiState.installedImagefsVersion ?: "—"
+        val pinned = uiState.pinnedImagefsVersion ?: "…"
+        Text(
+            "imagefs installed v$installed · pin v$pinned",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        val catalogLine = when (val status = uiState.catalogStatus) {
+            is ContentCatalog.Status.Idle -> "Manifest: not loaded"
+            is ContentCatalog.Status.Loading -> "Manifest: loading…"
+            is ContentCatalog.Status.Ready -> "Manifest: remote OK (${status.manifest.all().size} components)"
+            is ContentCatalog.Status.Failed -> "Manifest: ${status.error}"
+        }
+        Text(
+            catalogLine,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (uiState.catalogStatus is ContentCatalog.Status.Failed) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        )
+        if (uiState.contentBusy) {
+            Text("Refreshing content pins…", style = MaterialTheme.typography.bodySmall)
+        }
+        TextButton(onClick = onRefresh, enabled = !uiState.contentBusy) {
+            Text("Refresh manifest")
+        }
+    }
+}
+
+@Composable
+private fun ProvisionProgressBlock(progress: ProvisionProgress) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            listOfNotNull(progress.stage, progress.detail.takeIf { it.isNotBlank() })
+                .joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        val fraction = progress.fraction
+        if (fraction != null) {
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            val total = progress.totalBytes
+            if (total != null) {
+                Text(
+                    "${formatBytes(progress.bytesDownloaded)} / ${formatBytes(total)}",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
+    bytes >= 1_000 -> "%.1f KB".format(bytes / 1_000.0)
+    else -> "$bytes B"
 }
 
 @Composable

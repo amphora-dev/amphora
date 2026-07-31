@@ -1,18 +1,27 @@
 package app.amphora.feature.launcher
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.ProvisionProgress
+import app.amphora.core.content.ProvisionProgressBus
+import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.TurnipDriverProvisioner
+import app.amphora.core.rootfs.RootfsInstaller
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -22,20 +31,17 @@ import javax.inject.Inject
 
 /**
  * Launcher state for the MVP "pick .exe -> choose resolution -> launch" flow
- * (RFC §3 v0.1 / §6). The picked SAF content URI is staged (copied) into the
- * app-private `filesDir/exe/` dir; the engine then copies it into the Wine
- * prefix's `drive_c` (C: drive) at launch so `wine explorer` can run it via a
- * Windows path. The resulting Unix path is forwarded to the game-session route.
- *
- * Containers are an internal detail for MVP (RFC §9: multi-prefix is v0.2): the
- * session uses a single shared container (id `"1"`), created on first launch by
- * [app.amphora.core.engine.WinlatorContainerManager].
+ * (RFC §3 v0.1 / §6). Also surfaces remote content / imagefs version info and
+ * live download progress from [ProvisionProgressBus].
  */
 @HiltViewModel
 class LauncherViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
     private val turnipProvisioner: TurnipDriverProvisioner,
+    private val catalog: ContentCatalog,
+    private val rootfsInstaller: RootfsInstaller,
+    progressBus: ProvisionProgressBus,
 ) : ViewModel() {
 
     private val prefs =
@@ -43,12 +49,56 @@ class LauncherViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(
         LauncherUiState(
+            appVersion = readAppVersion(),
             graphicsDriver = GraphicsDriverOption.fromDriverId(
                 prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
             ),
         ),
     )
-    val uiState: StateFlow<LauncherUiState> = _uiState.asStateFlow()
+    val uiState: StateFlow<LauncherUiState> = combine(
+        _uiState,
+        catalog.status,
+        progressBus.progress,
+    ) { base, catalogStatus, progress ->
+        base.copy(
+            catalogStatus = catalogStatus,
+            pinnedImagefsVersion = (catalogStatus as? ContentCatalog.Status.Ready)
+                ?.manifest?.entry(ContentComponent.ROOTFS)?.version,
+            provisionProgress = progress,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        _uiState.value,
+    )
+
+    init {
+        refreshContentInfo()
+    }
+
+    fun refreshContentInfo() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(contentBusy = true, stageError = null) }
+            try {
+                catalog.refresh()
+                val installed = rootfsInstaller.currentVersion()
+                _uiState.update {
+                    it.copy(
+                        contentBusy = false,
+                        installedImagefsVersion = installed,
+                    )
+                }
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _uiState.update {
+                    it.copy(
+                        contentBusy = false,
+                        stageError = "Manifest: ${e.message ?: e.javaClass.simpleName}",
+                    )
+                }
+            }
+        }
+    }
 
     fun onExePicked(uri: Uri) {
         viewModelScope.launch {
@@ -109,15 +159,29 @@ class LauncherViewModel @Inject constructor(
             ?.use { c -> if (c.moveToFirst()) return c.getString(0) }
         return null
     }
+
+    private fun readAppVersion(): String =
+        try {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            info.versionName ?: "unknown"
+        } catch (_: PackageManager.NameNotFoundException) {
+            "unknown"
+        }
 }
 
 data class LauncherUiState(
+    val appVersion: String = "",
     val stagedExePath: String? = null,
     val staging: Boolean = false,
     val stageError: String? = null,
     val resolution: Resolution = Resolution.DEFAULT,
     val graphicsDriver: GraphicsDriverOption = GraphicsDriverOption.WRAPPER,
     val driverBusy: Boolean = false,
+    val contentBusy: Boolean = false,
+    val catalogStatus: ContentCatalog.Status = ContentCatalog.Status.Idle,
+    val installedImagefsVersion: String? = null,
+    val pinnedImagefsVersion: String? = null,
+    val provisionProgress: ProvisionProgress? = null,
 )
 
 /** Adrenotools backend selectable from the launcher (persisted). */
