@@ -5,9 +5,9 @@ import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.content.BundledAssetInstaller
-import app.amphora.core.content.ContentManifest
-import app.amphora.core.content.ContentManifestLoader
+import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentSource
+import app.amphora.core.content.ProvisionProgressBus
 import app.amphora.core.content.RemoteContentSource
 import app.amphora.core.content.RemoteUrlResolver
 import app.amphora.core.content.RuntimeAssetProvisioner
@@ -32,20 +32,8 @@ import javax.inject.Singleton
  * Engine DI bindings (RFC §6). [WineEngine] is bound to [WineEngineImpl] (the
  * ported-runtime facade).
  *
- * [RootfsInstaller] is bound to its real concretion [ImageFsRootfsInstaller]
- * (P2: imagefs extract/version via the ported `com.winlator.cmod` kernel --
- * `native_content_io.cpp` extraction restored with zstd+xz, curl/download
- * stubbed per D4). [WineSessionPreparer] is bound to its real concretion
- * [XServerWineSessionPreparer] (P2: the D9 XSDA body extraction -- Steam /
- * recording / shortcut / Activity / arm64ec stripped, compile-only). Both
- * concretions live in `:core:engine` next to the kernel they adapt because the
- * dep graph is `engine -> {rootfs,container}` and `:core:rootfs` cannot see
- * `TarCompressorUtils` / `ImageFs` (they live in the ported `com.winlator.cmod`
- * kernel under `:core:engine`); the *contracts* stay in their low modules
- * (Dependency Inversion -- see `docs/03-TRACKING.md`). [ContainerManager] (P4)
- * is now bound to its real concretion [WinlatorContainerManager] (bridges the
- * ported `com.winlator.cmod.runtime.container.ContainerManager`); all three
- * sibling interfaces have graduated -- no stubs remain.
+ * Content pins come from [ContentCatalog] (remote-only `content_manifest.json`);
+ * there is no APK-bundled manifest fallback.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -62,12 +50,16 @@ object EngineModule {
     @Singleton
     fun provideDispatcherProvider(): DispatcherProvider = DefaultDispatcherProvider()
 
-    // --- content (P2: BundledContentSource) ------------------------------------
+    @Provides
+    @Singleton
+    fun provideProvisionProgressBus(): ProvisionProgressBus = ProvisionProgressBus()
 
     @Provides
     @Singleton
-    fun provideContentManifest(@ApplicationContext context: Context): ContentManifest =
-        ContentManifestLoader.load(context)
+    fun provideContentCatalog(
+        @ApplicationContext context: Context,
+        dispatchers: DispatcherProvider,
+    ): ContentCatalog = ContentCatalog(context, dispatchers)
 
     @Provides
     @Singleton
@@ -77,38 +69,39 @@ object EngineModule {
     @Singleton
     fun provideVerifiedAssetDownloader(
         dispatchers: DispatcherProvider,
-    ): VerifiedAssetDownloader = VerifiedAssetDownloader(dispatchers)
+        progressBus: ProvisionProgressBus,
+    ): VerifiedAssetDownloader = VerifiedAssetDownloader(dispatchers, progressBus)
 
     @Provides
     @Singleton
-    fun provideRemoteUrlResolver(manifest: ContentManifest): RemoteUrlResolver =
-        RemoteUrlResolver(manifest)
+    fun provideRemoteUrlResolver(): RemoteUrlResolver = RemoteUrlResolver()
 
     @Provides
     @Singleton
     fun provideRuntimeAssetProvisioner(
         @ApplicationContext context: Context,
-        manifest: ContentManifest,
+        catalog: ContentCatalog,
         downloader: VerifiedAssetDownloader,
-    ): RuntimeAssetProvisioner = RuntimeAssetProvisioner(context, manifest, downloader)
+        progressBus: ProvisionProgressBus,
+    ): RuntimeAssetProvisioner = RuntimeAssetProvisioner(context, catalog, downloader, progressBus)
 
     @Provides
     @Singleton
     fun provideContentSource(
         @ApplicationContext context: Context,
-        manifest: ContentManifest,
+        catalog: ContentCatalog,
         installer: BundledAssetInstaller,
         downloader: VerifiedAssetDownloader,
         urlResolver: RemoteUrlResolver,
+        progressBus: ProvisionProgressBus,
     ): ContentSource = RemoteContentSource(
         context = context,
-        manifest = manifest,
+        catalog = catalog,
         installer = installer,
         downloader = downloader,
         urlResolver = urlResolver,
+        progressBus = progressBus,
     )
-
-    // --- sibling-interface bindings --------------------------------------------
 
     @Provides
     @Singleton

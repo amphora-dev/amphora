@@ -313,11 +313,11 @@ class ContentStagingConventionPlugin : Plugin<Project> {
         ext.wcpCacheDir.convention(layout.buildDirectory.dir("content-cache"))
         ext.wcpCatalogUrl.convention("")
 
-        // Manifest acquisition is abstracted: single source of truth in :core:content,
-        // resolved via project reference (not a hardcoded path in the consumer).
+        // Manifest for offline staging: test fixture snapshot of amphora-dev/content_manifest.
+        // Runtime always fetches the remote URL; refresh the fixture when pins change.
         rootProject.findProject(":core:content")?.let { content ->
             ext.manifestFile.convention(
-                content.layout.projectDirectory.file("src/main/assets/content_manifest.json")
+                content.layout.projectDirectory.file("src/test/resources/content_manifest.json")
             )
         } ?: logger.warn("amphora.content.staging: :core:content not found; set amphoraContentStaging.manifestFile explicitly.")
 

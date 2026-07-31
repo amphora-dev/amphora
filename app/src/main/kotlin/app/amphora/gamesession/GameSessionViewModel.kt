@@ -48,6 +48,7 @@ class GameSessionViewModel @Inject constructor(
 ) : ViewModel() {
 
     val surface: StateFlow<GameSessionSurface?> = surfaceProvider.surface
+    val provisionProgress = wineEngine.provisionProgress
 
     private val _sessionState = MutableStateFlow<SessionState?>(null)
     val sessionState: StateFlow<SessionState?> = _sessionState.asStateFlow()

@@ -16,32 +16,42 @@ import java.security.MessageDigest
  * 1. Trust an already-verified file under `filesDir/runtime-assets/`.
  * 2. Copy from the APK asset of the same relative path when present (offline
  *    fallback for patched AIO Graphics Test PEs).
- * 3. Fall back to HTTPS download via [VerifiedAssetDownloader] (CNB fixed
- *    Release `amphora` on `atowerlight/aio-graphics-test`).
+ * 3. Fall back to HTTPS download via [VerifiedAssetDownloader].
  */
 class RuntimeAssetProvisioner(
     private val context: Context,
-    private val manifest: ContentManifest,
+    private val catalog: ContentCatalog,
     private val downloader: VerifiedAssetDownloader,
+    private val progressBus: ProvisionProgressBus? = null,
 ) {
     suspend fun ensureAvailable() {
+        val manifest = catalog.require()
         val root = runtimeAssetsDir(context)
         for (entry in manifest.runtimeAssets()) {
             val destination = File(root, entry.assetPath)
             if (isVerified(destination, entry)) continue
             if (installFromApkAsset(entry, destination)) continue
+            progressBus?.update(
+                ProvisionProgress(
+                    stage = "runtime",
+                    detail = entry.assetPath,
+                    bytesDownloaded = 0,
+                    totalBytes = entry.size,
+                ),
+            )
             downloader.acquire(
                 root = root,
                 relativePath = entry.assetPath,
                 remoteUrl = entry.remoteUrl,
                 expectedSha256 = entry.sha256,
                 expectedSize = entry.size,
+                label = entry.assetPath,
             )
         }
     }
 
     private fun isVerified(file: File, entry: RuntimeAssetEntry): Boolean {
-        if (!file.isFile || file.length() != entry.size) return false
+        if (!file.isFile || (entry.size != null && file.length() != entry.size)) return false
         val marker = File(file.absolutePath + SHA_SUFFIX)
         return marker.isFile && marker.readText().trim().equals(entry.sha256, ignoreCase = true)
     }
@@ -67,7 +77,7 @@ class RuntimeAssetProvisioner(
                     }
                 }
             }
-            if (partial.length() != entry.size) {
+            if (entry.size != null && partial.length() != entry.size) {
                 partial.delete()
                 Log.w(TAG, "APK asset size mismatch for ${entry.assetPath}")
                 return false

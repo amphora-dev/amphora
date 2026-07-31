@@ -795,6 +795,14 @@ class XServerWineSessionPreparer @Inject constructor(
                 "Using prefs adrenotools id '$adrenoToolsDriverId' (container had '$containerDriverId')",
             )
             graphicsDriverConfig["version"] = adrenoToolsDriverId
+            // Persist so host VulkanRenderer (reads container) stays in sync with guest.
+            val c = wnContainer
+            if (c != null) {
+                c.setGraphicsDriverConfig(
+                    GraphicsDriverConfigUtils.toGraphicsDriverConfig(graphicsDriverConfig),
+                )
+                c.saveData()
+            }
         }
         Log.i(TAG, "Launch graphics driver selected: graphicsDriver='$graphicsDriver' driverId='$adrenoToolsDriverId'")
 

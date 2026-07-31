@@ -34,14 +34,14 @@ Contracts live in the lower modules; Winlator-backed implementations live in `:c
 ```
 
 The APK stays slim. `content_manifest.json` is fetched at runtime from
-GitHub (`main` raw URL, MiceWine-style remote index) with the APK copy as
-offline fallback — pin URL/SHA changes no longer require rebuilding the APK
-(bump `rootfs.version` / `ImageFsInstaller.LATEST_VERSION` when the installed
-imagefs tree must be replaced).
+[`amphora-dev/content_manifest`](https://github.com/amphora-dev/content_manifest)
+(`main` raw URL — no APK-bundled fallback). Pin URL/SHA changes do not require
+rebuilding the APK; bump `rootfs.version` when the installed imagefs tree must
+be replaced. imagefs CI updates that repo after each successful Release publish.
 
 The APK stays slim. On first launch, the device downloads SHA-pinned Rootfs,
 Proton, Box64, DXVK, VKD3D and runtime assets; installed assets are reused on later
-launches.
+launches. The launcher shows app / imagefs versions and download progress.
 
 Instrumented E2E (ARM64 Adreno device recommended):
 

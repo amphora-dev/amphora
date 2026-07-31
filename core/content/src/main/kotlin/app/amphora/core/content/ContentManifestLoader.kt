@@ -7,13 +7,10 @@ import java.net.HttpURLConnection
 import java.net.URI
 
 /**
- * Loads [ContentManifest] preferring a remote HTTPS copy (MiceWine-style
- * `index.json` pattern: publish pins separately from the APK), falling back to
- * the APK-bundled `assets/content_manifest.json`.
- *
- * Changing ROOTFS URL/SHA (or any other pin) then only requires updating the
- * remote JSON — no APK rebuild — as long as [ImageFsInstaller.LATEST_VERSION] /
- * rootfs `version` is bumped when the installed tree must be replaced.
+ * Loads [ContentManifest] exclusively from a remote HTTPS URL (MiceWine-style
+ * remote index). There is **no** APK-bundled fallback — pins live in
+ * `amphora-dev/content_manifest` and are refreshed at runtime so imagefs / WCP
+ * SHA bumps do not require an APK rebuild.
  */
 object ContentManifestLoader {
     private const val TAG = "ContentManifestLoader"
@@ -24,29 +21,20 @@ object ContentManifestLoader {
      * system property `amphora.content_manifest_url` (tests / debug).
      */
     const val DEFAULT_REMOTE_URL =
-        "https://raw.githubusercontent.com/amphora-dev/amphora/main/" +
-            "core/content/src/main/assets/content_manifest.json"
+        "https://raw.githubusercontent.com/amphora-dev/content_manifest/main/" +
+            "content_manifest.json"
 
-    fun load(
-        context: Context,
-        remoteUrl: String? = resolveRemoteUrl(context),
-    ): ContentManifest {
+    /**
+     * Fetch and parse the remote manifest. Throws when the URL is missing or
+     * the request / JSON parse fails — callers must surface the error in UI.
+     */
+    fun load(context: Context, remoteUrl: String? = resolveRemoteUrl(context)): ContentManifest {
         val url = remoteUrl?.takeIf { it.isNotBlank() }
-        if (url != null) {
-            try {
-                val json = fetchHttpsText(url)
-                val remote = ContentManifest.parse(json)
-                Log.i(TAG, "Loaded remote content manifest from $url (${remote.all().size} components)")
-                return remote
-            } catch (failure: Throwable) {
-                Log.w(
-                    TAG,
-                    "Remote content manifest unavailable ($url); using APK fallback",
-                    failure,
-                )
-            }
-        }
-        return ContentManifest.load(context)
+            ?: error("content manifest remote URL is not configured")
+        val json = fetchHttpsText(url)
+        val remote = ContentManifest.parse(json)
+        Log.i(TAG, "Loaded remote content manifest from $url (${remote.all().size} components)")
+        return remote
     }
 
     fun resolveRemoteUrl(context: Context): String? {
@@ -63,7 +51,7 @@ object ContentManifestLoader {
         }
     }
 
-    internal fun fetchHttpsText(remoteUrl: String): String {
+    fun fetchHttpsText(remoteUrl: String): String {
         require(URI(remoteUrl).scheme.equals("https", ignoreCase = true)) {
             "Only HTTPS manifest URLs are allowed: $remoteUrl"
         }

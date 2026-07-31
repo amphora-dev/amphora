@@ -10,7 +10,7 @@ class ContentManifestLoaderTest {
         assertTrue(ContentManifestLoader.DEFAULT_REMOTE_URL.startsWith("https://"))
         assertTrue(
             ContentManifestLoader.DEFAULT_REMOTE_URL.contains(
-                "amphora-dev/amphora"
+                "amphora-dev/content_manifest"
             )
         )
         assertTrue(
@@ -31,10 +31,12 @@ class ContentManifestLoaderTest {
     }
 
     @Test
-    fun parseShapeMatchesBundledManifest() {
-        // Guard: remote schema must stay identical to the APK fallback.
-        val bundled = java.io.File("src/main/assets/content_manifest.json").readText()
-        val manifest = ContentManifest.parse(bundled)
+    fun parseShapeMatchesRepoManifest() {
+        val json = javaClass.classLoader!!
+            .getResourceAsStream("content_manifest.json")!!
+            .bufferedReader()
+            .readText()
+        val manifest = ContentManifest.parse(json)
         assertEquals(6, manifest.all().size)
         assertTrue(manifest.entry(app.amphora.core.content.model.ContentComponent.ROOTFS) != null)
     }

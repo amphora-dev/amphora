@@ -58,7 +58,7 @@ class RemoteUrlResolverTest {
             }
             """.trimIndent(),
         )
-        val resolved = RemoteUrlResolver(manifest).resolve(manifest.entry(ContentComponent.WINE)!!)
+        val resolved = RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
         assertEquals("https://cdn.example/Proton-10.0-4-x86_64.wcp", resolved)
     }
 
@@ -71,7 +71,7 @@ class RemoteUrlResolverTest {
             ]
         """.trimIndent()
         val manifest = catalogManifest(assetPath = "Proton-10.0-4-x86_64.wcp")
-        val resolved = RemoteUrlResolver(manifest).resolve(manifest.entry(ContentComponent.WINE)!!)
+        val resolved = RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
         assertEquals(
             "https://cdn.example/releases/Proton-10.0-4-x86_64.wcp",
             resolved,
@@ -82,14 +82,14 @@ class RemoteUrlResolverTest {
     fun missingCatalogEntryFails() {
         catalogBody = """[{"remoteUrl":"https://cdn.example/releases/other.wcp"}]"""
         val manifest = catalogManifest(assetPath = "Proton-10.0-4-x86_64.wcp")
-        RemoteUrlResolver(manifest).resolve(manifest.entry(ContentComponent.WINE)!!)
+        RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsNonHttpsCatalogUrls() {
         catalogBody = """[{"remoteUrl":"http://insecure.example/releases/Proton-10.0-4-x86_64.wcp"}]"""
         val manifest = catalogManifest(assetPath = "Proton-10.0-4-x86_64.wcp")
-        RemoteUrlResolver(manifest).resolve(manifest.entry(ContentComponent.WINE)!!)
+        RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -110,7 +110,7 @@ class RemoteUrlResolverTest {
             }
             """.trimIndent(),
         )
-        RemoteUrlResolver(manifest).resolve(manifest.entry(ContentComponent.TURNIP)!!)
+        RemoteUrlResolver().resolve(manifest.entry(ContentComponent.TURNIP)!!, manifest.wcpCatalogUrl)
     }
 
     private fun catalogManifest(assetPath: String): ContentManifest =

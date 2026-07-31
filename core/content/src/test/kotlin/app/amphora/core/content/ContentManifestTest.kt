@@ -3,7 +3,6 @@ package app.amphora.core.content
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.content.model.id
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -88,7 +87,10 @@ class ContentManifestTest {
      */
     @Test fun realManifestHasAllShasPinned() {
         val manifest = ContentManifest.parse(
-            File("src/main/assets/content_manifest.json").readText(),
+            javaClass.classLoader!!
+                .getResourceAsStream("content_manifest.json")!!
+                .bufferedReader()
+                .readText(),
         )
         assertEquals("shipped manifest must define 6 remote components", 6, manifest.all().size)
         assertNotNull(manifest.entry(ContentComponent.VKD3D))
