@@ -179,8 +179,15 @@ class LauncherViewModel @Inject constructor(
                 pinned = pin,
                 installed = installed,
                 matchesPin = matches,
+                localOverride = entry != null && localOverrideArmed(entry),
             )
         }
+    }
+
+    /** True when a dev/test inject pinned this asset locally (remote pin ignored). */
+    private fun localOverrideArmed(entry: ManifestEntry): Boolean {
+        val file = File(RuntimeAssetProvisioner.runtimeAssetsDir(context), entry.assetPath)
+        return RuntimeAssetLocalOverride.isActive(file)
     }
 
     private fun installedLabel(entry: ManifestEntry?): String? {
@@ -265,6 +272,8 @@ data class ComponentInstallStatus(
     val pinned: String?,
     val installed: String?,
     val matchesPin: Boolean,
+    /** Dev/test inject armed via `<asset>.local-override`; remote pin is ignored. */
+    val localOverride: Boolean = false,
 ) {
     val label: String get() = component.name.lowercase(Locale.ROOT)
 }

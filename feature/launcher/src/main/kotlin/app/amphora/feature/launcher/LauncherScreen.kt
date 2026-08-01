@@ -144,6 +144,16 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text("App ${uiState.appVersion}", style = MaterialTheme.typography.titleMedium)
+        val overridden = uiState.components.filter { it.localOverride }
+        if (overridden.isNotEmpty()) {
+            Text(
+                "⚠ Local test build: " +
+                    overridden.joinToString(", ") { it.label } +
+                    " injected via adb, not the published pin",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+        }
         val catalogLine = when (val status = uiState.catalogStatus) {
             is ContentCatalog.Status.Idle -> "Manifest: not loaded"
             is ContentCatalog.Status.Loading -> "Manifest: loading…"
@@ -164,7 +174,10 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
             uiState.components.forEach { row ->
                 val installed = row.installed ?: "—"
                 val pinned = row.pinned ?: "…"
+                // A local inject deliberately diverges from the remote pin, so it
+                // is a warning (not an error) and must not read as "stale".
                 val suffix = when {
+                    row.localOverride -> " (LOCAL TEST BUILD — remote pin ignored)"
                     row.pinned == null -> " (no pin)"
                     row.installed == null -> " (missing)"
                     !row.matchesPin -> " (stale)"
@@ -173,10 +186,10 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
                 Text(
                     "${row.label}: installed $installed · pin $pinned$suffix",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (suffix.isNotEmpty()) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
+                    color = when {
+                        row.localOverride -> MaterialTheme.colorScheme.tertiary
+                        suffix.isNotEmpty() -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurface
                     },
                 )
             }
