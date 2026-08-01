@@ -7,10 +7,14 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.content.BundledAssetInstaller
 import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.content.ProvisionProgressBus
+import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
+import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.TurnipDriverProvisioner
 import app.amphora.core.rootfs.RootfsInstaller
@@ -19,7 +23,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -27,11 +30,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 import javax.inject.Inject
 
 /**
  * Launcher state for the MVP "pick .exe -> choose resolution -> launch" flow
- * (RFC §3 v0.1 / §6). Also surfaces remote content / imagefs version info and
+ * (RFC §3 v0.1 / §6). Surfaces remote content pins vs installed artifacts and
  * live download progress from [ProvisionProgressBus].
  */
 @HiltViewModel
@@ -41,6 +45,7 @@ class LauncherViewModel @Inject constructor(
     private val turnipProvisioner: TurnipDriverProvisioner,
     private val catalog: ContentCatalog,
     private val rootfsInstaller: RootfsInstaller,
+    private val assetInstaller: BundledAssetInstaller,
     progressBus: ProvisionProgressBus,
 ) : ViewModel() {
 
@@ -62,8 +67,6 @@ class LauncherViewModel @Inject constructor(
     ) { base, catalogStatus, progress ->
         base.copy(
             catalogStatus = catalogStatus,
-            pinnedImagefsVersion = (catalogStatus as? ContentCatalog.Status.Ready)
-                ?.manifest?.entry(ContentComponent.ROOTFS)?.version,
             provisionProgress = progress,
         )
     }.stateIn(
@@ -80,12 +83,16 @@ class LauncherViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(contentBusy = true, stageError = null) }
             try {
-                catalog.refresh()
-                val installed = rootfsInstaller.currentVersion()
+                val manifest = catalog.refresh()
+                val components = withContext(dispatchers.io) { scanComponents(manifest) }
+                val residue = withContext(dispatchers.io) {
+                    File(context.filesDir, "imagefs.olddead").exists()
+                }
                 _uiState.update {
                     it.copy(
                         contentBusy = false,
-                        installedImagefsVersion = installed,
+                        components = components,
+                        imagefsResidue = residue,
                     )
                 }
             } catch (e: Throwable) {
@@ -143,6 +150,85 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Compare each remote pin against what is actually usable on disk.
+     *
+     * ARCHIVE components (notably turnip/`wrapper.tzst`) are provisioned into
+     * `filesDir/runtime-assets/` by [RuntimeAssetProvisioner], not into
+     * `amphora-content/<id>/<version>/`. Treat a verified runtime-assets copy as
+     * matching the pin so the launcher does not false-report `(stale)`.
+     */
+    private suspend fun scanComponents(manifest: ContentManifest): List<ComponentInstallStatus> {
+        return ContentComponent.entries.map { component ->
+            val entry = manifest.entry(component)
+            val pin = entry?.pinLabel()
+            val installed = when (component) {
+                ContentComponent.ROOTFS -> rootfsInstaller.currentVersion()
+                else -> installedLabel(entry)
+            }
+            val matches = when {
+                entry == null || pin == null -> false
+                installed == null -> false
+                component == ContentComponent.ROOTFS -> installed == pin
+                entry.kind == ManifestEntry.Kind.ARCHIVE -> archiveProvisioned(entry)
+                else -> assetInstaller.isInstalled(entry)
+            }
+            ComponentInstallStatus(
+                component = component,
+                pinned = pin,
+                installed = installed,
+                matchesPin = matches,
+            )
+        }
+    }
+
+    private fun installedLabel(entry: ManifestEntry?): String? {
+        if (entry == null) return null
+        if (assetInstaller.isInstalled(entry)) return entry.pinLabel()
+        return when (entry.kind) {
+            ManifestEntry.Kind.WCP -> {
+                val type = entry.contentType ?: return null
+                val dir = File(context.filesDir, "contents/$type")
+                dir.listFiles()
+                    ?.filter { it.isDirectory }
+                    ?.map { it.name }
+                    ?.sorted()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.joinToString(", ")
+            }
+            ManifestEntry.Kind.ARCHIVE -> {
+                // Prefer the pin label when the runtime-assets (or ARCHIVE) copy matches.
+                if (archiveProvisioned(entry)) return entry.pinLabel()
+                // Otherwise surface any adrenotools driver dirs that happen to exist
+                // (informational; matchesPin stays false).
+                val adrenotools = File(context.filesDir, "contents/adrenotools")
+                adrenotools.listFiles()
+                    ?.filter { it.isDirectory }
+                    ?.map { it.name }
+                    ?.sorted()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.joinToString(", ")
+            }
+            ManifestEntry.Kind.ROOTFS -> null
+        }
+    }
+
+    /**
+     * ARCHIVE is considered provisioned when either:
+     * 1. [BundledAssetInstaller] extracted it under `amphora-content/…`, or
+     * 2. [RuntimeAssetProvisioner] already verified the same asset under
+     *    `runtime-assets/<assetPath>` (SHA marker matches the pin).
+     */
+    private fun archiveProvisioned(entry: ManifestEntry): Boolean {
+        if (assetInstaller.isInstalled(entry)) return true
+        val expectedSha = entry.sha256 ?: return false
+        val file = File(RuntimeAssetProvisioner.runtimeAssetsDir(context), entry.assetPath)
+        if (!file.isFile) return false
+        if (entry.size != null && file.length() != entry.size) return false
+        val marker = File(file.absolutePath + ".sha256")
+        return marker.isFile && marker.readText().trim().equals(expectedSha, ignoreCase = true)
+    }
+
     /** Copy the picked file into `filesDir/exe/<name>` (app-private, guest-readable). */
     private suspend fun stageExe(uri: Uri): String = withContext(dispatchers.io) {
         val fileName = queryDisplayName(uri) ?: "game.exe"
@@ -169,6 +255,17 @@ class LauncherViewModel @Inject constructor(
         }
 }
 
+private fun ManifestEntry.pinLabel(): String = verName ?: version
+
+data class ComponentInstallStatus(
+    val component: ContentComponent,
+    val pinned: String?,
+    val installed: String?,
+    val matchesPin: Boolean,
+) {
+    val label: String get() = component.name.lowercase(Locale.ROOT)
+}
+
 data class LauncherUiState(
     val appVersion: String = "",
     val stagedExePath: String? = null,
@@ -179,8 +276,8 @@ data class LauncherUiState(
     val driverBusy: Boolean = false,
     val contentBusy: Boolean = false,
     val catalogStatus: ContentCatalog.Status = ContentCatalog.Status.Idle,
-    val installedImagefsVersion: String? = null,
-    val pinnedImagefsVersion: String? = null,
+    val components: List<ComponentInstallStatus> = emptyList(),
+    val imagefsResidue: Boolean = false,
     val provisionProgress: ProvisionProgress? = null,
 )
 
