@@ -153,24 +153,12 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Compare each remote pin against what is actually usable on disk.
-     *
-     * ARCHIVE components (notably turnip/`wrapper.tzst`) are provisioned into
-     * `filesDir/runtime-assets/` by [RuntimeAssetProvisioner], not into
-     * `amphora-content/<id>/<version>/`. Treat a verified runtime-assets copy as
-     * matching the pin so the launcher does not false-report `(stale)`.
-     */
+    /** Compare each remote pin against what is actually usable on disk. */
     private suspend fun scanComponents(manifest: ContentManifest): List<ComponentInstallStatus> {
         return ContentComponent.entries.map { component ->
             val entry = manifest.entry(component)
             val pin = entry?.pinLabel()
-            val overrideSha = entry?.let { localOverrideSha(it) }
             val installed = when {
-                // A local inject shares the manifest's version label, so report the
-                // on-disk SHA instead — otherwise `installed` and `pin` read identical
-                // even though the bytes differ. Same shape as the runtime-asset rows.
-                overrideSha != null -> "${overrideSha.take(12)}…"
                 component == ContentComponent.ROOTFS -> rootfsInstaller.currentVersion()
                 else -> installedLabel(entry)
             }
@@ -178,7 +166,6 @@ class LauncherViewModel @Inject constructor(
                 entry == null || pin == null -> false
                 installed == null -> false
                 component == ContentComponent.ROOTFS -> installed == pin
-                entry.kind == ManifestEntry.Kind.ARCHIVE -> archiveProvisioned(entry)
                 else -> assetInstaller.isInstalled(entry)
             }
             ComponentInstallStatus(
@@ -186,17 +173,12 @@ class LauncherViewModel @Inject constructor(
                 pinned = pin,
                 installed = installed,
                 matchesPin = matches,
-                localOverride = overrideSha != null,
+                localOverride = false,
             )
         }
     }
 
     /** SHA-256 pinned by a dev/test inject, or null when no override is armed. */
-    private fun localOverrideSha(entry: ManifestEntry): String? {
-        val file = File(RuntimeAssetProvisioner.runtimeAssetsDir(context), entry.assetPath)
-        return localOverrideSha(file)
-    }
-
     private fun localOverrideSha(file: File): String? {
         if (!RuntimeAssetLocalOverride.isActive(file)) return null
         return RuntimeAssetLocalOverride.markerFile(file).readText().trim()
@@ -250,39 +232,11 @@ class LauncherViewModel @Inject constructor(
                     ?.takeIf { it.isNotEmpty() }
                     ?.joinToString(", ")
             }
-            ManifestEntry.Kind.ARCHIVE -> {
-                // Prefer the pin label when the runtime-assets (or ARCHIVE) copy matches.
-                if (archiveProvisioned(entry)) return entry.pinLabel()
-                // Otherwise surface any adrenotools driver dirs that happen to exist
-                // (informational; matchesPin stays false).
-                val adrenotools = File(context.filesDir, "contents/adrenotools")
-                adrenotools.listFiles()
-                    ?.filter { it.isDirectory }
-                    ?.map { it.name }
-                    ?.sorted()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.joinToString(", ")
-            }
+            // An ARCHIVE component that is not installed has nothing else to show;
+            // isInstalled() above already covered the extracted case.
+            ManifestEntry.Kind.ARCHIVE -> null
             ManifestEntry.Kind.ROOTFS -> null
         }
-    }
-
-    /**
-     * ARCHIVE is considered provisioned when either:
-     * 1. [ContentAssetInstaller] extracted it under `amphora-content/…`, or
-     * 2. A `.local-override` inject is armed under `runtime-assets/`, or
-     * 3. [RuntimeAssetProvisioner] already verified the same asset under
-     *    `runtime-assets/<assetPath>` (SHA marker matches the pin).
-     */
-    private fun archiveProvisioned(entry: ManifestEntry): Boolean {
-        if (assetInstaller.isInstalled(entry)) return true
-        val file = File(RuntimeAssetProvisioner.runtimeAssetsDir(context), entry.assetPath)
-        if (RuntimeAssetLocalOverride.isActive(file)) return true
-        val expectedSha = entry.sha256 ?: return false
-        if (!file.isFile) return false
-        if (entry.size != null && file.length() != entry.size) return false
-        val marker = File(file.absolutePath + ".sha256")
-        return marker.isFile && marker.readText().trim().equals(expectedSha, ignoreCase = true)
     }
 
     /** Copy the picked file into `filesDir/exe/<name>` (app-private, guest-readable). */

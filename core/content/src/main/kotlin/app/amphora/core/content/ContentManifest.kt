@@ -36,7 +36,14 @@ class ContentManifest private constructor(
             val keys = components.keys()
             while (keys.hasNext()) {
                 val key = keys.next()
-                val component = ContentComponent.valueOf(key.uppercase())
+                // Skip components this build does not know about. The manifest is
+                // fetched at runtime from a repo that moves independently of the
+                // app, so throwing here would let a single new key brick every
+                // installed version. Typos are caught upstream by
+                // content_manifest's validate_manifest.py, which knows the set.
+                val component = ContentComponent.entries
+                    .firstOrNull { it.name.equals(key, ignoreCase = true) }
+                    ?: continue
                 entries[component.id] = parseEntry(component, components.getJSONObject(key))
             }
             val runtimeAssets = buildList {

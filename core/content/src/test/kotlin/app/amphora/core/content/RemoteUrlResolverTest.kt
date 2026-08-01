@@ -100,8 +100,8 @@ class RemoteUrlResolverTest {
               "version": 1,
               "wcpCatalogUrl": "$baseUrl/default.json",
               "components": {
-                "turnip": {
-                  "assetPath": "graphics_driver/wrapper.tzst",
+                "dxvk": {
+                  "assetPath": "dxvk.tzst",
                   "sha256": "${"b".repeat(64)}",
                   "version": "1",
                   "kind": "ARCHIVE"
@@ -110,7 +110,7 @@ class RemoteUrlResolverTest {
             }
             """.trimIndent(),
         )
-        RemoteUrlResolver().resolve(manifest.entry(ContentComponent.TURNIP)!!, manifest.wcpCatalogUrl)
+        RemoteUrlResolver().resolve(manifest.entry(ContentComponent.DXVK)!!, manifest.wcpCatalogUrl)
     }
 
     private fun catalogManifest(assetPath: String): ContentManifest =

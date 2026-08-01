@@ -49,36 +49,19 @@ class RemoteContentSourceTest {
         val ids = manifest.all().map { it.component }.toSet()
         assertTrue("wine entry missing", ContentComponent.WINE in ids)
         assertTrue("box64 entry missing", ContentComponent.BOX64 in ids)
-        assertTrue("turnip entry missing", ContentComponent.TURNIP in ids)
         assertTrue("dxvk entry missing", ContentComponent.DXVK in ids)
         assertTrue("vkd3d entry missing", ContentComponent.VKD3D in ids)
+        assertTrue("rootfs entry missing", ContentComponent.ROOTFS in ids)
         // Each WCP entry must carry enough to compute getInstallDir.
         val wine = manifest.entry(ContentComponent.WINE)!!
         assertNotNull("wine contentType required for getInstallDir", wine.contentType)
         assertNotNull("wine verName required for getInstallDir", wine.verName)
-        println("MANIFEST_OK entries=${ids.size} wine=${wine.version} turnip=${manifest.entry(ContentComponent.TURNIP)!!.version}")
-    }
-
-    @Test
-    fun resolve_turnip_archive_installsWithShaVerify() = runBlocking {
-        val resolved = source.resolve(ContentComponent.TURNIP.id)
-
-        assertTrue("expected Resolved artifact", resolved is ContentArtifact.Resolved)
-        resolved as ContentArtifact.Resolved
-        assertEquals(ContentComponent.TURNIP, resolved.component)
-        assertEquals("1", resolved.version)
-        assertTrue("extracted dir missing: ${resolved.path}", resolved.path.isDirectory)
+        // The Mesa wrapper is a runtimeAssets[] entry, not a component.
         assertTrue(
-            "extracted dir empty (wrapper.tzst extract produced nothing): ${resolved.path}",
-            (resolved.path.list()?.isNotEmpty() == true),
+            "wrapper.tzst runtime asset missing",
+            manifest.runtimeAssets().any { it.assetPath == "graphics_driver/wrapper.tzst" },
         )
-        // wrapper.tzst ships the Mesa Vulkan ICD wrapper libs + json.
-        val allFiles = resolved.path.walkTopDown().map { it.name }.toList()
-        assertTrue(
-            "wrapper_icd.aarch64.json not found in extract: ${resolved.path}",
-            allFiles.any { it.contains("wrapper_icd") },
-        )
-        println("TURNIP_RESOLVED path=${resolved.path} files=${allFiles.size}")
+        println("MANIFEST_OK entries=${ids.size} wine=${wine.version} runtimeAssets=${manifest.runtimeAssets().size}")
     }
 
     @Test

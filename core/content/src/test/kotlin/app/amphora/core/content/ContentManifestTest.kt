@@ -11,7 +11,7 @@ import org.junit.Test
 /**
  * JVM unit test for [ContentManifest.parse]: both provisioning kinds
  * (WCP + ARCHIVE), null-SHA skipping, optional-field defaults, the ComponentId
- * mapping, and `runtimeAssets[]`.
+ * mapping, `runtimeAssets[]`, and forward compatibility with unknown keys.
  *
  * Whether the *real* manifest is well-formed is checked where it is edited, by
  * `amphora-dev/content_manifest`'s `validate_manifest.py`. Asserting that here
@@ -34,7 +34,7 @@ class ContentManifestTest {
     }
 
     @Test fun parsesArchiveEntryWithSha() {
-        val e = ContentManifest.parse(SAMPLE).entry(ContentComponent.TURNIP)!!
+        val e = ContentManifest.parse(SAMPLE).entry(ContentComponent.DXVK)!!
         assertEquals(ManifestEntry.Kind.ARCHIVE, e.kind)
         assertEquals(ManifestEntry.Compression.ZSTD, e.compression)
         assertEquals("b".repeat(64), e.sha256)
@@ -83,11 +83,20 @@ class ContentManifestTest {
         assertEquals(ManifestEntry.Compression.ZSTD, e.compression)
     }
 
-    @Test(expected = IllegalArgumentException::class)
-    fun missingComponentKeyThrowsViaValueOf() {
-        // A key that isn't a ContentComponent name fails fast at parse time
-        // (Enum.valueOf throws IllegalArgumentException for unknown names).
-        ContentManifest.parse("""{"version":1,"components":{"bogus":{"kind":"ARCHIVE","assetPath":"x","version":"1"}}}""")
+    @Test fun unknownComponentKeyIsSkippedNotFatal() {
+        // The manifest is fetched at runtime from a repo that evolves on its own
+        // schedule. A component this build has never heard of must not take the
+        // whole parse down, or adding one would brick every installed version.
+        val m = ContentManifest.parse(
+            """
+            {"version":1,"components":{
+              "someFutureThing":{"kind":"ARCHIVE","assetPath":"x","version":"1","sha256":"${"d".repeat(64)}"},
+              "box64":{"kind":"WCP","assetPath":"b.wcp","version":"1","sha256":"${"e".repeat(64)}"}
+            }}
+            """.trimIndent(),
+        )
+        assertEquals(1, m.all().size)
+        assertNotNull("known components must still parse", m.entry(ContentComponent.BOX64))
     }
 
     @Test fun missingComponentReturnsNull() {
@@ -109,8 +118,8 @@ class ContentManifestTest {
                   "verName": "10.0-4-x86_64",
                   "verCode": 0
                 },
-                "turnip": {
-                  "assetPath": "graphics_driver/wrapper.tzst",
+                "dxvk": {
+                  "assetPath": "dxvk.tzst",
                   "sha256": "${"b".repeat(64)}",
                   "version": "1",
                   "kind": "ARCHIVE",
