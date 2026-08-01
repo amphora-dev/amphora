@@ -20,12 +20,12 @@ object GraphicsDriverIds {
      */
     const val TURNIP_BALANCED = "WN-Turnip-1.06-b"
 
+    /**
+     * Key into `content_manifest.runtimeAssets[]`. The URL, SHA-256 and size of
+     * the zip live there and nowhere else, so bumping the pin upstream does not
+     * need an APK rebuild.
+     */
     const val TURNIP_ZIP_RELATIVE = "adrenotools/WN-Turnip-1.06-b_Axxx.zip"
-    const val TURNIP_ZIP_URL =
-        "https://github.com/WinNative-Emu/Drivers/releases/download/v1.06/WN-Turnip-1.06-b_Axxx.zip"
-    const val TURNIP_ZIP_SHA256 =
-        "c88c6ee2983f8d0814479f895e815e37fa4caa1e61020f4f1ac736026183f785"
-    const val TURNIP_ZIP_SIZE = 2_694_674L
 
     fun isKnown(id: String): Boolean = id == WRAPPER || id == TURNIP_BALANCED
 
