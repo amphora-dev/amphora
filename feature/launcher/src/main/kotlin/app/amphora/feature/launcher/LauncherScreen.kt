@@ -144,12 +144,6 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text("App ${uiState.appVersion}", style = MaterialTheme.typography.titleMedium)
-        val installed = uiState.installedImagefsVersion ?: "—"
-        val pinned = uiState.pinnedImagefsVersion ?: "…"
-        Text(
-            "imagefs installed v$installed · pin v$pinned",
-            style = MaterialTheme.typography.bodyMedium,
-        )
         val catalogLine = when (val status = uiState.catalogStatus) {
             is ContentCatalog.Status.Idle -> "Manifest: not loaded"
             is ContentCatalog.Status.Loading -> "Manifest: loading…"
@@ -165,6 +159,35 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
                 MaterialTheme.colorScheme.onSurface
             },
         )
+        if (uiState.components.isNotEmpty()) {
+            Text("Components", style = MaterialTheme.typography.labelLarge)
+            uiState.components.forEach { row ->
+                val installed = row.installed ?: "—"
+                val pinned = row.pinned ?: "…"
+                val suffix = when {
+                    row.pinned == null -> " (no pin)"
+                    row.installed == null -> " (missing)"
+                    !row.matchesPin -> " (stale)"
+                    else -> ""
+                }
+                Text(
+                    "${row.label}: installed $installed · pin $pinned$suffix",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (suffix.isNotEmpty()) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+            }
+        }
+        if (uiState.imagefsResidue) {
+            Text(
+                "residue: imagefs.olddead (unusable husk)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         if (uiState.contentBusy) {
             Text("Refreshing content pins…", style = MaterialTheme.typography.bodySmall)
         }
