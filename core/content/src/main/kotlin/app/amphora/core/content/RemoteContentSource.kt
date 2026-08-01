@@ -13,12 +13,12 @@ import java.util.concurrent.ConcurrentHashMap
  * Device-side content source for SHA-pinned WCP/archive components.
  *
  * Installed components are returned without network access. Cache misses use a
- * resumable verified download and the same kernel installer as bundled assets.
+ * resumable verified download, then hand the archive to [ContentAssetInstaller].
  */
 class RemoteContentSource(
     private val context: Context,
     private val catalog: ContentCatalog,
-    private val installer: BundledAssetInstaller,
+    private val installer: ContentAssetInstaller,
     private val downloader: VerifiedAssetDownloader,
     private val urlResolver: RemoteUrlResolver,
     private val progressBus: ProvisionProgressBus? = null,

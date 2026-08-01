@@ -46,7 +46,7 @@
 > WinNative 最大架构债: `XServerDisplayActivity` 11,000 行把"渲染内核 + 进程启动 + Steam 逻辑"搅在一起。
 
 1. **引擎/特性隔离** — Wine/渲染/输入是稳定内核（`engine`），特性层只依赖内核接口，**绝不反向依赖**。
-2. **ContentSource 可插拔** — 接口抽象内容来源。MVP 用 `BundledContentSource`（固定二进制），后期加 `RemoteContentSource`（.wcp 式下载），引擎不感知差异。
+2. **ContentSource 可插拔** — 接口抽象内容来源。MVP 用 `BundledContentSource`（固定二进制），后期加 `RemoteContentSource`（.wcp 式下载），引擎不感知差异。<br>*（现状：已全量切到 `RemoteContentSource`，`BundledContentSource` 已删除；见 05-ARCHITECTURE §2。）*
 3. **native ABI 稳定** — C/C++ 层暴露版本化 JNI 接口；Kotlin 侧只调接口，不碰 native 内部。
 4. **可复现构建** — 外部二进制版本锁 + 哈希校验；rootfs 用 winlator-imagefs 源码构建。
 

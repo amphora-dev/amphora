@@ -84,7 +84,7 @@ amphoraContentStaging {
 // Proton .wcp would bloat every debug APK). But the androidTest suite needs
 // those assets staged, and running `connectedDebugAndroidTest` without staging
 // silently `assumeTrue`-skips every asset-gated test (GameSessionLaunchTest,
-// ImagefsExtractionTest, PreparerGraphicsDriverTest, BundledContentSourceTest).
+// ImagefsExtractionTest, PreparerGraphicsDriverTest, RemoteContentSourceTest).
 // This aggregate task stages content first so the full suite actually runs:
 //
 //   ./gradlew :app:connectedAndroidTestWithContent

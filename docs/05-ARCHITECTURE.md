@@ -7,7 +7,7 @@
 
 ## 1. 一句话
 
-Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 WinNative 的运行时内核；app/feature 只通过 `WineEngine` 等稳定接口启动会话；运行时二进制经 `BundledContentSource` + SHA 锁定资产进 APK。
+Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 WinNative 的运行时内核；app/feature 只通过 `WineEngine` 等稳定接口启动会话；运行时二进制由 `RemoteContentSource` 按 `content_manifest.json` 的 SHA pin 在设备上下载安装，不进 APK。
 
 ---
 
@@ -41,7 +41,7 @@ Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 
 | 契约模块 | 接口 | 实现（engine） |
 |---|---|---|
 | `:core:rootfs` | `RootfsInstaller` | `ImageFsRootfsInstaller` |
-| `:core:content` | `ContentSource` / `BundledAssetInstaller` | `BundledContentSource` + `WinlatorBundledAssetInstaller` |
+| `:core:content` | `ContentSource` / `ContentAssetInstaller` | `RemoteContentSource` + `WinlatorContentAssetInstaller` |
 | `:core:container` | `ContainerManager` | `WinlatorContainerManager` |
 | `:core:engine` | `WineEngine` / `WineSessionPreparer` | `WineEngineImpl` / `XServerWineSessionPreparer` |
 
@@ -116,7 +116,7 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 
 `libfakeinput.so` 不再构建（MVP 输入走 X inject）；源码已从树内移除，手柄路径回归时从 WinNative 再引入。
 
-JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包名保留，C 零改）。远程下载 JNI（`nativeDownloadFile` 等）为 stub——MVP 只走 APK 内联资产。
+JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包名保留，C 零改）。远程下载 JNI（`nativeDownloadFile` 等）保持 stub——下载在 Kotlin 侧由 `VerifiedAssetDownloader` 做（可续传 + SHA 校验），native 只留符号避免 `UnsatisfiedLinkError`。
 
 ---
 

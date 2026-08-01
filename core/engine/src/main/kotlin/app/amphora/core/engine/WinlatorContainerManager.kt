@@ -34,9 +34,9 @@ import kotlin.coroutines.resume
  * lives in `:core:engine` next to the `com.winlator.cmod` kernel it adapts.
  *
  * **What this owns (the P4 gap the stub left):**
- * 1. Ensures the bundled Wine (Proton) + Box64 + DXVK + VKD3D content packages
- *    are installed ([ContentSource.resolve] -- `BundledContentSource` /
- *    `RemoteContentSource`, idempotent via the `isInstalled` cache). Container
+ * 1. Ensures the Wine (Proton) + Box64 + DXVK + VKD3D content packages are
+ *    installed ([ContentSource.resolve] -- `RemoteContentSource`, idempotent
+ *    via the `isInstalled` cache). Container
  *    creation needs the Proton `prefixPack` + the Box64 profile (emulator
  *    version auto-selection); DXVK / VKD3D must be present so
  *    `extractDXWrapperFiles` can `applyContent` real d3d8/9/11/dxgi and d3d12

@@ -4,7 +4,7 @@ import android.content.Context
 import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
-import app.amphora.core.content.BundledAssetInstaller
+import app.amphora.core.content.ContentAssetInstaller
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.ProvisionProgressBus
@@ -16,7 +16,7 @@ import app.amphora.core.engine.ImageFsRootfsInstaller
 import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.WineEngineImpl
-import app.amphora.core.engine.WinlatorBundledAssetInstaller
+import app.amphora.core.engine.WinlatorContentAssetInstaller
 import app.amphora.core.engine.WinlatorContainerManager
 import app.amphora.core.engine.WineSessionPreparer
 import app.amphora.core.engine.XServerWineSessionPreparer
@@ -63,7 +63,7 @@ object EngineModule {
 
     @Provides
     @Singleton
-    fun provideBundledAssetInstaller(impl: WinlatorBundledAssetInstaller): BundledAssetInstaller = impl
+    fun provideContentAssetInstaller(impl: WinlatorContentAssetInstaller): ContentAssetInstaller = impl
 
     @Provides
     @Singleton
@@ -90,7 +90,7 @@ object EngineModule {
     fun provideContentSource(
         @ApplicationContext context: Context,
         catalog: ContentCatalog,
-        installer: BundledAssetInstaller,
+        installer: ContentAssetInstaller,
         downloader: VerifiedAssetDownloader,
         urlResolver: RemoteUrlResolver,
         progressBus: ProvisionProgressBus,

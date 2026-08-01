@@ -65,7 +65,7 @@
 
 ## 5. 关键接口（RFC §6；现均已实现）
 
-接口定义未变。实现与 DIP 落点见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §2——`WineEngineImpl` / `BundledContentSource` / `WinlatorContainerManager` / `ImageFsRootfsInstaller` 等，**无 stub**。
+接口定义未变。实现与 DIP 落点见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §2——`WineEngineImpl` / `RemoteContentSource` / `WinlatorContainerManager` / `ImageFsRootfsInstaller` 等，**无 stub**。
 
 ## 6. 验证
 

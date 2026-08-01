@@ -7,7 +7,7 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.common.dispatcher.DispatcherProvider
-import app.amphora.core.content.BundledAssetInstaller
+import app.amphora.core.content.ContentAssetInstaller
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ProvisionProgress
@@ -46,7 +46,7 @@ class LauncherViewModel @Inject constructor(
     private val turnipProvisioner: TurnipDriverProvisioner,
     private val catalog: ContentCatalog,
     private val rootfsInstaller: RootfsInstaller,
-    private val assetInstaller: BundledAssetInstaller,
+    private val assetInstaller: ContentAssetInstaller,
     progressBus: ProvisionProgressBus,
 ) : ViewModel() {
 
@@ -269,7 +269,7 @@ class LauncherViewModel @Inject constructor(
 
     /**
      * ARCHIVE is considered provisioned when either:
-     * 1. [BundledAssetInstaller] extracted it under `amphora-content/…`, or
+     * 1. [ContentAssetInstaller] extracted it under `amphora-content/…`, or
      * 2. A `.local-override` inject is armed under `runtime-assets/`, or
      * 3. [RuntimeAssetProvisioner] already verified the same asset under
      *    `runtime-assets/<assetPath>` (SHA marker matches the pin).

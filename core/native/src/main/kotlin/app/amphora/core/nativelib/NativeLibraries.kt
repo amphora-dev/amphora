@@ -5,8 +5,8 @@ package app.amphora.core.nativelib
  *
  * `libwinlator.so` exposes the `Java_com_winlator_cmod_*` JNI exports (winlator C/CXX
  * sources + statically linked adrenotools; zstd/xz via FetchContent for archive
- * extract). Remote-download JNI remains stubbed — MVP provisions content from APK
- * assets (BundledContentSource). JNI binding classes live in `:core:engine`.
+ * extract). Remote-download JNI remains stubbed — downloading is done in Kotlin
+ * by `VerifiedAssetDownloader`. JNI binding classes live in `:core:engine`.
  *
  * `libfakeinput.so` is no longer built: amphora routes input via XServer inject,
  * not the LD_PRELOAD evdev shim. The former `fakeinput.cpp` source was removed

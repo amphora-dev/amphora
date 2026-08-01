@@ -46,7 +46,7 @@ data class ManifestEntry(
         /** Winlator Component Package (`.wcp`) installed via `ContentsManager.extraContentFile`. */
         WCP,
 
-        /** imagefs rootfs; owned by `RootfsInstaller`, NOT resolved by `BundledContentSource`. */
+        /** imagefs rootfs; owned by `RootfsInstaller`, NOT resolved by a `ContentSource`. */
         ROOTFS,
     }
 

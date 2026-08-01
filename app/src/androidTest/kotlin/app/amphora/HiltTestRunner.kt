@@ -9,7 +9,7 @@ import dagger.hilt.android.testing.HiltTestApplication
  * Swaps in [HiltTestApplication] so `@HiltAndroidTest` classes can `@Inject` the
  * real Hilt graph (`EngineModule` -> `WineEngineImpl`, `WinlatorContainerManager`,
  * `ImageFsRootfsInstaller`, `XServerWineSessionPreparer`, …). Non-Hilt
- * `AndroidJUnit4` tests (`BundledContentSourceTest`, `PreparerGraphicsDriverTest`,
+ * `AndroidJUnit4` tests (`RemoteContentSourceTest`, `PreparerGraphicsDriverTest`,
  * …) keep working unchanged -- [HiltTestApplication] is a plain `Application`.
  *
  * Wired in `app/build.gradle.kts`:
