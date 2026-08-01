@@ -177,7 +177,7 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
                 // A local inject deliberately diverges from the remote pin, so it
                 // is a warning (not an error) and must not read as "stale".
                 val suffix = when {
-                    row.localOverride -> " (LOCAL TEST BUILD — remote pin ignored)"
+                    row.localOverride -> " (LOCAL TEST BUILD — remote pin not applied)"
                     row.pinned == null -> " (no pin)"
                     row.installed == null -> " (missing)"
                     !row.matchesPin -> " (stale)"

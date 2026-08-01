@@ -163,8 +163,13 @@ class LauncherViewModel @Inject constructor(
         return ContentComponent.entries.map { component ->
             val entry = manifest.entry(component)
             val pin = entry?.pinLabel()
-            val installed = when (component) {
-                ContentComponent.ROOTFS -> rootfsInstaller.currentVersion()
+            val overrideSha = entry?.let { localOverrideSha(it) }
+            val installed = when {
+                // A local inject shares the manifest's version label, so report the
+                // on-disk SHA instead — otherwise `installed` and `pin` read identical
+                // even though the bytes differ.
+                overrideSha != null -> "local ${overrideSha.take(12)}…"
+                component == ContentComponent.ROOTFS -> rootfsInstaller.currentVersion()
                 else -> installedLabel(entry)
             }
             val matches = when {
@@ -179,15 +184,16 @@ class LauncherViewModel @Inject constructor(
                 pinned = pin,
                 installed = installed,
                 matchesPin = matches,
-                localOverride = entry != null && localOverrideArmed(entry),
+                localOverride = overrideSha != null,
             )
         }
     }
 
-    /** True when a dev/test inject pinned this asset locally (remote pin ignored). */
-    private fun localOverrideArmed(entry: ManifestEntry): Boolean {
+    /** SHA-256 pinned by a dev/test inject, or null when no override is armed. */
+    private fun localOverrideSha(entry: ManifestEntry): String? {
         val file = File(RuntimeAssetProvisioner.runtimeAssetsDir(context), entry.assetPath)
-        return RuntimeAssetLocalOverride.isActive(file)
+        if (!RuntimeAssetLocalOverride.isActive(file)) return null
+        return RuntimeAssetLocalOverride.markerFile(file).readText().trim()
     }
 
     private fun installedLabel(entry: ManifestEntry?): String? {
