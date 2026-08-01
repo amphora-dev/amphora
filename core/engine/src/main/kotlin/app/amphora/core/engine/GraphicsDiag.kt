@@ -24,16 +24,21 @@ import java.io.File
 object GraphicsDiag {
     const val TAG = "GraphicsDiag"
     const val LOG_DIR_NAME = "dxvk-logs"
+    const val SHADER_DUMP_DIR_NAME = "dxvk-shader-dumps"
     const val WINE_STDERR_NAME = "wine_stderr.log"
 
     /** Env merged last by [WineEngineImpl.buildLaunchEnvVars] when diag is on. */
     fun launchEnv(context: Context): Map<String, String> {
         val logDir = ensureLogDir(context)
+        val dumpDir = ensureShaderDumpDir(context)
         return mapOf(
             // On-screen: confirm present + API (D3D8/9 vs 11) while scene is black.
             "DXVK_HUD" to "fps,devinfo,api,version,memory,gpuload",
             "DXVK_LOG_LEVEL" to "info",
             "DXVK_LOG_PATH" to logDir.absolutePath,
+            // Linked SPIR-V dumps (stock DXVK + amphora-diag builds that dump on
+            // vkCreateGraphicsPipelines failure, e.g. FF VS/FS -13 on Adreno).
+            "DXVK_SHADER_DUMP_PATH" to dumpDir.absolutePath,
             // Override WINEDEBUG=-all so ProcessHelper captures wine_stderr.log.
             // Do NOT enable +seh: Box64 SEH traces flood the log and stall session start
             // for minutes (observed on TB322FC with AIO DX8/9).
@@ -49,10 +54,22 @@ object GraphicsDiag {
             Log.w(TAG, "Failed to create DXVK log dir: ${dir.absolutePath}")
         }
         // DXVK writes *.log here; drop stray non-log files (e.g. a misplaced .so).
+        // Keep *.spv in case a diag build fell back to DXVK_LOG_PATH for dumps.
         dir.listFiles()?.forEach { f ->
-            if (f.isFile && !f.name.endsWith(".log", ignoreCase = true)) {
+            if (f.isFile &&
+                !f.name.endsWith(".log", ignoreCase = true) &&
+                !f.name.endsWith(".spv", ignoreCase = true)
+            ) {
                 if (f.delete()) Log.i(TAG, "Removed stray file from DXVK log dir: ${f.name}")
             }
+        }
+        return dir
+    }
+
+    fun ensureShaderDumpDir(context: Context): File {
+        val dir = File(context.filesDir, SHADER_DUMP_DIR_NAME)
+        if (!dir.isDirectory && !dir.mkdirs()) {
+            Log.w(TAG, "Failed to create DXVK shader dump dir: ${dir.absolutePath}")
         }
         return dir
     }
