@@ -1,5 +1,6 @@
 package app.amphora.core.content
 
+import app.amphora.core.content.model.ContentComponent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,13 +32,25 @@ class ContentManifestLoaderTest {
     }
 
     @Test
-    fun parseShapeMatchesRepoManifest() {
+    fun parsesEveryComponentTheEngineResolves() {
         val json = javaClass.classLoader!!
-            .getResourceAsStream("content_manifest.json")!!
+            .getResourceAsStream("content_manifest_fixture.json")!!
             .bufferedReader()
             .readText()
         val manifest = ContentManifest.parse(json)
-        assertEquals(6, manifest.all().size)
-        assertTrue(manifest.entry(app.amphora.core.content.model.ContentComponent.ROOTFS) != null)
+        // Anything the engine asks for by name must survive a round-trip through
+        // the parser; a missing key here surfaces on device as a launch failure.
+        val required = listOf(
+            ContentComponent.WINE,
+            ContentComponent.BOX64,
+            ContentComponent.TURNIP,
+            ContentComponent.DXVK,
+            ContentComponent.VKD3D,
+            ContentComponent.ROOTFS,
+        )
+        for (component in required) {
+            assertTrue("missing $component", manifest.entry(component) != null)
+        }
+        assertEquals(required.size, manifest.all().size)
     }
 }

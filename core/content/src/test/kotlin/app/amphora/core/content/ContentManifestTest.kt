@@ -12,9 +12,8 @@ import org.junit.Test
 /**
  * JVM unit test for [ContentManifest.parse]. Exercises both provisioning kinds
  * (WCP + ARCHIVE), null-SHA skipping, optional-field defaults, and the
- * ComponentId mapping. [realManifestHasAllShasPinned] parses the shipped
- * `content_manifest.json` so a malformed or un-pinned manifest fails here, not
- * on device.
+ * ComponentId mapping. [fixtureManifestSatisfiesProvisioningInvariants] parses a
+ * full-shape fixture so a malformed manifest fails here, not on device.
  */
 class ContentManifestTest {
 
@@ -77,52 +76,65 @@ class ContentManifestTest {
     }
 
     /**
-     * Regression guard for gap #1: every shipped manifest entry must carry a
-     * pinned SHA-256. A `null` digest silently skips runtime verification
-     * ([BundledContentSource] logs a warning and trusts the asset), so this
-     * fails fast if a component is ever un-pinned. Parses the real
-     * `content_manifest.json` (not [SAMPLE]); Gradle runs unit tests with the
-     * module dir as the working directory, so the source asset is reachable via
-     * a relative path.
+     * Regression guard for gap #1: every manifest entry must carry a pinned
+     * SHA-256, because a `null` digest silently skips download verification.
+     *
+     * Runs against [FIXTURE], a frozen sample of the manifest shape. It is
+     * deliberately *not* kept in sync with `amphora-dev/content_manifest`, so
+     * the assertions here are about invariants only — asserting a version or a
+     * digest would turn every upstream pin bump into an edit in this file while
+     * still telling us nothing about the manifest the app actually fetches.
      */
-    @Test fun realManifestHasAllShasPinned() {
-        val manifest = ContentManifest.parse(
-            javaClass.classLoader!!
-                .getResourceAsStream("content_manifest.json")!!
-                .bufferedReader()
-                .readText(),
-        )
-        assertEquals("shipped manifest must define 6 remote components", 6, manifest.all().size)
-        assertNotNull(manifest.entry(ContentComponent.VKD3D))
-        assertEquals("3.0.1-sm69", manifest.entry(ContentComponent.VKD3D)!!.verName)
-        assertEquals("3.0.2-gplasync", manifest.entry(ContentComponent.DXVK)!!.verName)
+    @Test fun fixtureManifestSatisfiesProvisioningInvariants() {
+        val manifest = ContentManifest.parse(FIXTURE)
+
+        assertTrue("manifest defines no components", manifest.all().isNotEmpty())
         val unpinned = manifest.all().filter { it.sha256 == null }
         assertTrue(
             "un-pinned SHA-256 (gap #1 regression): ${unpinned.joinToString { it.component.id.value }}",
             unpinned.isEmpty(),
         )
-        assertTrue("stable WCP catalog URL missing", manifest.wcpCatalogUrl!!.endsWith("/default.json"))
-        assertTrue("kernel runtime assets missing", manifest.runtimeAssets().isNotEmpty())
         assertTrue(
-            "runtime asset SHA-256 missing",
-            manifest.runtimeAssets().all { it.sha256.matches(Regex("[0-9a-f]{64}")) },
+            "component SHA-256 must be 64 lowercase hex chars",
+            manifest.all().all { it.sha256!!.matches(SHA256) },
         )
-        val runtimeAssets = manifest.runtimeAssets().associateBy { it.assetPath }
-        assertEquals(
-            "75589dc37b72d509e23c9c3c043fdf8e03855e5d2f1ec846efe2672662719306",
-            runtimeAssets["winnative/Graphics-Test-32bit.exe"]?.sha256,
+        assertTrue(
+            "every component needs a non-empty version for the install path",
+            manifest.all().all { it.version.isNotBlank() },
+        )
+
+        val catalogUrl = manifest.wcpCatalogUrl
+        assertNotNull("WCP catalog URL missing", catalogUrl)
+        assertTrue("WCP catalog URL must be https", catalogUrl!!.startsWith("https://"))
+
+        val runtimeAssets = manifest.runtimeAssets()
+        assertTrue("kernel runtime assets missing", runtimeAssets.isNotEmpty())
+        assertTrue(
+            "runtime asset SHA-256 must be 64 lowercase hex chars",
+            runtimeAssets.all { it.sha256.matches(SHA256) },
+        )
+        assertTrue(
+            "runtime assets must be fetched over https",
+            runtimeAssets.all { it.remoteUrl.startsWith("https://") },
         )
         assertEquals(
-            "96d76d077139ef469eff31efbc75cd9202b99bf2906b97e3c5de07dc350f5c57",
-            runtimeAssets["winnative/Graphics-Test-64bit.exe"]?.sha256,
-        )
-        assertEquals(
-            "c88c6ee2983f8d0814479f895e815e37fa4caa1e61020f4f1ac736026183f785",
-            runtimeAssets["adrenotools/WN-Turnip-1.06-b_Axxx.zip"]?.sha256,
+            "duplicate runtime asset paths would race in RuntimeAssetProvisioner",
+            runtimeAssets.size,
+            runtimeAssets.map { it.assetPath }.toSet().size,
         )
     }
 
     private companion object {
+        val SHA256 = Regex("[0-9a-f]{64}")
+
+        /** Frozen full-shape manifest; see the `${'$'}comment` in the resource. */
+        val FIXTURE: String by lazy {
+            ContentManifestTest::class.java.classLoader!!
+                .getResourceAsStream("content_manifest_fixture.json")!!
+                .bufferedReader()
+                .readText()
+        }
+
         val SAMPLE = """
             {
               "version": 1,

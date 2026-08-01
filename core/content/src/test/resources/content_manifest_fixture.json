@@ -1,5 +1,5 @@
 {
-  "$comment": "Remote-only content pin file (NOT packaged into the APK). Fetched at runtime from GitHub main. Each entry maps a ComponentId to a remote asset, pinned SHA-256, version, and kind. ARCHIVE/WCP install under filesDir; ROOTFS is owned by RootfsInstaller. imagefs CI rewrites components.rootfs after each Release publish.",
+  "$comment": "Frozen sample manifest for :core:content JVM tests. This is a shape fixture, NOT a mirror of amphora-dev/content_manifest — the pins here are deliberately left to go stale. Tests must assert structure and invariants (every component pinned, kinds parse, URLs are https), never a specific version or digest, otherwise every pin bump upstream turns into a test edit here.",
   "version": 1,
   "source": "docs/04-ASSET-MANIFEST.md",
   "wcpCatalogUrl": "https://raw.githubusercontent.com/nicholasx417/WinNative-Components/main/default.json",
