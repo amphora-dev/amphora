@@ -23,13 +23,25 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ProvisionProgress
 import java.io.File
+
+/**
+ * Dev/test inject marker. Deliberately outside the theme palette: it must not
+ * read as normal body text (fine) nor as an error (broken) — this is a build
+ * that intentionally ignores the published pin.
+ */
+private val LOCAL_BUILD_COLOR = Color(0xFF00629E)
 
 /**
  * MVP launcher (RFC §3 v0.1 / §6): pick a Windows .exe, choose a render
@@ -144,16 +156,6 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text("App ${uiState.appVersion}", style = MaterialTheme.typography.titleMedium)
-        val overridden = uiState.components.filter { it.localOverride }
-        if (overridden.isNotEmpty()) {
-            Text(
-                "⚠ Local test build: " +
-                    overridden.joinToString(", ") { it.label } +
-                    " injected via adb, not the published pin",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.tertiary,
-            )
-        }
         val catalogLine = when (val status = uiState.catalogStatus) {
             is ContentCatalog.Status.Idle -> "Manifest: not loaded"
             is ContentCatalog.Status.Loading -> "Manifest: loading…"
@@ -177,7 +179,7 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
                 // A local inject deliberately diverges from the remote pin, so it
                 // is a warning (not an error) and must not read as "stale".
                 val suffix = when {
-                    row.localOverride -> " (LOCAL TEST BUILD — remote pin not applied)"
+                    row.localOverride -> " (local)"
                     row.pinned == null -> " (no pin)"
                     row.installed == null -> " (missing)"
                     !row.matchesPin -> " (stale)"
@@ -187,12 +189,16 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
                     "${row.label}: installed $installed · pin $pinned$suffix",
                     style = MaterialTheme.typography.bodySmall,
                     color = when {
-                        row.localOverride -> MaterialTheme.colorScheme.tertiary
+                        row.localOverride -> LOCAL_BUILD_COLOR
                         suffix.isNotEmpty() -> MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.onSurface
                     },
+                    fontWeight = if (row.localOverride) FontWeight.Bold else null,
                 )
             }
+        }
+        if (uiState.runtimeAssets.isNotEmpty()) {
+            RuntimeAssetBlock(uiState.runtimeAssets)
         }
         if (uiState.imagefsResidue) {
             Text(
@@ -206,6 +212,59 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
         }
         TextButton(onClick = onRefresh, enabled = !uiState.contentBusy) {
             Text("Refresh manifest")
+        }
+    }
+}
+
+/**
+ * `runtimeAssets[]` — the bulk of the manifest (wincomponents, ddrawrapper,
+ * metadata, …). Collapsed by default so the launcher stays usable; the whole
+ * screen scrolls, so expanding just makes the page longer.
+ */
+@Composable
+private fun RuntimeAssetBlock(assets: List<RuntimeAssetStatus>) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val unhealthy = assets.count { !it.healthy }
+    val overrides = assets.count { it.state == RuntimeAssetStatus.State.LOCAL_OVERRIDE }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        val summary = buildString {
+            append("Runtime assets (${assets.size}")
+            if (unhealthy > 0) append(", $unhealthy need attention")
+            if (overrides > 0) append(", $overrides local")
+            append(')')
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(summary, style = MaterialTheme.typography.labelLarge)
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Hide" else "Show all")
+            }
+        }
+        if (expanded) {
+            assets.forEach { asset ->
+                val suffix = when (asset.state) {
+                    RuntimeAssetStatus.State.OK -> ""
+                    RuntimeAssetStatus.State.MISSING -> " (missing)"
+                    RuntimeAssetStatus.State.MISMATCH -> " (mismatch)"
+                    RuntimeAssetStatus.State.UNVERIFIED -> " (unverified)"
+                    RuntimeAssetStatus.State.LOCAL_OVERRIDE -> " (local)"
+                }
+                val sha = asset.installedSha?.take(12)?.plus("…") ?: "—"
+                val local = asset.state == RuntimeAssetStatus.State.LOCAL_OVERRIDE
+                Text(
+                    "${asset.assetPath}: $sha$suffix",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when {
+                        local -> LOCAL_BUILD_COLOR
+                        asset.state == RuntimeAssetStatus.State.OK -> MaterialTheme.colorScheme.onSurface
+                        else -> MaterialTheme.colorScheme.error
+                    },
+                    fontWeight = if (local) FontWeight.Bold else null,
+                )
+            }
         }
     }
 }

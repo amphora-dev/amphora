@@ -86,6 +86,7 @@ class LauncherViewModel @Inject constructor(
             try {
                 val manifest = catalog.refresh()
                 val components = withContext(dispatchers.io) { scanComponents(manifest) }
+                val runtimeAssets = withContext(dispatchers.io) { scanRuntimeAssets(manifest) }
                 val residue = withContext(dispatchers.io) {
                     File(context.filesDir, "imagefs.olddead").exists()
                 }
@@ -93,6 +94,7 @@ class LauncherViewModel @Inject constructor(
                     it.copy(
                         contentBusy = false,
                         components = components,
+                        runtimeAssets = runtimeAssets,
                         imagefsResidue = residue,
                     )
                 }
@@ -167,8 +169,8 @@ class LauncherViewModel @Inject constructor(
             val installed = when {
                 // A local inject shares the manifest's version label, so report the
                 // on-disk SHA instead — otherwise `installed` and `pin` read identical
-                // even though the bytes differ.
-                overrideSha != null -> "local ${overrideSha.take(12)}…"
+                // even though the bytes differ. Same shape as the runtime-asset rows.
+                overrideSha != null -> "${overrideSha.take(12)}…"
                 component == ContentComponent.ROOTFS -> rootfsInstaller.currentVersion()
                 else -> installedLabel(entry)
             }
@@ -192,8 +194,46 @@ class LauncherViewModel @Inject constructor(
     /** SHA-256 pinned by a dev/test inject, or null when no override is armed. */
     private fun localOverrideSha(entry: ManifestEntry): String? {
         val file = File(RuntimeAssetProvisioner.runtimeAssetsDir(context), entry.assetPath)
+        return localOverrideSha(file)
+    }
+
+    private fun localOverrideSha(file: File): String? {
         if (!RuntimeAssetLocalOverride.isActive(file)) return null
         return RuntimeAssetLocalOverride.markerFile(file).readText().trim()
+    }
+
+    /**
+     * `runtimeAssets[]` is the bulk of the manifest (wincomponents, ddrawrapper,
+     * metadata, …) and is provisioned separately from [ContentComponent], so the
+     * component list alone hides most of what a device actually holds.
+     */
+    private fun scanRuntimeAssets(manifest: ContentManifest): List<RuntimeAssetStatus> {
+        val root = RuntimeAssetProvisioner.runtimeAssetsDir(context)
+        return manifest.runtimeAssets().map { entry ->
+            val file = File(root, entry.assetPath)
+            val override = localOverrideSha(file)
+            val onDisk = File(file.absolutePath + ".sha256")
+                .takeIf { it.isFile }
+                ?.readText()
+                ?.trim()
+                ?.lowercase()
+            val state = when {
+                override != null -> RuntimeAssetStatus.State.LOCAL_OVERRIDE
+                !file.isFile -> RuntimeAssetStatus.State.MISSING
+                onDisk == null -> RuntimeAssetStatus.State.UNVERIFIED
+                onDisk != entry.sha256.lowercase() -> RuntimeAssetStatus.State.MISMATCH
+                entry.size != null && file.length() != entry.size ->
+                    RuntimeAssetStatus.State.MISMATCH
+                else -> RuntimeAssetStatus.State.OK
+            }
+            RuntimeAssetStatus(
+                assetPath = entry.assetPath,
+                pinnedSha = entry.sha256.lowercase(),
+                installedSha = override ?: onDisk,
+                sizeBytes = entry.size,
+                state = state,
+            )
+        }
     }
 
     private fun installedLabel(entry: ManifestEntry?): String? {
@@ -284,6 +324,19 @@ data class ComponentInstallStatus(
     val label: String get() = component.name.lowercase(Locale.ROOT)
 }
 
+/** One `runtimeAssets[]` entry as it exists under `filesDir/runtime-assets/`. */
+data class RuntimeAssetStatus(
+    val assetPath: String,
+    val pinnedSha: String,
+    val installedSha: String?,
+    val sizeBytes: Long?,
+    val state: State,
+) {
+    enum class State { OK, MISSING, MISMATCH, UNVERIFIED, LOCAL_OVERRIDE }
+
+    val healthy: Boolean get() = state == State.OK || state == State.LOCAL_OVERRIDE
+}
+
 data class LauncherUiState(
     val appVersion: String = "",
     val stagedExePath: String? = null,
@@ -295,6 +348,7 @@ data class LauncherUiState(
     val contentBusy: Boolean = false,
     val catalogStatus: ContentCatalog.Status = ContentCatalog.Status.Idle,
     val components: List<ComponentInstallStatus> = emptyList(),
+    val runtimeAssets: List<RuntimeAssetStatus> = emptyList(),
     val imagefsResidue: Boolean = false,
     val provisionProgress: ProvisionProgress? = null,
 )
