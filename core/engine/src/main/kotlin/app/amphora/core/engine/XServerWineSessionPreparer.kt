@@ -643,9 +643,18 @@ class XServerWineSessionPreparer @Inject constructor(
         val resolvedLibraryName = if (libraryName.isNotEmpty()) libraryName else "libvulkan_wrapper.so"
         val metaFile = File(adrenotoolsDir, "meta.json")
         val dstDriver = File(adrenotoolsDir, resolvedLibraryName)
+        val srcDriver = File(imageFs.getLibDir(), resolvedLibraryName)
+        val imagePin = readWrapperPinMarker(imageFs.getRootDir())
+        val adrenotoolsPinMarker = File(adrenotoolsDir, WRAPPER_PIN_MARKER)
+        val adrenotoolsPin = adrenotoolsPinMarker.takeIf { it.isFile }?.readText()?.trim()
+        val pinMismatch = imagePin != null && !imagePin.equals(adrenotoolsPin, ignoreCase = true)
+        val sizeMismatch =
+            srcDriver.exists() && dstDriver.exists() && srcDriver.length() != dstDriver.length()
         // Require both meta + .so — a lone meta.json from a partial install would
         // otherwise skip forever and leave the host on the system Adreno driver.
-        val alreadyInstalled = metaFile.exists() && dstDriver.exists()
+        // Also refresh when imagefs wrapper pin/size moved (content_manifest bump).
+        val alreadyInstalled =
+            metaFile.exists() && dstDriver.exists() && !pinMismatch && !sizeMismatch
         if (!alreadyInstalled) {
             if (!adrenotoolsDir.exists() && !adrenotoolsDir.mkdirs()) {
                 Log.w(TAG, "installAdrenotoolsDriverIfNeeded: failed to mkdir $adrenotoolsDir")
@@ -653,10 +662,10 @@ class XServerWineSessionPreparer @Inject constructor(
             }
 
             // Source: the wrapper.tzst extract landed the driver .so at imagefs/usr/lib/.
-            val srcDriver = File(imageFs.getLibDir(), resolvedLibraryName)
             if (!srcDriver.exists()) {
                 Log.w(TAG, "installAdrenotoolsDriverIfNeeded: driver .so not found at $srcDriver — re-extracting wrapper.tzst")
-                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/wrapper.tzst", imageFs.getRootDir())
+                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, imageFs.getRootDir())
+                writeWrapperPinMarker(imageFs.getRootDir())
             }
             if (srcDriver.exists()) {
                 if (FileUtils.copy(srcDriver, dstDriver)) {
@@ -678,6 +687,10 @@ class XServerWineSessionPreparer @Inject constructor(
             } else {
                 Log.e(TAG, "installAdrenotoolsDriverIfNeeded: failed to write $metaFile")
             }
+            val pin = readWrapperPinMarker(imageFs.getRootDir())
+            if (pin != null) {
+                adrenotoolsPinMarker.writeText(pin.lowercase())
+            }
         } else {
             Log.d(TAG, "Adrenotools driver already installed: $driverId ($resolvedLibraryName)")
         }
@@ -686,6 +699,42 @@ class XServerWineSessionPreparer @Inject constructor(
         // copies adrenotools' driver namespace cannot dlopen NEEDED libs from
         // imagefs and silently falls back to proprietary Adreno.
         seedAdrenotoolsRuntimeDeps(adrenotoolsDir)
+    }
+
+    /**
+     * True when [WRAPPER_ASSET] in runtime-assets has a SHA that does not match
+     * the sidecar written next to imagefs `libvulkan_wrapper.so`.
+     */
+    private fun wrapperImagefsNeedsRefresh(rootDir: File): Boolean {
+        val so = File(rootDir, "usr/lib/libvulkan_wrapper.so")
+        if (!so.isFile) return true
+        val pin = runtimeWrapperPin() ?: return false
+        val current = readWrapperPinMarker(rootDir) ?: return true
+        return !pin.equals(current, ignoreCase = true)
+    }
+
+    private fun runtimeWrapperPin(): String? {
+        val marker = File(
+            RuntimeAssetProvisioner.runtimeAssetsDir(context),
+            "$WRAPPER_ASSET.sha256",
+        )
+        if (!marker.isFile) return null
+        val digest = marker.readText().trim()
+        return digest.takeIf { it.length == 64 }
+    }
+
+    private fun readWrapperPinMarker(rootDir: File): String? {
+        val marker = File(rootDir, "usr/lib/$WRAPPER_PIN_MARKER")
+        if (!marker.isFile) return null
+        return marker.readText().trim().takeIf { it.length == 64 }
+    }
+
+    private fun writeWrapperPinMarker(rootDir: File) {
+        val pin = runtimeWrapperPin() ?: return
+        val marker = File(rootDir, "usr/lib/$WRAPPER_PIN_MARKER")
+        marker.parentFile?.mkdirs()
+        marker.writeText(pin.lowercase())
+        Log.i(TAG, "Recorded wrapper pin $pin at ${marker.path}")
     }
 
     /**
@@ -828,12 +877,20 @@ class XServerWineSessionPreparer @Inject constructor(
         envState.put("GALLIUM_DRIVER", "zink")
         envState.put("LIBGL_KOPPER_DISABLE", "true")
 
+        val wrapperPinChanged = wrapperImagefsNeedsRefresh(rootDir)
         if (firstTimeBoot) {
             Log.d(TAG, "First time container boot, re-extracting libs")
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/wrapper.tzst", rootDir)
+            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, rootDir)
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "layers.tzst", rootDir)
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/extra_libs.tzst", rootDir)
             // D5: arm64ec zink_dlls branch stripped (wineInfo.isArm64EC() always false for x86_64).
+            writeWrapperPinMarker(rootDir)
+        } else if (wrapperPinChanged) {
+            // runtimeAssets pin can move without firstTimeBoot (content_manifest bump).
+            // Without this, devices keep a stale imagefs/usr/lib/libvulkan_wrapper.so.
+            Log.i(TAG, "wrapper.tzst pin changed; re-extracting into imagefs")
+            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, rootDir)
+            writeWrapperPinMarker(rootDir)
         }
 
         val wantLeegao = "wrapper-leegao" == graphicsDriver
@@ -842,8 +899,9 @@ class XServerWineSessionPreparer @Inject constructor(
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/wrapper-leegao.tzst", rootDir)
             try { leegaoMarker.createNewFile() } catch (e: IOException) { /* ignored */ }
         } else if (leegaoMarker.exists()) {
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/wrapper.tzst", rootDir)
+            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, rootDir)
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "layers.tzst", rootDir)
+            writeWrapperPinMarker(rootDir)
             leegaoMarker.delete()
         }
 
@@ -1095,6 +1153,9 @@ class XServerWineSessionPreparer @Inject constructor(
     private companion object {
         private const val TAG = "WineSessionPreparer"
         private const val D8VK_ASSET_PATH = "dxwrapper/d8vk-1.0.tzst"
+        private const val WRAPPER_ASSET = "graphics_driver/wrapper.tzst"
+        /** Sidecar under imagefs/usr/lib recording the runtime-assets wrapper pin. */
+        private const val WRAPPER_PIN_MARKER = "libvulkan_wrapper.so.wrapper.sha256"
         private val GRAPHICS_TEST_ASSETS = arrayOf(
             "winnative/Graphics-Test-32bit.exe",
             "winnative/Graphics-Test-64bit.exe",
