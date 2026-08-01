@@ -12,6 +12,7 @@ import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.content.ProvisionProgressBus
+import app.amphora.core.content.RuntimeAssetLocalOverride
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
@@ -216,13 +217,15 @@ class LauncherViewModel @Inject constructor(
     /**
      * ARCHIVE is considered provisioned when either:
      * 1. [BundledAssetInstaller] extracted it under `amphora-content/…`, or
-     * 2. [RuntimeAssetProvisioner] already verified the same asset under
+     * 2. A `.local-override` inject is armed under `runtime-assets/`, or
+     * 3. [RuntimeAssetProvisioner] already verified the same asset under
      *    `runtime-assets/<assetPath>` (SHA marker matches the pin).
      */
     private fun archiveProvisioned(entry: ManifestEntry): Boolean {
         if (assetInstaller.isInstalled(entry)) return true
-        val expectedSha = entry.sha256 ?: return false
         val file = File(RuntimeAssetProvisioner.runtimeAssetsDir(context), entry.assetPath)
+        if (RuntimeAssetLocalOverride.isActive(file)) return true
+        val expectedSha = entry.sha256 ?: return false
         if (!file.isFile) return false
         if (entry.size != null && file.length() != entry.size) return false
         val marker = File(file.absolutePath + ".sha256")
