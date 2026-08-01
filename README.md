@@ -33,15 +33,15 @@ Contracts live in the lower modules; Winlator-backed implementations live in `:c
 # APK: app/build/outputs/apk/debug/app-debug.apk  (arm64-v8a only)
 ```
 
-The APK stays slim. `content_manifest.json` is fetched at runtime from
-[`amphora-dev/content_manifest`](https://github.com/amphora-dev/content_manifest)
-(`main` raw URL — no APK-bundled fallback). Pin URL/SHA changes do not require
-rebuilding the APK; bump `rootfs.version` when the installed imagefs tree must
-be replaced. imagefs CI updates that repo after each successful Release publish.
+The APK stays slim. On first launch the device downloads SHA-pinned Rootfs,
+Proton, Box64, DXVK, VKD3D and runtime assets; installed assets are reused on
+later launches. The launcher shows app / imagefs versions and download progress.
 
-The APK stays slim. On first launch, the device downloads SHA-pinned Rootfs,
-Proton, Box64, DXVK, VKD3D and runtime assets; installed assets are reused on later
-launches. The launcher shows app / imagefs versions and download progress.
+The pins come from `content_manifest.json`, fetched at runtime from
+[`amphora-dev/content_manifest`](https://github.com/amphora-dev/content_manifest)
+(`main` raw URL — no APK-bundled fallback). Changing a URL or SHA there does not
+require rebuilding the APK; bump `rootfs.version` when the installed imagefs
+tree must be replaced. imagefs CI updates that repo after each Release publish.
 
 Instrumented E2E (ARM64 Adreno device recommended):
 

@@ -75,7 +75,7 @@
 ./gradlew :core:common:test        # 单测骨架通过
 ```
 
-APK `app/build/outputs/apk/debug/app-debug.apk` 内含 `lib/arm64-v8a/libwinlator.so` + `libfakeinput.so`（CMake/NDK 管线端到端验证）。端到端运行需先 `:app:stageBundledContent`。
+APK `app/build/outputs/apk/debug/app-debug.apk` 内含 `lib/arm64-v8a/libwinlator.so`（CMake/NDK 管线端到端验证）。`libfakeinput.so` 已停编——输入走 X inject，见 05-ARCHITECTURE §6。运行时资产在首次启动时按 manifest pin 下载。
 
 ## 7. 下一步
 
