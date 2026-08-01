@@ -882,7 +882,10 @@ class XServerWineSessionPreparer @Inject constructor(
             Log.d(TAG, "First time container boot, re-extracting libs")
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, rootDir)
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "layers.tzst", rootDir)
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/extra_libs.tzst", rootDir)
+            // extra_libs.tzst is gone: its only live payload was Mesa libGL, which the
+            // self-built imagefs now ships (imagefs packages/graphics/mesa-gl.sh). The
+            // rest (Turnip, vkBasalt, bcn_layer) has no consumer — the default Vulkan
+            // path is the wrapper ICD and full Turnip is the optional WN-Turnip zip.
             // D5: arm64ec zink_dlls branch stripped (wineInfo.isArm64EC() always false for x86_64).
             writeWrapperPinMarker(rootDir)
         } else if (wrapperPinChanged) {

@@ -36,7 +36,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 | 资产 | 压缩 | 大小 | 条目 | 内容 | 安装者 | 更新通道 |
 |---|---|---|---|---|---|---|
 | `imagefs.tzst` | zstd | 199.8 MB | 10892 | rootfs 本体（`bin`/`etc`/`lib`/`opt`/`usr`…）| `RootfsInstaller` | **imagefs**（基线） |
-| `extra_libs.tzst` | zstd | 21.1 MB | 14 | `usr/lib` 的 Mesa `libGL`+`libglapi` / Turnip / vkBasalt / bcn_layer，`usr/share/vulkan` 的 ICD + 隐式层 JSON | `TarCompressorUtils` | **废止**；GL 并入 imagefs（§0.6） |
+| `extra_libs.tzst` | zstd | 21.1 MB | 14 | `usr/lib` 的 Mesa `libGL`+`libglapi` / Turnip / vkBasalt / bcn_layer，`usr/share/vulkan` 的 ICD + 隐式层 JSON | — | ⛔ **已废止**（2026-08-01）；GL 改由 imagefs 自建（§0.6） |
 | `layers.tzst` | zstd | 4.4 MB | 3 | `usr/lib/libVkLayer_khronos_validation.so` | `TarCompressorUtils` | **可选调试**（§0.6） |
 | `wrapper.tzst` | zstd | 3.8 MB | 12 | `usr/lib` 的 `libadrenotools` + `libvulkan_wrapper` +（历史）4 个 hook，`usr/share/vulkan/icd.d/wrapper_icd.aarch64.json` | `TarCompressorUtils` | **wrapper+hooks（独立）** |
 
@@ -140,7 +140,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 | 1 | **`imagefs`**（自建 `imagefs.tzst`） | Bionic 基线：Wine unix 依赖（**gnutls 链 + GStreamer**）、ALSA、X11 客户端链、pulse **客户端**… | **~25–28 MB**（现状 CI 27.5 MB xz） | `filesDir/imagefs` | ✅ 唯一 rootfs |
 | 2 | **`wrapper.tzst`** | `libvulkan_wrapper` + `libadrenotools` + `wrapper_icd` | **~3.7 MB**（去掉包内 hook 后几乎不变） | imagefs `usr/lib` + ICD | ✅ **独立发版** |
 | 3 | **adrenotools hooks**（4× `.so`） | `main_hook` / `file_redirect_hook` / `gsl_alloc_hook` / `hook_impl` | **~0.3 MB**（随 APK） | `nativeLibraryDir`（首选；见「约束有多硬」） | ✅ **与 wrapper 同通道共版**（ABI 耦合） |
-| 4 | **Mesa GL 进 imagefs**（不再独立包） | **strip 后** `libGL.so.1*` + `libglapi`，由 `winlator-imagefs` 配方直接编进基线 | 使 imagefs 增约 **+4–6 MB**（解压 +~15 MB） | imagefs `usr/lib` | ✅ 随 imagefs |
+| 4 | **Mesa GL 进 imagefs**（不再独立包） | **自建** `libGL.so.1`（`packages/graphics/mesa-gl.sh`：上游 Mesa 源码 + zink + xlib GLX，Termux 链接画像）。Mesa 25.3 起 glapi 已并入 libGL，无 `libglapi` 附件 | 使 imagefs 增约 **+3 MB**（解压 +16 MB） | imagefs `usr/lib` | ✅ 随 imagefs（2026-08-01 落地） |
 | 5 | **`Proton-*.wcp`** | Wine 运行时 | ~169 MB | WCP → imagefs | ✅ |
 | 6 | **`Box64-*.wcp`** | x86_64 翻译 | ~2.8 MB | WCP → imagefs | ✅ |
 | 7 | **`Dxvk-*.wcp`** | D3D8–11 → Vulkan | ~6.7 MB | 容器 `system32`/`syswow64` | ✅ |
@@ -159,7 +159,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 | | 现状典型目录（WinNative 原样） | **本定稿默认集** |
 |---|---|---|
 | rootfs | 官方 `imagefs.tzst` **199.8 MB**（解压 ~877 MB） | 自建 **~27.5 MB**（解压 ~187 MB） |
-| 图形叠加 | `extra_libs` 21.1 + `layers` 4.4 + `wrapper` 3.8 ≈ **29 MB**（含未用层/双份 Turnip/调试符号） | `wrapper` 3.7 + hooks@APK ≈ **~4 MB**（Mesa GL 已并入 imagefs 的 +5 MB） |
+| 图形叠加 | `extra_libs` 21.1 + `layers` 4.4 + `wrapper` 3.8 ≈ **29 MB**（含未用层/双份 Turnip/调试符号） | `wrapper` 0.7 + hooks@APK ≈ **~1 MB**（自建 Mesa GL 已并入 imagefs 的 +3 MB） |
 | 容器模板 | `container_pattern_common` **41.6 MB**（字体堆 + 内嵌 cnc-ddraw） | pattern ≲2 + **单字体** ~8 ≈ **~10 MB** |
 | 运行时+DX | Proton+Box64+DXVK+VKD3D ≈ **181 MB** | **同左**（暂不自砍 Proton） |
 | **默认合计（量级）** | **≳ 450 MB** 资产面 | **~230–240 MB**（再去掉可选 FFmpeg/Turnip/ddraw/layers） |
@@ -169,7 +169,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 | 项 | 理由 |
 |---|---|
 | 官方全量 imagefs | 自建子集已覆盖 Wine NEEDED；terminfo/doc/locale/man/Tcl/编码器二进制无消费者 |
-| `extra_libs.tzst` 整包 | 有用的只剩 strip 后的 `libGL`+`libglapi`，**并入 imagefs**；包内 Turnip 与 `WN-Turnip` **双份不同版本**；73% 调试符号 |
+| `extra_libs.tzst` 整包 | 有用的只剩 `libGL`（+`libglapi`），现由 imagefs **自建**（`packages/graphics/mesa-gl.sh`，Mesa 25.3 已把 glapi 并进 libGL）；包内 Turnip 与 `WN-Turnip` **双份不同版本**；73% 调试符号 |
 | `libvkbasalt.so` + JSON | 代码从不设 `ENABLE_VKBASALT=1`，目标设备不加载 |
 | `libbcn_layer.so` + JSON | 条件为非高通；Adreno 830 默认路径不走 |
 | `extra_libs` 内 `libvulkan_freedreno` + freedreno ICD | 默认 Wrapper 模式用系统 Adreno；完整 Turnip 只走可选 zip |
@@ -386,7 +386,7 @@ hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
 | 同上 | `wincomponents/*.tzst`（7 个）| wincomponents | ~38 MB | 容器 DLL | ✅ 机制不变 |
 | 同上 | `ddrawrapper/*.tzst`（3 个）| ddraw | 0.2–3 MB | 容器 `syswow64` | ⚪ 可选，默认 `none` |
 | 同上 | `imagefs.tzst`（官方 199.8 MB）| — | 199.8 MB | imagefs 根 | ⛔ 待自建替换 |
-| 同上 | `extra_libs.tzst` | — | 21.1 MB | — | ⛔ 废止（GL 并入 imagefs）|
+| 同上 | `extra_libs.tzst` | — | 21.1 MB | — | ⛔ 已废止（GL 自建并入 imagefs，2026-08-01）|
 | 同上 | `layers.tzst` | 调试 | 4.4 MB | imagefs | ⚪ 仅调试 |
 | 同上 | 裸配置（`gpu_cards` / `startmenu` / `wincomponents` json / `default.box64rc`）| meta | 31 KB | 直拷 | ✅ |
 | **`WinNative-Emu/Drivers`** | `WN-Turnip-*.zip` | 可选驱动 | 2.7 MB | `contents/adrenotools/<id>/` | ⚪ 可选 |
@@ -397,7 +397,7 @@ hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
 
 | 落地根 | 谁写入 | 冲突风险 |
 |---|---|---|
-| `imagefs/`（rootfs） | `imagefs` + `wrapper.tzst` +（现）`extra_libs`/`layers` + Proton/Box64 WCP | **提取顺序敏感**；hooks 曾在此三份漂移 |
+| `imagefs/`（rootfs） | `imagefs`（含自建 `libGL`）+ `wrapper.tzst` + `layers` + Proton/Box64 WCP | **提取顺序敏感**；hooks 曾在此三份漂移 |
 | 容器 `system32`/`syswow64` | DXVK/VKD3D WCP + wincomponents + ddrawrapper | `cnc-ddraw` ↔ `dd7to9` **互斥** |
 | 容器 `.wine`（prefix） | `container_pattern` | 每容器一份，字体重复 |
 | `filesDir/contents/<type>/<ver>/` | `ContentsManager`（WCP） | 版本化，无冲突 |
