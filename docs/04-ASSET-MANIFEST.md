@@ -195,7 +195,8 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 
 ### 图形栈的依赖归属（实测）
 
-三个图形消费者对 imagefs 的 NEEDED（`readelf -dW`，2026-07-30 实测）：
+三个图形消费者对 imagefs 的 NEEDED（`readelf -dW`，2026-07-30 实测；`libGL.so.1` 这一列
+自 2026-08-01 起是 imagefs 自建的 `mesa-gl`，`libglapi` 已被 Mesa 25.3 并进 libGL）：
 
 | imagefs 提供的库 | `libvulkan_wrapper` | `libvulkan_freedreno`（Turnip） | `libGL.so.1` | Wine unix 侧 |
 |---|:---:|:---:|:---:|:---:|
