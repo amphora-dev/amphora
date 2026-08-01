@@ -1,5 +1,13 @@
 package app.amphora.feature.launcher
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
@@ -21,16 +29,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.hilt.navigation.compose.hiltViewModel
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ProvisionProgress
@@ -84,6 +98,8 @@ fun LauncherScreen(
             uiState.provisionProgress?.let { progress ->
                 ProvisionProgressBlock(progress)
             }
+
+            StorageAccessBlock()
 
             // --- exe picker ---------------------------------------------------
             Button(
@@ -148,6 +164,88 @@ fun LauncherScreen(
         }
     }
 }
+
+/**
+ * Storage access for the guest's `D:` / `F:` drives.
+ *
+ * [com.winlator.cmod.runtime.container.Container.DEFAULT_DRIVES] maps `D:` to
+ * Downloads and `F:` to the external storage root, and `createDosdevicesSymlinks`
+ * symlinks them into the prefix. Those symlinks resolve without any permission,
+ * but Android's FUSE view then hands the app *directories only* — every file
+ * entry is filtered out. In-guest that reads as "D: has folders and nothing
+ * else", which looks like a Wine bug and is not one.
+ *
+ * targetSdk 28 keeps legacy external storage, so the runtime READ/WRITE pair is
+ * enough to lift the filter; all-files access is the fallback for when the user
+ * denies that dialog (Android stops offering it after two refusals). Upstream
+ * WinNative asks the same two ways from its setup wizard.
+ */
+@Composable
+private fun StorageAccessBlock() {
+    val context = LocalContext.current
+    var granted by remember { mutableStateOf(hasExternalStorageAccess(context)) }
+
+    val requestLegacy = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted = hasExternalStorageAccess(context) }
+    val openSettings = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { granted = hasExternalStorageAccess(context) }
+
+    // All-files access is toggled in Settings and can also be revoked from
+    // outside the app, so re-read it whenever the launcher is resumed.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) granted = hasExternalStorageAccess(context)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (granted) return
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            "Storage access not granted — inside Wine, D: (Downloads) and " +
+                "F: (internal storage) list folders but no files.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Button(
+            onClick = {
+                requestLegacy.launch(
+                    arrayOf(
+                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                    ),
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Grant storage access") }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            TextButton(onClick = { openSettings.launch(allFilesAccessIntent(context)) }) {
+                Text("Use all-files access instead")
+            }
+        }
+    }
+}
+
+private fun hasExternalStorageAccess(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+        return true
+    }
+    return context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
+        PackageManager.PERMISSION_GRANTED
+}
+
+private fun allFilesAccessIntent(context: Context): Intent =
+    Intent(
+        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+        Uri.parse("package:${context.packageName}"),
+    )
 
 @Composable
 private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {

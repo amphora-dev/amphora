@@ -12,6 +12,21 @@
     <!-- Haptic feedback / controller rumble (WinHandler). -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Wine drive mappings: D: -> Downloads, F: -> external storage root
+         (Container.DEFAULT_DRIVES, symlinked by WineUtils.createDosdevicesSymlinks).
+         Without a storage grant Android's FUSE view still lists directories but
+         filters out every file, so in-guest those drives show folders and nothing
+         else. targetSdk 28 keeps legacy storage, so the READ/WRITE pair restores
+         the full view; MANAGE_EXTERNAL_STORAGE is the R+ fallback when the user
+         denies the runtime dialog. Same set as upstream WinNative. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
     <!-- GameSir X5s BLE rumble driver (API 31+). neverForLocation: scanning is
          for gamepad connectivity only, not to derive the user's location. -->
     <uses-permission
@@ -25,6 +40,7 @@
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="@string/app_name"
+        android:requestLegacyExternalStorage="true"
         android:roundIcon="@android:drawable/sym_def_app_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.Amphora">
