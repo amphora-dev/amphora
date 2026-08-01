@@ -55,11 +55,20 @@ object ContentManifestLoader {
         require(URI(remoteUrl).scheme.equals("https", ignoreCase = true)) {
             "Only HTTPS manifest URLs are allowed: $remoteUrl"
         }
-        val connection = URI(remoteUrl).toURL().openConnection() as HttpURLConnection
+        // Bust CDN/proxy caches (GitHub raw uses max-age≈300). Pin flips must be
+        // visible on the next cold start, otherwise ensureRealDxwrapper keeps
+        // migrating containers back to a stale DXVK/VKD3D token.
+        val separator = if (remoteUrl.contains('?')) '&' else '?'
+        val bustUrl = "$remoteUrl${separator}amphora_cb=${System.currentTimeMillis()}"
+        val connection = URI(bustUrl).toURL().openConnection() as HttpURLConnection
         connection.instanceFollowRedirects = true
+        connection.useCaches = false
+        connection.defaultUseCaches = false
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.setRequestProperty("Accept", "application/json, text/plain, */*")
+        connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0")
+        connection.setRequestProperty("Pragma", "no-cache")
         try {
             val code = connection.responseCode
             if (code !in 200..299) {
