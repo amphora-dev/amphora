@@ -59,3 +59,8 @@ __pycache__/
 # ./gradlew :app:stageBundledContent from the WinNative checkout. Entire dir is
 # build output — nothing here should be committed. See ContentStagingPlugin.kt.
 app/src/main/assets/
+
+# Exported LLM/agent session transcripts. Useful while debugging, never a
+# reviewable artifact — they are megabytes of HTML and go stale immediately.
+docs/llm/
+*-session-*.html

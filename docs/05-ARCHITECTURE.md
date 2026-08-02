@@ -25,7 +25,7 @@ Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 
         ├─ :core:container   ContainerManager 契约（瘦模型）
         ├─ :core:rootfs      RootfsInstaller 契约
         ├─ :core:native      libwinlator.so（arm64-v8a；fakeinput 已停编）
-        └─ :core:common      协程 / AppResult
+        └─ :core:common      协程 dispatcher
 ```
 
 `core/ui/` 仍在磁盘（`build.gradle` 保留便于再加），但 **未** `include(":core:ui")`。
@@ -94,14 +94,14 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 
 ## 5. 内容与资产
 
-- **真源**：`core/content/src/main/assets/content_manifest.json`（派生自 `04-ASSET-MANIFEST.md`）
-- **组件**：Wine Proton / Box64 / Turnip wrapper / DXVK / VKD3D（ROOTFS 由 `RootfsInstaller` 独占；ALSA aserver 随 imagefs；pulseaudio.tzst 未入 manifest）
+- **真源**：`amphora-dev/content_manifest` 的 `content_manifest.json`，运行时按 `amphora.contentManifest.url`（`gradle.properties`）拉取；仓库内不留副本。校验由该仓的 `validate_manifest.py` 在 push 时执行
+- **组件**（`ContentComponent`）：Wine Proton / Box64 / DXVK / VKD3D / ROOTFS（后者由 `RootfsInstaller` 独占）。Mesa vulkan wrapper 不是 component，它是 `runtimeAssets[]` 条目，由 `RuntimeAssetProvisioner` 装进 `filesDir/runtime-assets/`；ALSA aserver 随 imagefs
 - **安装路径**：
   - `WCP` → `ContentsManager.extraContentFile` + `finishInstallContent` → `filesDir/contents/...`
   - `ARCHIVE` → `TarCompressorUtils` → `filesDir/amphora-content/<component>/<version>/`
 - **构建 staging**：`./gradlew :app:stageBundledContent`（**不**挂 preBuild；Proton ~160MB 避免每次 debug APK 膨胀）
-  - ARCHIVE / imagefs：从相邻 `WinNative` checkout 拷贝并校验 SHA
-  - WCP：从 `nicholasx417/WinNative-Components` releases 下载到 `build/content-cache/`
+  - 读同一份远程 manifest，WCP 用其 `remoteUrl`（缺失时回落 manifest 自带的 `wcpCatalogUrl`）下载到 `build/content-cache/`；`-Pamphora.contentManifest.file=<path>` 可离线
+  - kernel-direct 资产（imagefs.tzst / wincomponents/* 等）从相邻 `WinNative` checkout 拷贝并校验 SHA
 
 无资产时 `assembleDebug` 仍绿；端到端运行/instrumented 测试需先 staging。
 
@@ -149,6 +149,6 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 ## 9. 当前缺口（v0.2+ 候选）
 
 - `:feature:settings` 实质项；键盘/手柄；音频音量接线
-- Present/DRI3 完善；`RemoteContentSource`；多容器/prefix
+- Present/DRI3 完善；多容器/prefix
 - Proton 11 自建（见 `RESEARCH-proton-wine-selfbuild.md`）
 - targetSdk 上探（须先把可执行文件迁到可 exec 位置）
