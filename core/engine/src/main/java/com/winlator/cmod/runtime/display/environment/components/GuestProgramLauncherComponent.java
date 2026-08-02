@@ -1027,7 +1027,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
 
     envVars.putAll(Box64PresetManager.getEnvVars("box64", environment.getContext(), box64Preset));
-    envVars.put("BOX64_X11GLX", "1");
+    // BOX64_X11GLX=1 makes box64 answer XQueryExtension("GLX") with "present" no
+    // matter what the server says. Amphora's X server has no GLX, so that is a lie
+    // that only moves the failure later: a caller probes, believes it, and dies on
+    // its first real GLX request. It existed for the old xlib-GLX libGL; OpenGL now
+    // goes through EGL, which never asks about GLX.
+    envVars.put("BOX64_X11GLX", "0");
     // Load ONLY our custom rc file (per-game Steam overrides, ZINK_CONTEXT_THREADED, etc.)
     // BOX64_NORCFILES=1 skips default system rc files to avoid conflicts,
     // BOX64_RCFILE points to our custom file so it still gets loaded.
