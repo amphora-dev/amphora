@@ -34,6 +34,8 @@ public class SyncExtension
   private final SparseIntArray waitFds = new SparseIntArray();
   /** Fence ID -> eventfds we own, signaled when the fence triggers. */
   private final SparseArray<List<Integer>> exportFds = new SparseArray<>();
+  /** Fence ID -> the client that created it, so a disconnect can reclaim the id. */
+  private final SparseArray<XClient> fenceOwners = new SparseArray<>();
   /**
    * FDs that were removed from {@link #waitFds} but cannot be closed yet because the dispatcher
    * may still be polling them. Closed by the dispatcher after each wake, before reissuing poll.
@@ -148,7 +150,8 @@ public class SyncExtension
    * ownership of {@code fd}; closed when the fence is destroyed or the dispatcher sees the
    * signal.
    */
-  public void createFromFd(int id, boolean initiallyTriggered, int fd) throws XRequestError {
+  public void createFromFd(XClient owner, int id, boolean initiallyTriggered, int fd)
+      throws XRequestError {
     if (fd < 0) throw new BadAlloc();
     synchronized (fenceLock) {
       if (fences.indexOfKey(id) >= 0) {
@@ -162,6 +165,7 @@ public class SyncExtension
         throw new BadAlloc();
       }
       fences.put(id, initiallyTriggered);
+      fenceOwners.put(id, owner);
       if (initiallyTriggered) {
         // No polling needed; release the FD immediately.
         SyncFenceFd.closeFd(fd);
@@ -307,6 +311,7 @@ public class SyncExtension
 
       fences.put(id, initiallyTriggered);
       fenceDrawables.put(id, drawableId);
+      fenceOwners.put(id, client);
       if (initiallyTriggered) fenceLock.notifyAll();
     }
     if (initiallyTriggered) drainAndSignalExports(id);
@@ -334,32 +339,45 @@ public class SyncExtension
     }
   }
 
+  /**
+   * Forget fence {@code id}. Caller holds {@link #fenceLock}. Collects the fence's
+   * export eventfds into {@code exportsOut} for the caller to close outside the
+   * lock, and returns whether the dispatcher's watch set changed.
+   */
+  private boolean releaseFenceLocked(int id, List<Integer> exportsOut) {
+    fences.delete(id);
+    fenceDrawables.delete(id);
+    fenceOwners.remove(id);
+
+    boolean wake = false;
+    int waitIdx = waitFds.indexOfKey(id);
+    if (waitIdx >= 0) {
+      pendingCloseFds.add(waitFds.valueAt(waitIdx));
+      waitFds.removeAt(waitIdx);
+      wake = true;
+    }
+    List<Integer> exports = exportFds.get(id);
+    if (exports != null) {
+      exportsOut.addAll(exports);
+      exportFds.remove(id);
+    }
+    return wake;
+  }
+
   private void destroyFence(XClient client, XInputStream inputStream, XOutputStream outputStream)
       throws IOException, XRequestError {
     int id = inputStream.readInt();
-    List<Integer> exportsToClose = null;
-    boolean wake = false;
+    List<Integer> exportsToClose = new ArrayList<>();
+    boolean wake;
     synchronized (fenceLock) {
       if (fences.indexOfKey(id) < 0) throw new BadFence(id);
-      fences.delete(id);
-      fenceDrawables.delete(id);
-
-      int waitIdx = waitFds.indexOfKey(id);
-      if (waitIdx >= 0) {
-        pendingCloseFds.add(waitFds.valueAt(waitIdx));
-        waitFds.removeAt(waitIdx);
-        wake = true;
-      }
-      exportsToClose = exportFds.get(id);
-      if (exportsToClose != null) exportFds.remove(id);
+      wake = releaseFenceLocked(id, exportsToClose);
       // Wake any waitForFences blocked on this id so they observe the deletion and raise
       // BadFence rather than blocking forever.
       fenceLock.notifyAll();
     }
     if (wake) wakeDispatcher();
-    if (exportsToClose != null) {
-      for (Integer fd : exportsToClose) SyncFenceFd.closeFd(fd);
-    }
+    for (Integer fd : exportsToClose) SyncFenceFd.closeFd(fd);
   }
 
   private void awaitFence(XClient client, XInputStream inputStream, XOutputStream outputStream)
@@ -393,34 +411,41 @@ public class SyncExtension
   public void onFreeResource(XResource resource) {
     if (!(resource instanceof Pixmap) && !(resource instanceof Window)) return;
     int drawableId = resource.id;
-    List<Integer> exportsToClose = null;
+    List<Integer> exportsToClose = new ArrayList<>();
     boolean wake = false;
     synchronized (fenceLock) {
       for (int i = fenceDrawables.size() - 1; i >= 0; i--) {
         if (fenceDrawables.valueAt(i) != drawableId) continue;
-        int id = fenceDrawables.keyAt(i);
-        fenceDrawables.removeAt(i);
-        fences.delete(id);
-
-        int waitIdx = waitFds.indexOfKey(id);
-        if (waitIdx >= 0) {
-          pendingCloseFds.add(waitFds.valueAt(waitIdx));
-          waitFds.removeAt(waitIdx);
-          wake = true;
-        }
-        List<Integer> exports = exportFds.get(id);
-        if (exports != null) {
-          if (exportsToClose == null) exportsToClose = new ArrayList<>();
-          exportsToClose.addAll(exports);
-          exportFds.remove(id);
-        }
+        wake |= releaseFenceLocked(fenceDrawables.keyAt(i), exportsToClose);
       }
       fenceLock.notifyAll();
     }
     if (wake) wakeDispatcher();
-    if (exportsToClose != null) {
-      for (Integer fd : exportsToClose) SyncFenceFd.closeFd(fd);
+    for (Integer fd : exportsToClose) SyncFenceFd.closeFd(fd);
+  }
+
+  /**
+   * Fences are named by a client-allocated XID and only ever dropped by
+   * DestroyFence or by their drawable being freed. A client that exits without
+   * destroying its fences — or one whose fence outlives a drawable owned by
+   * somebody else — leaves the id occupied. {@code ResourceIDs} then hands the
+   * same id base to the next client, whose CreateFence hits the leftover and
+   * fails with BadIdChoice; under Xlib's default error handler that kills the
+   * process. Same shape as the Present event contexts.
+   */
+  @Override
+  public void onClientDisconnected(XClient client) {
+    List<Integer> exportsToClose = new ArrayList<>();
+    boolean wake = false;
+    synchronized (fenceLock) {
+      for (int i = fenceOwners.size() - 1; i >= 0; i--) {
+        if (fenceOwners.valueAt(i) != client) continue;
+        wake |= releaseFenceLocked(fenceOwners.keyAt(i), exportsToClose);
+      }
+      fenceLock.notifyAll();
     }
+    if (wake) wakeDispatcher();
+    for (Integer fd : exportsToClose) SyncFenceFd.closeFd(fd);
   }
 
   @Override
