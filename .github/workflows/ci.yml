@@ -34,6 +34,16 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.ref != 'refs/heads/main' }}
 
+      # Static checks first: they are the cheapest failures and the ones a human
+      # would otherwise have to spot in review.
+      - name: Kotlin formatting (spotless + ktlint)
+        run: ./gradlew spotlessCheck --stacktrace
+        timeout-minutes: 15
+
+      - name: Android Lint
+        run: ./gradlew lint --stacktrace
+        timeout-minutes: 30
+
       - name: JVM unit tests
         run: bash scripts/ci-jvm-test.sh
         timeout-minutes: 30
@@ -41,6 +51,14 @@ jobs:
       - name: Assemble debug
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
         timeout-minutes: 60
+
+      - name: Upload lint reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: "**/build/reports/lint-results-*.html"
+          if-no-files-found: ignore
 
       - name: ccache stats
         if: always()

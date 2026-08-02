@@ -20,7 +20,8 @@ fun SettingsScreen(onBack: () -> Unit) {
         topBar = { TopAppBar(title = { Text("Settings") }) },
     ) { padding ->
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .padding(24.dp),

@@ -21,6 +21,5 @@ dependencies {
     implementation(libs.android.material)
     implementation(libs.commons.compress)
     implementation(libs.tukaani.xz)
-    // zstd-jni is published as @aar (native lib + classes); matches WinNative.
-    implementation("com.github.luben:zstd-jni:${libs.versions.zstdJni.get()}@aar")
+    implementation(variantOf(libs.zstd.jni) { artifactType("aar") })
 }

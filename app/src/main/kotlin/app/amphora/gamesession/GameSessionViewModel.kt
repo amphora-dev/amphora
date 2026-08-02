@@ -127,8 +127,8 @@ constructor(
     }
 
     override fun onCleared() {
-        super.onCleared()
-        // viewModelScope is already cancelled here; use a surviving scope for teardown.
+        // ViewModel.onCleared() is empty; viewModelScope is already cancelled here,
+        // so teardown runs on a scope that outlives it.
         cleanupScope.launch { handle?.stop() }
     }
 

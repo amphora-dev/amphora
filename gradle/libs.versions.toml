@@ -19,6 +19,7 @@ mockk = "1.14.11"
 turbine = "1.2.1"
 spotless = "8.0.0"
 ktlint = "1.7.1"
+orgJson = "20240303"
 
 # Ported com.winlator.cmod runtime kernel deps (RFC §7 - Java reused as-is).
 # Versions matched to WinNative's catalog so the reused Java compiles unmodified.
@@ -79,6 +80,8 @@ espresso-core = { group = "androidx.test.espresso", name = "espresso-core", vers
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+# org.json ships with Android at runtime; JVM unit tests need the standalone jar.
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 
 # Ported com.winlator.cmod runtime kernel deps (RFC §7).
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
@@ -86,6 +89,8 @@ androidx-preference = { group = "androidx.preference", name = "preference", vers
 android-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 tukaani-xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
+# Published as @aar (native lib + classes); matches WinNative.
+zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

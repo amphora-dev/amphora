@@ -26,13 +26,14 @@ private const val DEBUG_HEIGHT = 720
 @Composable
 fun AmphoraNavHost(navController: NavHostController) {
     val context = LocalContext.current
-    val startRoute = remember {
-        if (DEBUG_AUTO_LAUNCH_WINE) {
-            gameSessionRoute(stageDebugWineExe(context), DEBUG_WIDTH, DEBUG_HEIGHT)
-        } else {
-            LAUNCHER_ROUTE
+    val startRoute =
+        remember {
+            if (DEBUG_AUTO_LAUNCH_WINE) {
+                gameSessionRoute(stageDebugWineExe(context), DEBUG_WIDTH, DEBUG_HEIGHT)
+            } else {
+                LAUNCHER_ROUTE
+            }
         }
-    }
     NavHost(navController = navController, startDestination = startRoute) {
         launcherScreen(
             onLaunch = { exePath, width, height ->

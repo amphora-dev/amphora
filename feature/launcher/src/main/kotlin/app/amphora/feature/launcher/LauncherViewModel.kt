@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.common.dispatcher.DispatcherProvider
@@ -142,10 +143,7 @@ constructor(
                 if (option == GraphicsDriverOption.TURNIP_BALANCED) {
                     turnipProvisioner.ensureInstalled()
                 }
-                prefs
-                    .edit()
-                    .putString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, option.driverId)
-                    .apply()
+                prefs.edit { putString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, option.driverId) }
                 _uiState.update { it.copy(graphicsDriver = option, driverBusy = false) }
             } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) throw e

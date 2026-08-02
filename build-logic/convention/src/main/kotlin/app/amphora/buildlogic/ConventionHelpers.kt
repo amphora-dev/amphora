@@ -39,6 +39,15 @@ internal fun CommonExtension.configureCommonAndroid() {
             enableUnitTestCoverage = true
         }
     }
+    lint.apply {
+        // A warning nobody has to act on is a warning everybody learns to skip.
+        warningsAsErrors = true
+        abortOnError = true
+        // "A newer version exists" is upstream news, not a defect in this tree; it
+        // would turn CI red on someone else's release. Dependency bumps are a
+        // deliberate act, tracked in gradle/libs.versions.toml.
+        disable += setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
+    }
 }
 
 internal fun Project.addCommonTestDependencies() {

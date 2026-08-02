@@ -13,9 +13,19 @@ plugins {
 // com.winlator.cmod kernel lives under `src/main/java/com/winlator/` and keeps
 // upstream's layout: reformatting it would make every future diff against
 // WinNative unreadable for no behavioural gain.
-// @Composable functions are PascalCase by Compose convention; ktlint cannot infer
-// that from the name alone. Also in .editorconfig for IDE runs.
+// Passed explicitly rather than relying on .editorconfig discovery, which Spotless
+// resolves per file and silently falls back when it misses. .editorconfig carries the
+// same values so IDE-side ktlint agrees.
+//
+// intellij_idea, not ktlint_official: the official style rewrites every signature with
+// two or more parameters onto separate lines, which is a lot of vertical noise for
+// interfaces like InputSink. gradle.properties already declares
+// kotlin.code.style=official.
 val ktlintRules = mapOf(
+    "ktlint_code_style" to "intellij_idea",
+    "max_line_length" to "120",
+    // @Composable functions are PascalCase by Compose convention, and tests name
+    // themselves after what they exercise; ktlint infers neither from the name.
     "ktlint_function_naming_ignore_when_annotated_with" to "Composable,Preview,Test",
 )
 

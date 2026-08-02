@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!--
+      cursor.png is the X server's root cursor bitmap, decoded at its natural size
+      by the renderer — not an app icon, so the density-bucket rule does not apply.
+      It stays in res/drawable/ because the kernel looks it up by that exact name.
+    -->
+    <issue id="IconLocation">
+        <ignore path="src/main/res/drawable/cursor.png" />
+    </issue>
+</lint>

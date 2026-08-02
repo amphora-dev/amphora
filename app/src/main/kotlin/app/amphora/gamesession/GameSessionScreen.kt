@@ -52,7 +52,8 @@ fun gameSessionRoute(exePath: String, width: Int = 1280, height: Int = 720, grap
 fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
     composable(
         route = GAME_SESSION_ROUTE_WITH_ARGS,
-        arguments = listOf(
+        arguments =
+        listOf(
             navArgument("exePath") {
                 type = NavType.StringType
                 defaultValue = ""
@@ -102,13 +103,14 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     // SurfaceView's own SurfaceHolder lifecycle).
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> viewModel.resume()
-                Lifecycle.Event.ON_PAUSE -> viewModel.pause()
-                else -> {}
+        val observer =
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> viewModel.resume()
+                    Lifecycle.Event.ON_PAUSE -> viewModel.pause()
+                    else -> {}
+                }
             }
-        }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
@@ -181,7 +183,8 @@ private fun GameSurface(surface: GameSessionSurface, modifier: Modifier = Modifi
 @Composable
 private fun TouchInputOverlay(xServer: XServer, modifier: Modifier = Modifier) {
     Box(
-        modifier = modifier.pointerInput(xServer) {
+        modifier =
+        modifier.pointerInput(xServer) {
             awaitEachGesture {
                 val down = awaitFirstDown()
                 var lastX = down.position.x
@@ -253,7 +256,8 @@ private fun SessionPlaceholder(
                 if (fraction != null) {
                     LinearProgressIndicator(
                         progress = { fraction },
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .fillMaxWidth()
                             .padding(top = 16.dp),
                     )
@@ -266,7 +270,8 @@ private fun SessionPlaceholder(
                     }
                 } else {
                     LinearProgressIndicator(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .fillMaxWidth()
                             .padding(top = 16.dp),
                     )

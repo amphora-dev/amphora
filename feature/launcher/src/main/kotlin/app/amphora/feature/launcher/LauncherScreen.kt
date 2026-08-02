@@ -4,12 +4,12 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -76,16 +77,18 @@ fun LauncherScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     // SAF document picker -- accepts any file (.exe mime types are unreliable).
-    val pickExe = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) viewModel.onExePicked(uri)
-    }
+    val pickExe =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) viewModel.onExePicked(uri)
+        }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Amphora") }) },
     ) { padding ->
         // Landscape (and short viewports) overflow the chip/button stack — must scroll.
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
@@ -135,7 +138,8 @@ fun LauncherScreen(
                         onLaunch(path, uiState.resolution.width, uiState.resolution.height)
                     }
                 },
-                enabled = uiState.stagedExePath != null &&
+                enabled =
+                uiState.stagedExePath != null &&
                     !uiState.staging &&
                     !uiState.driverBusy &&
                     uiState.catalogStatus is ContentCatalog.Status.Ready,
@@ -185,20 +189,23 @@ private fun StorageAccessBlock() {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(hasExternalStorageAccess(context)) }
 
-    val requestLegacy = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { granted = hasExternalStorageAccess(context) }
-    val openSettings = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { granted = hasExternalStorageAccess(context) }
+    val requestLegacy =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions(),
+        ) { granted = hasExternalStorageAccess(context) }
+    val openSettings =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) { granted = hasExternalStorageAccess(context) }
 
     // All-files access is toggled in Settings and can also be revoked from
     // outside the app, so re-read it whenever the launcher is resumed.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) granted = hasExternalStorageAccess(context)
-        }
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) granted = hasExternalStorageAccess(context)
+            }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
@@ -241,9 +248,10 @@ private fun hasExternalStorageAccess(context: Context): Boolean {
         PackageManager.PERMISSION_GRANTED
 }
 
+@RequiresApi(Build.VERSION_CODES.R)
 private fun allFilesAccessIntent(context: Context): Intent = Intent(
     Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-    Uri.parse("package:${context.packageName}"),
+    "package:${context.packageName}".toUri(),
 )
 
 @Composable
@@ -253,16 +261,18 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text("App ${uiState.appVersion}", style = MaterialTheme.typography.titleMedium)
-        val catalogLine = when (val status = uiState.catalogStatus) {
-            is ContentCatalog.Status.Idle -> "Manifest: not loaded"
-            is ContentCatalog.Status.Loading -> "Manifest: loading…"
-            is ContentCatalog.Status.Ready -> "Manifest: remote OK (${status.manifest.all().size} components)"
-            is ContentCatalog.Status.Failed -> "Manifest: ${status.error}"
-        }
+        val catalogLine =
+            when (val status = uiState.catalogStatus) {
+                is ContentCatalog.Status.Idle -> "Manifest: not loaded"
+                is ContentCatalog.Status.Loading -> "Manifest: loading…"
+                is ContentCatalog.Status.Ready -> "Manifest: remote OK (${status.manifest.all().size} components)"
+                is ContentCatalog.Status.Failed -> "Manifest: ${status.error}"
+            }
         Text(
             catalogLine,
             style = MaterialTheme.typography.bodySmall,
-            color = if (uiState.catalogStatus is ContentCatalog.Status.Failed) {
+            color =
+            if (uiState.catalogStatus is ContentCatalog.Status.Failed) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.onSurface
@@ -275,17 +285,19 @@ private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
                 val pinned = row.pinned ?: "…"
                 // A local inject deliberately diverges from the remote pin, so it
                 // is a warning (not an error) and must not read as "stale".
-                val suffix = when {
-                    row.localOverride -> " (local)"
-                    row.pinned == null -> " (no pin)"
-                    row.installed == null -> " (missing)"
-                    !row.matchesPin -> " (stale)"
-                    else -> ""
-                }
+                val suffix =
+                    when {
+                        row.localOverride -> " (local)"
+                        row.pinned == null -> " (no pin)"
+                        row.installed == null -> " (missing)"
+                        !row.matchesPin -> " (stale)"
+                        else -> ""
+                    }
                 Text(
                     "${row.label}: installed $installed · pin $pinned$suffix",
                     style = MaterialTheme.typography.bodySmall,
-                    color = when {
+                    color =
+                    when {
                         row.localOverride -> LOCAL_BUILD_COLOR
                         suffix.isNotEmpty() -> MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.onSurface
@@ -328,12 +340,13 @@ private fun RuntimeAssetBlock(assets: List<RuntimeAssetStatus>) {
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        val summary = buildString {
-            append("Runtime assets (${assets.size}")
-            if (unhealthy > 0) append(", $unhealthy need attention")
-            if (overrides > 0) append(", $overrides local")
-            append(')')
-        }
+        val summary =
+            buildString {
+                append("Runtime assets (${assets.size}")
+                if (unhealthy > 0) append(", $unhealthy need attention")
+                if (overrides > 0) append(", $overrides local")
+                append(')')
+            }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(summary, style = MaterialTheme.typography.labelLarge)
             TextButton(onClick = { expanded = !expanded }) {
@@ -342,19 +355,21 @@ private fun RuntimeAssetBlock(assets: List<RuntimeAssetStatus>) {
         }
         if (expanded) {
             assets.forEach { asset ->
-                val suffix = when (asset.state) {
-                    RuntimeAssetStatus.State.OK -> ""
-                    RuntimeAssetStatus.State.MISSING -> " (missing)"
-                    RuntimeAssetStatus.State.MISMATCH -> " (mismatch)"
-                    RuntimeAssetStatus.State.UNVERIFIED -> " (unverified)"
-                    RuntimeAssetStatus.State.LOCAL_OVERRIDE -> " (local)"
-                }
+                val suffix =
+                    when (asset.state) {
+                        RuntimeAssetStatus.State.OK -> ""
+                        RuntimeAssetStatus.State.MISSING -> " (missing)"
+                        RuntimeAssetStatus.State.MISMATCH -> " (mismatch)"
+                        RuntimeAssetStatus.State.UNVERIFIED -> " (unverified)"
+                        RuntimeAssetStatus.State.LOCAL_OVERRIDE -> " (local)"
+                    }
                 val sha = asset.installedSha?.take(12)?.plus("…") ?: "—"
                 val local = asset.state == RuntimeAssetStatus.State.LOCAL_OVERRIDE
                 Text(
                     "${asset.assetPath}: $sha$suffix",
                     style = MaterialTheme.typography.bodySmall,
-                    color = when {
+                    color =
+                    when {
                         local -> LOCAL_BUILD_COLOR
                         asset.state == RuntimeAssetStatus.State.OK -> MaterialTheme.colorScheme.onSurface
                         else -> MaterialTheme.colorScheme.error
@@ -408,7 +423,8 @@ private fun ResolutionSelector(selected: Resolution, onSelect: (Resolution) -> U
         Text("Resolution", style = MaterialTheme.typography.labelLarge)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
                 .padding(top = 8.dp),
@@ -439,7 +455,8 @@ private fun GraphicsDriverSelector(
         )
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
                 .padding(top = 8.dp),

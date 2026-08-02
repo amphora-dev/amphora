@@ -10,21 +10,23 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val DarkColors = darkColorScheme(
-    primary = AmphoraPrimary,
-    onPrimary = AmphoraOnPrimary,
-    secondary = AmphoraSecondary,
-    tertiary = AmphoraTertiary,
-    background = AmphoraBackground,
-    surface = AmphoraSurface,
-)
+private val DarkColors =
+    darkColorScheme(
+        primary = AmphoraPrimary,
+        onPrimary = AmphoraOnPrimary,
+        secondary = AmphoraSecondary,
+        tertiary = AmphoraTertiary,
+        background = AmphoraBackground,
+        surface = AmphoraSurface,
+    )
 
-private val LightColors = lightColorScheme(
-    primary = AmphoraPrimary,
-    onPrimary = AmphoraOnPrimary,
-    secondary = AmphoraSecondary,
-    tertiary = AmphoraTertiary,
-)
+private val LightColors =
+    lightColorScheme(
+        primary = AmphoraPrimary,
+        onPrimary = AmphoraOnPrimary,
+        secondary = AmphoraSecondary,
+        tertiary = AmphoraTertiary,
+    )
 
 @Composable
 fun AmphoraTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
