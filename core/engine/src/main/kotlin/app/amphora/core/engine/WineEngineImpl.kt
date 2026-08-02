@@ -268,10 +268,17 @@ constructor(
         } else {
             envVars.putAll(WinNativeContainer.DEFAULT_ENV_VARS)
         }
+        // A container that names its own WINEDEBUG channels is asking for those
+        // traces specifically. GraphicsDiag also sets WINEDEBUG, but only to lift
+        // the `-all` default so wine_stderr.log gets written at all — letting it
+        // land last means turning diagnostics on silently discards the channels
+        // someone selected, which is the opposite of what either knob is for.
+        val requestedWineDebug = envVars.get("WINEDEBUG")?.takeIf { it.isNotBlank() && it != "-all" }
         // Preparer-computed wrapper / GPU / DXVK / WineD3D env.
         for ((key, value) in preparer.envVars()) envVars.put(key, value)
         // Caller-supplied env (LaunchSpec.env).
         for ((key, value) in spec.env) envVars.put(key, value)
+        if (requestedWineDebug != null) envVars.put("WINEDEBUG", requestedWineDebug)
         if (envVars.get("DXVK_HUD") != null) {
             Log.i(
                 "WineEngineImpl",
