@@ -105,6 +105,9 @@ constructor(
                     "ContainerManager.createContainer returned null for wineVersion=$wineVersion " +
                         "(see logcat 'ContainerManager'); is the Proton prefixPack installed?",
                 )
+        // Follow the manifest WINE pin when it moves under an existing container
+        // (resolveWineVersion only runs at creation).
+        ensurePinnedWineVersion(wnContainer, wineVersion)
         // Migrate containers created before real DXVK/VKD3D were bundled
         // (dxvk-1.0 / vkd3d-None / missing profile). Clear the dxwrapper gate
         // extra so the preparer re-extracts DLLs on the next launch.
@@ -247,6 +250,31 @@ constructor(
             "No $prefix content profile installed and manifest entry incomplete; " +
                 "resolve(${component.name}) before creating a container.",
         )
+    }
+
+    /**
+     * Rewrite [container]'s `wineVersion` when the manifest WINE pin moves.
+     *
+     * [resolveWineVersion] only feeds [createDefaultContainer], so a container
+     * created against an older Proton kept pointing at it forever — the new
+     * Proton installed but nothing ever ran it. The prefix belongs to the Proton
+     * it was unpacked from, so this also arms `wineprefixNeedsUpdate`, which
+     * makes the preparer re-extract it from the new `prefixPack.txz`
+     * (`repairContainerWinePrefix` carries in-prefix save data across), and
+     * clears the dxwrapper gate so DXVK/VKD3D DLLs land in the fresh prefix.
+     */
+    private fun ensurePinnedWineVersion(container: WnContainer, desired: String) {
+        val current = container.getWineVersion() ?: ""
+        if (current == desired) return
+
+        android.util.Log.i(
+            "WinlatorContainerManager",
+            "Migrating container wineVersion '$current' -> '$desired'",
+        )
+        container.setWineVersion(desired)
+        container.putExtra("wineprefixNeedsUpdate", "t")
+        container.putExtra("dxwrapper", "")
+        container.saveData()
     }
 
     /**
