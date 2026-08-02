@@ -8,7 +8,6 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -36,7 +35,7 @@ class VerifiedAssetDownloader(
         expectedSize: Long? = null,
         label: String = relativePath,
     ): File = withContext(dispatchers.io) {
-        require(expectedSha256.matches(SHA_PATTERN)) {
+        require(AssetDigest.HEX.matches(expectedSha256.lowercase())) {
             "A pinned SHA-256 is required for $relativePath"
         }
         require(URI(remoteUrl).scheme.equals("https", ignoreCase = true)) {
@@ -78,7 +77,7 @@ class VerifiedAssetDownloader(
                             totalBytes = expectedSize ?: partial.length(),
                         ),
                     )
-                    val actual = sha256(partial)
+                    val actual = AssetDigest.of(partial)
                     if (!actual.equals(expectedSha256, ignoreCase = true)) {
                         partial.delete()
                         throw SecurityException(
@@ -86,7 +85,7 @@ class VerifiedAssetDownloader(
                         )
                     }
                     atomicReplace(partial, destination)
-                    markerFor(destination).writeText(expectedSha256.lowercase())
+                    AssetDigest.writePin(destination, expectedSha256)
                     return@withLock destination
                 } catch (failure: Throwable) {
                     if (failure is CancellationException) throw failure
@@ -116,15 +115,12 @@ class VerifiedAssetDownloader(
     private fun isVerified(file: File, expectedSha256: String, expectedSize: Long?): Boolean {
         if (!file.isFile || (expectedSize != null && file.length() != expectedSize)) {
             file.delete()
-            markerFor(file).delete()
+            AssetDigest.markerFor(file).delete()
             return false
         }
-        val marker = markerFor(file)
-        if (marker.isFile && marker.readText().trim().equals(expectedSha256, ignoreCase = true)) {
-            return true
-        }
-        val valid = sha256(file).equals(expectedSha256, ignoreCase = true)
-        if (valid) marker.writeText(expectedSha256.lowercase()) else file.delete()
+        if (AssetDigest.matchesPin(file, expectedSha256)) return true
+        val valid = AssetDigest.of(file).equals(expectedSha256, ignoreCase = true)
+        if (valid) AssetDigest.writePin(file, expectedSha256) else file.delete()
         return valid
     }
 
@@ -193,25 +189,8 @@ class VerifiedAssetDownloader(
         }
     }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().buffered(BUFFER_SIZE).use { input ->
-            val buffer = ByteArray(BUFFER_SIZE)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
-
-    private fun markerFor(file: File): File = File(file.absolutePath + SHA_SUFFIX)
-
     private companion object {
-        val SHA_PATTERN = Regex("[0-9a-fA-F]{64}")
         const val PART_SUFFIX = ".part"
-        const val SHA_SUFFIX = ".sha256"
         const val BUFFER_SIZE = 64 * 1024
         const val MAX_ATTEMPTS = 3
         const val CONNECT_TIMEOUT_MS = 15_000

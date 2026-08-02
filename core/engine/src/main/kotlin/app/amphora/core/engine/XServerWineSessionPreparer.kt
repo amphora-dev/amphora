@@ -7,6 +7,7 @@ import androidx.annotation.VisibleForTesting
 import androidx.core.content.pm.PackageInfoCompat
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
+import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.engine.model.LaunchSpec
 import com.winlator.cmod.runtime.container.Container
@@ -645,7 +646,7 @@ class XServerWineSessionPreparer @Inject constructor(
             Log.w(TAG, "installAdrenotoolsDriverIfNeeded: empty driverId, skipping")
             return
         }
-        val adrenotoolsDir = File(context.filesDir, "contents/adrenotools/$driverId")
+        val adrenotoolsDir = AdrenotoolsManager(context).getDriverDir(driverId)
         val resolvedLibraryName = if (libraryName.isNotEmpty()) libraryName else "libvulkan_wrapper.so"
         val metaFile = File(adrenotoolsDir, "meta.json")
         val dstDriver = File(adrenotoolsDir, resolvedLibraryName)
@@ -723,15 +724,9 @@ class XServerWineSessionPreparer @Inject constructor(
         return !pin.equals(current, ignoreCase = true)
     }
 
-    private fun runtimeWrapperPin(): String? {
-        val marker = File(
-            RuntimeAssetProvisioner.runtimeAssetsDir(context),
-            "$WRAPPER_ASSET.sha256",
-        )
-        if (!marker.isFile) return null
-        val digest = marker.readText().trim()
-        return digest.takeIf { it.length == 64 }
-    }
+    private fun runtimeWrapperPin(): String? = AssetDigest.pinnedSha(
+        File(RuntimeAssetProvisioner.runtimeAssetsDir(context), WRAPPER_ASSET),
+    )
 
     private fun readWrapperPinMarker(rootDir: File): String? {
         val marker = File(rootDir, "usr/lib/$WRAPPER_PIN_MARKER")
@@ -1098,14 +1093,14 @@ class XServerWineSessionPreparer @Inject constructor(
         val runtimeRoot = RuntimeAssetProvisioner.runtimeAssetsDir(context)
         for (assetPath in GRAPHICS_TEST_ASSETS) {
             val source = File(runtimeRoot, assetPath)
-            val sourceMarker = File(source.absolutePath + ".sha256")
+            val sourceMarker = AssetDigest.markerFor(source)
             if (!source.isFile || !sourceMarker.isFile) {
                 Log.e(TAG, "Verified graphics test asset is missing: $assetPath")
                 continue
             }
 
             val destination = File(destinationDir, FileUtils.getName(assetPath))
-            val destinationMarker = File(destination.absolutePath + ".sha256")
+            val destinationMarker = AssetDigest.markerFor(destination)
             val digest = sourceMarker.readText().trim()
             if (destination.isFile &&
                 destination.length() == source.length() &&

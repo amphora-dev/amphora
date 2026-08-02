@@ -5,7 +5,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.amphora.core.container.model.ContainerId
+import app.amphora.core.container.model.DEFAULT_CONTAINER_ID
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.GraphicsDiag
@@ -94,8 +94,7 @@ constructor(
                 val spec =
                     LaunchSpec(
                         exePath = exePath,
-                        // MVP: single shared container (RFC §9: multi-prefix is v0.2).
-                        containerId = ContainerId(DEFAULT_CONTAINER_ID),
+                        containerId = DEFAULT_CONTAINER_ID,
                         displaySize = DisplaySize(width, height),
                         env = diagEnv,
                     )
@@ -139,8 +138,5 @@ constructor(
         const val GRAPHICS_DIAG_ARG = "graphicsDiag"
         const val DEFAULT_WIDTH = 1280
         const val DEFAULT_HEIGHT = 720
-
-        /** MVP single shared container id (RFC §9: multi-prefix is v0.2). */
-        const val DEFAULT_CONTAINER_ID = "1"
     }
 }

@@ -2,6 +2,7 @@ package app.amphora.core.engine
 
 import android.content.Context
 import android.util.Log
+import com.winlator.cmod.runtime.display.environment.ImageFs
 import java.io.File
 
 /**
@@ -76,7 +77,7 @@ object GraphicsDiag {
 
     /** Drop DXVK pipeline state cache — corrupt cache can look like black frames. */
     fun clearStateCache(context: Context) {
-        val cache = File(context.filesDir, "imagefs/home/xuser/.cache")
+        val cache = File(ImageFs.find(context).rootDir, "home/xuser/.cache")
         if (!cache.isDirectory) return
         var n = 0
         cache.walkTopDown().filter { it.isFile }.forEach {

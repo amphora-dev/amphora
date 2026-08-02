@@ -1,6 +1,7 @@
 package app.amphora.ui
 
 import android.content.Context
+import app.amphora.core.engine.GuestFiles
 import java.io.File
 import java.util.Base64
 
@@ -19,7 +20,7 @@ object DebugWineFixture {
     }
 
     fun stage(context: Context): File {
-        val target = File(context.filesDir, "exe/$FILE_NAME")
+        val target = File(GuestFiles.exeDir(context), FILE_NAME)
         val parent = requireNotNull(target.parentFile)
         check(parent.isDirectory || parent.mkdirs()) {
             "Unable to create debug executable directory"

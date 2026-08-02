@@ -19,7 +19,8 @@ object RuntimeAssetLocalOverride {
 
     fun markerFile(assetFile: File): File = File(assetFile.absolutePath + SUFFIX)
 
-    fun shaMarkerFile(assetFile: File): File = File(assetFile.absolutePath + ".sha256")
+    /** The pin sidecar this override has to agree with. */
+    fun shaMarkerFile(assetFile: File): File = AssetDigest.markerFor(assetFile)
 
     /**
      * True when [assetFile] exists and a matching `.local-override` + `.sha256`
@@ -30,7 +31,7 @@ object RuntimeAssetLocalOverride {
         val override = markerFile(assetFile)
         if (!override.isFile) return false
         val overrideSha = override.readText().trim().lowercase()
-        if (!SHA256_HEX.matches(overrideSha)) {
+        if (!AssetDigest.HEX.matches(overrideSha)) {
             Log.w(TAG, "Ignoring malformed local-override for ${assetFile.name}")
             return false
         }
@@ -51,7 +52,7 @@ object RuntimeAssetLocalOverride {
     /** Write/refresh override + sha sidecars for an already-placed [assetFile]. */
     fun write(assetFile: File, sha256: String) {
         val digest = sha256.trim().lowercase()
-        require(SHA256_HEX.matches(digest)) { "invalid sha256: $sha256" }
+        require(AssetDigest.HEX.matches(digest)) { "invalid sha256: $sha256" }
         require(assetFile.isFile) { "missing asset: $assetFile" }
         shaMarkerFile(assetFile).writeText(digest)
         markerFile(assetFile).writeText(digest)
@@ -62,6 +63,4 @@ object RuntimeAssetLocalOverride {
         markerFile(assetFile).delete()
         Log.i(TAG, "Cleared local-override for ${assetFile.name}")
     }
-
-    private val SHA256_HEX = Regex("^[0-9a-f]{64}$")
 }

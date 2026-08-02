@@ -5,6 +5,7 @@ import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.container.model.ContainerId
+import app.amphora.core.container.model.DEFAULT_CONTAINER_ID
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ContentSource
@@ -58,7 +59,7 @@ import org.json.JSONObject
  *
  * The amphora [ContainerId] is the WinNative int container id as a string
  * (`"1"`, `"2"`, ...). MVP uses a single shared container (id `"1"`,
- * `ContainerId(DEFAULT_CONTAINER_ID)`); multi-prefix/container management is
+ * [app.amphora.core.container.model.DEFAULT_CONTAINER_ID]); multi-prefix/container management is
  * v0.2 (RFC §9). `getOrCreate` returns the *actual* created/loaded container's
  * id (createContainer auto-assigns `maxContainerId + 1`), so the caller's
  * [LaunchSpec.containerId] is advisory.
@@ -298,7 +299,7 @@ constructor(
     private fun wrapperToken(prefix: String, profile: ContentProfile): String =
         "$prefix-${profile.verName}-${profile.verCode}"
 
-    private fun parseContainerId(id: ContainerId): Int = id.value.toIntOrNull() ?: DEFAULT_CONTAINER_ID
+    private fun parseContainerId(id: ContainerId): Int = id.value.toIntOrNull() ?: DEFAULT_CONTAINER_ID.value.toInt()
 
     /** Map a WinNative [WnContainer] to the lean amphora [AmphoraContainer]. */
     private fun WnContainer.toAmphora(): AmphoraContainer = AmphoraContainer(
@@ -307,9 +308,4 @@ constructor(
         // The Wine prefix lives directly under the container root (home/xuser-<id>/.wine).
         winePrefixPath = File(rootDir, ".wine").absolutePath,
     )
-
-    private companion object {
-        /** MVP single shared container (RFC §9: multi-prefix is v0.2). */
-        const val DEFAULT_CONTAINER_ID = 1
-    }
 }

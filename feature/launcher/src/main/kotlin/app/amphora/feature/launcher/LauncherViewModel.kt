@@ -8,6 +8,7 @@ import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.ContentAssetInstaller
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentManifest
@@ -18,8 +19,11 @@ import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.engine.GraphicsDriverIds
+import app.amphora.core.engine.GuestFiles
 import app.amphora.core.engine.TurnipDriverProvisioner
 import app.amphora.core.rootfs.RootfsInstaller
+import com.winlator.cmod.runtime.content.ContentProfile
+import com.winlator.cmod.runtime.content.ContentsManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -199,12 +203,7 @@ constructor(
         return manifest.runtimeAssets().map { entry ->
             val file = File(root, entry.assetPath)
             val override = localOverrideSha(file)
-            val onDisk =
-                File(file.absolutePath + ".sha256")
-                    .takeIf { it.isFile }
-                    ?.readText()
-                    ?.trim()
-                    ?.lowercase()
+            val onDisk = AssetDigest.pinnedSha(file)
             val state =
                 when {
                     override != null -> RuntimeAssetStatus.State.LOCAL_OVERRIDE
@@ -230,8 +229,10 @@ constructor(
         if (assetInstaller.isInstalled(entry)) return entry.pinLabel()
         return when (entry.kind) {
             ManifestEntry.Kind.WCP -> {
-                val type = entry.contentType ?: return null
-                val dir = File(context.filesDir, "contents/$type")
+                val type =
+                    ContentProfile.ContentType.getTypeByName(entry.contentType ?: return null)
+                        ?: return null
+                val dir = ContentsManager.getContentTypeDir(context, type)
                 dir
                     .listFiles()
                     ?.filter { it.isDirectory }
@@ -247,10 +248,10 @@ constructor(
         }
     }
 
-    /** Copy the picked file into `filesDir/exe/<name>` (app-private, guest-readable). */
+    /** Copy the picked file into [GuestFiles.exeDir] (app-private, guest-readable). */
     private suspend fun stageExe(uri: Uri): String = withContext(dispatchers.io) {
         val fileName = queryDisplayName(uri) ?: "game.exe"
-        val exeDir = File(context.filesDir, "exe").apply { mkdirs() }
+        val exeDir = GuestFiles.exeDir(context).apply { mkdirs() }
         val dest = File(exeDir, fileName)
         context.contentResolver.openInputStream(uri)?.use { input ->
             java.io.FileOutputStream(dest).use { output -> input.copyTo(output) }

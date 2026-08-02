@@ -7,6 +7,7 @@ import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.content.model.id
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
+import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -42,8 +43,8 @@ constructor(@ApplicationContext private val context: Context) :
             File(context.filesDir, "amphora-content/${entry.component.id.value}/${entry.version}")
         ManifestEntry.Kind.WCP ->
             ContentsManager.getInstallDir(context, profileFor(entry) ?: noProfile(entry))
-        ManifestEntry.Kind.ROOTFS ->
-            File(context.filesDir, "imagefs") // informational only; resolve() rejects ROOTFS.
+        // Informational only; resolve() rejects ROOTFS. ImageFs owns the layout.
+        ManifestEntry.Kind.ROOTFS -> ImageFs.find(context).rootDir
     }
 
     override fun isInstalled(entry: ManifestEntry): Boolean = when (entry.kind) {

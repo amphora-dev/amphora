@@ -6,7 +6,6 @@ import app.amphora.core.content.model.RuntimeAssetEntry
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.security.MessageDigest
 
 /**
  * Provisions kernel-direct archives/metadata that legacy runtime code addresses
@@ -57,8 +56,7 @@ class RuntimeAssetProvisioner(
 
     private fun isVerified(file: File, entry: RuntimeAssetEntry): Boolean {
         if (!file.isFile || (entry.size != null && file.length() != entry.size)) return false
-        val marker = File(file.absolutePath + SHA_SUFFIX)
-        return marker.isFile && marker.readText().trim().equals(entry.sha256, ignoreCase = true)
+        return AssetDigest.matchesPin(file, entry.sha256)
     }
 
     private fun installFromApkAsset(entry: RuntimeAssetEntry, destination: File): Boolean {
@@ -71,7 +69,7 @@ class RuntimeAssetProvisioner(
         return try {
             destination.parentFile?.mkdirs()
             val partial = File(destination.absolutePath + ".part")
-            val digest = MessageDigest.getInstance("SHA-256")
+            val digest = AssetDigest.newDigest()
             input.use { stream ->
                 FileOutputStream(partial).use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -88,7 +86,7 @@ class RuntimeAssetProvisioner(
                 Log.w(TAG, "APK asset size mismatch for ${entry.assetPath}")
                 return false
             }
-            val actual = digest.digest().joinToString("") { b -> "%02x".format(b) }
+            val actual = with(AssetDigest) { digest.hex() }
             if (!actual.equals(entry.sha256, ignoreCase = true)) {
                 partial.delete()
                 Log.w(TAG, "APK asset SHA mismatch for ${entry.assetPath}")
@@ -102,7 +100,7 @@ class RuntimeAssetProvisioner(
                 partial.copyTo(destination, overwrite = true)
                 partial.delete()
             }
-            File(destination.absolutePath + SHA_SUFFIX).writeText(entry.sha256.lowercase())
+            AssetDigest.writePin(destination, entry.sha256)
             Log.i(TAG, "Installed ${entry.assetPath} from APK assets")
             true
         } catch (e: Exception) {
@@ -114,7 +112,6 @@ class RuntimeAssetProvisioner(
     companion object {
         const val DIRECTORY_NAME = "runtime-assets"
         private const val TAG = "RuntimeAssetProvisioner"
-        private const val SHA_SUFFIX = ".sha256"
 
         @JvmStatic
         fun runtimeAssetsDir(context: Context): File = File(context.filesDir, DIRECTORY_NAME)
