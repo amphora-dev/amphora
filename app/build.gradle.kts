@@ -48,14 +48,17 @@ dependencies {
 // ============================================================================
 // Bundled-content asset staging (amphora.content.staging convention plugin)
 // ============================================================================
-// The manifest (content_manifest.json) is resolved automatically from :core:content
-// -- no cross-module path here. Only the *external* asset sources are configured
-// below: the WinNative checkout (ARCHIVE .tzst source) and the .wcp download URLs.
+// What to stage comes from the remote content_manifest.json -- the same URL the app
+// fetches at runtime (`amphora.contentManifest.url`), including each WCP's remoteUrl
+// and its catalog fallback. A pin bump upstream therefore needs no edit here. Pass
+// -Pamphora.contentManifest.file=<path> to stage from a local manifest instead.
+//
+// The only build-machine-specific input is the WinNative checkout that holds the
+// kernel-direct .tzst assets.
 //
 // Run explicitly: `./gradlew :app:stageBundledContent` (NOT auto-wired -- the 160 MB
 // Proton .wcp would bloat every debug APK). Staged assets are git-ignored (*.tzst /
-// *.wcp); delete them for a slim APK again. See docs/04-ASSET-MANIFEST.md §4,
-// docs/03-TRACKING.md §P2 #9.
+// *.wcp); delete them for a slim APK again. See docs/04-ASSET-MANIFEST.md §4.
 amphoraContentStaging {
     winnativeDir.set(
         file(
@@ -63,17 +66,6 @@ amphoraContentStaging {
                 .orElse(rootProject.projectDir.parentFile.resolve("WinNative").absolutePath)
                 .get()
         ).resolve("app/src/main/assets")
-    )
-    wcpCatalogUrl.set(
-        "https://raw.githubusercontent.com/nicholasx417/WinNative-Components/main/default.json"
-    )
-    wcpDownloadUrls.set(
-        mapOf(
-            "Proton-10.0-4-x86_64.wcp" to
-                "https://github.com/nicholasx417/WinNative-Components/releases/download/Proton/Proton-10.0-4-x86_64.wcp",
-            "Dxvk-3.0.2-gplasync.wcp" to
-                "https://github.com/nicholasx417/WinNative-Components/releases/download/Stable-Dxvk/Dxvk-3.0.2-gplasync.wcp",
-        )
     )
 }
 

@@ -4,6 +4,17 @@ plugins {
 
 android {
     namespace = "app.amphora.core.content"
+
+    // The manifest URL lives in gradle.properties so the build (stageBundledContent)
+    // and the runtime (ContentManifestLoader) cannot drift apart.
+    buildFeatures.buildConfig = true
+    defaultConfig {
+        buildConfigField(
+            "String",
+            "CONTENT_MANIFEST_URL",
+            "\"${providers.gradleProperty(app.amphora.buildlogic.CONTENT_MANIFEST_URL_PROPERTY).get()}\"",
+        )
+    }
 }
 
 dependencies {

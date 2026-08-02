@@ -16,13 +16,15 @@ object ContentManifestLoader {
     private const val TAG = "ContentManifestLoader"
 
     /**
-     * Default remote pin file. Overridable via
-     * `meta-data app.amphora.CONTENT_MANIFEST_URL` in the app manifest, or the
-     * system property `amphora.content_manifest_url` (tests / debug).
+     * Default remote pin file, from `amphora.contentManifest.url` in
+     * `gradle.properties` — the same value `:app:stageBundledContent` fetches, so
+     * build-time staging and runtime provisioning cannot target different manifests.
+     *
+     * Overridable at runtime via `meta-data app.amphora.CONTENT_MANIFEST_URL` in the
+     * app manifest, or the system property `amphora.content_manifest_url`
+     * (tests / debug).
      */
-    const val DEFAULT_REMOTE_URL =
-        "https://raw.githubusercontent.com/amphora-dev/content_manifest/main/" +
-            "content_manifest.json"
+    const val DEFAULT_REMOTE_URL: String = BuildConfig.CONTENT_MANIFEST_URL
 
     /**
      * Fetch and parse the remote manifest. Throws when the URL is missing or

@@ -7,11 +7,11 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.create
 import org.gradle.kotlin.dsl.register
@@ -22,25 +22,13 @@ import java.net.URI
 import java.security.MessageDigest
 
 /**
- * Configuration for the [ContentStagingConventionPlugin]. Only the *external*
- * asset sources are consumer-specific:
- * - [winnativeDir]     -- the WinNative checkout whose `app/src/main/assets/` holds the ARCHIVE (.tzst) assets;
- * - [wcpDownloadUrls]  -- `.wcp` download URLs keyed by assetPath.
- *
- * The [manifestFile] is abstracted away: it defaults to `:core:content`'s
- * `content_manifest.json` (single source of truth, resolved via a *project
- * reference* -- never a hardcoded cross-module path in the consumer). Consumers
- * override it only in unusual layouts.
+ * Configuration for the [ContentStagingConventionPlugin]. The only
+ * consumer-specific input is [winnativeDir]; everything else about *what* to stage
+ * comes from the manifest, so a pin bump upstream needs no edit here.
  */
 abstract class ContentStagingExtension {
     /** WinNative checkout root; ARCHIVE (.tzst) assets are copied from its `app/src/main/assets/`. */
     abstract val winnativeDir: DirectoryProperty
-
-    /** `.wcp` download URLs keyed by assetPath (build-only; not part of the runtime manifest). */
-    abstract val wcpDownloadUrls: MapProperty<String, String>
-
-    /** Stable upstream catalog used to discover `.wcp` release URLs by asset filename. */
-    abstract val wcpCatalogUrl: Property<String>
 
     /** Where staged assets land. Defaults to this module's `src/main/assets/`. */
     abstract val stagedAssetsDir: DirectoryProperty
@@ -48,7 +36,16 @@ abstract class ContentStagingExtension {
     /** Download cache dir. Defaults to this module's `build/content-cache/`. */
     abstract val wcpCacheDir: DirectoryProperty
 
-    /** `content_manifest.json`. Defaults to `:core:content`'s manifest (single source of truth). */
+    /**
+     * Remote `content_manifest.json` — the same URL the app fetches at runtime, so
+     * staged assets always match the pins the device will verify against.
+     */
+    abstract val manifestUrl: Property<String>
+
+    /**
+     * Offline override: read the manifest from this file instead of [manifestUrl].
+     * Set via the `amphora.contentManifest.file` Gradle property.
+     */
     abstract val manifestFile: RegularFileProperty
 }
 
@@ -66,14 +63,12 @@ abstract class ContentStagingExtension {
  */
 abstract class StageBundledContentTask : DefaultTask() {
 
+    @get:Optional
     @get:InputFile
     abstract val manifestFile: RegularFileProperty
 
     @get:Input
-    abstract val wcpDownloadUrls: MapProperty<String, String>
-
-    @get:Input
-    abstract val wcpCatalogUrl: Property<String>
+    abstract val manifestUrl: Property<String>
 
     @get:Internal
     abstract val winnativeDir: DirectoryProperty
@@ -106,7 +101,7 @@ abstract class StageBundledContentTask : DefaultTask() {
     }
 
     private fun catalogDownloadUrls(): Map<String, String> {
-        val catalogUrl = wcpCatalogUrl.orNull?.takeIf { it.isNotBlank() } ?: return emptyMap()
+        val catalogUrl = manifestRoot()["wcpCatalogUrl"] as? String ?: return emptyMap()
         return try {
             val conn = URI(catalogUrl).toURL().openConnection() as HttpURLConnection
             conn.instanceFollowRedirects = true
@@ -130,10 +125,40 @@ abstract class StageBundledContentTask : DefaultTask() {
         }
     }
 
+    /**
+     * The manifest text, from [manifestFile] when set (offline) or fetched from
+     * [manifestUrl]. Cached per task run so the up-to-date check and the action do
+     * not fetch twice.
+     */
+    private val manifestJson: String by lazy {
+        manifestFile.orNull?.asFile?.readText() ?: fetchText(manifestUrl.get())
+    }
+
     @Suppress("UNCHECKED_CAST")
-    private fun manifestComponents(): Map<String, Map<String, Any?>> {
-        val parsed = JsonSlurper().parse(manifestFile.get().asFile) as Map<String, Any?>
-        return parsed["components"] as Map<String, Map<String, Any?>>
+    private fun manifestRoot(): Map<String, Any?> =
+        JsonSlurper().parseText(manifestJson) as Map<String, Any?>
+
+    @Suppress("UNCHECKED_CAST")
+    private fun manifestComponents(): Map<String, Map<String, Any?>> =
+        manifestRoot()["components"] as Map<String, Map<String, Any?>>
+
+    private fun fetchText(url: String): String {
+        require(URI(url).scheme.equals("https", ignoreCase = true)) {
+            "[stageBundledContent] manifest URL must be https: $url"
+        }
+        val conn = URI(url).toURL().openConnection() as HttpURLConnection
+        conn.instanceFollowRedirects = true
+        conn.useCaches = false
+        conn.connectTimeout = 15_000
+        conn.readTimeout = 30_000
+        try {
+            if (conn.responseCode !in 200..299) {
+                throw IOException("HTTP ${conn.responseCode} ${conn.responseMessage} for $url")
+            }
+            return conn.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun allAssetsStaged(): Boolean = try {
@@ -167,7 +192,7 @@ abstract class StageBundledContentTask : DefaultTask() {
         val stagedDir = stagedAssetsDir.get().asFile
         val cacheDir = wcpCacheDir.get().asFile
         val winnativeAssets = winnativeDir.orNull?.asFile
-        val urls = wcpDownloadUrls.get() + catalogDownloadUrls()
+        val catalog = catalogDownloadUrls()
 
         for ((id, entry) in manifestComponents()) {
             val assetPath = entry["assetPath"] as String
@@ -177,7 +202,14 @@ abstract class StageBundledContentTask : DefaultTask() {
             staged.parentFile.mkdirs()
             when (kind) {
                 "ARCHIVE" -> stageArchive(id, assetPath, expectedSha, staged, winnativeAssets)
-                "WCP" -> stageWcp(id, assetPath, expectedSha, staged, cacheDir, urls)
+                // remoteUrl in the manifest wins; the catalog resolves entries that
+                // deliberately have none (RemoteUrlResolver does the same at runtime).
+                "WCP" -> stageWcp(
+                    id, assetPath, expectedSha, staged, cacheDir,
+                    entry["remoteUrl"] as String? ?: catalog[assetPath],
+                )
+                // ROOTFS is installed by RootfsInstaller from the manifest at runtime.
+                "ROOTFS" -> logger.lifecycle("[stageBundledContent] $id: ROOTFS is downloaded on device; not staged.")
                 else -> logger.warn("[stageBundledContent] $id: unknown kind '$kind'; skipping.")
             }
         }
@@ -242,7 +274,7 @@ abstract class StageBundledContentTask : DefaultTask() {
 
     private fun stageWcp(
         id: String, assetPath: String, expectedSha: String?, staged: File,
-        cacheDir: File, urls: Map<String, String>,
+        cacheDir: File, url: String?,
     ) {
         if (staged.exists()) {
             val actualSha = sha256(staged)
@@ -253,10 +285,10 @@ abstract class StageBundledContentTask : DefaultTask() {
             logger.warn("[stageBundledContent] $id: removing stale staged asset $assetPath (expected $expectedSha, got $actualSha).")
             staged.delete()
         }
-        val url = urls[assetPath]
         if (url == null) {
             throw GradleException(
-                "[stageBundledContent] $id: $assetPath is absent from default WCP catalog and has no direct URL fallback."
+                "[stageBundledContent] $id: $assetPath has no remoteUrl in the manifest " +
+                    "and is absent from the WCP catalog."
             )
         }
         cacheDir.mkdirs()
@@ -298,11 +330,10 @@ abstract class StageBundledContentTask : DefaultTask() {
 }
 
 /**
- * Registers [StageBundledContentTask] and abstracts manifest acquisition: the
- * manifest is resolved from `:core:content`'s assets via a *project reference*
- * (not a hardcoded cross-module path), so consumers never know where the manifest
- * lives. Consumers configure only the external asset sources via the
- * [ContentStagingExtension] (`amphoraContentStaging { ... }`).
+ * Registers [StageBundledContentTask]. The manifest comes from the same remote URL
+ * the app fetches at runtime (`amphora.contentManifest.url`), so there is no copy of
+ * it in this repository to keep in sync. Pass
+ * `-Pamphora.contentManifest.file=<path>` to stage offline from a local manifest.
  */
 class ContentStagingConventionPlugin : Plugin<Project> {
     override fun apply(target: Project): Unit = with(target) {
@@ -311,23 +342,22 @@ class ContentStagingConventionPlugin : Plugin<Project> {
         // Defaults local to the applying module.
         ext.stagedAssetsDir.convention(layout.projectDirectory.dir("src/main/assets"))
         ext.wcpCacheDir.convention(layout.buildDirectory.dir("content-cache"))
-        ext.wcpCatalogUrl.convention("")
-
-        // Manifest for offline staging: test fixture snapshot of amphora-dev/content_manifest.
-        // Runtime always fetches the remote URL; refresh the fixture when pins change.
-        rootProject.findProject(":core:content")?.let { content ->
-            ext.manifestFile.convention(
-                content.layout.projectDirectory.file("src/test/resources/content_manifest.json")
-            )
-        } ?: logger.warn("amphora.content.staging: :core:content not found; set amphoraContentStaging.manifestFile explicitly.")
+        ext.manifestUrl.convention(
+            providers.gradleProperty(CONTENT_MANIFEST_URL_PROPERTY)
+        )
+        providers.gradleProperty("amphora.contentManifest.file").orNull?.let {
+            ext.manifestFile.set(file(it))
+        }
 
         tasks.register<StageBundledContentTask>("stageBundledContent") {
             manifestFile.set(ext.manifestFile)
-            wcpDownloadUrls.set(ext.wcpDownloadUrls)
-            wcpCatalogUrl.set(ext.wcpCatalogUrl)
+            manifestUrl.set(ext.manifestUrl)
             winnativeDir.set(ext.winnativeDir)
             stagedAssetsDir.set(ext.stagedAssetsDir)
             wcpCacheDir.set(ext.wcpCacheDir)
         }
     }
 }
+
+/** Gradle property holding the runtime manifest URL; see `gradle.properties`. */
+const val CONTENT_MANIFEST_URL_PROPERTY = "amphora.contentManifest.url"
