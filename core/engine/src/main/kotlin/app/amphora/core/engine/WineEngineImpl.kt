@@ -18,7 +18,6 @@ import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.audio.alsaserver.ALSAClient
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import com.winlator.cmod.runtime.container.Container as WinNativeContainer
-import com.winlator.cmod.shared.io.FileUtils
 import com.winlator.cmod.runtime.container.ContainerManager as WinNativeContainerManager
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.display.connector.UnixSocketConfig
@@ -32,19 +31,20 @@ import com.winlator.cmod.runtime.display.environment.components.SysVSharedMemory
 import com.winlator.cmod.runtime.display.environment.components.XServerComponent
 import com.winlator.cmod.runtime.display.xserver.ScreenInfo
 import com.winlator.cmod.runtime.display.xserver.XServer
+import com.winlator.cmod.runtime.system.ProcessHelper
 import com.winlator.cmod.runtime.wine.EnvVars
 import com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
 import com.winlator.cmod.runtime.wine.LocaleEnv
 import com.winlator.cmod.runtime.wine.WineInfo
-import com.winlator.cmod.runtime.system.ProcessHelper
+import com.winlator.cmod.shared.io.FileUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Real [WineEngine] facade (RFC §6 / §7 / D9). Delegates to the ported
@@ -80,7 +80,9 @@ import javax.inject.Singleton
  * touch + audio). All kernel orchestration is real and faithful to XSDA.
  */
 @Singleton
-class WineEngineImpl @Inject constructor(
+class WineEngineImpl
+@Inject
+constructor(
     @ApplicationContext private val context: Context,
     private val containerManager: ContainerManager,
     private val rootfsInstaller: RootfsInstaller,
@@ -89,8 +91,8 @@ class WineEngineImpl @Inject constructor(
     private val catalog: ContentCatalog,
     private val progressBus: ProvisionProgressBus,
     private val dispatchers: DispatcherProvider,
-) : WineEngine, GameSessionSurfaceProvider {
-
+) : WineEngine,
+    GameSessionSurfaceProvider {
     // --- kernel singletons (constructed like XServerWineSessionPreparer / XSDA L1041+) -----
     private val imageFs: ImageFs = ImageFs.find(context)
     private val contentsManager: ContentsManager = ContentsManager(context)
@@ -147,18 +149,22 @@ class WineEngineImpl @Inject constructor(
             progressBus.update(ProvisionProgress(stage = "session", detail = "Starting X session…"))
             val xServer = XServer(ScreenInfo(spec.displaySize.width, spec.displaySize.height))
             currentXServer = xServer
-            val driverConfig = GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
-                wnContainer.getGraphicsDriverConfig(),
-            )
+            val driverConfig =
+                GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
+                    wnContainer.getGraphicsDriverConfig(),
+                )
             // Host VulkanRenderer must use the same adrenotools id as the guest.
             // Prefs are the UI source of truth (container version= can lag).
-            val prefsDriver = GraphicsDriverIds.normalize(
-                context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
-                    .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
-            )
-            val containerDriver = driverConfig["version"]
-                ?.takeIf { it.isNotEmpty() && !it.equals("System", ignoreCase = true) }
-                ?.let { GraphicsDriverIds.normalize(it) }
+            val prefsDriver =
+                GraphicsDriverIds.normalize(
+                    context
+                        .getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+                        .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+                )
+            val containerDriver =
+                driverConfig["version"]
+                    ?.takeIf { it.isNotEmpty() && !it.equals("System", ignoreCase = true) }
+                    ?.let { GraphicsDriverIds.normalize(it) }
             val hostDriver = prefsDriver.ifEmpty { containerDriver ?: GraphicsDriverIds.WRAPPER }
             if (containerDriver != null && containerDriver != hostDriver) {
                 Log.i(
@@ -166,11 +172,12 @@ class WineEngineImpl @Inject constructor(
                     "Host graphics driver from prefs='$hostDriver' (container had '$containerDriver')",
                 )
             }
-            _surface.value = GameSessionSurface(
-                xServer = xServer,
-                graphicsDriver = hostDriver,
-                presentMode = driverConfig["presentMode"],
-            )
+            _surface.value =
+                GameSessionSurface(
+                    xServer = xServer,
+                    graphicsDriver = hostDriver,
+                    presentMode = driverConfig["presentMode"],
+                )
             // 6. Launch env: container Zink/Turnip defaults + preparer + caller + ALSA.
             val envVars = buildLaunchEnvVars(spec, wnContainer)
             // 7. XEnvironment + service components (GPLC added separately so the handle can wire its
@@ -198,23 +205,23 @@ class WineEngineImpl @Inject constructor(
         }
     }
 
-    override fun inputFeed(): InputSink =
-        currentXServer?.let { XServerInputSink(it) } ?: StubInputSink
+    override fun inputFeed(): InputSink = currentXServer?.let { XServerInputSink(it) } ?: StubInputSink
 
     override fun audioSink(): AudioSink = sessionAudioSink
 
     // --- launch steps ------------------------------------------------------------------------
 
     private suspend fun ensureRootfs() {
-        val installed = rootfsInstaller.ensureInstalled(
-            RootfsSpec(
-                targetRoot = imageFs.getRootDir().absolutePath,
-                imagefsVersion = IMAGEFS_VERSION,
-                // termuxfs has no separate archive (D7: rpath baked in Wine ELF, resolved at
-                // launch via LD_LIBRARY_PATH); the field is reserved for future pinning.
-                termuxfsSha256 = "",
-            ),
-        )
+        val installed =
+            rootfsInstaller.ensureInstalled(
+                RootfsSpec(
+                    targetRoot = imageFs.getRootDir().absolutePath,
+                    imagefsVersion = IMAGEFS_VERSION,
+                    // termuxfs has no separate archive (D7: rpath baked in Wine ELF, resolved at
+                    // launch via LD_LIBRARY_PATH); the field is reserved for future pinning.
+                    termuxfsSha256 = "",
+                ),
+            )
         check(installed) {
             "Rootfs installation failed: imagefs extraction returned false " +
                 "(asset missing from APK assets or native extract error; see TarCompressor logs)."

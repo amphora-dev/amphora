@@ -10,6 +10,8 @@ import app.amphora.core.engine.model.PointerButton
  */
 internal object StubInputSink : InputSink {
     override suspend fun injectPointerMove(x: Float, y: Float) {}
+
     override suspend fun injectPointerButton(button: PointerButton, pressed: Boolean) {}
+
     override suspend fun injectCharacter(char: Char) {}
 }

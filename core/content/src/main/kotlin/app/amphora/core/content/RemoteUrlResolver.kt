@@ -1,10 +1,10 @@
 package app.amphora.core.content
 
 import app.amphora.core.content.model.ManifestEntry
-import org.json.JSONArray
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
+import org.json.JSONArray
 
 /** Resolves pinned WCP filenames through the upstream stable `default.json`. */
 class RemoteUrlResolver {
@@ -19,7 +19,7 @@ class RemoteUrlResolver {
         return catalogUrls(wcpCatalogUrl)[entry.assetPath]
             ?: error(
                 "${entry.assetPath} is not present in the stable WCP catalog " +
-                    "($wcpCatalogUrl)"
+                    "($wcpCatalogUrl)",
             )
     }
 
@@ -27,8 +27,9 @@ class RemoteUrlResolver {
         catalog?.let { return it }
         return synchronized(this) {
             catalog?.let { return@synchronized it }
-            val url = wcpCatalogUrl
-                ?: error("content manifest does not define wcpCatalogUrl")
+            val url =
+                wcpCatalogUrl
+                    ?: error("content manifest does not define wcpCatalogUrl")
             val connection = URI(url).toURL().openConnection() as HttpURLConnection
             connection.instanceFollowRedirects = true
             connection.connectTimeout = CONNECT_TIMEOUT_MS

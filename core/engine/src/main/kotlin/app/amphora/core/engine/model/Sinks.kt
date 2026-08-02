@@ -10,7 +10,9 @@ enum class PointerButton { LEFT, RIGHT, MIDDLE }
  */
 interface InputSink {
     suspend fun injectPointerMove(x: Float, y: Float)
+
     suspend fun injectPointerButton(button: PointerButton, pressed: Boolean)
+
     suspend fun injectCharacter(char: Char)
 }
 
@@ -20,6 +22,8 @@ interface InputSink {
  */
 interface AudioSink {
     val volume: StateFlow<Float>
+
     suspend fun setVolume(volume: Float)
+
     suspend fun setMuted(muted: Boolean)
 }

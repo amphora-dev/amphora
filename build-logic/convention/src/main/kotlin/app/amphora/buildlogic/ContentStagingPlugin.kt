@@ -1,6 +1,11 @@
 package app.amphora.buildlogic
 
 import groovy.json.JsonSlurper
+import java.io.File
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URI
+import java.security.MessageDigest
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
@@ -15,11 +20,6 @@ import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.create
 import org.gradle.kotlin.dsl.register
-import java.io.File
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URI
-import java.security.MessageDigest
 
 /**
  * Configuration for the [ContentStagingConventionPlugin]. The only
@@ -62,7 +62,6 @@ abstract class ContentStagingExtension {
  * `docs/03-TRACKING.md` §P2 #9.
  */
 abstract class StageBundledContentTask : DefaultTask() {
-
     @get:Optional
     @get:InputFile
     abstract val manifestFile: RegularFileProperty
@@ -111,16 +110,20 @@ abstract class StageBundledContentTask : DefaultTask() {
                 throw IOException("HTTP ${conn.responseCode} ${conn.responseMessage}")
             }
             @Suppress("UNCHECKED_CAST")
-            val entries = conn.inputStream.bufferedReader().use { reader ->
-                JsonSlurper().parse(reader) as List<Map<String, Any?>>
-            }
-            entries.mapNotNull { entry ->
-                val remoteUrl = entry["remoteUrl"] as? String ?: return@mapNotNull null
-                val assetName = URI(remoteUrl).path.substringAfterLast('/')
-                assetName.takeIf { it.isNotBlank() }?.let { it to remoteUrl }
-            }.toMap()
+            val entries =
+                conn.inputStream.bufferedReader().use { reader ->
+                    JsonSlurper().parse(reader) as List<Map<String, Any?>>
+                }
+            entries
+                .mapNotNull { entry ->
+                    val remoteUrl = entry["remoteUrl"] as? String ?: return@mapNotNull null
+                    val assetName = URI(remoteUrl).path.substringAfterLast('/')
+                    assetName.takeIf { it.isNotBlank() }?.let { it to remoteUrl }
+                }.toMap()
         } catch (t: Throwable) {
-            logger.warn("[stageBundledContent] cannot load WCP catalog $catalogUrl ($t); direct URL fallbacks remain available.")
+            logger.warn(
+                "[stageBundledContent] cannot load WCP catalog $catalogUrl ($t); direct URL fallbacks remain available.",
+            )
             emptyMap()
         }
     }
@@ -135,8 +138,7 @@ abstract class StageBundledContentTask : DefaultTask() {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun manifestRoot(): Map<String, Any?> =
-        JsonSlurper().parseText(manifestJson) as Map<String, Any?>
+    private fun manifestRoot(): Map<String, Any?> = JsonSlurper().parseText(manifestJson) as Map<String, Any?>
 
     @Suppress("UNCHECKED_CAST")
     private fun manifestComponents(): Map<String, Map<String, Any?>> =
@@ -163,24 +165,27 @@ abstract class StageBundledContentTask : DefaultTask() {
 
     private fun allAssetsStaged(): Boolean = try {
         val dir = stagedAssetsDir.get().asFile
-        val manifestStaged = manifestComponents().values.all { e ->
-            val staged = File(dir, e["assetPath"] as String)
-            staged.exists() && when (e["kind"] as String) {
-                "ARCHIVE" -> (e["sha256"] as String?)?.let { sha256(staged) == it } ?: true
-                else -> true
+        val manifestStaged =
+            manifestComponents().values.all { e ->
+                val staged = File(dir, e["assetPath"] as String)
+                staged.exists() &&
+                    when (e["kind"] as String) {
+                        "ARCHIVE" -> (e["sha256"] as String?)?.let { sha256(staged) == it } ?: true
+                        else -> true
+                    }
             }
-        }
         // Kernel-direct .tzst (imagefs.tzst + preparer wincomponents/* / ddrawrapper/* /
         // container_pattern_common.tzst ...) read straight from context.assets must all
         // be present too, or the task is stale and must re-run stageKernelDirectAssets().
         val winnative = winnativeDir.orNull?.asFile
-        val kernelStaged = winnative?.takeIf { it.isDirectory }?.let { w ->
-            w.walkTopDown().filter { it.isFile && !it.name.endsWith(".wcp") }.all { src ->
-                val rel = src.relativeTo(w).path
-                !(rel.startsWith("wnsteam/") || rel.contains("arm64ec")) ||
-                    File(dir, rel).exists()
-            }
-        } ?: true
+        val kernelStaged =
+            winnative?.takeIf { it.isDirectory }?.let { w ->
+                w.walkTopDown().filter { it.isFile && !it.name.endsWith(".wcp") }.all { src ->
+                    val rel = src.relativeTo(w).path
+                    !(rel.startsWith("wnsteam/") || rel.contains("arm64ec")) ||
+                        File(dir, rel).exists()
+                }
+            } ?: true
         manifestStaged && kernelStaged
     } catch (t: Throwable) {
         logger.debug("[stageBundledContent] up-to-date check failed: $t", t)
@@ -204,10 +209,15 @@ abstract class StageBundledContentTask : DefaultTask() {
                 "ARCHIVE" -> stageArchive(id, assetPath, expectedSha, staged, winnativeAssets)
                 // remoteUrl in the manifest wins; the catalog resolves entries that
                 // deliberately have none (RemoteUrlResolver does the same at runtime).
-                "WCP" -> stageWcp(
-                    id, assetPath, expectedSha, staged, cacheDir,
-                    entry["remoteUrl"] as String? ?: catalog[assetPath],
-                )
+                "WCP" ->
+                    stageWcp(
+                        id,
+                        assetPath,
+                        expectedSha,
+                        staged,
+                        cacheDir,
+                        entry["remoteUrl"] as String? ?: catalog[assetPath],
+                    )
                 // ROOTFS is installed by RootfsInstaller from the manifest at runtime.
                 "ROOTFS" -> logger.lifecycle("[stageBundledContent] $id: ROOTFS is downloaded on device; not staged.")
                 else -> logger.warn("[stageBundledContent] $id: unknown kind '$kind'; skipping.")
@@ -234,7 +244,9 @@ abstract class StageBundledContentTask : DefaultTask() {
      */
     private fun stageKernelDirectAssets(winnativeAssets: File?, stagedDir: File) {
         if (winnativeAssets == null || !winnativeAssets.isDirectory) {
-            logger.warn("[stageBundledContent] WinNative checkout absent; skipping kernel-direct assets (imagefs.tzst, metadata/startmenu.json, wincomponents/*, ...).")
+            logger.warn(
+                "[stageBundledContent] WinNative checkout absent; skipping kernel-direct assets (imagefs.tzst, metadata/startmenu.json, wincomponents/*, ...).",
+            )
             return
         }
         var copied = 0
@@ -248,11 +260,19 @@ abstract class StageBundledContentTask : DefaultTask() {
             logger.lifecycle("[stageBundledContent] kernel-direct: staged $rel (${src.length()} bytes).")
             copied++
         }
-        if (copied == 0) logger.lifecycle("[stageBundledContent] kernel-direct .tzst assets all present; nothing copied.")
+        if (copied ==
+            0
+        ) {
+            logger.lifecycle("[stageBundledContent] kernel-direct .tzst assets all present; nothing copied.")
+        }
     }
 
     private fun stageArchive(
-        id: String, assetPath: String, expectedSha: String?, staged: File, winnativeAssets: File?,
+        id: String,
+        assetPath: String,
+        expectedSha: String?,
+        staged: File,
+        winnativeAssets: File?,
     ) {
         val src = winnativeAssets?.let { File(it, assetPath) }
         if (src == null || !src.exists()) {
@@ -266,15 +286,21 @@ abstract class StageBundledContentTask : DefaultTask() {
         src.copyTo(staged, overwrite = true)
         val actualSha = sha256(staged)
         if (expectedSha != null && actualSha != expectedSha) {
-            logger.error("[stageBundledContent] $id: SHA-256 MISMATCH for $assetPath (expected $expectedSha, got $actualSha). Runtime resolve will reject this asset.")
+            logger.error(
+                "[stageBundledContent] $id: SHA-256 MISMATCH for $assetPath (expected $expectedSha, got $actualSha). Runtime resolve will reject this asset.",
+            )
         } else {
             logger.lifecycle("[stageBundledContent] $id: staged $assetPath (sha256=$actualSha).")
         }
     }
 
     private fun stageWcp(
-        id: String, assetPath: String, expectedSha: String?, staged: File,
-        cacheDir: File, url: String?,
+        id: String,
+        assetPath: String,
+        expectedSha: String?,
+        staged: File,
+        cacheDir: File,
+        url: String?,
     ) {
         if (staged.exists()) {
             val actualSha = sha256(staged)
@@ -282,13 +308,15 @@ abstract class StageBundledContentTask : DefaultTask() {
                 logger.lifecycle("[stageBundledContent] $id: already staged ($assetPath, sha256=$actualSha); skipping.")
                 return
             }
-            logger.warn("[stageBundledContent] $id: removing stale staged asset $assetPath (expected $expectedSha, got $actualSha).")
+            logger.warn(
+                "[stageBundledContent] $id: removing stale staged asset $assetPath (expected $expectedSha, got $actualSha).",
+            )
             staged.delete()
         }
         if (url == null) {
             throw GradleException(
                 "[stageBundledContent] $id: $assetPath has no remoteUrl in the manifest " +
-                    "and is absent from the WCP catalog."
+                    "and is absent from the WCP catalog.",
             )
         }
         cacheDir.mkdirs()
@@ -321,10 +349,12 @@ abstract class StageBundledContentTask : DefaultTask() {
             staged.delete()
             cached.delete()
             throw GradleException(
-                "[stageBundledContent] $id: SHA-256 mismatch for $assetPath (expected $expectedSha, got $actualSha)."
+                "[stageBundledContent] $id: SHA-256 mismatch for $assetPath (expected $expectedSha, got $actualSha).",
             )
         } else {
-            logger.lifecycle("[stageBundledContent] $id: staged $assetPath (sha256=$actualSha).${if (expectedSha == null) " Paste into content_manifest.json to lock." else ""}")
+            logger.lifecycle(
+                "[stageBundledContent] $id: staged $assetPath (sha256=$actualSha).${if (expectedSha == null) " Paste into content_manifest.json to lock." else ""}",
+            )
         }
     }
 }
@@ -343,7 +373,7 @@ class ContentStagingConventionPlugin : Plugin<Project> {
         ext.stagedAssetsDir.convention(layout.projectDirectory.dir("src/main/assets"))
         ext.wcpCacheDir.convention(layout.buildDirectory.dir("content-cache"))
         ext.manifestUrl.convention(
-            providers.gradleProperty(CONTENT_MANIFEST_URL_PROPERTY)
+            providers.gradleProperty(CONTENT_MANIFEST_URL_PROPERTY),
         )
         providers.gradleProperty("amphora.contentManifest.file").orNull?.let {
             ext.manifestFile.set(file(it))

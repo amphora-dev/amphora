@@ -17,9 +17,10 @@ data class ProvisionProgress(
     val totalBytes: Long? = null,
 ) {
     val fraction: Float?
-        get() = totalBytes?.takeIf { it > 0 }?.let { total ->
-            (bytesDownloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-        }
+        get() =
+            totalBytes?.takeIf { it > 0 }?.let { total ->
+                (bytesDownloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+            }
 }
 
 /** Process-wide bus so downloaders and the UI share one progress stream. */

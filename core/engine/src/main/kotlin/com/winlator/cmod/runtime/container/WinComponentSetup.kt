@@ -9,9 +9,9 @@ import com.winlator.cmod.shared.io.FileUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import com.winlator.cmod.shared.util.KeyValueSet
 import com.winlator.cmod.shared.util.OnExtractFileListener
+import java.io.File
 import org.json.JSONException
 import org.json.JSONObject
-import java.io.File
 
 /**
  * WinComponents installer (ported verbatim from WinNative
@@ -73,11 +73,7 @@ object WinComponentSetup {
     }
 
     @JvmStatic
-    fun restoreWineBuiltinDllFiles(
-        imageFs: ImageFs,
-        wineInfo: WineInfo,
-        vararg dlls: String,
-    ) {
+    fun restoreWineBuiltinDllFiles(imageFs: ImageFs, wineInfo: WineInfo, vararg dlls: String) {
         val windowsDir = File(imageFs.rootDir, ImageFs.WINEPREFIX + "/drive_c/windows")
 
         // Pick the Wine DLL directory that matches system32 for this prefix:
@@ -106,10 +102,7 @@ object WinComponentSetup {
         )
     }
 
-    private fun wineDllsForComponentRestore(
-        wincomponentsJson: JSONObject,
-        identifier: String,
-    ): List<String> {
+    private fun wineDllsForComponentRestore(wincomponentsJson: JSONObject, identifier: String): List<String> {
         val dlnames = wincomponentsJson.getJSONArray(identifier)
         val dlls = ArrayList<String>(dlnames.length())
         for (i in 0 until dlnames.length()) {
@@ -119,10 +112,7 @@ object WinComponentSetup {
         return dlls
     }
 
-    private fun wineSystem32DllDir(
-        imageFs: ImageFs,
-        wineInfo: WineInfo,
-    ): File =
+    private fun wineSystem32DllDir(imageFs: ImageFs, wineInfo: WineInfo): File =
         // ARM64EC Wine keeps ARM64/ARM64EC DLLs in aarch64-windows; regular
         // x86_64 Wine keeps x64 DLLs in x86_64-windows.
         if (wineInfo.isArm64EC) {
@@ -131,10 +121,7 @@ object WinComponentSetup {
             File(imageFs.winePath + "/lib/wine/x86_64-windows")
         }
 
-    private fun restoreOneWineDll(
-        srcFile: File,
-        dstFile: File,
-    ) {
+    private fun restoreOneWineDll(srcFile: File, dstFile: File) {
         if (srcFile.exists()) {
             if (!FileUtils.copy(srcFile, dstFile)) {
                 Log.w(TAG, "restoreWineBuiltinDllFiles: copy failed $srcFile -> $dstFile")

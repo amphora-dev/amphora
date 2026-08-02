@@ -30,7 +30,6 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class XServerSurfaceViewInitTest {
-
     @Test
     fun constructor_doesNotCrash_withoutWineSession() {
         val ctx = ApplicationProvider.getApplicationContext<Context>()

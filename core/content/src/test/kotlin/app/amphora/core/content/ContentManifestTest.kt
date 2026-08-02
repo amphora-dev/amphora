@@ -19,7 +19,6 @@ import org.junit.Test
  * silently go stale.
  */
 class ContentManifestTest {
-
     @Test fun parsesWcpEntryWithNullSha() {
         val e = ContentManifest.parse(SAMPLE).entry(ContentComponent.WINE)
         assertNotNull(e)
@@ -74,11 +73,12 @@ class ContentManifestTest {
     }
 
     @Test fun archiveDefaultsToZstdWhenCompressionAbsent() {
-        val json = """
+        val json =
+            """
             {"version":1,"components":{"dxvk":{
               "assetPath":"d.tzst","sha256":"abc","version":"1","kind":"ARCHIVE"
             }}}
-        """.trimIndent()
+            """.trimIndent()
         val e = ContentManifest.parse(json).entry(ContentComponent.DXVK)!!
         assertEquals(ManifestEntry.Compression.ZSTD, e.compression)
     }
@@ -87,14 +87,15 @@ class ContentManifestTest {
         // The manifest is fetched at runtime from a repo that evolves on its own
         // schedule. A component this build has never heard of must not take the
         // whole parse down, or adding one would brick every installed version.
-        val m = ContentManifest.parse(
-            """
-            {"version":1,"components":{
-              "someFutureThing":{"kind":"ARCHIVE","assetPath":"x","version":"1","sha256":"${"d".repeat(64)}"},
-              "box64":{"kind":"WCP","assetPath":"b.wcp","version":"1","sha256":"${"e".repeat(64)}"}
-            }}
-            """.trimIndent(),
-        )
+        val m =
+            ContentManifest.parse(
+                """
+                {"version":1,"components":{
+                  "someFutureThing":{"kind":"ARCHIVE","assetPath":"x","version":"1","sha256":"${"d".repeat(64)}"},
+                  "box64":{"kind":"WCP","assetPath":"b.wcp","version":"1","sha256":"${"e".repeat(64)}"}
+                }}
+                """.trimIndent(),
+            )
         assertEquals(1, m.all().size)
         assertNotNull("known components must still parse", m.entry(ContentComponent.BOX64))
     }
@@ -104,7 +105,8 @@ class ContentManifestTest {
     }
 
     private companion object {
-        val SAMPLE = """
+        val SAMPLE =
+            """
             {
               "version": 1,
               "wcpCatalogUrl": "https://catalog.example/default.json",
@@ -149,6 +151,6 @@ class ContentManifestTest {
                 }
               ]
             }
-        """.trimIndent()
+            """.trimIndent()
     }
 }

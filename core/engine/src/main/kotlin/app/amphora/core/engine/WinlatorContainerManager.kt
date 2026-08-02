@@ -2,27 +2,27 @@ package app.amphora.core.engine
 
 import android.content.Context
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.container.ContainerManager
+import app.amphora.core.container.model.Container as AmphoraContainer
+import app.amphora.core.container.model.ContainerId
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.id
-import app.amphora.core.container.ContainerManager
-import app.amphora.core.container.model.Container as AmphoraContainer
-import app.amphora.core.container.model.ContainerId
 import com.winlator.cmod.runtime.container.Container as WnContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WnContainerManager
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.wine.WineInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 /**
  * Real [ContainerManager] (RFC §6 / §7 `runtime/container`). Bridges the lean
@@ -68,51 +68,52 @@ import kotlin.coroutines.resume
  * shortcut methods are retained in the ported kernel (untouched) but unused.
  */
 @Singleton
-class WinlatorContainerManager @Inject constructor(
+class WinlatorContainerManager
+@Inject
+constructor(
     @ApplicationContext private val context: Context,
     private val contentSource: ContentSource,
     private val catalog: ContentCatalog,
     private val turnipProvisioner: TurnipDriverProvisioner,
     private val dispatchers: DispatcherProvider,
 ) : ContainerManager {
-
     // --- kernel singletons (constructed like WineEngineImpl / preparer) -------
     private val contentsManager: ContentsManager = ContentsManager(context)
     private val wnContainerManager: WnContainerManager = WnContainerManager(context)
 
-    override suspend fun getOrCreate(id: ContainerId): AmphoraContainer =
-        withContext(dispatchers.io) {
-            val manifest = catalog.require()
-            // 1. Bundled Wine (Proton) + Box64 + DXVK + VKD3D must be installed
-            //    before a container can be created / launched. Idempotent.
-            contentSource.resolve(ContentComponent.WINE.id)
-            contentSource.resolve(ContentComponent.BOX64.id)
-            contentSource.resolve(ContentComponent.DXVK.id)
-            contentSource.resolve(ContentComponent.VKD3D.id)
-            // 2. Load the installed profiles into this manager's ContentsManager.
-            contentsManager.syncContents()
+    override suspend fun getOrCreate(id: ContainerId): AmphoraContainer = withContext(dispatchers.io) {
+        val manifest = catalog.require()
+        // 1. Bundled Wine (Proton) + Box64 + DXVK + VKD3D must be installed
+        //    before a container can be created / launched. Idempotent.
+        contentSource.resolve(ContentComponent.WINE.id)
+        contentSource.resolve(ContentComponent.BOX64.id)
+        contentSource.resolve(ContentComponent.DXVK.id)
+        contentSource.resolve(ContentComponent.VKD3D.id)
+        // 2. Load the installed profiles into this manager's ContentsManager.
+        contentsManager.syncContents()
 
-            val wineVersion = resolveWineVersion(manifest)
-            val dxwrapper = resolveDxwrapper(manifest)
-            val targetId = parseContainerId(id)
+        val wineVersion = resolveWineVersion(manifest)
+        val dxwrapper = resolveDxwrapper(manifest)
+        val targetId = parseContainerId(id)
 
-            wnContainerManager.loadContainers()
-            val existing = wnContainerManager.getContainerById(targetId)
-            val wnContainer = existing ?: createDefaultContainer(wineVersion, dxwrapper)
+        wnContainerManager.loadContainers()
+        val existing = wnContainerManager.getContainerById(targetId)
+        val wnContainer =
+            existing ?: createDefaultContainer(wineVersion, dxwrapper)
                 ?: throw IllegalStateException(
                     "ContainerManager.createContainer returned null for wineVersion=$wineVersion " +
                         "(see logcat 'ContainerManager'); is the Proton prefixPack installed?",
                 )
-            // Migrate containers created before real DXVK/VKD3D were bundled
-            // (dxvk-1.0 / vkd3d-None / missing profile). Clear the dxwrapper gate
-            // extra so the preparer re-extracts DLLs on the next launch.
-            ensureRealDxwrapper(wnContainer, dxwrapper)
-            // Optional adrenotools driver (wrapper default, Turnip when selected).
-            ensureAdrenotoolsDriver(wnContainer)
-            // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
-            wnContainerManager.activateContainer(wnContainer)
-            wnContainer.toAmphora()
-        }
+        // Migrate containers created before real DXVK/VKD3D were bundled
+        // (dxvk-1.0 / vkd3d-None / missing profile). Clear the dxwrapper gate
+        // extra so the preparer re-extracts DLLs on the next launch.
+        ensureRealDxwrapper(wnContainer, dxwrapper)
+        // Optional adrenotools driver (wrapper default, Turnip when selected).
+        ensureAdrenotoolsDriver(wnContainer)
+        // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
+        wnContainerManager.activateContainer(wnContainer)
+        wnContainer.toAmphora()
+    }
 
     override suspend fun list(): List<AmphoraContainer> = withContext(dispatchers.io) {
         wnContainerManager.loadContainers()
@@ -169,22 +170,26 @@ class WinlatorContainerManager @Inject constructor(
      * profile and fall through to Wine builtins / stubs.
      */
     private fun createDefaultContainer(wineVersion: String, dxwrapper: String): WnContainer? {
-        val data = JSONObject().apply {
-            put("name", "Amphora")
-            put("wineVersion", wineVersion)
-            put("graphicsDriver", WnContainer.DEFAULT_GRAPHICS_DRIVER) // "wrapper"
-            // Delimited form: "<dxvkEntry>;<vkd3dEntry>;<ddrawrapper>" (XSDA L7970).
-            put("dxwrapper", dxwrapper)
-            // graphicsDriverConfig uses ";" delimiter (Container.DEFAULT_GRAPHICSDRIVERCONFIG).
-            // version=wrapper is the adrenotools driver id — the preparer extracts the bundled
-            // Turnip driver from graphics_driver/wrapper.tzst to filesDir/contents/adrenotools/wrapper/
-            // so the host VulkanRenderer (which calls adrenotools_open_libvulkan with this id)
-            // loads the same Turnip driver as the guest (VK_ICD_FILENAMES=wrapper_icd.aarch64.json).
-            // Without this, the host falls back to system Adreno and the guest uses Turnip —
-            // two disconnected Vulkan instances = black screen.
-            put("graphicsDriverConfig", "vulkanVersion=1.3;version=wrapper;blacklistedExtensions=;maxDeviceMemory=0;presentMode=mailbox;syncFrame=0;disablePresentWait=1;resourceType=auto;bcnEmulation=auto;bcnEmulationType=compute;bcnEmulationCache=0;gpuName=Device")
-            put("wincomponents", WnContainer.FALLBACK_WINCOMPONENTS)
-        }
+        val data =
+            JSONObject().apply {
+                put("name", "Amphora")
+                put("wineVersion", wineVersion)
+                put("graphicsDriver", WnContainer.DEFAULT_GRAPHICS_DRIVER) // "wrapper"
+                // Delimited form: "<dxvkEntry>;<vkd3dEntry>;<ddrawrapper>" (XSDA L7970).
+                put("dxwrapper", dxwrapper)
+                // graphicsDriverConfig uses ";" delimiter (Container.DEFAULT_GRAPHICSDRIVERCONFIG).
+                // version=wrapper is the adrenotools driver id — the preparer extracts the bundled
+                // Turnip driver from graphics_driver/wrapper.tzst to filesDir/contents/adrenotools/wrapper/
+                // so the host VulkanRenderer (which calls adrenotools_open_libvulkan with this id)
+                // loads the same Turnip driver as the guest (VK_ICD_FILENAMES=wrapper_icd.aarch64.json).
+                // Without this, the host falls back to system Adreno and the guest uses Turnip —
+                // two disconnected Vulkan instances = black screen.
+                put(
+                    "graphicsDriverConfig",
+                    "vulkanVersion=1.3;version=wrapper;blacklistedExtensions=;maxDeviceMemory=0;presentMode=mailbox;syncFrame=0;disablePresentWait=1;resourceType=auto;bcnEmulation=auto;bcnEmulationType=compute;bcnEmulationCache=0;gpuName=Device",
+                )
+                put("wincomponents", WnContainer.FALLBACK_WINCOMPONENTS)
+            }
         return wnContainerManager.createContainer(data, contentsManager)
     }
 
@@ -194,18 +199,20 @@ class WinlatorContainerManager @Inject constructor(
      * profiles of each type.
      */
     private fun resolveDxwrapper(manifest: ContentManifest): String {
-        val dxvk = resolveWrapperToken(
-            manifest = manifest,
-            component = ContentComponent.DXVK,
-            type = ContentProfile.ContentType.CONTENT_TYPE_DXVK,
-            prefix = "dxvk",
-        )
-        val vkd3d = resolveWrapperToken(
-            manifest = manifest,
-            component = ContentComponent.VKD3D,
-            type = ContentProfile.ContentType.CONTENT_TYPE_VKD3D,
-            prefix = "vkd3d",
-        )
+        val dxvk =
+            resolveWrapperToken(
+                manifest = manifest,
+                component = ContentComponent.DXVK,
+                type = ContentProfile.ContentType.CONTENT_TYPE_DXVK,
+                prefix = "dxvk",
+            )
+        val vkd3d =
+            resolveWrapperToken(
+                manifest = manifest,
+                component = ContentComponent.VKD3D,
+                type = ContentProfile.ContentType.CONTENT_TYPE_VKD3D,
+                prefix = "vkd3d",
+            )
         return "$dxvk;$vkd3d;none"
     }
 
@@ -270,8 +277,9 @@ class WinlatorContainerManager @Inject constructor(
         if (desired == GraphicsDriverIds.TURNIP_BALANCED) {
             turnipProvisioner.ensureInstalled()
         }
-        val config = com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
-            .parseGraphicsDriverConfig(container.getGraphicsDriverConfig())
+        val config =
+            com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
+                .parseGraphicsDriverConfig(container.getGraphicsDriverConfig())
         val current = config["version"] ?: GraphicsDriverIds.WRAPPER
         if (current == desired) return
         android.util.Log.i(
@@ -280,7 +288,8 @@ class WinlatorContainerManager @Inject constructor(
         )
         config["version"] = desired
         container.setGraphicsDriverConfig(
-            com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils.toGraphicsDriverConfig(config),
+            com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
+                .toGraphicsDriverConfig(config),
         )
         container.saveData()
     }

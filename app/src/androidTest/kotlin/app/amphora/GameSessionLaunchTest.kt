@@ -11,6 +11,8 @@ import app.amphora.core.engine.model.SessionState
 import app.amphora.ui.DebugWineFixture
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
+import java.io.File
+import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -20,8 +22,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
-import javax.inject.Inject
 
 /**
  * Real-device verification of remote provisioning and a live Wine session.
@@ -32,7 +32,6 @@ import javax.inject.Inject
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class GameSessionLaunchTest {
-
     @get:Rule
     val hiltRule = HiltAndroidRule(this)
 
@@ -47,11 +46,12 @@ class GameSessionLaunchTest {
     @Test
     fun launch_smokeFixture_startsWineSession() = runBlocking {
         val executable = DebugWineFixture.stage(appContext)
-        val spec = LaunchSpec(
-            exePath = executable.absolutePath,
-            containerId = ContainerId("1"),
-            displaySize = DisplaySize(1280, 720),
-        )
+        val spec =
+            LaunchSpec(
+                exePath = executable.absolutePath,
+                containerId = ContainerId("1"),
+                displaySize = DisplaySize(1280, 720),
+            )
 
         println(
             "LAUNCH_START exe=${executable.name} size=${executable.length()} " +
@@ -65,10 +65,11 @@ class GameSessionLaunchTest {
                 "awaitReady timed out (state=${handle.state.value}); see logcat",
                 ready != null,
             )
-            val graphicsTestDir = File(
-                appContext.filesDir,
-                "imagefs/home/xuser-1/.wine/drive_c/ProgramData/Microsoft/Windows",
-            )
+            val graphicsTestDir =
+                File(
+                    appContext.filesDir,
+                    "imagefs/home/xuser-1/.wine/drive_c/ProgramData/Microsoft/Windows",
+                )
             assertTrue(
                 "32-bit AIO Graphics Test was not staged",
                 File(graphicsTestDir, "Graphics-Test-32bit.exe").length() == 2_083_443L,

@@ -12,13 +12,13 @@ import app.amphora.core.content.RemoteContentSource
 import app.amphora.core.content.RemoteUrlResolver
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.VerifiedAssetDownloader
-import app.amphora.core.engine.ImageFsRootfsInstaller
 import app.amphora.core.engine.GameSessionSurfaceProvider
+import app.amphora.core.engine.ImageFsRootfsInstaller
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.WineEngineImpl
-import app.amphora.core.engine.WinlatorContentAssetInstaller
-import app.amphora.core.engine.WinlatorContainerManager
 import app.amphora.core.engine.WineSessionPreparer
+import app.amphora.core.engine.WinlatorContainerManager
+import app.amphora.core.engine.WinlatorContentAssetInstaller
 import app.amphora.core.engine.XServerWineSessionPreparer
 import app.amphora.core.rootfs.RootfsInstaller
 import dagger.Module
@@ -56,10 +56,8 @@ object EngineModule {
 
     @Provides
     @Singleton
-    fun provideContentCatalog(
-        @ApplicationContext context: Context,
-        dispatchers: DispatcherProvider,
-    ): ContentCatalog = ContentCatalog(context, dispatchers)
+    fun provideContentCatalog(@ApplicationContext context: Context, dispatchers: DispatcherProvider): ContentCatalog =
+        ContentCatalog(context, dispatchers)
 
     @Provides
     @Singleton

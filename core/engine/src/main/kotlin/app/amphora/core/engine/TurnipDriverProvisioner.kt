@@ -7,10 +7,10 @@ import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.VerifiedAssetDownloader
 import com.winlator.cmod.runtime.content.AdrenotoolsManager
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.withContext
 
 /**
  * Optional WN-Turnip adrenotools package: download (SHA-pinned) + unzip into
@@ -24,7 +24,9 @@ import javax.inject.Singleton
  * the user selects Turnip.
  */
 @Singleton
-class TurnipDriverProvisioner @Inject constructor(
+class TurnipDriverProvisioner
+@Inject
+constructor(
     @ApplicationContext private val context: Context,
     private val catalog: ContentCatalog,
     private val downloader: VerifiedAssetDownloader,
@@ -39,21 +41,25 @@ class TurnipDriverProvisioner @Inject constructor(
             return@withContext adrenotools.getDriverDir(driverId)
         }
 
-        val pin = catalog.require().runtimeAssets()
-            .firstOrNull { it.assetPath == GraphicsDriverIds.TURNIP_ZIP_RELATIVE }
-            ?: error(
-                "content manifest has no runtimeAssets entry for " +
-                    GraphicsDriverIds.TURNIP_ZIP_RELATIVE,
-            )
+        val pin =
+            catalog
+                .require()
+                .runtimeAssets()
+                .firstOrNull { it.assetPath == GraphicsDriverIds.TURNIP_ZIP_RELATIVE }
+                ?: error(
+                    "content manifest has no runtimeAssets entry for " +
+                        GraphicsDriverIds.TURNIP_ZIP_RELATIVE,
+                )
         val cacheRoot = File(context.cacheDir, "amphora-downloads")
-        val zip = downloader.acquire(
-            root = cacheRoot,
-            relativePath = pin.assetPath,
-            remoteUrl = pin.remoteUrl,
-            expectedSha256 = pin.sha256,
-            expectedSize = pin.size,
-            label = "Turnip ${GraphicsDriverIds.TURNIP_BALANCED}",
-        )
+        val zip =
+            downloader.acquire(
+                root = cacheRoot,
+                relativePath = pin.assetPath,
+                remoteUrl = pin.remoteUrl,
+                expectedSha256 = pin.sha256,
+                expectedSize = pin.size,
+                label = "Turnip ${GraphicsDriverIds.TURNIP_BALANCED}",
+            )
         Log.i(TAG, "Installing Turnip from ${zip.absolutePath}")
         adrenotools.installFromZip(zip, driverId)
         adrenotools.getDriverDir(driverId)

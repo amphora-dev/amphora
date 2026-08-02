@@ -31,8 +31,9 @@ object ContentManifestLoader {
      * the request / JSON parse fails — callers must surface the error in UI.
      */
     fun load(context: Context, remoteUrl: String? = resolveRemoteUrl(context)): ContentManifest {
-        val url = remoteUrl?.takeIf { it.isNotBlank() }
-            ?: error("content manifest remote URL is not configured")
+        val url =
+            remoteUrl?.takeIf { it.isNotBlank() }
+                ?: error("content manifest remote URL is not configured")
         val json = fetchHttpsText(url)
         val remote = ContentManifest.parse(json)
         Log.i(TAG, "Loaded remote content manifest from $url (${remote.all().size} components)")
@@ -42,10 +43,11 @@ object ContentManifestLoader {
     fun resolveRemoteUrl(context: Context): String? {
         System.getProperty(SYSTEM_PROPERTY)?.takeIf { it.isNotBlank() }?.let { return it }
         return try {
-            val ai = context.packageManager.getApplicationInfo(
-                context.packageName,
-                android.content.pm.PackageManager.GET_META_DATA,
-            )
+            val ai =
+                context.packageManager.getApplicationInfo(
+                    context.packageName,
+                    android.content.pm.PackageManager.GET_META_DATA,
+                )
             ai.metaData?.getString(META_DATA_KEY)?.takeIf { it.isNotBlank() }
                 ?: DEFAULT_REMOTE_URL
         } catch (_: Throwable) {

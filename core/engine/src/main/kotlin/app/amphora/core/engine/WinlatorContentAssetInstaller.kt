@@ -9,10 +9,10 @@ import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CompletableDeferred
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CompletableDeferred
 
 /**
  * `:core:engine` concretion of [ContentAssetInstaller]: installs downloaded
@@ -33,10 +33,10 @@ import javax.inject.Singleton
  * [ContentAssetInstaller] stays in `:core:content`.
  */
 @Singleton
-class WinlatorContentAssetInstaller @Inject constructor(
-    @ApplicationContext private val context: Context,
-) : ContentAssetInstaller {
-
+class WinlatorContentAssetInstaller
+@Inject
+constructor(@ApplicationContext private val context: Context) :
+    ContentAssetInstaller {
     override fun resolvedPath(entry: ManifestEntry): File = when (entry.kind) {
         ManifestEntry.Kind.ARCHIVE ->
             File(context.filesDir, "amphora-content/${entry.component.id.value}/${entry.version}")
@@ -47,8 +47,9 @@ class WinlatorContentAssetInstaller @Inject constructor(
     }
 
     override fun isInstalled(entry: ManifestEntry): Boolean = when (entry.kind) {
-        ManifestEntry.Kind.ARCHIVE -> resolvedPath(entry).isDirectory &&
-            (resolvedPath(entry).list()?.isNotEmpty() == true)
+        ManifestEntry.Kind.ARCHIVE ->
+            resolvedPath(entry).isDirectory &&
+                (resolvedPath(entry).list()?.isNotEmpty() == true)
         ManifestEntry.Kind.WCP -> resolvedPath(entry).isDirectory
         ManifestEntry.Kind.ROOTFS -> false
     }
@@ -66,10 +67,11 @@ class WinlatorContentAssetInstaller @Inject constructor(
         val dest = resolvedPath(entry)
         if (dest.isDirectory) return dest // idempotent
         dest.mkdirs()
-        val type = when (entry.compression) {
-            ManifestEntry.Compression.ZSTD -> TarCompressorUtils.Type.ZSTD
-            ManifestEntry.Compression.XZ -> TarCompressorUtils.Type.XZ
-        }
+        val type =
+            when (entry.compression) {
+                ManifestEntry.Compression.ZSTD -> TarCompressorUtils.Type.ZSTD
+                ManifestEntry.Compression.XZ -> TarCompressorUtils.Type.XZ
+            }
         val ok = TarCompressorUtils.extract(type, archiveFile, dest)
         check(ok) { "Archive extract failed for ${entry.component.id.value} (${entry.assetPath})" }
         return dest
@@ -91,47 +93,47 @@ class WinlatorContentAssetInstaller @Inject constructor(
      * `ERROR_EXIST` (already installed from a prior run / another path) is treated
      * as success -- the install dir is already populated.
      */
-    private suspend fun awaitExtraContentInstall(
-        cm: ContentsManager,
-        wcp: File,
-    ): ContentProfile {
+    private suspend fun awaitExtraContentInstall(cm: ContentsManager, wcp: File): ContentProfile {
         val result = CompletableDeferred<ContentProfile>()
-        cm.extraContentFile(Uri.fromFile(wcp), object : ContentsManager.OnInstallFinishedCallback {
-            override fun onSucceed(profile: ContentProfile) {
-                cm.finishInstallContent(profile, object : ContentsManager.OnInstallFinishedCallback {
-                    override fun onSucceed(p: ContentProfile) { result.complete(p) }
+        cm.extraContentFile(
+            Uri.fromFile(wcp),
+            object : ContentsManager.OnInstallFinishedCallback {
+                override fun onSucceed(profile: ContentProfile) {
+                    cm.finishInstallContent(
+                        profile,
+                        object : ContentsManager.OnInstallFinishedCallback {
+                            override fun onSucceed(p: ContentProfile) {
+                                result.complete(p)
+                            }
 
-                    override fun onFailed(
-                        reason: ContentsManager.InstallFailedReason,
-                        e: Exception?,
-                    ) {
-                        if (reason == ContentsManager.InstallFailedReason.ERROR_EXIST) {
-                            result.complete(profile) // already installed; dir is populated
-                        } else {
-                            result.completeExceptionally(
-                                RuntimeException("finishInstallContent failed: $reason", e)
-                            )
-                        }
-                    }
-                })
-            }
+                            override fun onFailed(reason: ContentsManager.InstallFailedReason, e: Exception?) {
+                                if (reason == ContentsManager.InstallFailedReason.ERROR_EXIST) {
+                                    result.complete(profile) // already installed; dir is populated
+                                } else {
+                                    result.completeExceptionally(
+                                        RuntimeException("finishInstallContent failed: $reason", e),
+                                    )
+                                }
+                            }
+                        },
+                    )
+                }
 
-            override fun onFailed(
-                reason: ContentsManager.InstallFailedReason,
-                e: Exception?,
-            ) {
-                result.completeExceptionally(
-                    RuntimeException("extraContentFile failed: $reason", e)
-                )
-            }
-        })
+                override fun onFailed(reason: ContentsManager.InstallFailedReason, e: Exception?) {
+                    result.completeExceptionally(
+                        RuntimeException("extraContentFile failed: $reason", e),
+                    )
+                }
+            },
+        )
         return result.await()
     }
 
     /** Minimal profile for [ContentsManager.getInstallDir] path computation. */
     private fun profileFor(entry: ManifestEntry): ContentProfile? {
-        val type = ContentProfile.ContentType.getTypeByName(entry.contentType ?: return null)
-            ?: return null
+        val type =
+            ContentProfile.ContentType.getTypeByName(entry.contentType ?: return null)
+                ?: return null
         val verName = entry.verName ?: return null
         return ContentProfile().apply {
             this.type = type

@@ -2,12 +2,12 @@ package app.amphora.core.content
 
 import app.amphora.core.content.model.ContentComponent
 import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
+import java.util.concurrent.Executors
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
-import java.net.InetSocketAddress
-import java.util.concurrent.Executors
 
 class RemoteUrlResolverTest {
     private lateinit var server: HttpServer
@@ -38,38 +38,40 @@ class RemoteUrlResolverTest {
         // Any catalog fetch would 404 after the server stops; pinned remoteUrl
         // must short-circuit before catalogUrls() runs.
         server.stop(0)
-        val manifest = ContentManifest.parse(
-            """
-            {
-              "version": 1,
-              "wcpCatalogUrl": "$baseUrl/default.json",
-              "components": {
-                "wine": {
-                  "assetPath": "Proton-10.0-4-x86_64.wcp",
-                  "sha256": "${"a".repeat(64)}",
-                  "version": "Proton-10.0-4-x86_64-0",
-                  "kind": "WCP",
-                  "contentType": "Proton",
-                  "verName": "10.0-4-x86_64",
-                  "verCode": 0,
-                  "remoteUrl": "https://cdn.example/Proton-10.0-4-x86_64.wcp"
+        val manifest =
+            ContentManifest.parse(
+                """
+                {
+                  "version": 1,
+                  "wcpCatalogUrl": "$baseUrl/default.json",
+                  "components": {
+                    "wine": {
+                      "assetPath": "Proton-10.0-4-x86_64.wcp",
+                      "sha256": "${"a".repeat(64)}",
+                      "version": "Proton-10.0-4-x86_64-0",
+                      "kind": "WCP",
+                      "contentType": "Proton",
+                      "verName": "10.0-4-x86_64",
+                      "verCode": 0,
+                      "remoteUrl": "https://cdn.example/Proton-10.0-4-x86_64.wcp"
+                    }
+                  }
                 }
-              }
-            }
-            """.trimIndent(),
-        )
+                """.trimIndent(),
+            )
         val resolved = RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
         assertEquals("https://cdn.example/Proton-10.0-4-x86_64.wcp", resolved)
     }
 
     @Test
     fun resolvesWcpFilenameFromStableCatalog() {
-        catalogBody = """
+        catalogBody =
+            """
             [
               {"remoteUrl":"https://cdn.example/releases/Proton-10.0-4-x86_64.wcp"},
               {"remoteUrl":"https://cdn.example/releases/other.wcp"}
             ]
-        """.trimIndent()
+            """.trimIndent()
         val manifest = catalogManifest(assetPath = "Proton-10.0-4-x86_64.wcp")
         val resolved = RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
         assertEquals(
@@ -94,28 +96,28 @@ class RemoteUrlResolverTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun archiveWithoutRemoteUrlFails() {
-        val manifest = ContentManifest.parse(
-            """
-            {
-              "version": 1,
-              "wcpCatalogUrl": "$baseUrl/default.json",
-              "components": {
-                "dxvk": {
-                  "assetPath": "dxvk.tzst",
-                  "sha256": "${"b".repeat(64)}",
-                  "version": "1",
-                  "kind": "ARCHIVE"
+        val manifest =
+            ContentManifest.parse(
+                """
+                {
+                  "version": 1,
+                  "wcpCatalogUrl": "$baseUrl/default.json",
+                  "components": {
+                    "dxvk": {
+                      "assetPath": "dxvk.tzst",
+                      "sha256": "${"b".repeat(64)}",
+                      "version": "1",
+                      "kind": "ARCHIVE"
+                    }
+                  }
                 }
-              }
-            }
-            """.trimIndent(),
-        )
+                """.trimIndent(),
+            )
         RemoteUrlResolver().resolve(manifest.entry(ContentComponent.DXVK)!!, manifest.wcpCatalogUrl)
     }
 
-    private fun catalogManifest(assetPath: String): ContentManifest =
-        ContentManifest.parse(
-            """
+    private fun catalogManifest(assetPath: String): ContentManifest = ContentManifest.parse(
+        """
             {
               "version": 1,
               "wcpCatalogUrl": "$baseUrl/default.json",
@@ -131,6 +133,6 @@ class RemoteUrlResolverTest {
                 }
               }
             }
-            """.trimIndent(),
-        )
+        """.trimIndent(),
+    )
 }

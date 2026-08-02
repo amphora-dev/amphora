@@ -29,10 +29,9 @@ object GraphicsDriverIds {
 
     fun isKnown(id: String): Boolean = id == WRAPPER || id == TURNIP_BALANCED
 
-    fun normalize(id: String?): String =
-        when {
-            id.isNullOrBlank() -> WRAPPER
-            id == TURNIP_BALANCED -> TURNIP_BALANCED
-            else -> WRAPPER
-        }
+    fun normalize(id: String?): String = when {
+        id.isNullOrBlank() -> WRAPPER
+        id == TURNIP_BALANCED -> TURNIP_BALANCED
+        else -> WRAPPER
+    }
 }

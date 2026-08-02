@@ -62,11 +62,12 @@ class RuntimeAssetProvisioner(
     }
 
     private fun installFromApkAsset(entry: RuntimeAssetEntry, destination: File): Boolean {
-        val input = try {
-            context.assets.open(entry.assetPath)
-        } catch (_: IOException) {
-            return false
-        }
+        val input =
+            try {
+                context.assets.open(entry.assetPath)
+            } catch (_: IOException) {
+                return false
+            }
         return try {
             destination.parentFile?.mkdirs()
             val partial = File(destination.absolutePath + ".part")

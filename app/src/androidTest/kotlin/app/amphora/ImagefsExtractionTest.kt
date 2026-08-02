@@ -8,6 +8,9 @@ import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.display.environment.ImageFsInstaller
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
+import java.io.File
+import java.nio.file.Files
+import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -15,9 +18,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
-import java.nio.file.Files
-import javax.inject.Inject
 
 /**
  * End-to-end verification of remote rootfs provisioning on real hardware.
@@ -31,7 +31,6 @@ import javax.inject.Inject
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class ImagefsExtractionTest {
-
     @get:Rule
     val hiltRule = HiltAndroidRule(this)
 
@@ -47,13 +46,14 @@ class ImagefsExtractionTest {
         val outDir = File(appCtx.filesDir, "imagefs")
 
         val t0 = System.currentTimeMillis()
-        val ok = rootfsInstaller.ensureInstalled(
-            RootfsSpec(
-                targetRoot = outDir.absolutePath,
-                imagefsVersion = ImageFsInstaller.LATEST_VERSION.toString(),
-                termuxfsSha256 = "",
-            ),
-        )
+        val ok =
+            rootfsInstaller.ensureInstalled(
+                RootfsSpec(
+                    targetRoot = outDir.absolutePath,
+                    imagefsVersion = ImageFsInstaller.LATEST_VERSION.toString(),
+                    termuxfsSha256 = "",
+                ),
+            )
         val dtMs = System.currentTimeMillis() - t0
         assertTrue("remote rootfs provisioning failed (dt=${dtMs}ms)", ok)
         assertEquals(

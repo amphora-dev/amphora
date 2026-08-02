@@ -21,6 +21,10 @@ import app.amphora.core.engine.TurnipDriverProvisioner
 import app.amphora.core.rootfs.RootfsInstaller
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import java.io.IOException
+import java.util.Locale
+import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -29,10 +33,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.IOException
-import java.util.Locale
-import javax.inject.Inject
 
 /**
  * Launcher state for the MVP "pick .exe -> choose resolution -> launch" flow
@@ -40,7 +40,9 @@ import javax.inject.Inject
  * live download progress from [ProvisionProgressBus].
  */
 @HiltViewModel
-class LauncherViewModel @Inject constructor(
+class LauncherViewModel
+@Inject
+constructor(
     @ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
     private val turnipProvisioner: TurnipDriverProvisioner,
@@ -49,32 +51,34 @@ class LauncherViewModel @Inject constructor(
     private val assetInstaller: ContentAssetInstaller,
     progressBus: ProvisionProgressBus,
 ) : ViewModel() {
-
     private val prefs =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
 
-    private val _uiState = MutableStateFlow(
-        LauncherUiState(
-            appVersion = readAppVersion(),
-            graphicsDriver = GraphicsDriverOption.fromDriverId(
-                prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+    private val _uiState =
+        MutableStateFlow(
+            LauncherUiState(
+                appVersion = readAppVersion(),
+                graphicsDriver =
+                GraphicsDriverOption.fromDriverId(
+                    prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+                ),
             ),
-        ),
-    )
-    val uiState: StateFlow<LauncherUiState> = combine(
-        _uiState,
-        catalog.status,
-        progressBus.progress,
-    ) { base, catalogStatus, progress ->
-        base.copy(
-            catalogStatus = catalogStatus,
-            provisionProgress = progress,
         )
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        _uiState.value,
-    )
+    val uiState: StateFlow<LauncherUiState> =
+        combine(
+            _uiState,
+            catalog.status,
+            progressBus.progress,
+        ) { base, catalogStatus, progress ->
+            base.copy(
+                catalogStatus = catalogStatus,
+                provisionProgress = progress,
+            )
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            _uiState.value,
+        )
 
     init {
         refreshContentInfo()
@@ -87,9 +91,10 @@ class LauncherViewModel @Inject constructor(
                 val manifest = catalog.refresh()
                 val components = withContext(dispatchers.io) { scanComponents(manifest) }
                 val runtimeAssets = withContext(dispatchers.io) { scanRuntimeAssets(manifest) }
-                val residue = withContext(dispatchers.io) {
-                    File(context.filesDir, "imagefs.olddead").exists()
-                }
+                val residue =
+                    withContext(dispatchers.io) {
+                        File(context.filesDir, "imagefs.olddead").exists()
+                    }
                 _uiState.update {
                     it.copy(
                         contentBusy = false,
@@ -137,7 +142,8 @@ class LauncherViewModel @Inject constructor(
                 if (option == GraphicsDriverOption.TURNIP_BALANCED) {
                     turnipProvisioner.ensureInstalled()
                 }
-                prefs.edit()
+                prefs
+                    .edit()
                     .putString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, option.driverId)
                     .apply()
                 _uiState.update { it.copy(graphicsDriver = option, driverBusy = false) }
@@ -154,20 +160,22 @@ class LauncherViewModel @Inject constructor(
     }
 
     /** Compare each remote pin against what is actually usable on disk. */
-    private suspend fun scanComponents(manifest: ContentManifest): List<ComponentInstallStatus> {
-        return ContentComponent.entries.map { component ->
+    private suspend fun scanComponents(manifest: ContentManifest): List<ComponentInstallStatus> =
+        ContentComponent.entries.map { component ->
             val entry = manifest.entry(component)
             val pin = entry?.pinLabel()
-            val installed = when {
-                component == ContentComponent.ROOTFS -> rootfsInstaller.currentVersion()
-                else -> installedLabel(entry)
-            }
-            val matches = when {
-                entry == null || pin == null -> false
-                installed == null -> false
-                component == ContentComponent.ROOTFS -> installed == pin
-                else -> assetInstaller.isInstalled(entry)
-            }
+            val installed =
+                when {
+                    component == ContentComponent.ROOTFS -> rootfsInstaller.currentVersion()
+                    else -> installedLabel(entry)
+                }
+            val matches =
+                when {
+                    entry == null || pin == null -> false
+                    installed == null -> false
+                    component == ContentComponent.ROOTFS -> installed == pin
+                    else -> assetInstaller.isInstalled(entry)
+                }
             ComponentInstallStatus(
                 component = component,
                 pinned = pin,
@@ -176,7 +184,6 @@ class LauncherViewModel @Inject constructor(
                 localOverride = false,
             )
         }
-    }
 
     /** SHA-256 pinned by a dev/test inject, or null when no override is armed. */
     private fun localOverrideSha(file: File): String? {
@@ -194,20 +201,22 @@ class LauncherViewModel @Inject constructor(
         return manifest.runtimeAssets().map { entry ->
             val file = File(root, entry.assetPath)
             val override = localOverrideSha(file)
-            val onDisk = File(file.absolutePath + ".sha256")
-                .takeIf { it.isFile }
-                ?.readText()
-                ?.trim()
-                ?.lowercase()
-            val state = when {
-                override != null -> RuntimeAssetStatus.State.LOCAL_OVERRIDE
-                !file.isFile -> RuntimeAssetStatus.State.MISSING
-                onDisk == null -> RuntimeAssetStatus.State.UNVERIFIED
-                onDisk != entry.sha256.lowercase() -> RuntimeAssetStatus.State.MISMATCH
-                entry.size != null && file.length() != entry.size ->
-                    RuntimeAssetStatus.State.MISMATCH
-                else -> RuntimeAssetStatus.State.OK
-            }
+            val onDisk =
+                File(file.absolutePath + ".sha256")
+                    .takeIf { it.isFile }
+                    ?.readText()
+                    ?.trim()
+                    ?.lowercase()
+            val state =
+                when {
+                    override != null -> RuntimeAssetStatus.State.LOCAL_OVERRIDE
+                    !file.isFile -> RuntimeAssetStatus.State.MISSING
+                    onDisk == null -> RuntimeAssetStatus.State.UNVERIFIED
+                    onDisk != entry.sha256.lowercase() -> RuntimeAssetStatus.State.MISMATCH
+                    entry.size != null && file.length() != entry.size ->
+                        RuntimeAssetStatus.State.MISMATCH
+                    else -> RuntimeAssetStatus.State.OK
+                }
             RuntimeAssetStatus(
                 assetPath = entry.assetPath,
                 pinnedSha = entry.sha256.lowercase(),
@@ -225,7 +234,8 @@ class LauncherViewModel @Inject constructor(
             ManifestEntry.Kind.WCP -> {
                 val type = entry.contentType ?: return null
                 val dir = File(context.filesDir, "contents/$type")
-                dir.listFiles()
+                dir
+                    .listFiles()
                     ?.filter { it.isDirectory }
                     ?.map { it.name }
                     ?.sorted()
@@ -251,18 +261,18 @@ class LauncherViewModel @Inject constructor(
     }
 
     private fun queryDisplayName(uri: Uri): String? {
-        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        context.contentResolver
+            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
             ?.use { c -> if (c.moveToFirst()) return c.getString(0) }
         return null
     }
 
-    private fun readAppVersion(): String =
-        try {
-            val info = context.packageManager.getPackageInfo(context.packageName, 0)
-            info.versionName ?: "unknown"
-        } catch (_: PackageManager.NameNotFoundException) {
-            "unknown"
-        }
+    private fun readAppVersion(): String = try {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        info.versionName ?: "unknown"
+    } catch (_: PackageManager.NameNotFoundException) {
+        "unknown"
+    }
 }
 
 private fun ManifestEntry.pinLabel(): String = verName ?: version
@@ -324,7 +334,8 @@ enum class Resolution(val width: Int, val height: Int, val label: String) {
     R1280x720(1280, 720, "1280×720"),
     R1920x1080(1920, 1080, "1920×1080"),
     R1024x768(1024, 768, "1024×768"),
-    R800x600(800, 600, "800×600");
+    R800x600(800, 600, "800×600"),
+    ;
 
     companion object {
         val DEFAULT = R1280x720

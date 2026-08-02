@@ -43,9 +43,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.hilt.navigation.compose.hiltViewModel
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ProvisionProgress
 import java.io.File
@@ -241,11 +241,10 @@ private fun hasExternalStorageAccess(context: Context): Boolean {
         PackageManager.PERMISSION_GRANTED
 }
 
-private fun allFilesAccessIntent(context: Context): Intent =
-    Intent(
-        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-        Uri.parse("package:${context.packageName}"),
-    )
+private fun allFilesAccessIntent(context: Context): Intent = Intent(
+    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+    Uri.parse("package:${context.packageName}"),
+)
 
 @Composable
 private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {

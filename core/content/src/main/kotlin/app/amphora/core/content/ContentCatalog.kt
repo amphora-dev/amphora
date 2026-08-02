@@ -14,17 +14,14 @@ import kotlinx.coroutines.withContext
  * in `amphora-dev/content_manifest` and are refreshed at runtime so imagefs /
  * WCP SHA bumps do not require an APK rebuild.
  */
-class ContentCatalog(
-    private val context: Context,
-    private val dispatchers: DispatcherProvider,
-) {
+class ContentCatalog(private val context: Context, private val dispatchers: DispatcherProvider) {
     sealed interface Status {
         data object Idle : Status
+
         data object Loading : Status
-        data class Ready(
-            val manifest: ContentManifest,
-            val sourceUrl: String,
-        ) : Status
+
+        data class Ready(val manifest: ContentManifest, val sourceUrl: String) : Status
+
         data class Failed(val error: String) : Status
     }
 
@@ -48,11 +45,13 @@ class ContentCatalog(
     private suspend fun refreshLocked(): ContentManifest {
         _status.value = Status.Loading
         return try {
-            val url = ContentManifestLoader.resolveRemoteUrl(context)
-                ?: error("content manifest remote URL is not configured")
-            val json = withContext(dispatchers.io) {
-                ContentManifestLoader.fetchHttpsText(url)
-            }
+            val url =
+                ContentManifestLoader.resolveRemoteUrl(context)
+                    ?: error("content manifest remote URL is not configured")
+            val json =
+                withContext(dispatchers.io) {
+                    ContentManifestLoader.fetchHttpsText(url)
+                }
             val manifest = ContentManifest.parse(json)
             _status.value = Status.Ready(manifest, url)
             manifest

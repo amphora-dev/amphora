@@ -4,10 +4,10 @@ import android.content.Context
 import app.amphora.core.content.model.ComponentId
 import app.amphora.core.content.model.ContentArtifact
 import app.amphora.core.content.model.ManifestEntry
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Device-side content source for SHA-pinned WCP/archive components.
@@ -27,8 +27,9 @@ class RemoteContentSource(
 
     override suspend fun resolve(component: ComponentId): ContentArtifact {
         val manifest = catalog.require()
-        val entry = manifest.entry(component)
-            ?: throw NoSuchElementException("No manifest entry for '${component.value}'")
+        val entry =
+            manifest.entry(component)
+                ?: throw NoSuchElementException("No manifest entry for '${component.value}'")
         require(entry.kind != ManifestEntry.Kind.ROOTFS) {
             "ROOTFS is managed by RootfsInstaller"
         }
@@ -36,9 +37,10 @@ class RemoteContentSource(
 
         return locks.getOrPut(component) { Mutex() }.withLock {
             if (installer.isInstalled(entry)) return@withLock resolved(entry)
-            val sha = requireNotNull(entry.sha256) {
-                "Remote component ${entry.assetPath} must have a pinned SHA-256"
-            }
+            val sha =
+                requireNotNull(entry.sha256) {
+                    "Remote component ${entry.assetPath} must have a pinned SHA-256"
+                }
             progressBus?.update(
                 ProvisionProgress(
                     stage = "package",
@@ -47,14 +49,15 @@ class RemoteContentSource(
                     totalBytes = entry.size,
                 ),
             )
-            val archive = downloader.acquire(
-                root = File(context.cacheDir, "amphora-packages"),
-                relativePath = entry.assetPath,
-                remoteUrl = urlResolver.resolve(entry, manifest.wcpCatalogUrl),
-                expectedSha256 = sha,
-                expectedSize = entry.size,
-                label = entry.assetPath,
-            )
+            val archive =
+                downloader.acquire(
+                    root = File(context.cacheDir, "amphora-packages"),
+                    relativePath = entry.assetPath,
+                    remoteUrl = urlResolver.resolve(entry, manifest.wcpCatalogUrl),
+                    expectedSha256 = sha,
+                    expectedSize = entry.size,
+                    label = entry.assetPath,
+                )
             progressBus?.update(
                 ProvisionProgress(stage = "install", detail = entry.assetPath),
             )
@@ -63,10 +66,9 @@ class RemoteContentSource(
         }
     }
 
-    private fun resolved(entry: ManifestEntry): ContentArtifact.Resolved =
-        ContentArtifact.Resolved(
-            component = entry.component,
-            path = installer.resolvedPath(entry),
-            version = entry.version,
-        )
+    private fun resolved(entry: ManifestEntry): ContentArtifact.Resolved = ContentArtifact.Resolved(
+        component = entry.component,
+        path = installer.resolvedPath(entry),
+        version = entry.version,
+    )
 }

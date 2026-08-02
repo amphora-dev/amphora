@@ -11,6 +11,8 @@ import app.amphora.core.container.model.ContainerId
  */
 interface ContainerManager {
     suspend fun getOrCreate(id: ContainerId): Container
+
     suspend fun list(): List<Container>
+
     suspend fun delete(id: ContainerId): Boolean
 }

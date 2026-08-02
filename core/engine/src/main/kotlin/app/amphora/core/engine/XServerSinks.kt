@@ -16,19 +16,18 @@ import kotlinx.coroutines.flow.asStateFlow
  * same path WinNative's `TouchpadView` uses. `injectCharacter` requires an XKeycode
  * keymap lookup (Keyboard); MVP stubs it pending the on-screen keyboard (P4+).
  */
-internal class XServerInputSink(
-    private val xServer: XServer,
-) : InputSink {
+internal class XServerInputSink(private val xServer: XServer) : InputSink {
     override suspend fun injectPointerMove(x: Float, y: Float) {
         xServer.injectPointerMove(x.toInt(), y.toInt())
     }
 
     override suspend fun injectPointerButton(button: PointerButton, pressed: Boolean) {
-        val pb = when (button) {
-            PointerButton.LEFT -> Pointer.Button.BUTTON_LEFT
-            PointerButton.RIGHT -> Pointer.Button.BUTTON_RIGHT
-            PointerButton.MIDDLE -> Pointer.Button.BUTTON_MIDDLE
-        }
+        val pb =
+            when (button) {
+                PointerButton.LEFT -> Pointer.Button.BUTTON_LEFT
+                PointerButton.RIGHT -> Pointer.Button.BUTTON_RIGHT
+                PointerButton.MIDDLE -> Pointer.Button.BUTTON_MIDDLE
+            }
         if (pressed) xServer.injectPointerButtonPress(pb) else xServer.injectPointerButtonRelease(pb)
     }
 

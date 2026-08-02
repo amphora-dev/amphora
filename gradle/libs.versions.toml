@@ -17,6 +17,8 @@ androidxTestCore = "1.7.0"
 espresso = "3.7.0"
 mockk = "1.14.11"
 turbine = "1.2.1"
+spotless = "8.0.0"
+ktlint = "1.7.1"
 
 # Ported com.winlator.cmod runtime kernel deps (RFC §7 - Java reused as-is).
 # Versions matched to WinNative's catalog so the reused Java compiles unmodified.
@@ -91,3 +93,4 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

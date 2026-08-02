@@ -9,13 +9,13 @@ class ContentManifestLoaderTest {
         assertTrue(ContentManifestLoader.DEFAULT_REMOTE_URL.startsWith("https://"))
         assertTrue(
             ContentManifestLoader.DEFAULT_REMOTE_URL.contains(
-                "amphora-dev/content_manifest"
-            )
+                "amphora-dev/content_manifest",
+            ),
         )
         assertTrue(
             ContentManifestLoader.DEFAULT_REMOTE_URL.endsWith(
-                "content_manifest.json"
-            )
+                "content_manifest.json",
+            ),
         )
     }
 
@@ -28,5 +28,4 @@ class ContentManifestLoaderTest {
             assertTrue(expected.message!!.contains("HTTPS"))
         }
     }
-
 }

@@ -41,25 +41,27 @@ class ContentManifest private constructor(
                 // app, so throwing here would let a single new key brick every
                 // installed version. Typos are caught upstream by
                 // content_manifest's validate_manifest.py, which knows the set.
-                val component = ContentComponent.entries
-                    .firstOrNull { it.name.equals(key, ignoreCase = true) }
-                    ?: continue
+                val component =
+                    ContentComponent.entries
+                        .firstOrNull { it.name.equals(key, ignoreCase = true) }
+                        ?: continue
                 entries[component.id] = parseEntry(component, components.getJSONObject(key))
             }
-            val runtimeAssets = buildList {
-                val array = root.optJSONArray("runtimeAssets") ?: return@buildList
-                for (index in 0 until array.length()) {
-                    val obj = array.getJSONObject(index)
-                    add(
-                        RuntimeAssetEntry(
-                            assetPath = obj.getString("assetPath"),
-                            sha256 = obj.getString("sha256"),
-                            remoteUrl = obj.getString("remoteUrl"),
-                            size = optLongOrNull(obj, "size"),
+            val runtimeAssets =
+                buildList {
+                    val array = root.optJSONArray("runtimeAssets") ?: return@buildList
+                    for (index in 0 until array.length()) {
+                        val obj = array.getJSONObject(index)
+                        add(
+                            RuntimeAssetEntry(
+                                assetPath = obj.getString("assetPath"),
+                                sha256 = obj.getString("sha256"),
+                                remoteUrl = obj.getString("remoteUrl"),
+                                size = optLongOrNull(obj, "size"),
+                            ),
                         )
-                    )
+                    }
                 }
-            }
             return ContentManifest(
                 entries = entries,
                 wcpCatalogUrl = optString(root, "wcpCatalogUrl"),
@@ -70,9 +72,11 @@ class ContentManifest private constructor(
         private fun parseEntry(component: ContentComponent, obj: JSONObject): ManifestEntry {
             val kind = ManifestEntry.Kind.valueOf(obj.getString("kind"))
             val compression =
-                if (obj.has("compression") && !obj.isNull("compression"))
+                if (obj.has("compression") && !obj.isNull("compression")) {
                     ManifestEntry.Compression.valueOf(obj.getString("compression").uppercase())
-                else ManifestEntry.Compression.ZSTD
+                } else {
+                    ManifestEntry.Compression.ZSTD
+                }
             return ManifestEntry(
                 component = component,
                 assetPath = obj.getString("assetPath"),

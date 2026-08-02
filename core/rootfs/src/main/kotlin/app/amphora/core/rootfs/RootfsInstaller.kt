@@ -9,5 +9,6 @@ import app.amphora.core.rootfs.model.RootfsSpec
  */
 interface RootfsInstaller {
     suspend fun ensureInstalled(spec: RootfsSpec): Boolean
+
     suspend fun currentVersion(): String?
 }

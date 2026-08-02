@@ -4,7 +4,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import app.amphora.feature.launcher.LauncherScreen
 
-const val LauncherRoute = "launcher"
+const val LAUNCHER_ROUTE = "launcher"
 
 fun NavGraphBuilder.launcherScreen(
     onLaunch: (exePath: String, width: Int, height: Int) -> Unit,
@@ -12,7 +12,7 @@ fun NavGraphBuilder.launcherScreen(
     onDebugLaunchWine: (() -> Unit)? = null,
     onDebugLaunchWineDiag: (() -> Unit)? = null,
 ) {
-    composable(route = LauncherRoute) {
+    composable(route = LAUNCHER_ROUTE) {
         LauncherScreen(
             onLaunch = onLaunch,
             onOpenSettings = onOpenSettings,

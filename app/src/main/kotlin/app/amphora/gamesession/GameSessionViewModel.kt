@@ -1,10 +1,11 @@
 package app.amphora.gamesession
 
+import android.content.Context
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.container.model.ContainerId
-import android.util.Log
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.GraphicsDiag
@@ -15,7 +16,7 @@ import app.amphora.core.engine.model.SessionHandle
 import app.amphora.core.engine.model.SessionState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import android.content.Context
+import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,7 +24,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 /**
  * Orchestrates the Wine session lifecycle for the GameSession screen (RFC §6 / D9).
@@ -40,13 +40,14 @@ import javax.inject.Inject
  * via [launchError] for the screen to display.
  */
 @HiltViewModel
-class GameSessionViewModel @Inject constructor(
+class GameSessionViewModel
+@Inject
+constructor(
     private val wineEngine: WineEngine,
     private val surfaceProvider: GameSessionSurfaceProvider,
     @ApplicationContext private val appContext: Context,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
-
     val surface: StateFlow<GameSessionSurface?> = surfaceProvider.surface
     val provisionProgress = wineEngine.provisionProgress
 
@@ -57,6 +58,7 @@ class GameSessionViewModel @Inject constructor(
     val launchError: StateFlow<String?> = _launchError.asStateFlow()
 
     private var handle: SessionHandle? = null
+
     // Outlives viewModelScope so onCleared() can still run the suspend teardown.
     private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -77,24 +79,26 @@ class GameSessionViewModel @Inject constructor(
         viewModelScope.launch {
             _sessionState.value = SessionState.STARTING
             try {
-                val diagEnv = if (graphicsDiag) {
-                    GraphicsDiag.clearStateCache(appContext)
-                    val env = GraphicsDiag.launchEnv(appContext)
-                    Log.i(
-                        GraphicsDiag.TAG,
-                        "Graphics diag ON; DXVK logs → ${env["DXVK_LOG_PATH"]}",
+                val diagEnv =
+                    if (graphicsDiag) {
+                        GraphicsDiag.clearStateCache(appContext)
+                        val env = GraphicsDiag.launchEnv(appContext)
+                        Log.i(
+                            GraphicsDiag.TAG,
+                            "Graphics diag ON; DXVK logs → ${env["DXVK_LOG_PATH"]}",
+                        )
+                        env
+                    } else {
+                        emptyMap()
+                    }
+                val spec =
+                    LaunchSpec(
+                        exePath = exePath,
+                        // MVP: single shared container (RFC §9: multi-prefix is v0.2).
+                        containerId = ContainerId(DEFAULT_CONTAINER_ID),
+                        displaySize = DisplaySize(width, height),
+                        env = diagEnv,
                     )
-                    env
-                } else {
-                    emptyMap()
-                }
-                val spec = LaunchSpec(
-                    exePath = exePath,
-                    // MVP: single shared container (RFC §9: multi-prefix is v0.2).
-                    containerId = ContainerId(DEFAULT_CONTAINER_ID),
-                    displaySize = DisplaySize(width, height),
-                    env = diagEnv,
-                )
                 val h = wineEngine.launch(spec)
                 handle = h
                 // Forward handle state to the screen.
@@ -135,6 +139,7 @@ class GameSessionViewModel @Inject constructor(
         const val GRAPHICS_DIAG_ARG = "graphicsDiag"
         const val DEFAULT_WIDTH = 1280
         const val DEFAULT_HEIGHT = 720
+
         /** MVP single shared container id (RFC §9: multi-prefix is v0.2). */
         const val DEFAULT_CONTAINER_ID = "1"
     }

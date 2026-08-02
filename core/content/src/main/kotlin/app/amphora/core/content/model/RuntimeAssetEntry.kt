@@ -7,9 +7,4 @@ package app.amphora.core.content.model
  * asset paths. Amphora's IO bridge transparently prefers the downloaded copy,
  * allowing the APK to stay slim without rewriting every kernel call site.
  */
-data class RuntimeAssetEntry(
-    val assetPath: String,
-    val sha256: String,
-    val remoteUrl: String,
-    val size: Long? = null,
-)
+data class RuntimeAssetEntry(val assetPath: String, val sha256: String, val remoteUrl: String, val size: Long? = null)

@@ -13,8 +13,12 @@ enum class SessionState { CREATED, STARTING, RUNNING, PAUSED, STOPPED, FAILED }
  */
 interface SessionHandle {
     val state: StateFlow<SessionState>
+
     suspend fun awaitReady()
+
     suspend fun pause()
+
     suspend fun resume()
+
     suspend fun stop()
 }

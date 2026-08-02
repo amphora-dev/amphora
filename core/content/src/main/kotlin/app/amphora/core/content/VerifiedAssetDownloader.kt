@@ -1,10 +1,6 @@
 package app.amphora.core.content
 
 import app.amphora.core.common.dispatcher.DispatcherProvider
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -14,6 +10,10 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Resumable, SHA-pinned HTTPS downloader.
@@ -67,7 +67,7 @@ class VerifiedAssetDownloader(
                     }
                     if (expectedSize != null && partial.length() != expectedSize) {
                         throw IOException(
-                            "Truncated asset $relativePath: expected $expectedSize bytes, got ${partial.length()}"
+                            "Truncated asset $relativePath: expected $expectedSize bytes, got ${partial.length()}",
                         )
                     }
                     progressBus?.update(
@@ -82,7 +82,7 @@ class VerifiedAssetDownloader(
                     if (!actual.equals(expectedSha256, ignoreCase = true)) {
                         partial.delete()
                         throw SecurityException(
-                            "SHA-256 mismatch for $relativePath: expected=$expectedSha256 actual=$actual"
+                            "SHA-256 mismatch for $relativePath: expected=$expectedSha256 actual=$actual",
                         )
                     }
                     atomicReplace(partial, destination)
@@ -152,12 +152,13 @@ class VerifiedAssetDownloader(
             }
             val startAt = if (append) existing else 0L
             val contentLength = connection.contentLengthLong.takeIf { it >= 0 }
-            val total = when {
-                expectedSize != null -> expectedSize
-                contentLength != null && append -> startAt + contentLength
-                contentLength != null -> contentLength
-                else -> null
-            }
+            val total =
+                when {
+                    expectedSize != null -> expectedSize
+                    contentLength != null && append -> startAt + contentLength
+                    contentLength != null -> contentLength
+                    else -> null
+                }
             var written = startAt
             onProgress(written, total)
             val buffer = ByteArray(BUFFER_SIZE)

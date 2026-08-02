@@ -8,6 +8,8 @@ import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.id
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
+import java.io.File
+import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -16,8 +18,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
-import javax.inject.Inject
 
 /**
  * Real-device verification of the production remote [ContentSource].

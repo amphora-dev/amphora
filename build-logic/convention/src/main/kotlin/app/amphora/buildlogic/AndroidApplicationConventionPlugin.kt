@@ -40,8 +40,11 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
                 // and CI. Credentials are the Android-fixed defaults (public by convention).
                 signingConfigs {
                     getByName("debug") {
-                        storeFile = rootProject.layout.projectDirectory
-                            .dir("app").file("debug.keystore").asFile
+                        storeFile =
+                            rootProject.layout.projectDirectory
+                                .dir("app")
+                                .file("debug.keystore")
+                                .asFile
                         storePassword = "android"
                         keyAlias = "androiddebugkey"
                         keyPassword = "android"

@@ -27,6 +27,8 @@ interface WineEngine {
     val provisionProgress: StateFlow<ProvisionProgress?>
 
     suspend fun launch(spec: LaunchSpec): SessionHandle
+
     fun inputFeed(): InputSink
+
     fun audioSink(): AudioSink
 }

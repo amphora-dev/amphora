@@ -8,6 +8,7 @@ import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.kotlin.dsl.getByType
 
 internal const val SDK_COMPILE = 37
+
 // targetSdk 28 (not 36): the app execs box64/wine from filesDir (app_data_file),
 // which Android 10+ W^X (targetSdk >= 29, untrusted_app domain) denies via SELinux
 // `execute_no_trans`. targetSdk 28 keeps the legacy untrusted_app_27 domain that

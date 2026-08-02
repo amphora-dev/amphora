@@ -34,7 +34,6 @@ internal class XServerSessionHandle(
     private val xServer: XServer,
     private val dispatchers: DispatcherProvider,
 ) : SessionHandle {
-
     private val mutex = Mutex()
     private val _state = MutableStateFlow(SessionState.CREATED)
     override val state: StateFlow<SessionState> = _state.asStateFlow()

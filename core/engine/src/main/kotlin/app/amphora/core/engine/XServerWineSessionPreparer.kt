@@ -1,9 +1,10 @@
 package app.amphora.core.engine
 
-import android.content.pm.PackageManager
-import androidx.core.content.pm.PackageInfoCompat
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Log
+import androidx.annotation.VisibleForTesting
+import androidx.core.content.pm.PackageInfoCompat
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.content.RuntimeAssetProvisioner
@@ -11,7 +12,6 @@ import app.amphora.core.engine.model.LaunchSpec
 import com.winlator.cmod.runtime.container.Container
 import com.winlator.cmod.runtime.container.ContainerManager
 import com.winlator.cmod.runtime.container.WinComponentSetup
-import androidx.annotation.VisibleForTesting
 import com.winlator.cmod.runtime.content.AdrenotoolsManager
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
@@ -28,12 +28,12 @@ import com.winlator.cmod.shared.io.FileUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import com.winlator.cmod.shared.util.StringUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.regex.Pattern
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.withContext
 
 /**
  * Real [WineSessionPreparer] (RFC §7 / D9): the ~800-1000 line "core launch"
@@ -129,23 +129,20 @@ class XServerWineSessionPreparer @Inject constructor(
             setupWineSystemFilesCore()
         }
 
-    override suspend fun ensureWinePrefixReady(container: AmphoraContainer) =
-        withContext(dispatchers.io) {
-            resolveState(null, container)
-            ensureWinePrefixReadyCore()
-        }
+    override suspend fun ensureWinePrefixReady(container: AmphoraContainer) = withContext(dispatchers.io) {
+        resolveState(null, container)
+        ensureWinePrefixReadyCore()
+    }
 
-    override suspend fun ensureLaunchRuntimeFilesReady(container: AmphoraContainer) =
-        withContext(dispatchers.io) {
-            resolveState(null, container)
-            ensureLaunchRuntimeFilesReadyCore()
-        }
+    override suspend fun ensureLaunchRuntimeFilesReady(container: AmphoraContainer) = withContext(dispatchers.io) {
+        resolveState(null, container)
+        ensureLaunchRuntimeFilesReadyCore()
+    }
 
-    override suspend fun ensureWinePrefixEssentialFiles(container: AmphoraContainer) =
-        withContext(dispatchers.io) {
-            resolveState(null, container)
-            ensureWinePrefixEssentialFilesCore()
-        }
+    override suspend fun ensureWinePrefixEssentialFiles(container: AmphoraContainer) = withContext(dispatchers.io) {
+        resolveState(null, container)
+        ensureWinePrefixEssentialFilesCore()
+    }
 
     override suspend fun extractDXWrapperFiles(container: AmphoraContainer, dxwrapper: String) =
         withContext(dispatchers.io) {
@@ -153,11 +150,10 @@ class XServerWineSessionPreparer @Inject constructor(
             extractDXWrapperFilesCore(dxwrapper)
         }
 
-    override suspend fun extractGraphicsDriverFiles(container: AmphoraContainer) =
-        withContext(dispatchers.io) {
-            resolveState(null, container)
-            extractGraphicsDriverFilesCore()
-        }
+    override suspend fun extractGraphicsDriverFiles(container: AmphoraContainer) = withContext(dispatchers.io) {
+        resolveState(null, container)
+        extractGraphicsDriverFilesCore()
+    }
 
     // --- state resolution (AmphoraContainer -> WinNative Container + config) --
 
@@ -245,7 +241,8 @@ class XServerWineSessionPreparer @Inject constructor(
                 val ddrawrapper = currentDXWrapperConfig.get("ddrawrapper")
                 Log.i(
                     TAG,
-                    "Launch DX wrapper files selected: dxvk='$dxvkWrapper' vkd3d='$vkd3dWrapper' ddrawrapper='$ddrawrapper'",
+                    "Launch DX wrapper files selected: dxvk='$dxvkWrapper' " +
+                        "vkd3d='$vkd3dWrapper' ddrawrapper='$ddrawrapper'",
                 )
                 localDxwrapper = "$dxvkWrapper;$vkd3dWrapper;$ddrawrapper"
             } else {
@@ -264,7 +261,8 @@ class XServerWineSessionPreparer @Inject constructor(
             val ddrawrapper = if (parts.size > 2) parts[2] else ""
             Log.i(
                 TAG,
-                "Launch DX wrapper files selected (delimited form): dxvk='$dxvkWrapper' vkd3d='$vkd3dWrapper' ddrawrapper='$ddrawrapper'",
+                "Launch DX wrapper files selected (delimited form): dxvk='$dxvkWrapper' " +
+                    "vkd3d='$vkd3dWrapper' ddrawrapper='$ddrawrapper'",
             )
         }
 
@@ -490,14 +488,22 @@ class XServerWineSessionPreparer @Inject constructor(
             if (hasSelectedDxvkWrapper(dxvkWrapper)) {
                 val dxvkProfile = resolveDxvkProfile(dxvkWrapper)
                 if (dxvkProfile != null) {
-                    Log.d(TAG, "Applying DXVK content profile: $dxvkWrapper -> ${ContentsManager.getEntryName(dxvkProfile)}")
+                    Log.d(
+                        TAG,
+                        "Applying DXVK content profile: $dxvkWrapper -> " +
+                            ContentsManager.getEntryName(dxvkProfile),
+                    )
                     contentsManager.applyContent(dxvkProfile)
                     extractD8VKIfNeeded(dxvkWrapper, windowsDir)
                 } else {
                     // Match WinNative XSDA: no fake ARCHIVE/Wine-builtin substitute.
                     // Real DXVK must be installed via ContentsManager (amphora bundles
                     // Dxvk-*.wcp through ContentSource.resolve(DXVK)).
-                    Log.w(TAG, "DXVK content profile not installed; no bundled DXVK archive will be loaded: $dxvkWrapper")
+                    Log.w(
+                        TAG,
+                        "DXVK content profile not installed; no bundled DXVK archive " +
+                            "will be loaded: $dxvkWrapper",
+                    )
                 }
             } else {
                 Log.i(TAG, "Launch DXVK selected: None; restoring non-D3D12 wrapper files")
@@ -663,7 +669,11 @@ class XServerWineSessionPreparer @Inject constructor(
 
             // Source: the wrapper.tzst extract landed the driver .so at imagefs/usr/lib/.
             if (!srcDriver.exists()) {
-                Log.w(TAG, "installAdrenotoolsDriverIfNeeded: driver .so not found at $srcDriver — re-extracting wrapper.tzst")
+                Log.w(
+                    TAG,
+                    "installAdrenotoolsDriverIfNeeded: driver .so not found at " +
+                        "$srcDriver — re-extracting wrapper.tzst",
+                )
                 TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, imageFs.getRootDir())
                 writeWrapperPinMarker(imageFs.getRootDir())
             }
@@ -768,7 +778,9 @@ class XServerWineSessionPreparer @Inject constructor(
             if (dst.exists() && dst.length() == src.length() && dst.lastModified() >= src.lastModified()) {
                 continue
             }
-            if (FileUtils.copy(src, dst)) copiedDeps++ else {
+            if (FileUtils.copy(src, dst)) {
+                copiedDeps++
+            } else {
                 Log.w(TAG, "seedAdrenotoolsRuntimeDeps: copy failed for dep $dep")
             }
         }
@@ -899,8 +911,15 @@ class XServerWineSessionPreparer @Inject constructor(
         val wantLeegao = "wrapper-leegao" == graphicsDriver
         val leegaoMarker = File(rootDir, "usr/lib/.wrapper_leegao")
         if (wantLeegao) {
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "graphics_driver/wrapper-leegao.tzst", rootDir)
-            try { leegaoMarker.createNewFile() } catch (e: IOException) { /* ignored */ }
+            TarCompressorUtils.extract(
+                TarCompressorUtils.Type.ZSTD,
+                context,
+                "graphics_driver/wrapper-leegao.tzst",
+                rootDir,
+            )
+            try {
+                leegaoMarker.createNewFile()
+            } catch (e: IOException) { /* ignored */ }
         } else if (leegaoMarker.exists()) {
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, rootDir)
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "layers.tzst", rootDir)
@@ -1144,8 +1163,10 @@ class XServerWineSessionPreparer @Inject constructor(
             if (!profile.isInstalled) continue
             if (best == null ||
                 profile.verCode > best.verCode ||
-                (profile.verCode == best.verCode && profile.verName != null && best.verName != null &&
-                    profile.verName.compareTo(best.verName, ignoreCase = true) > 0)
+                (
+                    profile.verCode == best.verCode && profile.verName != null && best.verName != null &&
+                        profile.verName.compareTo(best.verName, ignoreCase = true) > 0
+                    )
             ) {
                 best = profile
             }
@@ -1157,6 +1178,7 @@ class XServerWineSessionPreparer @Inject constructor(
         private const val TAG = "WineSessionPreparer"
         private const val D8VK_ASSET_PATH = "dxwrapper/d8vk-1.0.tzst"
         private const val WRAPPER_ASSET = "graphics_driver/wrapper.tzst"
+
         /** Sidecar under imagefs/usr/lib recording the runtime-assets wrapper pin. */
         private const val WRAPPER_PIN_MARKER = "libvulkan_wrapper.so.wrapper.sha256"
         private val GRAPHICS_TEST_ASSETS = arrayOf(
@@ -1171,13 +1193,11 @@ class XServerWineSessionPreparer @Inject constructor(
         )
         private val SEMVER_LOOSE = Pattern.compile("(\\d+)\\.(\\d+)(?:\\.(\\d+))?")
 
-        private fun appVersionCode(context: Context): String {
-            return try {
-                val info = context.packageManager.getPackageInfo(context.packageName, 0)
-                PackageInfoCompat.getLongVersionCode(info).toString()
-            } catch (_: PackageManager.NameNotFoundException) {
-                "0"
-            }
+        private fun appVersionCode(context: Context): String = try {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            PackageInfoCompat.getLongVersionCode(info).toString()
+        } catch (_: PackageManager.NameNotFoundException) {
+            "0"
         }
     }
 }

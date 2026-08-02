@@ -62,10 +62,14 @@ dependencies {
 amphoraContentStaging {
     winnativeDir.set(
         file(
-            providers.gradleProperty("amphora.winnative.dir")
-                .orElse(rootProject.projectDir.parentFile.resolve("WinNative").absolutePath)
-                .get()
-        ).resolve("app/src/main/assets")
+            providers
+                .gradleProperty("amphora.winnative.dir")
+                .orElse(
+                    rootProject.projectDir.parentFile
+                        .resolve("WinNative")
+                        .absolutePath,
+                ).get(),
+        ).resolve("app/src/main/assets"),
     )
 }
 
@@ -86,7 +90,7 @@ tasks.register("connectedAndroidTestWithContent") {
     group = "amphora content"
     description =
         "Run connectedDebugAndroidTest after staging bundled content (imagefs/.wcp/.tzst) " +
-            "into the app APK, so asset-gated tests run instead of assumeTrue-skipping."
+        "into the app APK, so asset-gated tests run instead of assumeTrue-skipping."
     dependsOn("stageBundledContent")
     dependsOn("connectedDebugAndroidTest")
 }

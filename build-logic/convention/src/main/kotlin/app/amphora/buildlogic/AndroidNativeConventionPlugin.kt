@@ -15,22 +15,25 @@ class AndroidNativeConventionPlugin : Plugin<Project> {
                 ndk { abiFilters += "arm64-v8a" }
                 externalNativeBuild {
                     cmake {
-                        val nativeCache = rootProject.layout.projectDirectory
-                            .dir(".native-cache")
-                            .asFile
+                        val nativeCache =
+                            rootProject.layout.projectDirectory
+                                .dir(".native-cache")
+                                .asFile
                         val fetchContentDir = nativeCache.resolve("fetchcontent").apply { mkdirs() }
-                        arguments += listOf(
-                            "-DANDROID_STL=c++_shared",
-                            "-DANDROID_PLATFORM=android-26",
-                            // Keep FetchContent (zstd/xz) outside per-variant .cxx so CI/local
-                            // can cache the cloned sources across clean builds.
-                            "-DFETCHCONTENT_BASE_DIR=${fetchContentDir.absolutePath}",
-                        )
-                        findCcache()?.let { ccache ->
-                            arguments += listOf(
-                                "-DCMAKE_C_COMPILER_LAUNCHER=$ccache",
-                                "-DCMAKE_CXX_COMPILER_LAUNCHER=$ccache",
+                        arguments +=
+                            listOf(
+                                "-DANDROID_STL=c++_shared",
+                                "-DANDROID_PLATFORM=android-26",
+                                // Keep FetchContent (zstd/xz) outside per-variant .cxx so CI/local
+                                // can cache the cloned sources across clean builds.
+                                "-DFETCHCONTENT_BASE_DIR=${fetchContentDir.absolutePath}",
                             )
+                        findCcache()?.let { ccache ->
+                            arguments +=
+                                listOf(
+                                    "-DCMAKE_C_COMPILER_LAUNCHER=$ccache",
+                                    "-DCMAKE_CXX_COMPILER_LAUNCHER=$ccache",
+                                )
                         }
                         cppFlags += listOf("-std=c++17", "-frtti", "-fexceptions")
                     }

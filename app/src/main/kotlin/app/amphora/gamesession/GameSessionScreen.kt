@@ -1,5 +1,6 @@
 package app.amphora.gamesession
 
+import android.net.Uri
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import android.net.Uri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -39,29 +39,36 @@ import com.winlator.cmod.runtime.display.ui.XServerSurfaceView
 import com.winlator.cmod.runtime.display.xserver.Pointer
 import com.winlator.cmod.runtime.display.xserver.XServer
 
-const val GameSessionRoute = "game_session"
+const val GAME_SESSION_ROUTE = "game_session"
 
 private const val GAME_SESSION_ROUTE_WITH_ARGS =
-    "$GameSessionRoute?exePath={exePath}&width={width}&height={height}&graphicsDiag={graphicsDiag}"
+    "$GAME_SESSION_ROUTE?exePath={exePath}&width={width}&height={height}&graphicsDiag={graphicsDiag}"
 
 /** Builds the navigation URL for the game-session route (exe path URL-encoded). */
-fun gameSessionRoute(
-    exePath: String,
-    width: Int = 1280,
-    height: Int = 720,
-    graphicsDiag: Boolean = false,
-): String =
-    "$GameSessionRoute?exePath=${Uri.encode(exePath)}&width=$width&height=$height" +
+fun gameSessionRoute(exePath: String, width: Int = 1280, height: Int = 720, graphicsDiag: Boolean = false): String =
+    "$GAME_SESSION_ROUTE?exePath=${Uri.encode(exePath)}&width=$width&height=$height" +
         "&graphicsDiag=$graphicsDiag"
 
 fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
     composable(
         route = GAME_SESSION_ROUTE_WITH_ARGS,
         arguments = listOf(
-            navArgument("exePath") { type = NavType.StringType; defaultValue = "" },
-            navArgument("width") { type = NavType.IntType; defaultValue = 1280 },
-            navArgument("height") { type = NavType.IntType; defaultValue = 720 },
-            navArgument("graphicsDiag") { type = NavType.BoolType; defaultValue = false },
+            navArgument("exePath") {
+                type = NavType.StringType
+                defaultValue = ""
+            },
+            navArgument("width") {
+                type = NavType.IntType
+                defaultValue = 1280
+            },
+            navArgument("height") {
+                type = NavType.IntType
+                defaultValue = 720
+            },
+            navArgument("graphicsDiag") {
+                type = NavType.BoolType
+                defaultValue = false
+            },
         ),
     ) {
         GameSessionScreen(viewModel = hiltViewModel(), onExit = onExit)
@@ -210,8 +217,7 @@ private fun TouchInputOverlay(xServer: XServer, modifier: Modifier = Modifier) {
     )
 }
 
-private fun totalMove(x: Float, y: Float, downX: Float, downY: Float): Float =
-    Math.abs(x - downX) + Math.abs(y - downY)
+private fun totalMove(x: Float, y: Float, downX: Float, downY: Float): Float = Math.abs(x - downX) + Math.abs(y - downY)
 
 @Composable
 private fun SessionPlaceholder(

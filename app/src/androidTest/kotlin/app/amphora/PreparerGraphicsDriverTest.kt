@@ -24,6 +24,10 @@ import com.winlator.cmod.runtime.display.environment.ImageFsInstaller
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -35,10 +39,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import javax.inject.Inject
 
 /**
  * P2 real-device verification of [XServerWineSessionPreparer] graphics-driver
@@ -70,7 +70,6 @@ import javax.inject.Inject
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class PreparerGraphicsDriverTest {
-
     @get:Rule
     val hiltRule = HiltAndroidRule(this)
 
@@ -147,13 +146,14 @@ class PreparerGraphicsDriverTest {
         // --- Phase 2: create WinNative container (extracts Wine prefix) -------
         val cMgr = ContainerManager(appCtx)
         val wineVersion = ContentsManager.getEntryName(protonProfile) // "Proton-10.0-4-x86_64-0"
-        val data = JSONObject().apply {
-            put("name", "preparer-test")
-            put("wineVersion", wineVersion)
-            put("graphicsDriver", WnContainer.DEFAULT_GRAPHICS_DRIVER) // "wrapper"
-            put("dxwrapper", WnContainer.DEFAULT_DXWRAPPER)             // "dxvk+vkd3d"
-            put("wincomponents", WnContainer.FALLBACK_WINCOMPONENTS)
-        }
+        val data =
+            JSONObject().apply {
+                put("name", "preparer-test")
+                put("wineVersion", wineVersion)
+                put("graphicsDriver", WnContainer.DEFAULT_GRAPHICS_DRIVER) // "wrapper"
+                put("dxwrapper", WnContainer.DEFAULT_DXWRAPPER) // "dxvk+vkd3d"
+                put("wincomponents", WnContainer.FALLBACK_WINCOMPONENTS)
+            }
         val wnContainer = cMgr.createContainer(data, cm)
         assertNotNull("createContainer returned null (see logcat ContainerManager)", wnContainer)
         val rootDir = wnContainer!!.getRootDir()
@@ -171,17 +171,21 @@ class PreparerGraphicsDriverTest {
         // installed profiles loaded. The @VisibleForTesting accessor syncs it
         // (test-only; prod wires this at app init). Best-effort: Tier-1 envVars
         // work even if this fails.
-        val preparerSynced = try {
-            preparer.syncContentsForTesting(); true
-        } catch (e: Throwable) {
-            println("WARN: preparer syncContentsForTesting failed (envVars still verified): $e"); false
-        }
+        val preparerSynced =
+            try {
+                preparer.syncContentsForTesting()
+                true
+            } catch (e: Throwable) {
+                println("WARN: preparer syncContentsForTesting failed (envVars still verified): $e")
+                false
+            }
 
-        val amphoraContainer = AmphoraContainer(
-            id = ContainerId("preparer-test"),
-            rootPath = rootDir.absolutePath,
-            winePrefixPath = File(rootDir, ".wine").absolutePath,
-        )
+        val amphoraContainer =
+            AmphoraContainer(
+                id = ContainerId("preparer-test"),
+                rootPath = rootDir.absolutePath,
+                winePrefixPath = File(rootDir, ".wine").absolutePath,
+            )
 
         // Force prefix repair so firstTimeBoot=true (enables the wrapper.tzst
         // extraction attempt in extractGraphicsDriverFiles). Delete the prefix
@@ -250,7 +254,11 @@ class PreparerGraphicsDriverTest {
             println("imagefs already present at $imagefsDir")
             return
         }
-        val assets = appCtx.assets.list("").orEmpty().toList()
+        val assets =
+            appCtx.assets
+                .list("")
+                .orEmpty()
+                .toList()
         assumeTrue(
             "imagefs.tzst not bundled in app assets (have: $assets); " +
                 "run ./gradlew :app:stageBundledContent first (see docs/04-ASSET-MANIFEST.md)",
@@ -259,9 +267,13 @@ class PreparerGraphicsDriverTest {
         imagefsDir.deleteRecursively()
         assertTrue("mkdirs imagefs failed", imagefsDir.mkdirs())
         val t0 = System.currentTimeMillis()
-        val ok = TarCompressorUtils.extract(
-            TarCompressorUtils.Type.ZSTD, appCtx, "imagefs.tzst", imagefsDir,
-        )
+        val ok =
+            TarCompressorUtils.extract(
+                TarCompressorUtils.Type.ZSTD,
+                appCtx,
+                "imagefs.tzst",
+                imagefsDir,
+            )
         val dtMs = System.currentTimeMillis() - t0
         assertTrue("imagefs extract failed (dt=${dtMs}ms)", ok)
         println("IMAGEFS_EXTRACTED dt_ms=$dtMs -> $imagefsDir")
@@ -290,31 +302,37 @@ class PreparerGraphicsDriverTest {
         val result = arrayOfNulls<ContentProfile>(1)
         val error = arrayOfNulls<InstallFailedReason>(1)
         val latch = CountDownLatch(1)
-        cm.extraContentFile(Uri.fromFile(wcp), object : OnInstallFinishedCallback {
-            override fun onSucceed(profile: ContentProfile) {
-                cm.finishInstallContent(profile, object : OnInstallFinishedCallback {
-                    override fun onSucceed(p: ContentProfile) {
-                        result[0] = profile
-                        latch.countDown()
-                    }
+        cm.extraContentFile(
+            Uri.fromFile(wcp),
+            object : OnInstallFinishedCallback {
+                override fun onSucceed(profile: ContentProfile) {
+                    cm.finishInstallContent(
+                        profile,
+                        object : OnInstallFinishedCallback {
+                            override fun onSucceed(p: ContentProfile) {
+                                result[0] = profile
+                                latch.countDown()
+                            }
 
-                    override fun onFailed(reason: InstallFailedReason, e: Exception?) {
-                        if (reason == InstallFailedReason.ERROR_EXIST) {
-                            result[0] = profile // already installed from a prior run
-                            latch.countDown()
-                        } else {
-                            error[0] = reason
-                            latch.countDown()
-                        }
-                    }
-                })
-            }
+                            override fun onFailed(reason: InstallFailedReason, e: Exception?) {
+                                if (reason == InstallFailedReason.ERROR_EXIST) {
+                                    result[0] = profile // already installed from a prior run
+                                    latch.countDown()
+                                } else {
+                                    error[0] = reason
+                                    latch.countDown()
+                                }
+                            }
+                        },
+                    )
+                }
 
-            override fun onFailed(reason: InstallFailedReason, e: Exception?) {
-                error[0] = reason
-                latch.countDown()
-            }
-        })
+                override fun onFailed(reason: InstallFailedReason, e: Exception?) {
+                    error[0] = reason
+                    latch.countDown()
+                }
+            },
+        )
         assertTrue("install timed out: ${wcp.name}", latch.await(180, TimeUnit.SECONDS))
         assertNull("install failed: ${error[0]} (${wcp.name})", error[0])
         assertNotNull("install returned null profile (${wcp.name})", result[0])
@@ -325,6 +343,7 @@ class PreparerGraphicsDriverTest {
         // Entry names = type-verName-verCode (versionCode=0 in both .wcp profile.json).
         private const val PROTON_ENTRY = "Proton-10.0-4-x86_64-0"
         private const val BOX64_ENTRY = "Box64-0.4.3-c08554e3f-0"
+
         // Asset names (bundled in the app APK by stageBundledContent).
         private const val PROTON_WCP = "Proton-10.0-4-x86_64.wcp"
         private const val BOX64_WCP = "Box64-0.4.3-c08554e3f.wcp"

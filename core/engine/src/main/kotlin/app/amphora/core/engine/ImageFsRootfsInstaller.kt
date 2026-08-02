@@ -14,10 +14,10 @@ import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.shared.io.FileUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.withContext
 
 /**
  * amphora's [RootfsInstaller], backed by the ported `com.winlator.cmod` kernel
@@ -53,28 +53,31 @@ import javax.inject.Singleton
  * `amphora-dev/imagefs` Release (`amphora` tag).
  */
 @Singleton
-class ImageFsRootfsInstaller @Inject constructor(
+class ImageFsRootfsInstaller
+@Inject
+constructor(
     @ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
     private val catalog: ContentCatalog,
     private val downloader: VerifiedAssetDownloader,
     private val progressBus: ProvisionProgressBus,
 ) : RootfsInstaller {
-
     override suspend fun ensureInstalled(spec: RootfsSpec): Boolean = withContext(dispatchers.io) {
         val rootDir = File(spec.targetRoot)
         val imageFs = ImageFs.find(rootDir)
         val manifest = catalog.require()
-        val entry = requireNotNull(manifest.entry(ContentComponent.ROOTFS)) {
-            "content manifest does not define rootfs"
-        }
+        val entry =
+            requireNotNull(manifest.entry(ContentComponent.ROOTFS)) {
+                "content manifest does not define rootfs"
+            }
         // Prefer the remote manifest pin so publishing a new imagefs (URL + SHA
         // + version) does not require an APK rebuild. Spec value is the floor
         // from ImageFsInstaller.LATEST_VERSION.
-        val desired = maxOf(
-            entry.version.toIntOrNull() ?: 0,
-            spec.imagefsVersion.toIntOrNull() ?: 0,
-        )
+        val desired =
+            maxOf(
+                entry.version.toIntOrNull() ?: 0,
+                spec.imagefsVersion.toIntOrNull() ?: 0,
+            )
 
         if (desired > 0 && imageFs.isValid && imageFs.getVersion() >= desired) {
             return@withContext true // already up to date
@@ -88,21 +91,23 @@ class ImageFsRootfsInstaller @Inject constructor(
                 totalBytes = entry.size,
             ),
         )
-        val archive = downloader.acquire(
-            root = File(context.cacheDir, "amphora-rootfs"),
-            relativePath = entry.assetPath,
-            remoteUrl = requireNotNull(entry.remoteUrl) { "rootfs remoteUrl is missing" },
-            expectedSha256 = requireNotNull(entry.sha256) { "rootfs SHA-256 is missing" },
-            expectedSize = entry.size,
-            label = "imagefs.txz (v$desired)",
-        )
+        val archive =
+            downloader.acquire(
+                root = File(context.cacheDir, "amphora-rootfs"),
+                relativePath = entry.assetPath,
+                remoteUrl = requireNotNull(entry.remoteUrl) { "rootfs remoteUrl is missing" },
+                expectedSha256 = requireNotNull(entry.sha256) { "rootfs SHA-256 is missing" },
+                expectedSize = entry.size,
+                label = "imagefs.txz (v$desired)",
+            )
         progressBus.update(
             ProvisionProgress(stage = "extract", detail = "Extracting imagefs v$desired…"),
         )
-        val type = when (entry.compression) {
-            ManifestEntry.Compression.XZ -> TarCompressorUtils.Type.XZ
-            ManifestEntry.Compression.ZSTD -> TarCompressorUtils.Type.ZSTD
-        }
+        val type =
+            when (entry.compression) {
+                ManifestEntry.Compression.XZ -> TarCompressorUtils.Type.XZ
+                ManifestEntry.Compression.ZSTD -> TarCompressorUtils.Type.ZSTD
+            }
         installAtomically(rootDir, archive, desired, type)
     }
 
@@ -112,12 +117,7 @@ class ImageFsRootfsInstaller @Inject constructor(
         if (!imageFs.isValid) null else imageFs.getVersion().toString()
     }
 
-    private fun installAtomically(
-        rootDir: File,
-        archive: File,
-        desired: Int,
-        type: TarCompressorUtils.Type,
-    ): Boolean {
+    private fun installAtomically(rootDir: File, archive: File, desired: Int, type: TarCompressorUtils.Type): Boolean {
         val staging = File(rootDir.parentFile, "${rootDir.name}.staging")
         val backup = File(rootDir.parentFile, "${rootDir.name}.backup")
         recoverInterruptedInstall(rootDir, staging, backup)
