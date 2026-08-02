@@ -882,6 +882,7 @@ class XServerWineSessionPreparer @Inject constructor(
         WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
 
         applyGalliumDriver(rootDir)
+        applyWineEglBackend(rootDir)
         // LIBGL_KOPPER_DISABLE is deliberately not set. Winlator ships it, but it only
         // exists in Mesa's DRI GLX/EGL paths (src/glx, src/egl) — the xlib GLX frontend
         // never reads it, which is why it looked harmless. Now that imagefs builds the
@@ -1081,6 +1082,34 @@ class XServerWineSessionPreparer @Inject constructor(
         )
     }
 
+    /**
+     * Opt into Wine's EGL OpenGL backend when the imagefs Mesa build ships
+     * [LIBEGL_SONAME].
+     *
+     * The GLX backend cannot work here: Amphora's X server is a Java
+     * implementation with no GLX extension, and Mesa's xlib GLX frontend has no
+     * way to present a zink surface. Mesa's EGL X11 platform never queries GLX —
+     * it goes straight to DRI3/Present — so EGL is the only path that reaches
+     * the GPU. Proton keeps that backend behind `WINE_USE_EGL` (upstream Wine 11
+     * enables it by default on X11; this build does not), and without the
+     * variable `egl_init` bails with "EGL support is disabled" and falls back to
+     * `dlopen`ing libGL for GLX.
+     *
+     * Gated on the library actually being present so an older imagefs, whose
+     * Mesa was built with the xlib GLX frontend and ships no libEGL, keeps its
+     * existing behaviour instead of losing OpenGL entirely.
+     */
+    private fun applyWineEglBackend(rootDir: File) {
+        if (File(rootDir, LIBEGL_SONAME).exists()) {
+            envState.put("WINE_USE_EGL", "1")
+            return
+        }
+        Log.w(
+            TAG,
+            "imagefs has no $LIBEGL_SONAME; leaving WINE_USE_EGL unset so Wine keeps the GLX backend",
+        )
+    }
+
     /** wipeDxwrapperDllsForReextract (XSDA L7950). */
     private fun wipeDxwrapperDllsForReextract() {
         val rootDir = imageFs.getRootDir()
@@ -1209,6 +1238,9 @@ class XServerWineSessionPreparer @Inject constructor(
 
         /** Written by the imagefs mesa-gl package when the megadriver links zink. */
         private const val LIBGL_ZINK_MARKER = "usr/lib/.libgl-zink"
+
+        /** Wine dlopens this SONAME; present only once mesa-gl builds the EGL frontend. */
+        private const val LIBEGL_SONAME = "usr/lib/libEGL.so.1"
         private val GRAPHICS_TEST_ASSETS = arrayOf(
             "winnative/Graphics-Test-32bit.exe",
             "winnative/Graphics-Test-64bit.exe",
