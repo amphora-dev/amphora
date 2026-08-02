@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# CI entrypoint for Amphora JVM unit tests + coverage summary (GitHub Actions / local).
+# CI entrypoint: run every gate in ONE Gradle invocation, then print coverage.
+#
+# Any task names passed as arguments are appended to the invocation, so CI adds
+# spotlessCheck / lint / assemble and a local run with no arguments gets just the
+# JVM tests and the coverage summary.
+#
+# One invocation on purpose: each ./gradlew costs a JVM start, configuration and a
+# task graph, and separate invocations cannot overlap. Gradle runs the formatting,
+# lint, test and assemble graphs in parallel across modules within a single run.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,11 +35,11 @@ if ((${#tasks[@]} == 0)); then
 fi
 
 echo "JVM unit tests: ${modules[*]}"
+[ $# -gt 0 ] && echo "Additional tasks: $*"
 
-./gradlew \
-  "${tasks[@]}" \
-  --no-daemon \
-  --stacktrace
+# No --no-daemon: setup-gradle keeps a daemon for the job, and a cold JVM per
+# invocation was pure overhead.
+./gradlew "${tasks[@]}" "$@" --stacktrace
 
 echo
 echo "=== JVM unit-test coverage ==="
@@ -45,18 +53,17 @@ python3 - <<'PY'
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+
 def find_reports():
     patterns = [
-        "core/*/build/reports/coverage/test/debug/report.xml",
-        "core/*/build/reports/coverage/debug/report.xml",
+        "*/*/build/reports/coverage/test/debug/report.xml",
+        "*/*/build/reports/coverage/debug/report.xml",
     ]
     found = []
     for pattern in patterns:
         found.extend(Path().glob(pattern))
-    if not found:
-        found = list(Path("core").glob("**/coverage/**/report.xml"))
     seen, ordered = set(), []
-    for path in found:
+    for path in sorted(found):
         resolved = path.resolve()
         if resolved in seen:
             continue
@@ -64,36 +71,36 @@ def find_reports():
         ordered.append(path)
     return ordered
 
+
 def pct(covered, missed):
     denom = covered + missed
     return 100.0 * covered / denom if denom else 0.0
 
+
 reports = find_reports()
 if not reports:
-    raise SystemExit("No JaCoCo report.xml found under core/*/build/reports")
+    raise SystemExit("No JaCoCo report.xml found under */*/build/reports")
 
 total_lines = missed_lines = 0
 total_branches = missed_branches = 0
 for report in reports:
     root = ET.parse(report).getroot()
     counters = {c.get("type"): c for c in root.findall("counter")}
-    module = (
-        "common" if "/common/" in str(report)
-        else "content" if "/content/" in str(report)
-        else str(report.parent)
-    )
-    line = counters.get("LINE")
-    branch = counters.get("BRANCH")
-    if line is not None:
-        covered, missed = int(line.get("covered", 0)), int(line.get("missed", 0))
-        total_lines += covered + missed
-        missed_lines += missed
-        print(f"{module}: line   {pct(covered, missed):5.1f}%  ({covered}/{covered + missed})")
-    if branch is not None:
-        covered, missed = int(branch.get("covered", 0)), int(branch.get("missed", 0))
-        total_branches += covered + missed
-        missed_branches += missed
-        print(f"{module}: branch {pct(covered, missed):5.1f}%  ({covered}/{covered + missed})")
+    # <group>/<module>/build/... -> "group:module"
+    module = ":".join(report.parts[:2])
+    for kind, label in (("LINE", "line  "), ("BRANCH", "branch")):
+        counter = counters.get(kind)
+        if counter is None:
+            continue
+        covered = int(counter.get("covered", 0))
+        missed = int(counter.get("missed", 0))
+        if kind == "LINE":
+            total_lines += covered + missed
+            missed_lines += missed
+        else:
+            total_branches += covered + missed
+            missed_branches += missed
+        print(f"{module}: {label} {pct(covered, missed):5.1f}%  ({covered}/{covered + missed})")
     html = report.parent / "index.html"
     if html.is_file():
         print(f"  html: {html}")

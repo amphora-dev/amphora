@@ -1,8 +1,21 @@
 name: CI
 
+# Every change used to be checked twice. Branches are merged into main by
+# fast-forward, so `on: push` with no branch filter ran the identical SHA once for
+# the branch push and again for the main push — double the wall clock and double
+# the compute for the same result. Pull requests are validated pre-merge; main is
+# validated post-merge; neither duplicates the other.
 on:
   pull_request:
   push:
+    branches: [main]
+  workflow_dispatch:
+
+# Superseding pushes cancel the run they superseded. main is excluded: its history
+# is what release decisions read, so every commit there keeps its own result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CCACHE_DIR: ${{ github.workspace }}/.native-cache/ccache
@@ -34,22 +47,17 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.ref != 'refs/heads/main' }}
 
-      # Static checks first: they are the cheapest failures and the ones a human
-      # would otherwise have to spot in review.
-      - name: Kotlin formatting (spotless + ktlint)
-        run: ./gradlew spotlessCheck --stacktrace
-        timeout-minutes: 15
-
-      - name: Android Lint
-        run: ./gradlew lint --stacktrace
-        timeout-minutes: 30
-
-      - name: JVM unit tests
-        run: bash scripts/ci-jvm-test.sh
-        timeout-minutes: 30
-
-      - name: Assemble debug
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+      # One invocation for every gate: formatting, lint, JVM tests and the two
+      # APKs. Four separate ./gradlew calls each paid a JVM start, configuration
+      # and task graph, and could not overlap; here Gradle interleaves the graphs
+      # across modules.
+      - name: Check
+        run: |
+          bash scripts/ci-check.sh \
+            spotlessCheck \
+            lint \
+            :app:assembleDebug \
+            :app:assembleDebugAndroidTest
         timeout-minutes: 60
 
       - name: Upload lint reports

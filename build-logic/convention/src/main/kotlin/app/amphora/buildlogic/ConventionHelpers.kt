@@ -43,6 +43,11 @@ internal fun CommonExtension.configureCommonAndroid() {
         // A warning nobody has to act on is a warning everybody learns to skip.
         warningsAsErrors = true
         abortOnError = true
+        // Without this, lint analyses every module's unitTest and androidTest source
+        // set as well: 27 analysis passes across 9 modules instead of 9, two thirds
+        // of them over code that ships nowhere. checkTestSources is already false,
+        // so nothing was being reported from them either way.
+        ignoreTestSources = true
         // "A newer version exists" is upstream news, not a defect in this tree; it
         // would turn CI red on someone else's release. Dependency bumps are a
         // deliberate act, tracked in gradle/libs.versions.toml.

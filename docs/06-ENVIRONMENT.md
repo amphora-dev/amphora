@@ -273,7 +273,7 @@ Amphora uses GitHub Actions via `.github/workflows/ci.yml`.
 Job `continuous-test` runs on `ubuntu-24.04` for every branch `push` and for
 pull requests:
 
-1. `scripts/ci-jvm-test.sh` (`:core:common:test`, `:core:content:test`)
+1. `scripts/ci-check.sh spotlessCheck lint :app:assembleDebug :app:assembleDebugAndroidTest` — 一次 Gradle 调用跑完格式化 / lint / JVM 测试 / 两个 APK
 2. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
 
 The runner's preinstalled Android SDK (NDK `28.2.13676358`, CMake `3.31.5`) is
@@ -284,7 +284,7 @@ GitHub Actions does **not** run Android emulator/redroid instrumented tests
 (rootless DinD, no binder, arm64-only APK). Physical-device coverage stays on
 Tailscale ADB above.
 
-`scripts/ci-jvm-test.sh` also prints JaCoCo line/branch coverage for
+`scripts/ci-check.sh` also prints JaCoCo line/branch coverage for
 `:core:common` and `:core:content` (HTML under each module's
 `build/reports/coverage/`).
 
@@ -296,7 +296,7 @@ Local equivalent:
 
 ```bash
 bash scripts/setup-android-sdk.sh
-bash scripts/ci-jvm-test.sh
+bash scripts/ci-check.sh   # 不带参数 = 只跑 JVM 测试 + 覆盖率
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
