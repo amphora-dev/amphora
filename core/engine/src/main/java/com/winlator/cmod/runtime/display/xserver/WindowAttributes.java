@@ -61,6 +61,8 @@ public class WindowAttributes {
 
   private int backingPixel = 0;
   private int backingPlanes = 1;
+  /** 0 = CopyFromParent; resolved against the parent chain by {@link Window#getColormap}. */
+  private int colormap = 0;
   private BackingStore backingStore = BackingStore.NOT_USEFUL;
   private BitGravity bitGravity = BitGravity.CENTER;
   private Cursor cursor;
@@ -92,6 +94,11 @@ public class WindowAttributes {
 
   public BitGravity getBitGravity() {
     return bitGravity;
+  }
+
+  /** Raw value; 0 means "inherit". See {@link Window#getColormap}. */
+  public int getColormap() {
+    return colormap;
   }
 
   public Cursor getCursor() {
@@ -183,10 +190,12 @@ public class WindowAttributes {
         case FLAG_CURSOR:
           cursor = client.xServer.cursorManager.getCursor(inputStream.readInt());
           break;
+        case FLAG_COLORMAP:
+          colormap = inputStream.readInt();
+          break;
         case FLAG_BACKGROUND_PIXMAP:
         case FLAG_BORDER_PIXMAP:
         case FLAG_BORDER_PIXEL:
-        case FLAG_COLORMAP:
           inputStream.skip(4);
           break;
       }

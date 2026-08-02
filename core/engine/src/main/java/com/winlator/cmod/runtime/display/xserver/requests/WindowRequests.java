@@ -80,7 +80,7 @@ public abstract class WindowRequests {
       outputStream.writeByte((byte) 1);
       outputStream.writeByte((byte) window.getMapState().ordinal());
       outputStream.writeByte((byte) (window.attributes.isOverrideRedirect() ? 1 : 0));
-      outputStream.writeInt(0);
+      outputStream.writeInt(window.getColormap(client.xServer.defaultColormapId));
       outputStream.writeInt((int) window.getAllEventMasks().getBits());
       outputStream.writeInt((int) client.getEventMaskForWindow(window).getBits());
       outputStream.writeShort((short) window.attributes.getDoNotPropagateMask().getBits());

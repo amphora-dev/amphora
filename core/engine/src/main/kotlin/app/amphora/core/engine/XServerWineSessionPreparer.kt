@@ -881,8 +881,12 @@ class XServerWineSessionPreparer @Inject constructor(
         // csmt/FBO/renderer knobs on the OpenGL→Zink stack.
         WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
 
-        envState.put("GALLIUM_DRIVER", "zink")
-        envState.put("LIBGL_KOPPER_DISABLE", "true")
+        applyGalliumDriver(rootDir)
+        // LIBGL_KOPPER_DISABLE is deliberately not set. Winlator ships it, but it only
+        // exists in Mesa's DRI GLX/EGL paths (src/glx, src/egl) — the xlib GLX frontend
+        // never reads it, which is why it looked harmless. Now that imagefs builds the
+        // DRI frontend it would really turn kopper off, and kopper is exactly how zink
+        // presents through DRI3 + Present.
 
         val wrapperPinChanged = wrapperImagefsNeedsRefresh(rootDir)
         if (firstTimeBoot) {
@@ -1054,6 +1058,29 @@ class XServerWineSessionPreparer @Inject constructor(
         c.putExtra("desktopTheme", null)
     }
 
+    /**
+     * Pin `GALLIUM_DRIVER=zink` only when the imagefs Mesa build actually carries the
+     * zink gallium driver, signalled by the [LIBGL_ZINK_MARKER] sidecar.
+     *
+     * Mesa treats a set `GALLIUM_DRIVER` as authoritative: when the named driver is
+     * missing it fails outright rather than walking the rest of the list. Pinning zink
+     * against a Mesa without it therefore kills the whole GL stack rather than merely
+     * losing acceleration — every WineD3D consumer (DirectDraw / DX7 / plain OpenGL)
+     * dies with it. Leaving the variable unset lets Mesa fall back to the software
+     * rasterizer, which is slow but functional.
+     */
+    private fun applyGalliumDriver(rootDir: File) {
+        if (File(rootDir, LIBGL_ZINK_MARKER).isFile) {
+            envState.put("GALLIUM_DRIVER", "zink")
+            return
+        }
+        Log.w(
+            TAG,
+            "imagefs Mesa has no zink ($LIBGL_ZINK_MARKER missing); leaving GALLIUM_DRIVER " +
+                "unset so Mesa falls back to software rasterization for OpenGL/DirectDraw",
+        )
+    }
+
     /** wipeDxwrapperDllsForReextract (XSDA L7950). */
     private fun wipeDxwrapperDllsForReextract() {
         val rootDir = imageFs.getRootDir()
@@ -1179,6 +1206,9 @@ class XServerWineSessionPreparer @Inject constructor(
 
         /** Sidecar under imagefs/usr/lib recording the runtime-assets wrapper pin. */
         private const val WRAPPER_PIN_MARKER = "libvulkan_wrapper.so.wrapper.sha256"
+
+        /** Written by the imagefs mesa-gl package when the megadriver links zink. */
+        private const val LIBGL_ZINK_MARKER = "usr/lib/.libgl-zink"
         private val GRAPHICS_TEST_ASSETS = arrayOf(
             "winnative/Graphics-Test-32bit.exe",
             "winnative/Graphics-Test-64bit.exe",

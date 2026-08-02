@@ -120,6 +120,20 @@ public class Window extends XResource {
     return parent;
   }
 
+  /**
+   * Effective COLORMAP for GetWindowAttributes: the window's own if it asked for
+   * one, otherwise the nearest ancestor's, falling back to [defaultColormapId].
+   * InputOnly windows have no colormap and report None.
+   */
+  public int getColormap(int defaultColormapId) {
+    if (!isInputOutput()) return 0;
+    for (Window w = this; w != null; w = w.getParent()) {
+      int colormap = w.attributes.getColormap();
+      if (colormap != 0) return colormap;
+    }
+    return defaultColormapId;
+  }
+
   public void setParent(Window parent) {
     this.parent = parent;
   }
