@@ -1061,7 +1061,10 @@ class XServerWineSessionPreparer @Inject constructor(
         val syswow64 = File(rootDir, ImageFs.WINEPREFIX + "/drive_c/windows/syswow64")
         var deleted = 0
         for (name in DXWRAPPER_DLLS) {
-            if (name == "d3d10.dll" || name == "d3d10_1.dll" || name == "d3d8.dll" || name == "d3dimm.dll") continue
+            // Keep d3dimm.dll — owned by ddraw wrappers, not DXVK applyContent.
+            // Do wipe d3d8/d3d10/d3d10_1: DXVK ≥ 2.4 ships them, and skipping left
+            // Wine builtins in the prefix when profile.json omitted those entries.
+            if (name == "d3dimm.dll") continue
             val a = File(system32, name)
             val b = File(syswow64, name)
             if (a.exists() && a.delete()) deleted++

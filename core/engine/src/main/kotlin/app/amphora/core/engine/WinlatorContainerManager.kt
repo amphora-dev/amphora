@@ -109,6 +109,9 @@ constructor(
         // (dxvk-1.0 / vkd3d-None / missing profile). Clear the dxwrapper gate
         // extra so the preparer re-extracts DLLs on the next launch.
         ensureRealDxwrapper(wnContainer, dxwrapper)
+        // One-shot: incomplete upstream DXVK profile.json omitted d3d8/d3d10*;
+        // clear the preparer gate so applyContent re-runs with trust augment.
+        ensureDxvkTrustAugmentReapply(wnContainer)
         // Optional adrenotools driver (wrapper default, Turnip when selected).
         ensureAdrenotoolsDriver(wnContainer)
         // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
@@ -268,6 +271,22 @@ constructor(
     }
 
     /**
+     * Force one DXVK re-apply after [ContentsManager] started augmenting
+     * trust-listed DLLs missing from incomplete upstream `profile.json`
+     * (notably `d3d8.dll` / `d3d10.dll` / `d3d10_1.dll` on Dxvk-2.7.1-gplasync).
+     */
+    private fun ensureDxvkTrustAugmentReapply(container: WnContainer) {
+        if (container.getExtra(DXVK_TRUST_AUGMENT_EXTRA) == "1") return
+        android.util.Log.i(
+            "WinlatorContainerManager",
+            "Clearing dxwrapper gate for DXVK trust-file augment re-apply",
+        )
+        container.putExtra("dxwrapper", "")
+        container.putExtra(DXVK_TRUST_AUGMENT_EXTRA, "1")
+        container.saveData()
+    }
+
+    /**
      * Apply the user-selected adrenotools id (`graphicsDriverConfig.version`).
      * Default [GraphicsDriverIds.WRAPPER]; optional [GraphicsDriverIds.TURNIP_BALANCED]
      * downloads+installs the WN-Turnip zip first.
@@ -308,4 +327,9 @@ constructor(
         // The Wine prefix lives directly under the container root (home/xuser-<id>/.wine).
         winePrefixPath = File(rootDir, ".wine").absolutePath,
     )
+
+    private companion object {
+        /** Marks that the DXVK trust-file augment re-apply has been scheduled once. */
+        private const val DXVK_TRUST_AUGMENT_EXTRA = "dxvkTrustAugment"
+    }
 }

@@ -728,6 +728,10 @@ public class ContentsManager {
   public boolean applyContent(ContentProfile profile) {
     if (profile.type != ContentProfile.ContentType.CONTENT_TYPE_WINE
         && profile.type != ContentProfile.ContentType.CONTENT_TYPE_PROTON) {
+      // Upstream DXVK .wcp packages sometimes ship d3d8/d3d10*.dll on disk but
+      // omit them from profile.json files[]. DXVK ≥ 2.4 includes d3d8 natively;
+      // without these entries the Wine builtins stay in the prefix and DX8 breaks.
+      augmentFileListWithPresentTrustedFiles(profile);
       for (ContentProfile.ContentFile contentFile : profile.fileList) {
         File targetFile = new File(getPathFromTemplate(contentFile.target));
         File sourceFile = new File(getInstallDir(context, profile), contentFile.source);
@@ -744,5 +748,70 @@ public class ContentsManager {
       // TODO: do nothing?
     }
     return true;
+  }
+
+  /**
+   * Merge trust-listed files that exist under the install dir but are missing
+   * from {@code profile.fileList}. Mutates the in-memory list only — does not
+   * rewrite profile.json on disk.
+   */
+  void augmentFileListWithPresentTrustedFiles(ContentProfile profile) {
+    if (profile == null || profile.fileList == null || profile.type == null) return;
+
+    String[] trust =
+        switch (profile.type) {
+          case CONTENT_TYPE_DXVK -> DXVK_TRUST_FILES;
+          case CONTENT_TYPE_VKD3D -> VKD3D_TRUST_FILES;
+          default -> null;
+        };
+    if (trust == null) return;
+
+    File installDir = getInstallDir(context, profile);
+    java.util.HashSet<String> presentTargets = new java.util.HashSet<>();
+    for (ContentProfile.ContentFile contentFile : profile.fileList) {
+      if (contentFile.target != null) presentTargets.add(contentFile.target);
+    }
+
+    int added = 0;
+    for (String target : trust) {
+      if (presentTargets.contains(target)) continue;
+      String source = sourcePathFromTrustTarget(target);
+      if (source == null) continue;
+      File sourceFile = new File(installDir, source);
+      if (!sourceFile.isFile()) continue;
+
+      ContentProfile.ContentFile contentFile = new ContentProfile.ContentFile();
+      contentFile.source = source;
+      contentFile.target = target;
+      profile.fileList.add(contentFile);
+      presentTargets.add(target);
+      added++;
+    }
+    if (added > 0) {
+      Log.i(
+          "ContentsManager",
+          "Augmented "
+              + profile.type
+              + " "
+              + profile.verName
+              + " with "
+              + added
+              + " on-disk trusted file(s) missing from profile.json");
+    }
+  }
+
+  /** {@code ${system32}/d3d8.dll} → {@code system32/d3d8.dll}. */
+  private static String sourcePathFromTrustTarget(String target) {
+    if (target == null) return null;
+    if (target.startsWith("${system32}/")) {
+      return "system32/" + target.substring("${system32}/".length());
+    }
+    if (target.startsWith("${syswow64}/")) {
+      return "syswow64/" + target.substring("${syswow64}/".length());
+    }
+    if (target.startsWith("${bindir}/")) {
+      return target.substring("${bindir}/".length());
+    }
+    return null;
   }
 }
