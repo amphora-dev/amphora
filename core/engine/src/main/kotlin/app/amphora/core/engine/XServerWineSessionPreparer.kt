@@ -882,7 +882,11 @@ class XServerWineSessionPreparer @Inject constructor(
         WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
 
         applyGalliumDriver(rootDir)
-        envState.put("LIBGL_KOPPER_DISABLE", "true")
+        // LIBGL_KOPPER_DISABLE is deliberately not set. Winlator ships it, but it only
+        // exists in Mesa's DRI GLX/EGL paths (src/glx, src/egl) — the xlib GLX frontend
+        // never reads it, which is why it looked harmless. Now that imagefs builds the
+        // DRI frontend it would really turn kopper off, and kopper is exactly how zink
+        // presents through DRI3 + Present.
 
         val wrapperPinChanged = wrapperImagefsNeedsRefresh(rootDir)
         if (firstTimeBoot) {
@@ -1055,17 +1059,15 @@ class XServerWineSessionPreparer @Inject constructor(
     }
 
     /**
-     * Pin `GALLIUM_DRIVER=zink` only when the imagefs `libGL` was actually built
-     * with the zink gallium driver, signalled by the [LIBGL_ZINK_MARKER] sidecar.
+     * Pin `GALLIUM_DRIVER=zink` only when the imagefs Mesa build actually carries the
+     * zink gallium driver, signalled by the [LIBGL_ZINK_MARKER] sidecar.
      *
-     * Mesa's `sw_screen_create_vk` treats a set `GALLIUM_DRIVER` as authoritative:
-     * if that driver is missing it returns NULL instead of walking the rest of the
-     * list. Pinning zink against a libGL without it therefore kills the whole GL
-     * stack — `xmesa_init_display` fails with "Failed to initialize display", Wine
-     * logs `X11DRV_WineGL_InitOpenglInfo couldn't initialize OpenGL`, and every
-     * WineD3D consumer (DirectDraw / DX7 / plain OpenGL) dies with it. Leaving the
-     * variable unset lets Mesa fall back to the software rasterizer, which is slow
-     * but functional.
+     * Mesa treats a set `GALLIUM_DRIVER` as authoritative: when the named driver is
+     * missing it fails outright rather than walking the rest of the list. Pinning zink
+     * against a Mesa without it therefore kills the whole GL stack rather than merely
+     * losing acceleration — every WineD3D consumer (DirectDraw / DX7 / plain OpenGL)
+     * dies with it. Leaving the variable unset lets Mesa fall back to the software
+     * rasterizer, which is slow but functional.
      */
     private fun applyGalliumDriver(rootDir: File) {
         if (File(rootDir, LIBGL_ZINK_MARKER).isFile) {
@@ -1074,7 +1076,7 @@ class XServerWineSessionPreparer @Inject constructor(
         }
         Log.w(
             TAG,
-            "imagefs libGL has no zink ($LIBGL_ZINK_MARKER missing); leaving GALLIUM_DRIVER " +
+            "imagefs Mesa has no zink ($LIBGL_ZINK_MARKER missing); leaving GALLIUM_DRIVER " +
                 "unset so Mesa falls back to software rasterization for OpenGL/DirectDraw",
         )
     }
@@ -1202,7 +1204,7 @@ class XServerWineSessionPreparer @Inject constructor(
         /** Sidecar under imagefs/usr/lib recording the runtime-assets wrapper pin. */
         private const val WRAPPER_PIN_MARKER = "libvulkan_wrapper.so.wrapper.sha256"
 
-        /** Written by the imagefs mesa-gl package when libGL links the zink driver. */
+        /** Written by the imagefs mesa-gl package when the megadriver links zink. */
         private const val LIBGL_ZINK_MARKER = "usr/lib/.libgl-zink"
         private val GRAPHICS_TEST_ASSETS = arrayOf(
             "winnative/Graphics-Test-32bit.exe",
