@@ -261,6 +261,25 @@ public class PresentExtension
     }
   }
 
+  /**
+   * Present event contexts are named by a client-allocated XID, so they outlive
+   * their client whenever the window they watch belongs to someone else — the
+   * window never gets destroyed, and {@link #removeEventsForWindow} never runs.
+   * The recycled id base then hands the same XID to the next client, whose first
+   * PresentSelectInput finds this stale context and fails with BadMatch. Xlib's
+   * default error handler turns that into process death, which is how a
+   * DirectDraw app died on startup while OpenGL — first client in, no stale
+   * context yet — worked.
+   */
+  @Override
+  public void onClientDisconnected(XClient client) {
+    synchronized (events) {
+      for (int i = events.size() - 1; i >= 0; i--) {
+        if (events.valueAt(i).client == client) events.removeAt(i);
+      }
+    }
+  }
+
   private void registerLifecycleListeners(XServer xServer) {
     if (lifecycleListenersRegistered) return;
     synchronized (this) {

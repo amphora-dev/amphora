@@ -96,6 +96,14 @@ public class XClient implements XResourceManager.OnResourceLifecycleListener {
       xServer.pixmapManager.removeOnResourceLifecycleListener(this);
       xServer.graphicsContextManager.removeOnResourceLifecycleListener(this);
       xServer.cursorManager.removeOnResourceLifecycleListener(this);
+
+      // Before the id base goes back in the pool: whoever picks it up next
+      // generates the same XIDs this client just used, so extension state still
+      // filed under those ids would collide with the newcomer's fresh ones.
+      for (int i = 0; i < xServer.extensions.size(); i++) {
+        xServer.extensions.valueAt(i).onClientDisconnected(this);
+      }
+
       xServer.resourceIDs.free(resourceIDBase);
     }
   }

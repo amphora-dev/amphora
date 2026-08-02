@@ -333,6 +333,7 @@ public class XInput2Extension implements Extension {
         }
     }
 
+    @Override
     public void onClientDisconnected(final XClient client) {
         this.selections.removeIf(sel -> sel.client == client);
     }
