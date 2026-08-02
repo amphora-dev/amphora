@@ -8,15 +8,25 @@ cd "$root"
 export ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
 
-modules=(
-  :core:common
-  :core:content
-)
-
+# Discovered rather than listed: a hard-coded module list goes stale in both
+# directions — a new module with tests is silently uncovered, and a module whose
+# last test is deleted fails createDebugUnitTestCoverageReport with "no coverage
+# data was found" instead of simply dropping off the report.
 tasks=()
-for module in "${modules[@]}"; do
+modules=()
+while IFS= read -r dir; do
+  module=":${dir%/src/test}"
+  module="${module//\//:}"
+  modules+=("$module")
   tasks+=("${module}:test" "${module}:createDebugUnitTestCoverageReport")
-done
+done < <(find core feature app -type d -path '*/src/test' 2>/dev/null | sort)
+
+if ((${#tasks[@]} == 0)); then
+  echo "No module has src/test/; nothing to run" >&2
+  exit 1
+fi
+
+echo "JVM unit tests: ${modules[*]}"
 
 ./gradlew \
   "${tasks[@]}" \
