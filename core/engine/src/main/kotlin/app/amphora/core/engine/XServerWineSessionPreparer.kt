@@ -1060,25 +1060,42 @@ class XServerWineSessionPreparer @Inject constructor(
     }
 
     /**
-     * Pin `GALLIUM_DRIVER=zink` only when the imagefs Mesa build actually carries the
-     * zink gallium driver, signalled by the [LIBGL_ZINK_MARKER] sidecar.
+     * Select zink through the *loader*, and let kopper present, when the imagefs
+     * Mesa build actually carries zink (the [LIBGL_ZINK_MARKER] sidecar).
      *
-     * Mesa treats a set `GALLIUM_DRIVER` as authoritative: when the named driver is
-     * missing it fails outright rather than walking the rest of the list. Pinning zink
-     * against a Mesa without it therefore kills the whole GL stack rather than merely
-     * losing acceleration — every WineD3D consumer (DirectDraw / DX7 / plain OpenGL)
-     * dies with it. Leaving the variable unset lets Mesa fall back to the software
-     * rasterizer, which is slow but functional.
+     * `GALLIUM_DRIVER=zink` is the wrong knob here even though it does produce a
+     * zink context. It only overrides the gallium screen; EGL still believes it
+     * is on swrast, so it presents with `drisw` put-image — and zink's
+     * `flush_frontbuffer` only knows how to present kopper displaytargets. The
+     * result renders on the GPU but shows a blank window. Worse, Mesa skips its
+     * own zink selection entirely whenever `GALLIUM_DRIVER` is set
+     * (`eglapi.c: !getenv("GALLIUM_DRIVER")`), so setting it is what kept kopper
+     * off in the first place. `MESA_LOADER_DRIVER_OVERRIDE` is the loader-level
+     * knob that sets `Options.Zink`, which is what selects the kopper path.
+     *
+     * [KOPPER_DRI2] then makes that path survive our X server. Kopper normally
+     * qualifies the server first — a DRI3 render-device FD plus DRI3 multibuffer
+     * support — and Amphora's X server answers `DRI3Open` with zero FDs on
+     * purpose, because an unprivileged Android app cannot open `/dev/dri/render*`.
+     * That check is upstream's "force zink even if the X server is missing a
+     * bunch of features" escape hatch. Presentation does not need the DRM device:
+     * kopper creates a `VkSurfaceKHR` through the wrapper ICD's
+     * `VK_KHR_xcb_surface`, which is the same AHardwareBuffer + DRI3
+     * `PixmapFromBuffers` + Present route DXVK already presents through.
+     *
+     * Without zink there is no accelerated path at all, so leave every knob unset
+     * and let Mesa pick its software rasterizer — slow, but it draws.
      */
     private fun applyGalliumDriver(rootDir: File) {
         if (File(rootDir, LIBGL_ZINK_MARKER).isFile) {
-            envState.put("GALLIUM_DRIVER", "zink")
+            envState.put("MESA_LOADER_DRIVER_OVERRIDE", "zink")
+            envState.put(KOPPER_DRI2, "1")
             return
         }
         Log.w(
             TAG,
-            "imagefs Mesa has no zink ($LIBGL_ZINK_MARKER missing); leaving GALLIUM_DRIVER " +
-                "unset so Mesa falls back to software rasterization for OpenGL/DirectDraw",
+            "imagefs Mesa has no zink ($LIBGL_ZINK_MARKER missing); leaving the zink/kopper " +
+                "knobs unset so Mesa falls back to software rasterization for OpenGL/DirectDraw",
         )
     }
 
@@ -1241,6 +1258,9 @@ class XServerWineSessionPreparer @Inject constructor(
 
         /** Wine dlopens this SONAME; present only once mesa-gl builds the EGL frontend. */
         private const val LIBEGL_SONAME = "usr/lib/libEGL.so.1"
+
+        /** Mesa's opt-in to kopper on an X server without a DRI3 render device. */
+        private const val KOPPER_DRI2 = "LIBGL_KOPPER_DRI2"
         private val GRAPHICS_TEST_ASSETS = arrayOf(
             "winnative/Graphics-Test-32bit.exe",
             "winnative/Graphics-Test-64bit.exe",

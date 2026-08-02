@@ -809,7 +809,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     envVars.put("OPENSSL_CONF", rootDir.getPath() + "/usr/etc/tls/openssl.cnf");
     envVars.put("SSL_CERT_FILE", rootDir.getPath() + "/usr/etc/tls/cert.pem");
     envVars.put("SSL_CERT_DIR", rootDir.getPath() + "/usr/etc/tls/certs");
-    envVars.put("WINE_X11FORCEGLX", "1");
+    // No WINE_X11FORCEGLX: winex11 reads it and drops back to the deprecated GLX
+    // backend, and Amphora's X server has no GLX extension at all. OpenGL goes
+    // through EGL (XServerWineSessionPreparer sets WINE_USE_EGL).
     envVars.put("WINE_GST_NO_GL", "1");
     envVars.put("SteamGameId", "0");
     envVars.put("PROTON_AUDIO_CONVERT", "0");
@@ -993,8 +995,8 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             + "WRAPPER_VK_VERSION="
             + envVars.get("WRAPPER_VK_VERSION")
             + " "
-            + "GALLIUM_DRIVER="
-            + envVars.get("GALLIUM_DRIVER")
+            + "MESA_LOADER_DRIVER_OVERRIDE="
+            + envVars.get("MESA_LOADER_DRIVER_OVERRIDE")
             + " "
             + "MESA_VK_WSI_DEBUG="
             + envVars.get("MESA_VK_WSI_DEBUG"));

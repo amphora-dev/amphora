@@ -212,8 +212,13 @@ class PreparerGraphicsDriverTest {
         env.toSortedMap().forEach { (k, v) -> println("  $k=$v") }
 
         // Core env vars set unconditionally by extractGraphicsDriverFilesCore.
-        assertEquals("GALLIUM_DRIVER", "zink", env["GALLIUM_DRIVER"])
-        assertEquals("LIBGL_KOPPER_DISABLE", "true", env["LIBGL_KOPPER_DISABLE"])
+        // zink is selected through the loader, not GALLIUM_DRIVER: the latter leaves
+        // EGL on swrast (blank window) and suppresses Mesa's own zink selection.
+        assertEquals("MESA_LOADER_DRIVER_OVERRIDE", "zink", env["MESA_LOADER_DRIVER_OVERRIDE"])
+        assertNull("GALLIUM_DRIVER must stay unset", env["GALLIUM_DRIVER"])
+        // Our X server answers DRI3Open with zero FDs, so kopper has to be forced.
+        assertEquals("LIBGL_KOPPER_DRI2", "1", env["LIBGL_KOPPER_DRI2"])
+        assertNull("LIBGL_KOPPER_DISABLE must stay unset", env["LIBGL_KOPPER_DISABLE"])
         assertNotNull("WRAPPER_VK_VERSION missing", env["WRAPPER_VK_VERSION"])
         assertTrue(
             "VK_ICD_FILENAMES not pointing at wrapper_icd: ${env["VK_ICD_FILENAMES"]}",
