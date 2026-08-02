@@ -36,6 +36,22 @@ public class XServer {
   public final ScreenInfo screenInfo;
   public final PixmapManager pixmapManager;
   public final ResourceIDs resourceIDs = new ResourceIDs(128);
+
+  /**
+   * The screen's default colormap, reported in the connection setup and as the
+   * colormap of every InputOutput window that did not ask for its own.
+   *
+   * All visuals here are TrueColor, so a colormap carries no state worth
+   * tracking — but it must still have a real, non-None id. Mesa's Xlib GLX warns
+   * "Window %u has no colormap!" and then invents one via XCreateColormap, which
+   * this server does not honour, leaving the drawable's visual out of step with
+   * the context's ("MakeCurrent: incompatible visuals") and killing every GL call
+   * with "called without a rendering context".
+   *
+   * Server-owned ids come from {@link IDGenerator} and stay below the first
+   * client id base, so this cannot collide with a client resource.
+   */
+  public final int defaultColormapId = IDGenerator.generate();
   public final GraphicsContextManager graphicsContextManager = new GraphicsContextManager();
   public final SelectionManager selectionManager;
   public final DrawableManager drawableManager;
