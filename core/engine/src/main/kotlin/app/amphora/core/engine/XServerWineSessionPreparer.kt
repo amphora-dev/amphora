@@ -881,7 +881,7 @@ class XServerWineSessionPreparer @Inject constructor(
         // csmt/FBO/renderer knobs on the OpenGL→Zink stack.
         WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
 
-        envState.put("GALLIUM_DRIVER", "zink")
+        applyGalliumDriver(rootDir)
         envState.put("LIBGL_KOPPER_DISABLE", "true")
 
         val wrapperPinChanged = wrapperImagefsNeedsRefresh(rootDir)
@@ -1054,6 +1054,31 @@ class XServerWineSessionPreparer @Inject constructor(
         c.putExtra("desktopTheme", null)
     }
 
+    /**
+     * Pin `GALLIUM_DRIVER=zink` only when the imagefs `libGL` was actually built
+     * with the zink gallium driver, signalled by the [LIBGL_ZINK_MARKER] sidecar.
+     *
+     * Mesa's `sw_screen_create_vk` treats a set `GALLIUM_DRIVER` as authoritative:
+     * if that driver is missing it returns NULL instead of walking the rest of the
+     * list. Pinning zink against a libGL without it therefore kills the whole GL
+     * stack — `xmesa_init_display` fails with "Failed to initialize display", Wine
+     * logs `X11DRV_WineGL_InitOpenglInfo couldn't initialize OpenGL`, and every
+     * WineD3D consumer (DirectDraw / DX7 / plain OpenGL) dies with it. Leaving the
+     * variable unset lets Mesa fall back to the software rasterizer, which is slow
+     * but functional.
+     */
+    private fun applyGalliumDriver(rootDir: File) {
+        if (File(rootDir, LIBGL_ZINK_MARKER).isFile) {
+            envState.put("GALLIUM_DRIVER", "zink")
+            return
+        }
+        Log.w(
+            TAG,
+            "imagefs libGL has no zink ($LIBGL_ZINK_MARKER missing); leaving GALLIUM_DRIVER " +
+                "unset so Mesa falls back to software rasterization for OpenGL/DirectDraw",
+        )
+    }
+
     /** wipeDxwrapperDllsForReextract (XSDA L7950). */
     private fun wipeDxwrapperDllsForReextract() {
         val rootDir = imageFs.getRootDir()
@@ -1176,6 +1201,9 @@ class XServerWineSessionPreparer @Inject constructor(
 
         /** Sidecar under imagefs/usr/lib recording the runtime-assets wrapper pin. */
         private const val WRAPPER_PIN_MARKER = "libvulkan_wrapper.so.wrapper.sha256"
+
+        /** Written by the imagefs mesa-gl package when libGL links the zink driver. */
+        private const val LIBGL_ZINK_MARKER = "usr/lib/.libgl-zink"
         private val GRAPHICS_TEST_ASSETS = arrayOf(
             "winnative/Graphics-Test-32bit.exe",
             "winnative/Graphics-Test-64bit.exe",
