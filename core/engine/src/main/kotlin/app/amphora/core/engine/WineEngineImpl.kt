@@ -251,10 +251,9 @@ constructor(
      * [LaunchSpec.env] → ALSA.
      *
      * Container [WinNativeContainer.getEnvVars] carries `ZINK_*` / `TU_DEBUG` /
-     * `mesa_glthread` from [WinNativeContainer.DEFAULT_ENV_VARS]. OpenGL and
-     * ddraw→WineD3D present through Mesa Zink; without those knobs Adreno often
-     * advances SwapBuffers (AIO FPS ticks) while frames stay black. DXVK/Vulkan
-     * never hit Zink, which is why DX10/11 could work while GL/DX7 did not.
+     * `mesa_glthread` from [WinNativeContainer.DEFAULT_ENV_VARS] for native
+     * OpenGL through EGL/Zink. DirectDraw is handled separately by a native
+     * wrapper whose D3D9 output goes to DXVK.
      */
     private fun buildLaunchEnvVars(spec: LaunchSpec, container: WinNativeContainer): EnvVars {
         val envVars = EnvVars()
@@ -274,7 +273,7 @@ constructor(
         // land last means turning diagnostics on silently discards the channels
         // someone selected, which is the opposite of what either knob is for.
         val requestedWineDebug = envVars.get("WINEDEBUG")?.takeIf { it.isNotBlank() && it != "-all" }
-        // Preparer-computed wrapper / GPU / DXVK / WineD3D env.
+        // Preparer-computed DirectDraw / GPU / DXVK / OpenGL env.
         for ((key, value) in preparer.envVars()) envVars.put(key, value)
         // Caller-supplied env (LaunchSpec.env).
         for ((key, value) in spec.env) envVars.put(key, value)

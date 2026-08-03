@@ -18,6 +18,7 @@ import app.amphora.core.content.RuntimeAssetLocalOverride
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
+import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.GuestFiles
 import app.amphora.core.engine.TurnipDriverProvisioner
@@ -66,6 +67,10 @@ constructor(
                 graphicsDriver =
                 GraphicsDriverOption.fromDriverId(
                     prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+                ),
+                directDrawWrapper =
+                DirectDrawWrapperOption.fromId(
+                    prefs.getString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, null),
                 ),
             ),
         )
@@ -159,6 +164,12 @@ constructor(
                 }
             }
         }
+    }
+
+    /** Persist the mutually-exclusive DirectDraw compatibility layer. */
+    fun selectDirectDrawWrapper(option: DirectDrawWrapperOption) {
+        prefs.edit { putString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, option.id) }
+        _uiState.update { it.copy(directDrawWrapper = option) }
     }
 
     /** Compare each remote pin against what is actually usable on disk. */
@@ -307,6 +318,7 @@ data class LauncherUiState(
     val stageError: String? = null,
     val resolution: Resolution = Resolution.DEFAULT,
     val graphicsDriver: GraphicsDriverOption = GraphicsDriverOption.WRAPPER,
+    val directDrawWrapper: DirectDrawWrapperOption = DirectDrawWrapperOption.DXWRAPPER,
     val driverBusy: Boolean = false,
     val contentBusy: Boolean = false,
     val catalogStatus: ContentCatalog.Status = ContentCatalog.Status.Idle,
@@ -325,6 +337,18 @@ enum class GraphicsDriverOption(val driverId: String, val label: String) {
     companion object {
         fun fromDriverId(id: String?): GraphicsDriverOption =
             entries.firstOrNull { it.driverId == GraphicsDriverIds.normalize(id) } ?: WRAPPER
+    }
+}
+
+/** DirectDraw wrappers; both terminate at D3D9/DXVK rather than WineD3D. */
+enum class DirectDrawWrapperOption(val id: String, val label: String) {
+    DXWRAPPER(DirectDrawWrapperIds.DXWRAPPER_DD7TO9, "DxWrapper (Dd7to9)"),
+    CNC_DDRAW(DirectDrawWrapperIds.CNC_DDRAW, "cnc-ddraw (2D)"),
+    ;
+
+    companion object {
+        fun fromId(id: String?): DirectDrawWrapperOption =
+            entries.firstOrNull { it.id == DirectDrawWrapperIds.normalize(id) } ?: DXWRAPPER
     }
 }
 

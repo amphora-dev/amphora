@@ -27,7 +27,6 @@ import com.winlator.cmod.runtime.wine.WineStartMenuCreator
 import com.winlator.cmod.runtime.wine.WineUtils
 import com.winlator.cmod.shared.io.FileUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
-import com.winlator.cmod.shared.util.StringUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.IOException
@@ -226,7 +225,7 @@ class XServerWineSessionPreparer @Inject constructor(
         var localDxwrapper = dxwrapper
 
         // amphora: WinlatorContainerManager writes the full delimited form
-        // ("dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none") into `dxwrapper` and
+        // ("dxvk-…;vkd3d-…;dd7to9") into `dxwrapper` and
         // leaves `dxwrapperConfig` empty. WinNative's XSDA, by contrast, stores the
         // short form ("dxvk+vkd3d") in `dxwrapper` and reconstructs the delimited
         // form from `dxwrapperConfig` below. Detect which shape we have and only rebuild
@@ -521,34 +520,43 @@ class XServerWineSessionPreparer @Inject constructor(
             Log.d(TAG, "Extracting nglide wrapper")
             TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "ddrawrapper/nglide.tzst", windowsDir)
 
-            // Clear any stale D7VK passthrough DLL left from a previous selection.
+            // DirectDraw wrappers are mutually exclusive and must never fall
+            // back to Wine's builtin ddraw/WineD3D path.
             val syswow64Dir = File(rootDir, ImageFs.WINEPREFIX + "/drive_c/windows/syswow64")
             val system32Dir = File(rootDir, ImageFs.WINEPREFIX + "/drive_c/windows/system32")
             File(syswow64Dir, "ddraw_.dll").delete()
             File(system32Dir, "ddraw_.dll").delete()
+            File(syswow64Dir, "dxwrapper.dll").delete()
+            File(syswow64Dir, "dxwrapper.ini").delete()
+            File(syswow64Dir, "ddraw.ini").delete()
 
-            val d7vkProfile = findD7vkProfileForDdrawrapper(ddrawrapper)
-            if (d7vkProfile != null) {
-                Log.d(TAG, "Applying D7VK ddraw wrapper: $ddrawrapper")
-                WinComponentSetup.restoreWineBuiltinDllFiles(imageFs, wineInfo, "ddraw.dll", "d3dimm.dll")
-                val origDdraw = File(syswow64Dir, "ddraw.dll")
-                val renamedDdraw = File(syswow64Dir, "ddraw_.dll")
-                if (origDdraw.exists()) FileUtils.copy(origDdraw, renamedDdraw)
-                contentsManager.applyContent(d7vkProfile)
-            } else if (ddrawrapper.equals("none", ignoreCase = true) || ddrawrapper.contains("None")) {
-                Log.d(TAG, "No DDRaw wrapper has been selected, restoring original ddraw files")
-                WinComponentSetup.restoreWineBuiltinDllFiles(imageFs, wineInfo, "ddraw.dll", "d3dimm.dll")
-            } else {
-                if (ddrawrapper == "cnc-ddraw") {
-                    envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
-                }
-                Log.d(TAG, "Extracting ddrawrapper $ddrawrapper")
+            val selectedDdraw = DirectDrawWrapperIds.normalize(ddrawrapper)
+            check(selectedDdraw == ddrawrapper) {
+                "Unsupported DirectDraw wrapper '$ddrawrapper'; refusing WineD3D fallback"
+            }
+            Log.i(TAG, "Extracting DirectDraw wrapper '$selectedDdraw'")
+            val extracted =
                 TarCompressorUtils.extract(
                     TarCompressorUtils.Type.ZSTD,
                     context,
-                    "ddrawrapper/$ddrawrapper.tzst",
+                    "ddrawrapper/$selectedDdraw.tzst",
                     windowsDir,
                 )
+            check(extracted && File(syswow64Dir, "ddraw.dll").isFile) {
+                "DirectDraw wrapper '$selectedDdraw' did not install syswow64/ddraw.dll"
+            }
+            if (selectedDdraw == DirectDrawWrapperIds.CNC_DDRAW) {
+                // Force cnc-ddraw through D3D9 → DXVK; its auto/OpenGL renderer
+                // would re-enter Mesa Zink and defeat the selected architecture.
+                File(syswow64Dir, "ddraw.ini").writeText("[ddraw]\nrenderer=direct3d9\n")
+                envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
+            } else {
+                check(
+                    File(syswow64Dir, "dxwrapper.dll").isFile &&
+                        File(syswow64Dir, "dxwrapper.ini").isFile,
+                ) {
+                    "DxWrapper Dd7to9 install is incomplete"
+                }
             }
             Log.d(TAG, "Finished extraction of DXVK wrapper files, version: $dxwrapper")
         } else if (dxwrapper.contains("wined3d")) {
@@ -577,14 +585,6 @@ class XServerWineSessionPreparer @Inject constructor(
         } else {
             Log.w(TAG, "VKD3D content profile not installed; no bundled VKD3D archive will be loaded: $vkd3dWrapper")
         }
-    }
-
-    private fun findD7vkProfileForDdrawrapper(ddrawrapper: String): ContentProfile? {
-        val profiles = contentsManager.getProfiles(ContentProfile.ContentType.CONTENT_TYPE_D7VK) ?: return null
-        for (profile in profiles) {
-            if (StringUtils.parseIdentifier(ContentsManager.getEntryName(profile)) == ddrawrapper) return profile
-        }
-        return null
     }
 
     private fun findDelimitedWrapper(value: String?, prefix: String): String? {
@@ -875,11 +875,13 @@ class XServerWineSessionPreparer @Inject constructor(
                 envState.put("WRAPPER_NO_PATCH_OPCONSTCOMP", "1")
             }
         }
-        // Always set WINE_D3D_CONFIG. DXVK replaces d3d8/9/10/11 DLLs, but ddraw/DX7
-        // and any residual WineD3D path still read this (renderer=gl → Zink).
-        // Previously skipped whenever dxwrapper contained "dxvk", leaving DX7 without
-        // csmt/FBO/renderer knobs on the OpenGL→Zink stack.
-        WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
+        if (dxwrapper.split(";").lastOrNull() == DirectDrawWrapperIds.CNC_DDRAW) {
+            envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
+        }
+        // DirectDraw is always a native wrapper (cnc-ddraw or DxWrapper Dd7to9)
+        // whose output is consumed by DXVK. Disable WineD3D rather than silently
+        // falling back to the Zink path when a wrapper is missing or broken.
+        envState.put("WINEDLLOVERRIDES", "ddraw=n;wined3d=")
 
         applyGalliumDriver(rootDir)
         applyWineEglBackend(rootDir)

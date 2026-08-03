@@ -170,7 +170,7 @@ constructor(
      * profile.
      *
      * [dxwrapper] must be the ContentsManager-resolvable delimited token
-     * (`dxvk-<verName>-<verCode>;vkd3d-<verName>-<verCode>;none`) so
+     * (`dxvk-<verName>-<verCode>;vkd3d-<verName>-<verCode>;<ddraw-wrapper>`) so
      * `extractDXWrapperFiles` finds the installed profiles via
      * [ContentsManager.getProfileByEntryName] and `applyContent`s real d3d*
      * DLLs. Do **not** use `dxvk-1.0` / `vkd3d-None` — those never match a
@@ -220,7 +220,13 @@ constructor(
                 type = ContentProfile.ContentType.CONTENT_TYPE_VKD3D,
                 prefix = "vkd3d",
             )
-        return "$dxvk;$vkd3d;none"
+        val ddraw =
+            DirectDrawWrapperIds.normalize(
+                context
+                    .getSharedPreferences(DirectDrawWrapperIds.PREFS_NAME, Context.MODE_PRIVATE)
+                    .getString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, null),
+            )
+        return "$dxvk;$vkd3d;$ddraw"
     }
 
     private fun resolveWrapperToken(
@@ -286,9 +292,9 @@ constructor(
         val current = container.getDXWrapper() ?: ""
         if (current == desired) return
 
-        // Always converge on the pinned desired form. Amphora has no UI to keep
-        // a custom dxwrapper; preserving an "installed but stale" token blocked
-        // DXVK pin migrations (e.g. rolling back a bad 2.4.1 trial).
+        // Always converge on the manifest-pinned DXVK/VKD3D plus the selected
+        // DirectDraw wrapper. Preserving a stale token blocks both pin
+        // migrations and launcher wrapper changes.
         android.util.Log.i(
             "WinlatorContainerManager",
             "Migrating container dxwrapper '$current' -> '$desired'",

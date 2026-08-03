@@ -130,6 +130,12 @@ fun LauncherScreen(
                 Text("Installing Turnip…", style = MaterialTheme.typography.bodySmall)
             }
 
+            DirectDrawWrapperSelector(
+                selected = uiState.directDrawWrapper,
+                enabled = !uiState.staging,
+                onSelect = viewModel::selectDirectDrawWrapper,
+            )
+
             // --- launch -------------------------------------------------------
             Button(
                 onClick = {
@@ -462,6 +468,39 @@ private fun GraphicsDriverSelector(
                 .padding(top = 8.dp),
         ) {
             GraphicsDriverOption.entries.forEach { option ->
+                FilterChip(
+                    selected = option == selected,
+                    onClick = { onSelect(option) },
+                    enabled = enabled,
+                    label = { Text(option.label) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DirectDrawWrapperSelector(
+    selected: DirectDrawWrapperOption,
+    enabled: Boolean,
+    onSelect: (DirectDrawWrapperOption) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("DirectDraw compatibility", style = MaterialTheme.typography.labelLarge)
+        Text(
+            "DxWrapper covers DirectDraw/D3D1–7. cnc-ddraw targets software-rendered 2D games.",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(top = 8.dp),
+        ) {
+            DirectDrawWrapperOption.entries.forEach { option ->
                 FilterChip(
                     selected = option == selected,
                     onClick = { onSelect(option) },

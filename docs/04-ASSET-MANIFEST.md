@@ -149,7 +149,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 | 10 | **`fonts.tzst`**（新建，共享） | **一份** CJK：`SourceHanSansCN-Regular.otf`（或等价单文件） | **~6–9 MB** | 共享目录，容器 Fonts **符号链接/拷一次** | ✅ |
 | 11 | **`wincomponents/*.tzst`** | 微软 redist（保持 tzst，**不**改 WCP） | 目录合计 ~38 MB；按 `FALLBACK` 选装 | 容器 DLL | ✅ 按需提取，机制不变 |
 | 12 | **`WN-Turnip-*.zip`** | 可选完整 Turnip | ~2.7 MB zip / ~15 MB `.so` | `contents/adrenotools/<id>/` | ⚪ 可选 |
-| 13 | **`ddrawrapper/{cnc-ddraw,dd7to9,nglide}.tzst`** | DX7/Glide；**互斥单选**，默认 `none` | 各 0.2–3 MB | 容器 `syswow64` | ⚪ 可选 |
+| 13 | **`ddrawrapper/{cnc-ddraw,dd7to9,nglide}.tzst`** | DirectDraw/Glide；`cnc-ddraw` 与 `dd7to9` **互斥单选**，默认 DxWrapper Dd7to9 | 各 0.2–3 MB | 容器 `syswow64` | ⚪ 可选 |
 | 14 | **`layers.tzst`** | Vulkan validation | ~4.4 MB | imagefs | ⚪ **仅调试包** |
 | 14b | **`mesa-gl-override.tzst`**（可选） | 排查 OpenGL/DX7 时替换 `libGL`，**不进发布默认集** | ~5 MB | imagefs `usr/lib` 覆盖 | ⚪ 仅调试 |
 | 15 | **FFmpeg 附加包**（可选） | `winedmo` 硬依赖；默认媒体走 GStreamer | 视自建拆包 | imagefs 叠加或并入 imagefs 变体 | ⚪ 可选（默认可不含） |
@@ -176,7 +176,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 | `layers.tzst`（默认） | validation 仅调试 |
 | `wrapper.tzst` / imagefs 内的 4 hook | 契约只认 `nativeLibraryDir`；避免三份版本漂移 |
 | `wrapper-leegao` / `virgl-*` / `zink-*` / `pulseaudio.tzst` | Amphora MVP 不用 |
-| pattern 内多字体（日文装饰体等）+ 内嵌 `cnc-ddraw` | 默认 `ddrawrapper=none`；字体共享单文件 |
+| pattern 内多字体（日文装饰体等）+ 内嵌 `cnc-ddraw` | 默认 DxWrapper Dd7to9；字体共享单文件 |
 | `d8vk-1.0.tzst` | 默认 DXVK ≥ 3.x 已带 d3d8 |
 | wincomponents → WCP | 无版本轮换需求，改格式零收益；**维持 tzst** |
 
@@ -189,7 +189,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
    见下「收敛到只有一份 hooks」。
 3. **Mesa GL 不单独拆包**，理由见下「为什么 Mesa GL 进 imagefs 而 wrapper 不进」。
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
-5. **ddraw** 默认 `none`；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份。
+5. **ddraw** 默认 DxWrapper Dd7to9；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份，不回退 WineD3D。
 6. **字体** 全局一份；多容器不重复打进 pattern。
 7. **发布面**：默认产物进公开 `amphora-assets`（或等价）固定标签；可选包同仓另附件，不塞进默认 APK。
 
@@ -229,7 +229,7 @@ imagefs 的 `libxcb` / `libdrm` / `libandroid-sysvshm`，它照样独立发版�
 判据应当是**是否存在独立换版需求**，以及**拆出去能否换来实际收益**：
 
 **libGL — 不拆。**
-- **无插拔需求**：OpenGL/DX7 走 Wine `opengl32` → WineD3D → **Zink** → Vulkan 驱动。
+- **OpenGL 无插拔需求**：Wine `opengl32` → EGL → **Zink** → Vulkan 驱动；DirectDraw 单独走可选 wrapper → D3D9/DXVK。
   用户要换的是**下层 Vulkan 驱动**，不是 libGL 本身；没有「libGL 版本选择」这个 UI。
 - **拆了也省不下**：libGL 私有的只有 `libglapi`（1.4 MB）。底座留在 imagefs，
   拆出去的包 ≈ libGL 自身体积，默认集总量不变，只多一个附件、多一次校验、多一处
@@ -564,7 +564,7 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | **VKD3D** | `Vkd3d-3.0.1-S6_9` (**amphora MVP 默认**, profile `verName=3.0.1-sm69`) / nightly | `.../releases/download/Stable-VKD3D/...wcp` |
 | Turnip / WineD3d | -- (不在 contents.json, 仍打包在 assets `graphics_driver/`/`dxwrapper/`) | -- |
 
-> WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 仅作 DXVK &lt; 2.4 的 d3d8 补丁 (`extractD8VKIfNeeded`); amphora MVP 默认装 nicholasx417 的 `Dxvk-3.0.2-gplasync.wcp` (d3d8/9/10core/11/dxgi) + `Vkd3d-3.0.1-S6_9.wcp` (d3d12/d3d12core), 经 `ContentSource.resolve(DXVK|VKD3D)` + `ContentsManager.applyContent`. 容器 `dxwrapper` 形如 `dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none`。
+> WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 仅作 DXVK &lt; 2.4 的 d3d8 补丁 (`extractD8VKIfNeeded`); amphora MVP 默认装 manifest 固定的 DXVK（d3d8/9/10core/11/dxgi）+ VKD3D（d3d12/d3d12core），经 `ContentSource.resolve(DXVK|VKD3D)` + `ContentsManager.applyContent`. 容器 `dxwrapper` 形如 `dxvk-…;vkd3d-…;dd7to9`。
 
 
 ### 5.1 amphora 当前锁定版本
@@ -577,7 +577,7 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | **Box64** | `Box64-0.4.3-c08554e3f.wcp` | `Box64-0.4.3-c08554e3f-0` | x86_64 → ARM64 用户态翻译 |
 | **Turnip** | `graphics_driver/wrapper.tzst` | ARCHIVE `version=1` | Adreno Mesa Turnip + adrenotools wrapper ICD |
 
-容器默认 `dxwrapper`：`dxvk-3.0.2-gplasync-0;vkd3d-3.0.1-sm69-0;none`（第三段 `none` = 不用 cnc-ddraw）。
+容器默认 `dxwrapper`：`dxvk-…;vkd3d-…;dd7to9`；第三段可由 UI 在 `dd7to9` 与 `cnc-ddraw` 之间切换。
 
 选型原则：跟上游 **Stable** x86_64（非 arm64ec）。DXVK 默认 **3.0.2-gplasync**：在 TB322FC（Adreno 830 / Turnip）上 DX10/11 可用；曾试 `2.4.1-pre-reg` 想修 D3D9 黑屏，结果 DX9–11 **闪退**，已回退。DX8/DX9「有 FPS 无画面」仍为开放项（已定位 FF PSO compile `-13`；DX8 = DXVK D3D8 compatibility → 同一条 FF 路径）。候选未默认启用：`2.4.1-a6xx-fix` / `2.4.1-special+d8`。VKD3D 仍锁 **3.0.1-S6_9**。
 
@@ -611,9 +611,9 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 
 > **易混点**：真机是 **arm64-v8a Android**，但 guest 里跑的是 **x86_64 Wine**（外面套 Box64）。所以要下 **不带 `arm64ec`** 的 `.wcp`。带 `arm64ec` 的包是给「arm64ec Proton + FEX」那条 WinNative 路线的；装错 ABI 会直接对不上 `ContentsManager`/DLL 架构。`a6xx` 则是 **Adreno GPU** 名，和 `arm64ec` 不是一类东西。
 
-**和 WineD3D / Zink 的关系**：`dxwrapper` 装的是 DXVK DLL，但 AIO **OpenGL** 与 **DX7/ddraw** 并不走 DXVK——它们是 Wine `opengl32` / Wine `ddraw` → WineD3D → Mesa **Zink**（`GALLIUM_DRIVER=zink`）→ Turnip。换 DXVK 版本治不了这条栈。
+**和 WineD3D / Zink 的关系**：AIO **OpenGL** 走 Wine `opengl32` → EGL → Mesa **Zink**。DirectDraw 则强制二选一：DxWrapper Dd7to9 或 cnc-ddraw（D3D9 renderer）→ DXVK → Vulkan；缺包时启动失败，不回退 Wine `ddraw` / WineD3D。
 
-「有 FPS 但黑屏」典型原因（amphora 已修）：launch env 漏合并容器 `DEFAULT_ENV_VARS`（`ZINK_DESCRIPTORS` / `TU_DEBUG=noconform,sysmem` / `mesa_glthread`），SwapBuffers 仍返回（HUD FPS 涨）但帧黑；同时在默认 DXVK 模式下仍需下发 `WINE_D3D_CONFIG`（`renderer=gl`）给 ddraw→WineD3D。见 `WineEngineImpl.buildLaunchEnvVars` + `XServerWineSessionPreparer.extractGraphicsDriverFilesCore`。
+「有 FPS 但黑屏」历史原因是 launch env 漏合并容器 `DEFAULT_ENV_VARS`（`ZINK_DESCRIPTORS` / `TU_DEBUG=noconform,sysmem` / `mesa_glthread`）。这些变量现在只服务 OpenGL EGL/Zink；DirectDraw 强制走 native wrapper → D3D9/DXVK。
 
 **默认目录**：设备端下载走 manifest `wcpCatalogUrl`（`default.json`），当前 Stable 默认只挂少数条目（含我们锁定的 DXVK/VKD3D）；完整历史包仍在 GitHub `Stable-Dxvk` / `Stable-VKD3D` release 资产列表里。
 
