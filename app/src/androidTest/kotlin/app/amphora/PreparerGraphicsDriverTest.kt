@@ -227,6 +227,15 @@ class PreparerGraphicsDriverTest {
         assertTrue("MESA_VK_WSI_PRESENT_MODE missing", env.containsKey("MESA_VK_WSI_PRESENT_MODE"))
         assertTrue("WRAPPER_EMULATE_BCN missing", env.containsKey("WRAPPER_EMULATE_BCN"))
         assertTrue("WRAPPER_EXTENSION_BLACKLIST missing", env.containsKey("WRAPPER_EXTENSION_BLACKLIST"))
+        assertEquals(
+            "32-bit native ddraw with x86_64 builtin fallback",
+            "ddraw=n,b;d3d9=n",
+            env["WINEDLLOVERRIDES"],
+        )
+        assertTrue(
+            "WineD3D fallback must stay on GL/Zink: ${env["WINE_D3D_CONFIG"]}",
+            env["WINE_D3D_CONFIG"]?.contains("renderer=gl") == true,
+        )
         assertTrue("envVars unexpectedly empty", env.isNotEmpty())
 
         // --- Phase 4b: downloaded wrapper.tzst extraction -------------------
