@@ -25,6 +25,7 @@ import com.winlator.cmod.shared.io.TarCompressorUtils
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -252,6 +253,12 @@ class PreparerGraphicsDriverTest {
             assertTrue(
                 "x86_64 builtin ddraw.dll was not restored after wrapper wipe",
                 File(rootDir, ".wine/drive_c/windows/system32/ddraw.dll").isFile,
+            )
+            assertTrue(
+                "x86_64 builtin ddraw.dll must be shared by symlink",
+                Files.isSymbolicLink(
+                    File(rootDir, ".wine/drive_c/windows/system32/ddraw.dll").toPath(),
+                ),
             )
             println("WRAPPER_EXTRACTED graphics_driver/wrapper.tzst into $imagefsDir")
         } else {

@@ -399,9 +399,10 @@ hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
 | 落地根 | 谁写入 | 冲突风险 |
 |---|---|---|
 | `imagefs/`（rootfs） | `imagefs`（含自建 `libGL`）+ `wrapper.tzst` + `layers` + Proton/Box64 WCP | **提取顺序敏感**；hooks 曾在此三份漂移 |
-| 容器 `system32`/`syswow64` | DXVK/VKD3D WCP + wincomponents + ddrawrapper | `cnc-ddraw` ↔ `dd7to9` **互斥** |
+| 容器 `system32`/`syswow64` | DXVK/VKD3D/Proton builtin/DirectDraw cache 的只读软链接 + 容器私有配置 | `cnc-ddraw` ↔ `dd7to9` **互斥**；写入前必须先 unlink，禁止跟随链接改共享源 |
 | 容器 `.wine`（prefix） | `container_pattern` | 每容器一份，字体重复 |
 | `filesDir/contents/<type>/<ver>/` | `ContentsManager`（WCP） | 版本化，无冲突 |
+| `filesDir/contents/DDRAW/<id>-<sha>/` | runtime asset 解压一次后的 immutable DLL cache | prefix 只链接 DLL；INI/shader 仍为容器私有 |
 | `filesDir/contents/adrenotools/<id>/` | wrapper ICD 桥接 + 可选 Turnip | 单选 |
 | **`nativeLibraryDir`** | **APK 唯一** | 无——hooks 的唯一权威来源 |
 
