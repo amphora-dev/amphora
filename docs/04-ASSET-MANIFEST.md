@@ -189,7 +189,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
    见下「收敛到只有一份 hooks」。
 3. **Mesa GL 不单独拆包**，理由见下「为什么 Mesa GL 进 imagefs 而 wrapper 不进」。
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
-5. **ddraw** 默认 DxWrapper Dd7to9；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份，不回退 WineD3D。
+5. **ddraw** 默认 DxWrapper Dd7to9；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份。两套资产均仅含 PE32 `syswow64/ddraw.dll`：32-bit 优先 native wrapper；x86_64 无 native DLL，按 `ddraw=n,b` 回退 Proton builtin ddraw/WineD3D→Zink。
 6. **字体** 全局一份；多容器不重复打进 pattern。
 7. **发布面**：默认产物进公开 `amphora-assets`（或等价）固定标签；可选包同仓另附件，不塞进默认 APK。
 
@@ -399,9 +399,10 @@ hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
 | 落地根 | 谁写入 | 冲突风险 |
 |---|---|---|
 | `imagefs/`（rootfs） | `imagefs`（含自建 `libGL`）+ `wrapper.tzst` + `layers` + Proton/Box64 WCP | **提取顺序敏感**；hooks 曾在此三份漂移 |
-| 容器 `system32`/`syswow64` | DXVK/VKD3D WCP + wincomponents + ddrawrapper | `cnc-ddraw` ↔ `dd7to9` **互斥** |
+| 容器 `system32`/`syswow64` | DXVK/VKD3D/Proton builtin/DirectDraw cache 的只读软链接 + 容器私有配置 | `cnc-ddraw` ↔ `dd7to9` **互斥**；写入前必须先 unlink，禁止跟随链接改共享源 |
 | 容器 `.wine`（prefix） | `container_pattern` | 每容器一份，字体重复 |
 | `filesDir/contents/<type>/<ver>/` | `ContentsManager`（WCP） | 版本化，无冲突 |
+| `filesDir/contents/DDRAW/<id>-<sha>/` | runtime asset 解压一次后的 immutable DLL cache | prefix 只链接 DLL；INI/shader 仍为容器私有 |
 | `filesDir/contents/adrenotools/<id>/` | wrapper ICD 桥接 + 可选 Turnip | 单选 |
 | **`nativeLibraryDir`** | **APK 唯一** | 无——hooks 的唯一权威来源 |
 
@@ -611,7 +612,7 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 
 > **易混点**：真机是 **arm64-v8a Android**，但 guest 里跑的是 **x86_64 Wine**（外面套 Box64）。所以要下 **不带 `arm64ec`** 的 `.wcp`。带 `arm64ec` 的包是给「arm64ec Proton + FEX」那条 WinNative 路线的；装错 ABI 会直接对不上 `ContentsManager`/DLL 架构。`a6xx` 则是 **Adreno GPU** 名，和 `arm64ec` 不是一类东西。
 
-**和 WineD3D / Zink 的关系**：AIO **OpenGL** 走 Wine `opengl32` → EGL → Mesa **Zink**。DirectDraw 则强制二选一：DxWrapper Dd7to9 或 cnc-ddraw（D3D9 renderer）→ DXVK → Vulkan；缺包时启动失败，不回退 Wine `ddraw` / WineD3D。
+**和 WineD3D / Zink 的关系**：AIO **OpenGL** 走 Wine `opengl32` → EGL → Mesa **Zink**。32-bit DirectDraw 强制二选一：DxWrapper Dd7to9 或 cnc-ddraw（D3D9 renderer）→ DXVK → Vulkan；缺包时启动失败。两套上游 wrapper 都不提供 x86_64 DLL，因此 64-bit DirectDraw 走 Proton builtin `ddraw` → WineD3D → EGL/Zink。
 
 「有 FPS 但黑屏」历史原因是 launch env 漏合并容器 `DEFAULT_ENV_VARS`（`ZINK_DESCRIPTORS` / `TU_DEBUG=noconform,sysmem` / `mesa_glthread`）。这些变量现在只服务 OpenGL EGL/Zink；DirectDraw 强制走 native wrapper → D3D9/DXVK。
 

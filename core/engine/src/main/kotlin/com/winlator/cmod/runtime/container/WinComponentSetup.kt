@@ -2,6 +2,7 @@ package com.winlator.cmod.runtime.container
 
 import android.content.Context
 import android.util.Log
+import com.winlator.cmod.runtime.content.SharedDllLinker
 import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.wine.WineInfo
 import com.winlator.cmod.runtime.wine.WineUtils
@@ -80,10 +81,11 @@ object WinComponentSetup {
         // x86_64 Wine uses x86_64-windows, ARM64EC Wine uses aarch64-windows.
         val wineSystem32Dlls = wineSystem32DllDir(imageFs, wineInfo)
         val wineSyswow64Dlls = File(imageFs.winePath + "/lib/wine/i386-windows")
+        val contentsRoot = File(requireNotNull(imageFs.rootDir.parentFile), "contents")
 
         for (dll in dlls) {
-            restoreOneWineDll(File(wineSystem32Dlls, dll), File(windowsDir, "system32/$dll"))
-            restoreOneWineDll(File(wineSyswow64Dlls, dll), File(windowsDir, "syswow64/$dll"))
+            restoreOneWineDll(contentsRoot, File(wineSystem32Dlls, dll), File(windowsDir, "system32/$dll"))
+            restoreOneWineDll(contentsRoot, File(wineSyswow64Dlls, dll), File(windowsDir, "syswow64/$dll"))
         }
     }
 
@@ -121,10 +123,10 @@ object WinComponentSetup {
             File(imageFs.winePath + "/lib/wine/x86_64-windows")
         }
 
-    private fun restoreOneWineDll(srcFile: File, dstFile: File) {
+    private fun restoreOneWineDll(contentsRoot: File, srcFile: File, dstFile: File) {
         if (srcFile.exists()) {
-            if (!FileUtils.copy(srcFile, dstFile)) {
-                Log.w(TAG, "restoreWineBuiltinDllFiles: copy failed $srcFile -> $dstFile")
+            if (!SharedDllLinker.link(contentsRoot, srcFile, dstFile)) {
+                Log.w(TAG, "restoreWineBuiltinDllFiles: link failed $srcFile -> $dstFile")
             }
             return
         }
