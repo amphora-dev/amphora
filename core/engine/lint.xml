@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Scoped exemptions for the ported com.winlator.cmod kernel (RFC §7: reused from
+  WinNative with as few edits as possible, so diffs against upstream stay readable).
+
+  These are path-scoped rather than a lint baseline on purpose: a baseline freezes a
+  list of known findings and silently accepts new ones in the same files, whereas
+  this says exactly which tree is exempt and why. The same issues in
+  app.amphora.* code still fail the build.
+-->
+<lint>
+    <!--
+      String.format / toUpperCase without an explicit Locale. Upstream builds Wine
+      env vars, version strings and log lines this way. Real but upstream-owned;
+      fixing it here would touch a dozen files the port wants to keep verbatim.
+    -->
+    <issue id="DefaultLocale">
+        <ignore path="src/main/java/com/winlator/**" />
+    </issue>
+
+    <!--
+      Resources.getIdentifier / setPointerIcon-style APIs the kernel needs: the
+      X server looks resources up by name because the drawable is chosen at runtime.
+    -->
+    <issue id="DiscouragedApi">
+        <ignore path="src/main/java/com/winlator/**" />
+    </issue>
+</lint>

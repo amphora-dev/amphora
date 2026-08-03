@@ -1,0 +1,408 @@
+package com.winlator.cmod.runtime.display.xserver;
+
+import android.graphics.Bitmap;
+import com.winlator.cmod.runtime.display.renderer.GPUImage;
+import com.winlator.cmod.runtime.display.renderer.Texture;
+import com.winlator.cmod.shared.math.Mathf;
+import com.winlator.cmod.shared.util.Callback;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+
+public class Drawable extends XResource {
+  public final short width;
+  public final short height;
+  public final Visual visual;
+  private Texture texture = new Texture();
+  private ByteBuffer data;
+  private boolean directScanout = false;
+  private Drawable scanoutSource;
+  private short scanoutX;
+  private short scanoutY;
+  private short presentedSourceWidth;
+  private short presentedSourceHeight;
+  private boolean presentedSourceValid = false;
+  private boolean hasContent = false;
+  private Runnable onDrawListener;
+  private Callback<Drawable> onDestroyListener;
+  public final Object renderLock = new Object();
+
+  static {
+    System.loadLibrary("winlator");
+  }
+
+  public Drawable(int id, int width, int height, Visual visual) {
+    super(id);
+    this.width = (short) width;
+    this.height = (short) height;
+    this.visual = visual;
+    this.data = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.LITTLE_ENDIAN);
+    if (this.data == null) {
+      throw new IllegalStateException("Drawable.data initialized as null!");
+    }
+    this.presentedSourceWidth = (short) Math.max(0, Math.min(Short.MAX_VALUE, width));
+    this.presentedSourceHeight = (short) Math.max(0, Math.min(Short.MAX_VALUE, height));
+  }
+
+  public static Drawable fromBitmap(Bitmap bitmap) {
+    Drawable drawable = new Drawable(0, bitmap.getWidth(), bitmap.getHeight(), null);
+    fromBitmap(bitmap, drawable.data);
+    drawable.hasContent = true;
+    return drawable;
+  }
+
+  public Texture getTexture() {
+    return texture;
+  }
+
+  public void setTexture(Texture texture) {
+    if (texture instanceof GPUImage) {
+      ByteBuffer virtualData = ((GPUImage) texture).getVirtualData();
+      if (virtualData != null) data = virtualData;
+      hasContent = true;
+    }
+    this.texture = texture;
+  }
+
+  public Drawable getScanoutSource() {
+    return scanoutSource;
+  }
+
+  public void setScanoutSource(Drawable scanoutSource) {
+    setScanoutSource(scanoutSource, (short) 0, (short) 0);
+  }
+
+  public void setScanoutSource(Drawable scanoutSource, short x, short y) {
+    this.scanoutSource = scanoutSource;
+    this.scanoutX = x;
+    this.scanoutY = y;
+    markTextureDirty(0, 0, width, height);
+    if (onDrawListener != null) onDrawListener.run();
+  }
+
+  public void clearScanoutSource() {
+    if (scanoutSource == null) return;
+    scanoutSource = null;
+    scanoutX = 0;
+    scanoutY = 0;
+    markTextureDirty(0, 0, width, height);
+  }
+
+  public short getScanoutX() {
+    return scanoutX;
+  }
+
+  public short getScanoutY() {
+    return scanoutY;
+  }
+
+  public void setPresentedSourceSize(int width, int height) {
+    this.presentedSourceWidth = (short) Math.max(0, Math.min(Short.MAX_VALUE, width));
+    this.presentedSourceHeight = (short) Math.max(0, Math.min(Short.MAX_VALUE, height));
+    this.presentedSourceValid = this.presentedSourceWidth > 0 && this.presentedSourceHeight > 0;
+  }
+
+  public boolean hasPresentedSourceSize() {
+    return presentedSourceValid;
+  }
+
+  public short getPresentedSourceWidth() {
+    return presentedSourceWidth;
+  }
+
+  public short getPresentedSourceHeight() {
+    return presentedSourceHeight;
+  }
+
+  private void markTextureDirty(int x, int y, int width, int height) {
+    hasContent = true;
+    if (texture != null) texture.markDirty(x, y, width, height, this.width, this.height);
+  }
+
+  public ByteBuffer getData() {
+    return data;
+  }
+
+  public boolean hasContent() {
+    return hasContent;
+  }
+
+  public void setData(ByteBuffer data) {
+    if (data == null) {
+      throw new IllegalArgumentException("Attempting to set Drawable.data to null!");
+    }
+    this.data = data;
+    hasContent = true;
+  }
+
+  public void setDirectScanout(boolean value) {
+    this.directScanout = value;
+  }
+
+  public boolean isDirectScanout() {
+    return directScanout;
+  }
+
+  private short getStride() {
+    return texture instanceof GPUImage ? ((GPUImage) texture).getStride() : width;
+  }
+
+  public Runnable getOnDrawListener() {
+    return onDrawListener;
+  }
+
+  public void setOnDrawListener(Runnable onDrawListener) {
+    this.onDrawListener = onDrawListener;
+  }
+
+  public Callback<Drawable> getOnDestroyListener() {
+    return onDestroyListener;
+  }
+
+  public void setOnDestroyListener(Callback<Drawable> onDestroyListener) {
+    this.onDestroyListener = onDestroyListener;
+  }
+
+  public void drawImage(
+      short srcX,
+      short srcY,
+      short dstX,
+      short dstY,
+      short width,
+      short height,
+      byte depth,
+      ByteBuffer data,
+      short totalWidth,
+      short totalHeight) {
+    clearScanoutSource();
+    if (depth == 1) {
+      drawBitmap(width, height, data, this.data);
+    } else if (depth == 24 || depth == 32) {
+      dstX = (short) Mathf.clamp(dstX, 0, this.width - 1);
+      dstY = (short) Mathf.clamp(dstY, 0, this.height - 1);
+      if ((dstX + width) > this.width) width = (short) ((this.width - dstX));
+      if ((dstY + height) > this.height) height = (short) ((this.height - dstY));
+
+      copyArea(
+          srcX, srcY, dstX, dstY, width, height, totalWidth, this.getStride(), data, this.data);
+    }
+
+    this.data.rewind();
+    data.rewind();
+
+    if (depth == 1) {
+      markTextureDirty(0, 0, width, height);
+    } else {
+      markTextureDirty(dstX, dstY, width, height);
+    }
+    if (onDrawListener != null) onDrawListener.run();
+  }
+
+  public ByteBuffer getImage(short x, short y, short width, short height) {
+    ByteBuffer dstData =
+        ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.LITTLE_ENDIAN);
+
+    x = (short) Mathf.clamp(x, 0, this.width - 1);
+    y = (short) Mathf.clamp(y, 0, this.height - 1);
+    if ((x + width) > this.width) width = (short) (this.width - x);
+    if ((y + height) > this.height) height = (short) (this.height - y);
+
+    copyArea(
+        x, y, (short) 0, (short) 0, width, height, this.getStride(), width, this.data, dstData);
+
+    this.data.rewind();
+    dstData.rewind();
+    return dstData;
+  }
+
+  public void copyArea(
+      short srcX,
+      short srcY,
+      short dstX,
+      short dstY,
+      short width,
+      short height,
+      Drawable drawable) {
+    copyArea(srcX, srcY, dstX, dstY, width, height, drawable, GraphicsContext.Function.COPY);
+  }
+
+  public void copyArea(
+      short srcX,
+      short srcY,
+      short dstX,
+      short dstY,
+      short width,
+      short height,
+      Drawable drawable,
+      GraphicsContext.Function gcFunction) {
+    clearScanoutSource();
+    dstX = (short) Mathf.clamp(dstX, 0, this.width - 1);
+    dstY = (short) Mathf.clamp(dstY, 0, this.height - 1);
+    if ((dstX + width) > this.width) width = (short) (this.width - dstX);
+    if ((dstY + height) > this.height) height = (short) (this.height - dstY);
+
+    if (gcFunction == GraphicsContext.Function.COPY) {
+      copyArea(
+          srcX,
+          srcY,
+          dstX,
+          dstY,
+          width,
+          height,
+          drawable.getStride(),
+          this.getStride(),
+          drawable.data,
+          this.data);
+    } else
+      copyAreaOp(
+          srcX,
+          srcY,
+          dstX,
+          dstY,
+          width,
+          height,
+          drawable.getStride(),
+          this.getStride(),
+          drawable.data,
+          this.data,
+          gcFunction.ordinal());
+
+    this.data.rewind();
+    drawable.data.rewind();
+
+    markTextureDirty(dstX, dstY, width, height);
+    if (onDrawListener != null) onDrawListener.run();
+  }
+
+  public void fillColor(int color) {
+    fillRect(0, 0, width, height, color);
+  }
+
+  public void fillRect(int x, int y, int width, int height, int color) {
+    clearScanoutSource();
+    x = (short) Mathf.clamp(x, 0, this.width - 1);
+    y = (short) Mathf.clamp(y, 0, this.height - 1);
+    if ((x + width) > this.width) width = (short) ((this.width - x));
+    if ((y + height) > this.height) height = (short) ((this.height - y));
+
+    fillRect(
+        (short) x, (short) y, (short) width, (short) height, color, this.getStride(), this.data);
+    this.data.rewind();
+
+    markTextureDirty(x, y, width, height);
+    if (onDrawListener != null) onDrawListener.run();
+  }
+
+  public void drawLines(int color, int lineWidth, short... points) {
+    for (int i = 2; i < points.length; i += 2) {
+      drawLine(
+          points[i - 2], points[i - 1], points[i + 0], points[i + 1], color, (short) lineWidth);
+    }
+  }
+
+  public void drawLine(int x0, int y0, int x1, int y1, int color, int lineWidth) {
+    clearScanoutSource();
+    x0 = Mathf.clamp(x0, 0, width - lineWidth);
+    y0 = Mathf.clamp(y0, 0, height - lineWidth);
+    x1 = Mathf.clamp(x1, 0, width - lineWidth);
+    y1 = Mathf.clamp(y1, 0, height - lineWidth);
+
+    drawLine(
+        (short) x0,
+        (short) y0,
+        (short) x1,
+        (short) y1,
+        color,
+        (short) lineWidth,
+        this.getStride(),
+        this.data);
+
+    this.data.rewind();
+
+    int minX = Math.min(x0, x1);
+    int minY = Math.min(y0, y1);
+    int maxX = Math.max(x0, x1) + lineWidth;
+    int maxY = Math.max(y0, y1) + lineWidth;
+    markTextureDirty(minX, minY, maxX - minX, maxY - minY);
+    if (onDrawListener != null) onDrawListener.run();
+  }
+
+  public void drawAlphaMaskedBitmap(
+      byte foreRed,
+      byte foreGreen,
+      byte foreBlue,
+      byte backRed,
+      byte backGreen,
+      byte backBlue,
+      Drawable srcDrawable,
+      Drawable maskDrawable) {
+    clearScanoutSource();
+    drawAlphaMaskedBitmap(
+        foreRed,
+        foreGreen,
+        foreBlue,
+        backRed,
+        backGreen,
+        backBlue,
+        srcDrawable.data,
+        maskDrawable.data,
+        this.data);
+    this.data.rewind();
+
+    markTextureDirty(0, 0, width, height);
+    if (onDrawListener != null) onDrawListener.run();
+  }
+
+  private static native void drawBitmap(
+      short width, short height, ByteBuffer srcData, ByteBuffer dstData);
+
+  private static native void drawAlphaMaskedBitmap(
+      byte foreRed,
+      byte foreGreen,
+      byte foreBlue,
+      byte backRed,
+      byte backGreen,
+      byte backBlue,
+      ByteBuffer srcData,
+      ByteBuffer maskData,
+      ByteBuffer dstData);
+
+  private static native void copyArea(
+      short srcX,
+      short srcY,
+      short dstX,
+      short dstY,
+      short width,
+      short height,
+      short srcStride,
+      short dstStride,
+      ByteBuffer srcData,
+      ByteBuffer dstData);
+
+  private static native void copyAreaOp(
+      short srcX,
+      short srcY,
+      short dstX,
+      short dstY,
+      short width,
+      short height,
+      short srcStride,
+      short dstStride,
+      ByteBuffer srcData,
+      ByteBuffer dstData,
+      int gcFunction);
+
+  private static native void fillRect(
+      short x, short y, short width, short height, int color, short stride, ByteBuffer data);
+
+  private static native void drawLine(
+      short x0,
+      short y0,
+      short x1,
+      short y1,
+      int color,
+      short lineWidth,
+      short stride,
+      ByteBuffer data);
+
+  private static native void fromBitmap(Bitmap bitmap, ByteBuffer data);
+}

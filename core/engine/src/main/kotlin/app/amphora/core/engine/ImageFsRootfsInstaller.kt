@@ -1,0 +1,177 @@
+package app.amphora.core.engine
+
+import android.content.Context
+import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.ProvisionProgress
+import app.amphora.core.content.ProvisionProgressBus
+import app.amphora.core.content.VerifiedAssetDownloader
+import app.amphora.core.content.model.ContentComponent
+import app.amphora.core.content.model.ManifestEntry
+import app.amphora.core.rootfs.RootfsInstaller
+import app.amphora.core.rootfs.model.RootfsSpec
+import com.winlator.cmod.runtime.display.environment.ImageFs
+import com.winlator.cmod.shared.io.FileUtils
+import com.winlator.cmod.shared.io.TarCompressorUtils
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.withContext
+
+/**
+ * amphora's [RootfsInstaller], backed by the ported `com.winlator.cmod` kernel
+ * ([ImageFs] + [TarCompressorUtils]). Adapts WinNative's `ImageFsInstaller`
+ * (RFC §7 / §11 / D7) into the clean amphora contract.
+ *
+ * **Scope (imagefs base only):** extracts the imagefs archive from the content
+ * manifest (`ROOTFS` entry — currently self-built `imagefs.txz` / XZ from
+ * `amphora-dev/imagefs`) into [RootfsSpec.targetRoot] and writes the version
+ * marker (`.winlator/.img_version`). Compression follows
+ * [ManifestEntry.compression]. Wine / box64 / Turnip / DXVK binaries are
+ * installed by [WineSessionPreparer] / [ContentSource]; the Steam DLL marker
+ * clear (`clearSteamDllMarkers`) and container-version reset
+ * (`resetContainerImgVersions`) from WinNative are stripped -- Steam is a
+ * non-target (RFC §7) and container state belongs to `:core:container` (P4).
+ * Progress is published on [ProvisionProgressBus] for the Compose UI.
+ *
+ * **Why this lives in `:core:engine`, not `:core:rootfs`:** the dependency graph
+ * is `engine -> rootfs` (RFC §6), so `:core:rootfs` cannot see
+ * [TarCompressorUtils] / [ImageFs] (they live in the ported `com.winlator.cmod`
+ * kernel under `:core:engine`). The [RootfsInstaller] *contract* stays in
+ * `:core:rootfs`; the concretion lives in `:core:engine` next to the kernel it
+ * adapts (Dependency Inversion -- the low module owns the abstraction, the high
+ * module owns the concretion). `:core:rootfs` therefore needs no Hilt for MVP.
+ *
+ * **termuxfs rpath (D7, TODO):** Wine `.so` rpath is baked to
+ * `/data/data/com.termux/files/usr/lib`; the `winlator-imagefs` build is expected
+ * to reproduce that path inside imagefs, but final verification waits on the real
+ * asset + termuxfs SHA lock (P2 asset acquisition).
+ *
+ * Extraction uses the restored [TarCompressorUtils] native backend (zstd + xz;
+ * curl/download stubbed per D4). Production rootfs is the self-built
+ * `amphora-dev/imagefs` Release (`amphora` tag).
+ */
+@Singleton
+class ImageFsRootfsInstaller
+@Inject
+constructor(
+    @ApplicationContext private val context: Context,
+    private val dispatchers: DispatcherProvider,
+    private val catalog: ContentCatalog,
+    private val downloader: VerifiedAssetDownloader,
+    private val progressBus: ProvisionProgressBus,
+) : RootfsInstaller {
+    override suspend fun ensureInstalled(spec: RootfsSpec): Boolean = withContext(dispatchers.io) {
+        val rootDir = File(spec.targetRoot)
+        val imageFs = ImageFs.find(rootDir)
+        val manifest = catalog.require()
+        val entry =
+            requireNotNull(manifest.entry(ContentComponent.ROOTFS)) {
+                "content manifest does not define rootfs"
+            }
+        // Prefer the remote manifest pin so publishing a new imagefs (URL + SHA
+        // + version) does not require an APK rebuild. Spec value is the floor
+        // from ImageFsInstaller.LATEST_VERSION.
+        val desired =
+            maxOf(
+                entry.version.toIntOrNull() ?: 0,
+                spec.imagefsVersion.toIntOrNull() ?: 0,
+            )
+
+        if (desired > 0 && imageFs.isValid && imageFs.getVersion() >= desired) {
+            return@withContext true // already up to date
+        }
+
+        progressBus.update(
+            ProvisionProgress(
+                stage = "rootfs",
+                detail = "Downloading imagefs v$desired…",
+                bytesDownloaded = 0,
+                totalBytes = entry.size,
+            ),
+        )
+        val archive =
+            downloader.acquire(
+                root = File(context.cacheDir, "amphora-rootfs"),
+                relativePath = entry.assetPath,
+                remoteUrl = requireNotNull(entry.remoteUrl) { "rootfs remoteUrl is missing" },
+                expectedSha256 = requireNotNull(entry.sha256) { "rootfs SHA-256 is missing" },
+                expectedSize = entry.size,
+                label = "imagefs.txz (v$desired)",
+            )
+        progressBus.update(
+            ProvisionProgress(stage = "extract", detail = "Extracting imagefs v$desired…"),
+        )
+        val type =
+            when (entry.compression) {
+                ManifestEntry.Compression.XZ -> TarCompressorUtils.Type.XZ
+                ManifestEntry.Compression.ZSTD -> TarCompressorUtils.Type.ZSTD
+            }
+        installAtomically(rootDir, archive, desired, type)
+    }
+
+    override suspend fun currentVersion(): String? = withContext(dispatchers.io) {
+        // Conventional root -- matches the kernel's ImageFs.find(context) = filesDir/imagefs.
+        val imageFs = ImageFs.find(context)
+        if (!imageFs.isValid) null else imageFs.getVersion().toString()
+    }
+
+    private fun installAtomically(rootDir: File, archive: File, desired: Int, type: TarCompressorUtils.Type): Boolean {
+        val staging = File(rootDir.parentFile, "${rootDir.name}.staging")
+        val backup = File(rootDir.parentFile, "${rootDir.name}.backup")
+        recoverInterruptedInstall(rootDir, staging, backup)
+
+        FileUtils.delete(staging)
+        check(staging.mkdirs()) { "Unable to create rootfs staging directory: $staging" }
+        if (!TarCompressorUtils.extract(type, archive, staging)) {
+            FileUtils.delete(staging)
+            return false
+        }
+        val stagedImageFs = ImageFs.find(staging)
+        stagedImageFs.createImgVersionFile(desired)
+        if (!stagedImageFs.isValid) {
+            FileUtils.delete(staging)
+            return false
+        }
+
+        FileUtils.delete(backup)
+        if (rootDir.exists() && !rootDir.renameTo(backup)) {
+            FileUtils.delete(staging)
+            error("Unable to back up existing rootfs: $rootDir")
+        }
+        if (!staging.renameTo(rootDir)) {
+            if (backup.exists()) backup.renameTo(rootDir)
+            FileUtils.delete(staging)
+            return false
+        }
+
+        val oldHome = File(backup, "home")
+        if (oldHome.exists()) {
+            val newHome = File(rootDir, "home")
+            FileUtils.delete(newHome)
+            if (!oldHome.renameTo(newHome)) {
+                FileUtils.delete(rootDir)
+                check(backup.renameTo(rootDir)) { "Unable to roll back rootfs after home restore failure" }
+                return false
+            }
+        }
+        FileUtils.delete(backup)
+        return true
+    }
+
+    private fun recoverInterruptedInstall(rootDir: File, staging: File, backup: File) {
+        FileUtils.delete(staging)
+        if (!backup.exists()) return
+        if (!rootDir.exists()) {
+            check(backup.renameTo(rootDir)) { "Unable to restore interrupted rootfs install" }
+            return
+        }
+        val oldHome = File(backup, "home")
+        val newHome = File(rootDir, "home")
+        if (oldHome.exists() && !newHome.exists()) {
+            check(oldHome.renameTo(newHome)) { "Unable to restore rootfs home directory" }
+        }
+        if (ImageFs.find(rootDir).isValid) FileUtils.delete(backup)
+    }
+}

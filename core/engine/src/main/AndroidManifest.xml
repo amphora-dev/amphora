@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The ported com.winlator.cmod kernel reads the active network's DNS servers to
+  seed the Wine prefix (GuestProgramLauncherComponent, NetworkHelper,
+  NetworkInfoUpdateComponent). Declaring the permission here rather than only in
+  :app means the requirement travels with the code that needs it, and lint can
+  verify the call sites against this module's own manifest.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+</manifest>

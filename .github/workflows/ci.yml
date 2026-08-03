@@ -1,0 +1,73 @@
+name: CI
+
+# Every change used to be checked twice. Branches are merged into main by
+# fast-forward, so `on: push` with no branch filter ran the identical SHA once for
+# the branch push and again for the main push — double the wall clock and double
+# the compute for the same result. Pull requests are validated pre-merge; main is
+# validated post-merge; neither duplicates the other.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Superseding pushes cancel the run they superseded. main is excluded: its history
+# is what release decisions read, so every commit there keeps its own result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.native-cache/ccache
+  CCACHE_MAXSIZE: 2G
+
+jobs:
+  continuous-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install ccache
+        run: bash scripts/setup-ccache.sh
+
+      - name: Cache native compile artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .native-cache
+          key: native-${{ runner.os }}-${{ hashFiles('core/native/**/CMakeLists.txt', 'core/native/src/main/cpp/**/*.{c,cpp,h,hpp}', 'core/native/src/main/cpp/adrenotools/**/*.{c,cpp,h,hpp}', 'build-logic/convention/src/main/kotlin/app/amphora/buildlogic/AndroidNativeConventionPlugin.kt') }}
+          restore-keys: |
+            native-${{ runner.os }}-
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.ref != 'refs/heads/main' }}
+
+      # One invocation for every gate: formatting, lint, JVM tests and the two
+      # APKs. Four separate ./gradlew calls each paid a JVM start, configuration
+      # and task graph, and could not overlap; here Gradle interleaves the graphs
+      # across modules.
+      - name: Check
+        run: |
+          bash scripts/ci-check.sh \
+            spotlessCheck \
+            lint \
+            :app:assembleDebug \
+            :app:assembleDebugAndroidTest
+        timeout-minutes: 60
+
+      - name: Upload lint reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: "**/build/reports/lint-results-*.html"
+          if-no-files-found: ignore
+
+      - name: ccache stats
+        if: always()
+        run: ccache -s || true

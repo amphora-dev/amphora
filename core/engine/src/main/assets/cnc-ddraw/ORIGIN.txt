@@ -1,0 +1,8 @@
+Source: https://github.com/FunkyFr3sh/cnc-ddraw/releases/tag/v7.1.0.0
+File: cnc-ddraw.zip/ddraw.ini
+License: MIT
+
+Local change:
+- The global [ddraw] renderer is direct3d9 instead of auto. Under Wine,
+  auto selects OpenGL; Amphora intentionally routes DirectDraw through
+  D3D9/DXVK. All upstream per-game sections and presets are unchanged.

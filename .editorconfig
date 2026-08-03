@@ -1,0 +1,38 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+max_line_length = 120
+
+[*.{kt,kts}]
+ktlint_code_style = intellij_idea
+# The ported com.winlator.cmod kernel keeps upstream's layout; ktlint only runs
+# over app.amphora.* sources (see the spotless config in build-logic).
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+# One import per line, no wildcards, lexicographic — matches the majority of the
+# tree and is what ktlint enforces.
+ij_kotlin_imports_layout = *
+# @Composable functions are PascalCase by Compose convention, and previews/tests
+# name themselves after what they render.
+ktlint_function_naming_ignore_when_annotated_with = Composable, Preview, Test
+
+# Vendored WinNative sources keep upstream's 2-space Java style; reformatting them
+# would make every future upstream diff unreadable.
+[core/engine/src/main/java/com/winlator/**.{java,kt}]
+indent_size = 2
+max_line_length = off
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

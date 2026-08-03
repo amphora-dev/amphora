@@ -1,0 +1,66 @@
+# Gradle
+.gradle/
+gradle-user/
+**/build/
+local.properties
+
+# Native compile caches (ccache + CMake FetchContent for zstd/xz)
+.native-cache/
+
+# Android / Studio
+*.iml
+.idea/
+.cxx/
+captures/
+.externalNativeBuild
+
+# Kotlin
+.kotlin/
+
+# Native
+*.so.bak
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+logcat*.txt
+
+# Local dev
+.claude/
+.mcp.json
+.vscode/
+.tmp/
+dist/
+
+# Signing
+# The shared debug.keystore lives in-app and is intentionally committed so debug
+# APKs built on different machines share one signature (see AndroidApplicationConventionPlugin).
+*.jks
+*.keystore
+!app/debug.keystore
+signing.properties
+
+# Python tooling
+__pycache__/
+*.pyc
+
+# Large build artifacts (rootfs / proton wcp) + test exes
+*.txz
+*.tzst
+*.wcp
+*.exe
+!docs/**
+!testdata/aio-graphics-test/*.exe
+!core/content/src/main/assets/winnative/*.exe
+
+# stageBundledContent output: app/src/main/assets/ is populated by
+# ./gradlew :app:stageBundledContent from the WinNative checkout. Entire dir is
+# build output — nothing here should be committed. See ContentStagingPlugin.kt.
+app/src/main/assets/
+
+# Exported LLM/agent session transcripts. Useful while debugging, never a
+# reviewable artifact — they are megabytes of HTML and go stale immediately.
+docs/llm/
+*-session-*.html
