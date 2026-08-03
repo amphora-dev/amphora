@@ -546,9 +546,22 @@ class XServerWineSessionPreparer @Inject constructor(
                 "DirectDraw wrapper '$selectedDdraw' did not install syswow64/ddraw.dll"
             }
             if (selectedDdraw == DirectDrawWrapperIds.CNC_DDRAW) {
-                // Force cnc-ddraw through D3D9 → DXVK; its auto/OpenGL renderer
-                // would re-enter Mesa Zink and defeat the selected architecture.
-                File(syswow64Dir, "ddraw.ini").writeText("[ddraw]\nrenderer=direct3d9\n")
+                // Keep upstream's complete per-game preset database. Only its
+                // global auto renderer is changed to D3D9 in the vendored copy;
+                // auto would select OpenGL under Wine and re-enter Mesa Zink.
+                context.assets.open(CNC_DDRAW_CONFIG_ASSET).use { input ->
+                    File(syswow64Dir, "ddraw.ini").outputStream().use(input::copyTo)
+                }
+                for (relativePath in CNC_DDRAW_SHADER_ASSETS) {
+                    val destination = File(syswow64Dir, relativePath)
+                    val parent = requireNotNull(destination.parentFile)
+                    check(parent.mkdirs() || parent.isDirectory) {
+                        "Cannot create cnc-ddraw shader directory for $relativePath"
+                    }
+                    context.assets.open("cnc-ddraw/$relativePath").use { input ->
+                        destination.outputStream().use(input::copyTo)
+                    }
+                }
                 envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
             } else {
                 check(
@@ -1261,6 +1274,23 @@ class XServerWineSessionPreparer @Inject constructor(
 
         /** Wine dlopens this SONAME; present only once mesa-gl builds the EGL frontend. */
         private const val LIBEGL_SONAME = "usr/lib/libEGL.so.1"
+        private const val CNC_DDRAW_CONFIG_ASSET = "cnc-ddraw/ddraw.ini"
+        private val CNC_DDRAW_SHADER_ASSETS = arrayOf(
+            "Shaders/crt/crt-lottes-fast-no-warp-bilinear.glsl",
+            "Shaders/interpolation/bilinear.glsl",
+            "Shaders/interpolation/catmull-rom-bilinear.glsl",
+            "Shaders/interpolation/fsr.glsl",
+            "Shaders/interpolation/fsr.glsl.pass1",
+            "Shaders/interpolation/jinc2-dedither.glsl",
+            "Shaders/interpolation/lanczos2-sharp.glsl",
+            "Shaders/nearest-neighbor.glsl",
+            "Shaders/readme.txt",
+            "Shaders/scanlines/scanline.glsl",
+            "Shaders/sharpen/rca-sharpen.glsl",
+            "Shaders/xbr/xbr-lv2-noblend.glsl",
+            "Shaders/xbrz/xbrz-freescale-multipass.glsl",
+            "Shaders/xbrz/xbrz-freescale-multipass.glsl.pass1",
+        )
 
         /** Mesa's opt-in to kopper on an X server without a DRI3 render device. */
         private const val KOPPER_DRI2 = "LIBGL_KOPPER_DRI2"

@@ -74,7 +74,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 |---|---|---|---|
 | `dd7to9.tzst` | 3.0 MB | `ddraw.dll` + `dxwrapper.dll` + `.ini` | ⚠️ 与 `cnc-ddraw` **互斥** |
 | `nglide.tzst` | 1.2 MB | `glide` `glide2x` `glide3x` `3DfxSpl*` | Glide，不与前两者冲突 |
-| `cnc-ddraw.tzst` | 0.17 MB | `ddraw.dll` | ⚠️ 与 `dd7to9` **互斥** |
+| `cnc-ddraw.tzst` | 0.17 MB | `ddraw.dll`；APK 随附官方完整 `ddraw.ini`（全局默认改为 D3D9，保留游戏 preset） | ⚠️ 与 `dd7to9` **互斥** |
 
 ### F. 容器模板 — 落容器目录，**每个容器一份**
 
