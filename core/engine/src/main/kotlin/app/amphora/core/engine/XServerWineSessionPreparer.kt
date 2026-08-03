@@ -879,9 +879,10 @@ class XServerWineSessionPreparer @Inject constructor(
             envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
         }
         // DirectDraw is always a native wrapper (cnc-ddraw or DxWrapper Dd7to9)
-        // whose output is consumed by DXVK. Disable WineD3D rather than silently
-        // falling back to the Zink path when a wrapper is missing or broken.
-        envState.put("WINEDLLOVERRIDES", "ddraw=n;wined3d=")
+        // whose D3D9 output must be consumed by native DXVK. Keep WineD3D
+        // available to unrelated consumers such as WPF/video; native-only
+        // ddraw+d3d9 still prevents this path from silently falling back to it.
+        envState.put("WINEDLLOVERRIDES", "ddraw=n;d3d9=n")
 
         applyGalliumDriver(rootDir)
         applyWineEglBackend(rootDir)
