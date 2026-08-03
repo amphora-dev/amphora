@@ -181,18 +181,11 @@ public abstract class TarCompressorUtils {
     if (downloaded.isFile()) {
       return extract(type, downloaded, destination, onExtractFileListener);
     }
-    int nativeType = toNativeType(type);
-    try {
-      if (NativeContentIO.extractAsset(
-          nativeType, context.getAssets(), assetFile, destination, onExtractFileListener)) {
-        return true;
-      }
-      Log.e(TAG, "Native asset extraction failed: " + assetFile);
-      return false;
-    } catch (Throwable e) {
-      Log.e(TAG, "Native asset extraction failed: " + assetFile, e);
-      return false;
-    }
+    // Runtime content is remote-only and SHA-verified by RuntimeAssetProvisioner.
+    // Falling back to an APK asset here bypassed the manifest pin and could
+    // silently install an old wrapper/layer after provisioning failed.
+    Log.e(TAG, "Verified runtime asset is missing: " + downloaded);
+    return false;
   }
 
   public static boolean extract(Type type, Context context, Uri source, File destination) {

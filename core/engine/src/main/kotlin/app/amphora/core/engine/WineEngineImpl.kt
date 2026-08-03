@@ -224,7 +224,7 @@ constructor(
             )
         check(installed) {
             "Rootfs installation failed: imagefs extraction returned false " +
-                "(asset missing from APK assets or native extract error; see TarCompressor logs)."
+                "(verified download missing or native extract error; see provisioning logs)."
         }
     }
 
