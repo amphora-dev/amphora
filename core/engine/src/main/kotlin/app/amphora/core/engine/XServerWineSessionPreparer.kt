@@ -530,6 +530,13 @@ class XServerWineSessionPreparer @Inject constructor(
             File(syswow64Dir, "dxwrapper.ini").delete()
             File(syswow64Dir, "ddraw.ini").delete()
 
+            // Both optional wrappers are PE32-only. The pre-extract wipe also
+            // removes system32/ddraw.dll, but modern Wine resolves builtin PE
+            // modules through the prefix. Restore both Wine architectures now;
+            // the selected wrapper extraction below intentionally overwrites
+            // only syswow64/ddraw.dll, leaving x86_64 system32/ddraw.dll builtin.
+            WinComponentSetup.restoreWineBuiltinDllFiles(imageFs, wineInfo, "ddraw.dll")
+
             val selectedDdraw = DirectDrawWrapperIds.normalize(ddrawrapper)
             check(selectedDdraw == ddrawrapper) {
                 "Unsupported DirectDraw wrapper '$ddrawrapper'; refusing WineD3D fallback"
