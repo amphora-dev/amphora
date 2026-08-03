@@ -249,6 +249,10 @@ class PreparerGraphicsDriverTest {
                 "wrapper_icd.aarch64.json not extracted by wrapper.tzst",
                 File(shareDir, "wrapper_icd.aarch64.json").isFile,
             )
+            assertTrue(
+                "x86_64 builtin ddraw.dll was not restored after wrapper wipe",
+                File(rootDir, ".wine/drive_c/windows/system32/ddraw.dll").isFile,
+            )
             println("WRAPPER_EXTRACTED graphics_driver/wrapper.tzst into $imagefsDir")
         } else {
             println("SKIP wrapper extraction check: existing prefix was reused")
