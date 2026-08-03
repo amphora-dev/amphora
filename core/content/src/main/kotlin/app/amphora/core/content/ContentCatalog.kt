@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Remote-only content pin catalog. There is no APK-bundled fallback — pins live
@@ -28,6 +29,7 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
     private val mutex = Mutex()
     private val _status = MutableStateFlow<Status>(Status.Idle)
     val status: StateFlow<Status> = _status.asStateFlow()
+    private val diskCache = File(context.filesDir, "content/content_manifest.json")
 
     /** Return the cached manifest, fetching from the remote URL if needed. */
     suspend fun require(): ContentManifest = mutex.withLock {
@@ -53,12 +55,38 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
                     ContentManifestLoader.fetchHttpsText(url)
                 }
             val manifest = ContentManifest.parse(json)
+            withContext(dispatchers.io) {
+                runCatching { writeCacheAtomically(json) }
+            }
             _status.value = Status.Ready(manifest, url)
             manifest
         } catch (failure: Throwable) {
             if (failure is kotlinx.coroutines.CancellationException) throw failure
-            _status.value = Status.Failed(failure.message ?: failure.javaClass.simpleName)
-            throw failure
+            val cached =
+                withContext(dispatchers.io) {
+                    runCatching {
+                        ContentManifest.parse(diskCache.readText())
+                    }.getOrNull()
+                }
+            if (cached != null) {
+                _status.value = Status.Ready(cached, diskCache.toURI().toString())
+                cached
+            } else {
+                _status.value = Status.Failed(failure.message ?: failure.javaClass.simpleName)
+                throw failure
+            }
+        }
+    }
+
+    private fun writeCacheAtomically(json: String) {
+        val parent = requireNotNull(diskCache.parentFile)
+        check(parent.mkdirs() || parent.isDirectory) { "Cannot create manifest cache directory" }
+        val temporary = File.createTempFile("content_manifest.", ".tmp", parent)
+        try {
+            temporary.writeText(json)
+            check(temporary.renameTo(diskCache)) { "Cannot replace manifest cache" }
+        } finally {
+            temporary.delete()
         }
     }
 }
