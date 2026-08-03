@@ -611,6 +611,51 @@ public abstract class WineUtils {
         "Control Panel\\Desktop\\WindowMetrics", "StatusFont", fontNormalData);
   }
 
+  /**
+   * Mirror WinNative {@code XServerDisplayActivity.changeWineAudioDriver}: write
+   * {@code Software\Wine\Drivers} {@code Audio} when the container's selected driver
+   * changes.
+   *
+   * <p>Amphora MVP only ships the ALSA path ({@code Audio=alsa}). Without this key Wine
+   * defaults to {@code pulse,alsa,...}; Amphora's imagefs has no {@code libpulse.so}, so
+   * the pulse probe fails and games surface a sound-initialization error.
+   */
+  public static void changeWineAudioDriver(Container container, File rootDir, String audioDriver) {
+    if (container == null || rootDir == null || audioDriver == null || audioDriver.isEmpty()) {
+      return;
+    }
+    if (audioDriver.equals(container.getExtra("audioDriver"))) return;
+
+    File userRegFile = new File(rootDir, ImageFs.WINEPREFIX + "/user.reg");
+    if (!userRegFile.isFile()) {
+      Log.w("WineUtils", "changeWineAudioDriver: missing " + userRegFile);
+      return;
+    }
+
+    String wineAudio;
+    if ("alsa".equals(audioDriver)) {
+      wineAudio = "alsa";
+    } else if ("pulseaudio".equals(audioDriver)) {
+      // WinNative maps pulseaudio -> pulse. Amphora does not ship PulseAudioComponent /
+      // pulseaudio.tzst; refuse rather than point Wine at a missing backend.
+      Log.w(
+          "WineUtils",
+          "changeWineAudioDriver: pulseaudio requested but Amphora MVP is ALSA-only; keeping alsa");
+      wineAudio = "alsa";
+      audioDriver = "alsa";
+    } else {
+      Log.w("WineUtils", "changeWineAudioDriver: unknown driver " + audioDriver);
+      return;
+    }
+
+    try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
+      registryEditor.setStringValue("Software\\Wine\\Drivers", "Audio", wineAudio);
+    }
+    container.putExtra("audioDriver", audioDriver);
+    container.saveData();
+    Log.i("WineUtils", "Wine audio driver set to " + wineAudio);
+  }
+
   public static void applySystemTweaks(Context context, WineInfo wineInfo) {
     File rootDir = ImageFs.find(context).getRootDir();
     File systemRegFile = new File(rootDir, ImageFs.WINEPREFIX + "/system.reg");
