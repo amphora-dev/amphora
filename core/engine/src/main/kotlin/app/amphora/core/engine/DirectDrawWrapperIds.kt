@@ -3,8 +3,10 @@ package app.amphora.core.engine
 /**
  * DirectDraw compatibility layers offered by Amphora.
  *
- * Both choices replace Wine's builtin ddraw/WineD3D path and feed D3D9 into
- * DXVK. They are mutually exclusive because both install `syswow64/ddraw.dll`.
+ * Both choices replace Wine's 32-bit builtin ddraw/WineD3D path and feed D3D9
+ * into DXVK. They are mutually exclusive because both install
+ * `syswow64/ddraw.dll`. Neither project ships x86_64 DLLs, so 64-bit DirectDraw
+ * processes retain Proton's builtin ddraw → WineD3D/Zink path.
  */
 object DirectDrawWrapperIds {
     const val PREFS_NAME = "amphora_graphics"

@@ -30,6 +30,7 @@ import com.winlator.cmod.shared.io.TarCompressorUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.util.regex.Pattern
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -284,7 +285,7 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val wineArchKey = if (wineVersion.contains("arm64ec")) "arm64ec" else "x86_64"
         val dxwrapperGateKey = "$localDxwrapper|arch=$wineArchKey"
-        val forceWrapperApply = bootExePath != null && bootExePath!!.isNotEmpty()
+        val forceWrapperApply = sharedGraphicsLinksNeedRefresh(localDxwrapper)
         if (dxwrapperGateKey != c.getExtra("dxwrapper") || firstTimeBoot || forceWrapperApply) {
             Log.i(
                 TAG,
@@ -517,8 +518,8 @@ class XServerWineSessionPreparer @Inject constructor(
                 applyVkd3dWrapper(vkd3dWrapper)
             }
 
-            Log.d(TAG, "Extracting nglide wrapper")
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "ddrawrapper/nglide.tzst", windowsDir)
+            Log.d(TAG, "Linking nglide wrapper from shared cache")
+            DirectDrawWrapperCache.linkDlls(context, "nglide", windowsDir)
 
             // DirectDraw wrappers are mutually exclusive and must never fall
             // back to Wine's builtin ddraw/WineD3D path.
@@ -530,19 +531,20 @@ class XServerWineSessionPreparer @Inject constructor(
             File(syswow64Dir, "dxwrapper.ini").delete()
             File(syswow64Dir, "ddraw.ini").delete()
 
+            // Both optional wrappers are PE32-only. The pre-extract wipe also
+            // removes system32/ddraw.dll, but modern Wine resolves builtin PE
+            // modules through the prefix. Restore both Wine architectures now;
+            // the selected wrapper extraction below intentionally overwrites
+            // only syswow64/ddraw.dll, leaving x86_64 system32/ddraw.dll builtin.
+            WinComponentSetup.restoreWineBuiltinDllFiles(imageFs, wineInfo, "ddraw.dll")
+
             val selectedDdraw = DirectDrawWrapperIds.normalize(ddrawrapper)
             check(selectedDdraw == ddrawrapper) {
                 "Unsupported DirectDraw wrapper '$ddrawrapper'; refusing WineD3D fallback"
             }
             Log.i(TAG, "Extracting DirectDraw wrapper '$selectedDdraw'")
-            val extracted =
-                TarCompressorUtils.extract(
-                    TarCompressorUtils.Type.ZSTD,
-                    context,
-                    "ddrawrapper/$selectedDdraw.tzst",
-                    windowsDir,
-                )
-            check(extracted && File(syswow64Dir, "ddraw.dll").isFile) {
+            val ddrawCache = DirectDrawWrapperCache.linkDlls(context, selectedDdraw, windowsDir)
+            check(File(syswow64Dir, "ddraw.dll").isFile) {
                 "DirectDraw wrapper '$selectedDdraw' did not install syswow64/ddraw.dll"
             }
             if (selectedDdraw == DirectDrawWrapperIds.CNC_DDRAW) {
@@ -564,6 +566,10 @@ class XServerWineSessionPreparer @Inject constructor(
                 }
                 envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
             } else {
+                val cachedIni = File(ddrawCache, "syswow64/dxwrapper.ini")
+                check(cachedIni.isFile && FileUtils.copy(cachedIni, File(syswow64Dir, "dxwrapper.ini"))) {
+                    "Cannot install container-private DxWrapper configuration"
+                }
                 check(
                     File(syswow64Dir, "dxwrapper.dll").isFile &&
                         File(syswow64Dir, "dxwrapper.ini").isFile,
@@ -888,14 +894,19 @@ class XServerWineSessionPreparer @Inject constructor(
                 envState.put("WRAPPER_NO_PATCH_OPCONSTCOMP", "1")
             }
         }
+        // DXVK replaces D3D8-11, but Wine's x86_64 builtin DirectDraw still
+        // falls back to WineD3D because the optional DirectDraw wrappers only
+        // ship 32-bit DLLs. Keep that path explicitly on OpenGL → EGL/Zink.
+        WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
         if (dxwrapper.split(";").lastOrNull() == DirectDrawWrapperIds.CNC_DDRAW) {
             envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
         }
-        // DirectDraw is always a native wrapper (cnc-ddraw or DxWrapper Dd7to9)
-        // whose D3D9 output must be consumed by native DXVK. Keep WineD3D
-        // available to unrelated consumers such as WPF/video; native-only
-        // ddraw+d3d9 still prevents this path from silently falling back to it.
-        envState.put("WINEDLLOVERRIDES", "ddraw=n;d3d9=n")
+        // Both DirectDraw wrapper assets are PE32 only. native,builtin therefore
+        // selects syswow64/ddraw.dll for 32-bit games, while a 64-bit process
+        // (with no system32 native ddraw.dll) falls through to Proton's builtin
+        // x86_64 ddraw/WineD3D. D3D9 stays native-only so wrapper output always
+        // enters DXVK.
+        envState.put("WINEDLLOVERRIDES", "ddraw=n,b;d3d9=n")
 
         applyGalliumDriver(rootDir)
         applyWineEglBackend(rootDir)
@@ -1218,6 +1229,60 @@ class XServerWineSessionPreparer @Inject constructor(
      * frame-rate limiting lands.
      */
     private fun getDxvkFrameRateOverride(): Int = 0
+
+    /**
+     * Migrate old physical copies and repair deleted/broken component links.
+     * Normal launches no longer wipe and reinstall the whole graphics stack.
+     */
+    private fun sharedGraphicsLinksNeedRefresh(dxwrapper: String): Boolean {
+        val windowsDir =
+            File(imageFs.getRootDir(), ImageFs.WINEPREFIX + "/drive_c/windows")
+        val system32 = File(windowsDir, "system32")
+        val syswow64 = File(windowsDir, "syswow64")
+        fun validLink(file: File): Boolean = Files.isSymbolicLink(file.toPath()) && file.isFile
+        fun bothLinked(name: String): Boolean =
+            validLink(File(system32, name)) && validLink(File(syswow64, name))
+
+        val parts = dxwrapper.split(";")
+        if (parts.firstOrNull()?.startsWith("dxvk-") == true) {
+            val dxvkDlls =
+                arrayOf(
+                    "d3d8.dll",
+                    "d3d9.dll",
+                    "d3d10.dll",
+                    "d3d10_1.dll",
+                    "d3d10core.dll",
+                    "d3d11.dll",
+                    "dxgi.dll",
+                )
+            if (dxvkDlls.any { !bothLinked(it) }) return true
+        }
+        if (parts.getOrNull(1)?.startsWith("vkd3d-") == true &&
+            arrayOf("d3d12.dll", "d3d12core.dll").any { !bothLinked(it) }
+        ) {
+            return true
+        }
+
+        val selectedDdraw = DirectDrawWrapperIds.normalize(parts.getOrNull(2))
+        if (!validLink(File(system32, "ddraw.dll")) ||
+            !validLink(File(syswow64, "ddraw.dll"))
+        ) {
+            return true
+        }
+        if (selectedDdraw == DirectDrawWrapperIds.DXWRAPPER_DD7TO9 &&
+            !validLink(File(syswow64, "dxwrapper.dll"))
+        ) {
+            return true
+        }
+        return arrayOf(
+            "3DfxSpl.dll",
+            "3DfxSpl2.dll",
+            "3DfxSpl3.dll",
+            "glide.dll",
+            "glide2x.dll",
+            "glide3x.dll",
+        ).any { !validLink(File(syswow64, it)) }
+    }
 
     /** getActiveGameDirectoryPath (XSDA L2043) -- shortcut-only; returns null (D9). */
     private fun getActiveGameDirectoryPath(): String? = null

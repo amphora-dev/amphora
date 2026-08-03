@@ -736,8 +736,18 @@ public class ContentsManager {
         File targetFile = new File(getPathFromTemplate(contentFile.target));
         File sourceFile = new File(getInstallDir(context, profile), contentFile.source);
 
-        targetFile.delete();
-        FileUtils.copy(sourceFile, targetFile);
+        boolean sharedWindowsDll =
+            (profile.type == ContentProfile.ContentType.CONTENT_TYPE_DXVK
+                    || profile.type == ContentProfile.ContentType.CONTENT_TYPE_VKD3D)
+                && targetFile.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".dll");
+        if (sharedWindowsDll) {
+          if (!SharedDllLinker.link(getContentDir(context), sourceFile, targetFile)) return false;
+        } else {
+          // Delete first so a previous shared link is never followed by
+          // FileOutputStream into the immutable component store.
+          targetFile.delete();
+          if (!FileUtils.copy(sourceFile, targetFile)) return false;
+        }
 
         if (profile.type == ContentProfile.ContentType.CONTENT_TYPE_BOX64
             || isSharedObject(targetFile.getName())) {

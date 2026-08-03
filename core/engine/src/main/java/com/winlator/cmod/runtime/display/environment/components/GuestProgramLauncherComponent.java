@@ -822,7 +822,11 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
     Log.d("GuestProgramLauncherComponent", "WinePath is " + winePath);
 
-    envVars.put("PATH", winePath + ":" + rootDir.getPath() + "/usr/bin");
+    // WinNative Proton packages use small shell launchers in bin/ which call
+    // readlink/dirname before exec'ing the real x86_64 loader. The full
+    // WinNative imagefs carries those coreutils; Amphora's minimal imagefs does
+    // not. Bionic exposes both through Android toybox under /system/bin.
+    envVars.put("PATH", winePath + ":" + rootDir.getPath() + "/usr/bin:/system/bin");
 
     envVars.put("ANDROID_SYSVSHM_SERVER", rootDir.getPath() + UnixSocketConfig.SYSVSHM_SERVER_PATH);
 
