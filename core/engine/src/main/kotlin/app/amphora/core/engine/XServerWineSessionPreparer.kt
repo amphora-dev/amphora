@@ -321,6 +321,14 @@ class XServerWineSessionPreparer @Inject constructor(
             c.putExtra("startupSelection", startupSelection)
             containerDataChanged = true
         }
+
+        // WinNative XSDA calls changeWineAudioDriver() after setupWineSystemFiles /
+        // extractGraphicsDriverFiles. Amphora folds graphics extract into this method,
+        // so mirror the registry write here. Existing prefixes often lack
+        // Software\Wine\Drivers Audio=alsa (extra was never stamped).
+        val audioDriver = c.getAudioDriver()?.takeIf { it.isNotBlank() } ?: Container.DEFAULT_AUDIO_DRIVER
+        WineUtils.changeWineAudioDriver(c, imageFs.getRootDir(), audioDriver)
+
         if (containerDataChanged) {
             Log.d(TAG, "Saving container data id=${c.id}")
             c.saveData()
@@ -374,6 +382,8 @@ class XServerWineSessionPreparer @Inject constructor(
         val c = wnContainer ?: return
         // D5: arm64ec rejected -> box64 only (ensureArm64EcRuntimeDllsReady stripped).
         ensureBox64RuntimeReady(c)
+        // ALSA layout must exist before winealsa.so / android_aserver load.
+        com.winlator.cmod.runtime.audio.AlsaRuntimeSupport.ensureImageFsLayout(imageFs.getRootDir())
     }
 
     private fun ensureBox64RuntimeReady(c: Container) {

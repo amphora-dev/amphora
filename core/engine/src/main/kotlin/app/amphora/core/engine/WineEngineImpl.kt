@@ -287,6 +287,9 @@ constructor(
             )
         }
         // ALSA socket (RFC §8: MVP is ALSA-only; PulseAudio is a non-target).
+        // Matches WinNative setupXEnvironment alsa branch: ANDROID_ALSA_SERVER + SHM.
+        // Registry Audio=alsa is written by WineUtils.changeWineAudioDriver (WinNative
+        // changeWineAudioDriver); no AUDIODRIVER env — WinNative does not set one.
         val rootPath = imageFs.getRootDir().path
         envVars.put("ANDROID_ALSA_SERVER", rootPath + UnixSocketConfig.ALSA_SERVER_PATH)
         envVars.put("ANDROID_ASERVER_USE_SHM", "true")
