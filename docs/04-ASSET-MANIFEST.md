@@ -189,7 +189,7 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
    见下「收敛到只有一份 hooks」。
 3. **Mesa GL 不单独拆包**，理由见下「为什么 Mesa GL 进 imagefs 而 wrapper 不进」。
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
-5. **ddraw** 默认 DxWrapper Dd7to9；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份，不回退 WineD3D。
+5. **ddraw** 默认 DxWrapper Dd7to9；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份。两套资产均仅含 PE32 `syswow64/ddraw.dll`：32-bit 优先 native wrapper；x86_64 无 native DLL，按 `ddraw=n,b` 回退 Proton builtin ddraw/WineD3D→Zink。
 6. **字体** 全局一份；多容器不重复打进 pattern。
 7. **发布面**：默认产物进公开 `amphora-assets`（或等价）固定标签；可选包同仓另附件，不塞进默认 APK。
 
@@ -611,7 +611,7 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 
 > **易混点**：真机是 **arm64-v8a Android**，但 guest 里跑的是 **x86_64 Wine**（外面套 Box64）。所以要下 **不带 `arm64ec`** 的 `.wcp`。带 `arm64ec` 的包是给「arm64ec Proton + FEX」那条 WinNative 路线的；装错 ABI 会直接对不上 `ContentsManager`/DLL 架构。`a6xx` 则是 **Adreno GPU** 名，和 `arm64ec` 不是一类东西。
 
-**和 WineD3D / Zink 的关系**：AIO **OpenGL** 走 Wine `opengl32` → EGL → Mesa **Zink**。DirectDraw 则强制二选一：DxWrapper Dd7to9 或 cnc-ddraw（D3D9 renderer）→ DXVK → Vulkan；缺包时启动失败，不回退 Wine `ddraw` / WineD3D。
+**和 WineD3D / Zink 的关系**：AIO **OpenGL** 走 Wine `opengl32` → EGL → Mesa **Zink**。32-bit DirectDraw 强制二选一：DxWrapper Dd7to9 或 cnc-ddraw（D3D9 renderer）→ DXVK → Vulkan；缺包时启动失败。两套上游 wrapper 都不提供 x86_64 DLL，因此 64-bit DirectDraw 走 Proton builtin `ddraw` → WineD3D → EGL/Zink。
 
 「有 FPS 但黑屏」历史原因是 launch env 漏合并容器 `DEFAULT_ENV_VARS`（`ZINK_DESCRIPTORS` / `TU_DEBUG=noconform,sysmem` / `mesa_glthread`）。这些变量现在只服务 OpenGL EGL/Zink；DirectDraw 强制走 native wrapper → D3D9/DXVK。
 

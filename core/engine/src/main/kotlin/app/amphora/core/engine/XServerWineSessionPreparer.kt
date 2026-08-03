@@ -888,14 +888,19 @@ class XServerWineSessionPreparer @Inject constructor(
                 envState.put("WRAPPER_NO_PATCH_OPCONSTCOMP", "1")
             }
         }
+        // DXVK replaces D3D8-11, but Wine's x86_64 builtin DirectDraw still
+        // falls back to WineD3D because the optional DirectDraw wrappers only
+        // ship 32-bit DLLs. Keep that path explicitly on OpenGL → EGL/Zink.
+        WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
         if (dxwrapper.split(";").lastOrNull() == DirectDrawWrapperIds.CNC_DDRAW) {
             envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
         }
-        // DirectDraw is always a native wrapper (cnc-ddraw or DxWrapper Dd7to9)
-        // whose D3D9 output must be consumed by native DXVK. Keep WineD3D
-        // available to unrelated consumers such as WPF/video; native-only
-        // ddraw+d3d9 still prevents this path from silently falling back to it.
-        envState.put("WINEDLLOVERRIDES", "ddraw=n;d3d9=n")
+        // Both DirectDraw wrapper assets are PE32 only. native,builtin therefore
+        // selects syswow64/ddraw.dll for 32-bit games, while a 64-bit process
+        // (with no system32 native ddraw.dll) falls through to Proton's builtin
+        // x86_64 ddraw/WineD3D. D3D9 stays native-only so wrapper output always
+        // enters DXVK.
+        envState.put("WINEDLLOVERRIDES", "ddraw=n,b;d3d9=n")
 
         applyGalliumDriver(rootDir)
         applyWineEglBackend(rootDir)
