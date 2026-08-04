@@ -152,7 +152,7 @@ class PreparerGraphicsDriverTest {
                 put("name", "preparer-test")
                 put("wineVersion", wineVersion)
                 put("graphicsDriver", WnContainer.DEFAULT_GRAPHICS_DRIVER) // "wrapper"
-                put("dxwrapper", WnContainer.DEFAULT_DXWRAPPER) // "dxvk+vkd3d"
+                put("dxwrapper", WnContainer.DEFAULT_DXWRAPPER) // delimited Amphora form
                 put("wincomponents", WnContainer.FALLBACK_WINCOMPONENTS)
             }
         val wnContainer = cMgr.createContainer(data, cm)

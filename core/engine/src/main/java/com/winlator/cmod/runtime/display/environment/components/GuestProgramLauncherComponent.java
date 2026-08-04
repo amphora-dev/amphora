@@ -7,7 +7,8 @@ import android.net.ConnectivityManager;
 import android.os.Process;
 import android.util.Log;
 import androidx.preference.PreferenceManager;
-import app.amphora.core.engine.ContentPinResolver;
+import app.amphora.core.engine.Box64Runtime;
+import app.amphora.core.engine.EmulatorRuntime;
 import com.winlator.cmod.runtime.compat.box64.Box64Preset;
 import com.winlator.cmod.runtime.compat.box64.Box64PresetManager;
 import com.winlator.cmod.runtime.compat.fexcore.FEXCorePreset;
@@ -309,186 +310,21 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
   private void extractBox64Files() {
     ImageFs imageFs = environment.getImageFs();
-
-    // Use the configured runtime version; legacy containers may only have the app default.
-    String box64Version = container.getBox64Version();
-    if (box64Version == null) box64Version = "";
-
     Log.i(
         "GuestProgramLauncherComponent",
-        "Launch runtime selected: Box64 version=" + box64Version);
-
-    File rootDir = imageFs.getRootDir();
-    boolean box64Missing = !new File(rootDir, "usr/bin/box64").exists();
-
-    if (box64Missing || !box64Version.equals(container.getExtra("box64Version"))) {
-      if (box64Version.isEmpty()) {
-        Log.w("GuestProgramLauncherComponent", "No Box64 version selected; skipping content extraction");
-      } else {
-        ContentProfile profile =
-            ContentPinResolver.INSTANCE.resolveInstalledProfile(
-                contentsManager, ContentProfile.ContentType.CONTENT_TYPE_BOX64, box64Version);
-        if (profile != null) {
-          String resolved =
-              ContentPinResolver.INSTANCE.versionIdentity(ContentPinResolver.INSTANCE.entryName(profile));
-          if (!resolved.equals(box64Version)) {
-            Log.w(
-                "GuestProgramLauncherComponent",
-                "Box64 content profile not installed for version="
-                    + box64Version
-                    + "; falling back to installed "
-                    + resolved);
-            box64Version = resolved;
-            container.setBox64Version(box64Version);
-          }
-          Log.i(
-              "GuestProgramLauncherComponent",
-              "Loading Box64 content profile: version=" + box64Version);
-          contentsManager.applyContent(profile);
-          container.putExtra("box64Version", box64Version);
-          container.saveData();
-        } else {
-          Log.w(
-              "GuestProgramLauncherComponent",
-              "Box64 content profile not installed; no bundled Box64 archive will be loaded: version="
-                  + box64Version);
-        }
-      }
-    } else {
-      Log.i(
-          "GuestProgramLauncherComponent",
-          "Box64 already loaded for launch: version=" + box64Version);
-    }
-
-    // Set execute permissions for box64 just in case
-    File box64File = new File(rootDir, "usr/bin/box64");
-    if (box64File.exists()) {
-      FileUtils.chmod(box64File, 0755);
+        "Launch runtime selected: Box64 version=" + container.getBox64Version());
+    if (Box64Runtime.ensureApplied(container, imageFs, contentsManager)) {
+      container.saveData();
     }
   }
 
   private void extractEmulatorsDlls() {
-    File rootDir = environment.getImageFs().getRootDir();
-    File system32dir = new File(rootDir + "/home/xuser/.wine/drive_c/windows/system32");
-    boolean containerDataChanged = false;
-
-    String emulator = container.getEmulator();
-    String emulator64 = container.getEmulator64();
-    String wowbox64Version = container.getBox64Version();
-    String fexcoreVersion = container.getFEXCoreVersion();
-
-    // Use configured runtime versions; legacy containers may only have app defaults.
-    if (emulator == null) emulator = "";
-    if (emulator64 == null) emulator64 = "";
-    if (wowbox64Version == null) wowbox64Version = "";
-    if (fexcoreVersion == null) fexcoreVersion = "";
-
-    boolean unixLibsPref = container.isUseUnixLibs();
-
-    boolean usesWowbox64 = emulator.equalsIgnoreCase("wowbox64");
-    boolean usesFexcore =
-        emulator.equalsIgnoreCase("fexcore")
-            || emulator64.equalsIgnoreCase("fexcore")
-            || !usesWowbox64;
-
-    fexUnixLibsActive =
-        usesFexcore && unixLibsPref && contentsManager.fexcoreVersionHasUnixLibs(fexcoreVersion);
-
-    Log.i(
-        "GuestProgramLauncherComponent",
-        "Launch runtime selected: emulator="
-            + emulator
-            + " emulator64="
-            + emulator64
-            + " WowBox64 version="
-            + wowbox64Version
-            + " FEXCore version="
-            + fexcoreVersion);
-
-    // Check if critical FEXCore DLLs actually exist on disk (they may be missing even if version
-    // matches)
-    boolean fexcoreDllsMissing =
-        !new File(system32dir, "libwow64fex.dll").exists()
-            || !new File(system32dir, "libarm64ecfex.dll").exists();
-    boolean wowbox64DllMissing = !new File(system32dir, "wowbox64.dll").exists();
-
-    if (usesFexcore && fexcoreDllsMissing) {
-      Log.w(
-          "GuestProgramLauncherComponent",
-          "FEXCore DLLs missing from system32 (libwow64fex.dll or libarm64ecfex.dll), forcing re-extraction");
+    EmulatorRuntime.Result result =
+        EmulatorRuntime.ensureApplied(container, environment.getImageFs(), contentsManager);
+    fexUnixLibsActive = result.getFexUnixLibsActive();
+    if (result.getChanged()) {
+      container.saveData();
     }
-    if (usesWowbox64 && wowbox64DllMissing) {
-      Log.w(
-          "GuestProgramLauncherComponent",
-          "wowbox64.dll missing from system32, forcing re-extraction");
-    }
-
-    if (usesWowbox64
-        && (wowbox64DllMissing || !wowbox64Version.equals(container.getExtra("box64Version")))) {
-      if (wowbox64Version.isEmpty()) {
-        Log.w("GuestProgramLauncherComponent", "No WowBox64 version selected; skipping content extraction");
-      } else {
-        ContentProfile profile = contentsManager.getProfileByEntryName("wowbox64-" + wowbox64Version);
-        if (profile != null) {
-          Log.i(
-              "GuestProgramLauncherComponent",
-              "Loading WowBox64 content profile: version=" + wowbox64Version);
-          contentsManager.applyContent(profile);
-        } else {
-          Log.w(
-              "GuestProgramLauncherComponent",
-              "WowBox64 content profile not installed; no bundled WowBox64 archive will be loaded: version="
-                  + wowbox64Version);
-        }
-      }
-      container.putExtra("box64Version", wowbox64Version);
-      containerDataChanged = true;
-    } else if (usesWowbox64) {
-      Log.i(
-          "GuestProgramLauncherComponent",
-          "WowBox64 already loaded for launch: version=" + wowbox64Version);
-    }
-
-    if (usesFexcore) {
-      ContentProfile profile =
-          fexcoreVersion.isEmpty() ? null : contentsManager.getProfileByEntryName("fexcore-" + fexcoreVersion);
-      String wantMode = fexUnixLibsActive ? "unixlibs" : "dll";
-      boolean modeChanged = !wantMode.equals(container.getExtra("fexcoreMode"));
-      boolean versionChanged = !fexcoreVersion.equals(container.getExtra("fexcoreVersion"));
-      boolean needsExtraction =
-          versionChanged || modeChanged || (!fexUnixLibsActive && fexcoreDllsMissing);
-
-      if (needsExtraction) {
-        if (fexcoreVersion.isEmpty()) {
-          Log.w("GuestProgramLauncherComponent", "No FEXCore version selected; skipping content extraction");
-        } else if (profile != null) {
-          Log.i(
-              "GuestProgramLauncherComponent",
-              "Loading FEXCore content profile: version=" + fexcoreVersion + " mode=" + wantMode);
-          contentsManager.applyContent(profile);
-          if (!fexUnixLibsActive) contentsManager.removeAppliedUnixLibs(profile);
-        } else {
-          Log.w(
-              "GuestProgramLauncherComponent",
-              "FEXCore content profile not installed; no bundled FEXCore archive will be loaded: version="
-                  + fexcoreVersion);
-        }
-        container.putExtra("fexcoreVersion", fexcoreVersion);
-        container.putExtra("fexcoreMode", wantMode);
-        containerDataChanged = true;
-      } else {
-        Log.i(
-            "GuestProgramLauncherComponent",
-            "FEXCore already loaded for launch: version=" + fexcoreVersion + " mode=" + wantMode);
-      }
-
-      if (profile != null) {
-        File wineUnixDir = new File(environment.getImageFs().getWinePath(), "lib/wine/aarch64-unix");
-        if (fexUnixLibsActive) contentsManager.copyUnixLibsToDir(profile, wineUnixDir);
-        else contentsManager.deleteUnixLibsFromDir(profile, wineUnixDir);
-      }
-    }
-    if (containerDataChanged) container.saveData();
   }
 
   public GuestProgramLauncherComponent(

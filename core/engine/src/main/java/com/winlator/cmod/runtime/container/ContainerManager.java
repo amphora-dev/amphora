@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import app.amphora.core.engine.AppliedMarks;
 import com.winlator.cmod.runtime.content.ContentProfile;
 import com.winlator.cmod.runtime.content.ContentsManager;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
@@ -639,15 +640,8 @@ public class ContainerManager {
 
       WineInfo wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion);
       container.putExtra("wineprefixArch", wineInfo.getArch());
-      container.putExtra("wineprefixNeedsUpdate", null);
-      container.putExtra("appVersion", null);
-      container.putExtra("imgVersion", null);
-      container.putExtra("dxwrapper", null);
-      container.putExtra("wincomponents", null);
-      container.putExtra("desktopTheme", null);
-      container.putExtra("startupSelection", null);
-      container.putExtra("mono_installed", null);
-      container.putExtra("mono_version", null);
+      // 前缀换新：装过标记作废，下次按容器配置重做。
+      AppliedMarks.clearOwnedByPrefix(container);
       container.saveData();
       if (movedAside) {
         Log.i(

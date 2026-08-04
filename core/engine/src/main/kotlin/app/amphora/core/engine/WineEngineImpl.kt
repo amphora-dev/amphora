@@ -152,25 +152,12 @@ constructor(
                 GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
                     wnContainer.getGraphicsDriverConfig(),
                 )
-            // Host VulkanRenderer must use the same adrenotools id as the guest.
-            // Prefs are the UI source of truth (container version= can lag).
-            val prefsDriver =
-                GraphicsDriverIds.normalize(
-                    context
-                        .getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
-                        .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
-                )
-            val containerDriver =
+            // 容器是唯一真相（getOrCreate 已从设置同步）。
+            val hostDriver =
                 driverConfig["version"]
                     ?.takeIf { it.isNotEmpty() && !it.equals("System", ignoreCase = true) }
                     ?.let { GraphicsDriverIds.normalize(it) }
-            val hostDriver = prefsDriver.ifEmpty { containerDriver ?: GraphicsDriverIds.WRAPPER }
-            if (containerDriver != null && containerDriver != hostDriver) {
-                Log.i(
-                    "WineEngineImpl",
-                    "Host graphics driver from prefs='$hostDriver' (container had '$containerDriver')",
-                )
-            }
+                    ?: GraphicsDriverIds.WRAPPER
             _surface.value =
                 GameSessionSurface(
                     xServer = xServer,
@@ -288,10 +275,9 @@ constructor(
                     "WINEDEBUG=${envVars.get("WINEDEBUG")}",
             )
         }
-        // ALSA socket (RFC §8: MVP is ALSA-only; PulseAudio is a non-target).
-        // Matches WinNative setupXEnvironment alsa branch: ANDROID_ALSA_SERVER + SHM.
-        // Registry Audio=alsa is written by WineUtils.changeWineAudioDriver (WinNative
-        // changeWineAudioDriver); no AUDIODRIVER env — WinNative does not set one.
+        // ALSA socket when using alsa backend (WinNative alsa branch).
+        // Registry Audio 由 AppliedMarks 门控写入；可配置 alsa / pulseaudio。
+        // 当前运行时只接了 ALSA aserver；选 pulse 需另接 Pulse 组件。
         val rootPath = imageFs.getRootDir().path
         envVars.put("ANDROID_ALSA_SERVER", rootPath + UnixSocketConfig.ALSA_SERVER_PATH)
         envVars.put("ANDROID_ASERVER_USE_SHM", "true")

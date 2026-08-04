@@ -1,7 +1,7 @@
 # 05 - As-Built 架构
 
 > 当前实现的架构真源。决议见 [`01-RFC.md`](01-RFC.md)；进度手账见 [`03-TRACKING.md`](03-TRACKING.md)；资产锁见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)。
-> 最后更新: 2026-07-21 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
+> 最后更新: 2026-08-04 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
 
 ---
 
@@ -90,6 +90,20 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 启动**从不**按 hash 选二进制；按 entry / `verName-verCode` 选。  
 `WinlatorContainerManager.syncRuntimePins` 在每次 `getOrCreate` 把容器字段收敛到**当前已装 pin**（清单优先，否则 newest installed）。  
 `ContentPinResolver` 是唯一解析入口；DXVK/VKD3D 在 wipe DLL **之前**先 resolve，避免 prune 后空 prefix。
+
+---
+
+## 3.2 容器配置怎么应用
+
+一种方式：
+
+1. **想要什么**：只在容器（唯一真相）。设置页 / 清单只负责改写容器。
+2. **装过什么**：`AppliedMarks`（`applied*`）。
+3. 想要的 ≠ 装过的 → 去做 → 成功后更新标记。
+4. 前缀重建 → `clearOwnedByPrefix`，标记全清，下次会重做。
+
+声音、服务、DLL、组件、盘符、输入、Box64/FEX 全部同一套。  
+`dxwrapper` 只认分号格式。图形启动只读容器（`getOrCreate` 已从设置写入）。
 
 ---
 
