@@ -64,11 +64,6 @@ class VerifiedAssetDownloader(
                             ),
                         )
                     }
-                    if (expectedSize != null && partial.length() != expectedSize) {
-                        throw IOException(
-                            "Truncated asset $relativePath: expected $expectedSize bytes, got ${partial.length()}",
-                        )
-                    }
                     progressBus?.update(
                         ProvisionProgress(
                             stage = "verify",
@@ -81,7 +76,18 @@ class VerifiedAssetDownloader(
                     if (!actual.equals(expectedSha256, ignoreCase = true)) {
                         partial.delete()
                         throw SecurityException(
-                            "SHA-256 mismatch for $relativePath: expected=$expectedSha256 actual=$actual",
+                            "SHA-256 mismatch for $relativePath: expected=$expectedSha256 actual=$actual" +
+                                sizeHint(expectedSize, partial.length()),
+                        )
+                    }
+                    if (expectedSize != null && partial.length() != expectedSize) {
+                        // SHA is the pin of record. A stale size in content_manifest must not
+                        // reject a complete, digest-matching asset or leave a .part that later
+                        // Range resumes into HTTP 416 against the CDN.
+                        android.util.Log.w(
+                            TAG,
+                            "Size pin mismatch for $relativePath: manifest=$expectedSize " +
+                                "actual=${partial.length()}; accepting SHA match",
                         )
                     }
                     atomicReplace(partial, destination)
@@ -90,7 +96,9 @@ class VerifiedAssetDownloader(
                 } catch (failure: Throwable) {
                     if (failure is CancellationException) throw failure
                     lastFailure = failure
-                    if (failure is SecurityException) partial.delete()
+                    if (failure is SecurityException || isUnsatisfiableRange(failure)) {
+                        partial.delete()
+                    }
                     if (attempt + 1 < MAX_ATTEMPTS) {
                         Thread.sleep(RETRY_DELAYS_MS[attempt])
                     }
@@ -196,5 +204,19 @@ class VerifiedAssetDownloader(
         const val CONNECT_TIMEOUT_MS = 15_000
         const val READ_TIMEOUT_MS = 60_000
         val RETRY_DELAYS_MS = longArrayOf(1_000, 2_000)
+        private const val TAG = "VerifiedAssetDownloader"
+
+        private fun sizeHint(expectedSize: Long?, actualSize: Long): String =
+            if (expectedSize == null || expectedSize == actualSize) {
+                ""
+            } else {
+                " (manifest size=$expectedSize actual=$actualSize)"
+            }
+
+        private fun isUnsatisfiableRange(failure: Throwable): Boolean {
+            val message = failure.message.orEmpty()
+            return message.contains("HTTP 416") ||
+                message.contains("Range Not Satisfiable", ignoreCase = true)
+        }
     }
 }
