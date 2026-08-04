@@ -402,7 +402,23 @@ class XServerWineSessionPreparer @Inject constructor(
             return
         }
 
-        val profile = resolveContentProfile(ContentProfile.ContentType.CONTENT_TYPE_BOX64, box64Version)
+        var profile = resolveContentProfile(ContentProfile.ContentType.CONTENT_TYPE_BOX64, box64Version)
+        // Content reconcile can prune an older pin while .container still names it.
+        // Fall back to the newest installed Box64 so launch does not leave usr/bin/box64 missing.
+        if (profile == null) {
+            val fallback =
+                pickNewestInstalledContentVersion(ContentProfile.ContentType.CONTENT_TYPE_BOX64)
+            if (fallback.isNotEmpty() && fallback != box64Version) {
+                Log.w(
+                    TAG,
+                    "Box64 content profile not installed for version: $box64Version; " +
+                        "falling back to installed $fallback",
+                )
+                box64Version = fallback
+                c.setBox64Version(box64Version)
+                profile = resolveContentProfile(ContentProfile.ContentType.CONTENT_TYPE_BOX64, box64Version)
+            }
+        }
         if (profile == null) {
             Log.w(TAG, "Box64 content profile not installed for version: $box64Version")
             return

@@ -325,11 +325,28 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         Log.w("GuestProgramLauncherComponent", "No Box64 version selected; skipping content extraction");
       } else {
         ContentProfile profile = contentsManager.getProfileByEntryName("box64-" + box64Version);
+        // Content reconcile can prune an older pin while .container still names it.
+        if (profile == null) {
+          String fallback = pickNewestInstalledBox64Version();
+          if (!fallback.isEmpty() && !fallback.equals(box64Version)) {
+            Log.w(
+                "GuestProgramLauncherComponent",
+                "Box64 content profile not installed for version="
+                    + box64Version
+                    + "; falling back to installed "
+                    + fallback);
+            box64Version = fallback;
+            container.setBox64Version(box64Version);
+            profile = contentsManager.getProfileByEntryName("box64-" + box64Version);
+          }
+        }
         if (profile != null) {
           Log.i(
               "GuestProgramLauncherComponent",
               "Loading Box64 content profile: version=" + box64Version);
           contentsManager.applyContent(profile);
+          container.putExtra("box64Version", box64Version);
+          container.saveData();
         } else {
           Log.w(
               "GuestProgramLauncherComponent",
@@ -337,8 +354,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                   + box64Version);
         }
       }
-      container.putExtra("box64Version", box64Version);
-      container.saveData();
     } else {
       Log.i(
           "GuestProgramLauncherComponent",
@@ -350,6 +365,35 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     if (box64File.exists()) {
       FileUtils.chmod(box64File, 0755);
     }
+  }
+
+  /** Newest installed Box64 identity (`verName-verCode`), or empty when none. */
+  private String pickNewestInstalledBox64Version() {
+    java.util.List<ContentProfile> profiles =
+        contentsManager.getProfiles(ContentProfile.ContentType.CONTENT_TYPE_BOX64);
+    if (profiles == null || profiles.isEmpty()) return "";
+    ContentProfile best = null;
+    for (ContentProfile p : profiles) {
+      if (!p.isInstalled) continue;
+      if (best == null) {
+        best = p;
+        continue;
+      }
+      if (p.verCode > best.verCode) {
+        best = p;
+        continue;
+      }
+      if (p.verCode == best.verCode
+          && p.verName != null
+          && best.verName != null
+          && p.verName.compareToIgnoreCase(best.verName) > 0) {
+        best = p;
+      }
+    }
+    if (best == null) return "";
+    String entryName = ContentsManager.getEntryName(best);
+    int firstDash = entryName.indexOf('-');
+    return firstDash >= 0 ? entryName.substring(firstDash + 1) : entryName;
   }
 
   private void extractEmulatorsDlls() {
