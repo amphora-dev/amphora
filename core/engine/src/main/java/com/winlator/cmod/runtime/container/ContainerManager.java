@@ -640,7 +640,7 @@ public class ContainerManager {
 
       WineInfo wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion);
       container.putExtra("wineprefixArch", wineInfo.getArch());
-      // 前缀换新了：大事标记作废，下次启动重装 DLL / 重写服务等。
+      // 前缀换新：装过标记作废，下次按容器配置重做。
       AppliedMarks.clearOwnedByPrefix(container);
       container.saveData();
       if (movedAside) {
