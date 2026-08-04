@@ -94,6 +94,7 @@ constructor(
         contentsManager.syncContents()
 
         val wineVersion = resolveWineVersion(manifest)
+        val box64Version = resolveBox64Version(manifest)
         val dxwrapper = resolveDxwrapper(manifest)
         val wincomponents = WindowsComponentPreferences.serialized(context)
         val targetId = parseContainerId(id)
@@ -106,19 +107,15 @@ constructor(
                     "ContainerManager.createContainer returned null for wineVersion=$wineVersion " +
                         "(see logcat 'ContainerManager'); is the Proton prefixPack installed?",
                 )
-        // Follow the manifest WINE pin when it moves under an existing container
-        // (resolveWineVersion only runs at creation).
-        ensurePinnedWineVersion(wnContainer, wineVersion)
-        // Migrate containers created before real DXVK/VKD3D were bundled
-        // (dxvk-1.0 / vkd3d-None / missing profile). Clear the dxwrapper gate
-        // extra so the preparer re-extracts DLLs on the next launch.
-        ensureRealDxwrapper(wnContainer, dxwrapper)
-        // Mirror WinNative's ComponentsSection selection into the shared
-        // container. The preparer compares this with its last-applied snapshot.
-        ensureWinComponents(wnContainer, wincomponents)
-        // One-shot: incomplete upstream DXVK profile.json omitted d3d8/d3d10*;
-        // clear the preparer gate so applyContent re-runs with trust augment.
-        ensureDxvkTrustAugmentReapply(wnContainer)
+        // Manifest pin (+ installed disk) is authoritative. Container fields are
+        // only a cache — rewrite them whenever reconcile moved the install.
+        syncRuntimePins(
+            container = wnContainer,
+            wineVersion = wineVersion,
+            box64Version = box64Version,
+            dxwrapper = dxwrapper,
+            wincomponents = wincomponents,
+        )
         // Optional adrenotools driver (wrapper default, Turnip when selected).
         ensureAdrenotoolsDriver(wnContainer)
         // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
@@ -145,6 +142,27 @@ constructor(
     // --- helpers --------------------------------------------------------------
 
     /**
+     * Rewrite every runtime pin on [container] from the current manifest /
+     * installed WCP set. Hash stays a download check; these strings are what
+     * launch looks up.
+     */
+    private fun syncRuntimePins(
+        container: WnContainer,
+        wineVersion: String,
+        box64Version: String,
+        dxwrapper: String,
+        wincomponents: String,
+    ) {
+        ensurePinnedWineVersion(container, wineVersion)
+        ensurePinnedBox64Version(container, box64Version)
+        ensureRealDxwrapper(container, dxwrapper)
+        ensureWinComponents(container, wincomponents)
+        // One-shot: incomplete upstream DXVK profile.json omitted d3d8/d3d10*;
+        // clear the preparer gate so applyContent re-runs with trust augment.
+        ensureDxvkTrustAugmentReapply(container)
+    }
+
+    /**
      * The container's `wineVersion` = the ContentsManager entry name of the
      * installed Proton profile (`type-verName-verCode`). Prefer the manifest's
      * pinned WINE version (single source of truth); fall back to any installed
@@ -152,18 +170,30 @@ constructor(
      * -- no prefixPack, createContainer's extract step will fail gracefully).
      */
     private fun resolveWineVersion(manifest: ContentManifest): String {
-        val manifestVersion = manifest.entry(ContentComponent.WINE)?.version
-        if (manifestVersion != null) {
-            val profile = contentsManager.getProfileByEntryName(manifestVersion)
-            if (profile != null && ContentsManager.getInstallDir(context, profile).isDirectory) {
-                return manifestVersion
-            }
-        }
-        val profiles = contentsManager.getProfiles(ContentProfile.ContentType.CONTENT_TYPE_PROTON)
-        if (!profiles.isNullOrEmpty()) {
-            for (p in profiles) if (p.isInstalled) return ContentsManager.getEntryName(p)
-        }
+        val preferred = manifest.entry(ContentComponent.WINE)?.version
+        val profile =
+            ContentPinResolver.resolveInstalledProfile(
+                contentsManager,
+                ContentProfile.ContentType.CONTENT_TYPE_PROTON,
+                preferred,
+            )
+        if (profile != null) return ContentPinResolver.entryName(profile)
         return WineInfo.MAIN_WINE_VERSION.identifier()
+    }
+
+    /**
+     * Container `box64Version` stores the identity after the type dash
+     * (`0.4.5-0db8df775-0`), matching GuestProgramLauncher / preparer lookups.
+     */
+    private fun resolveBox64Version(manifest: ContentManifest): String {
+        val preferred = manifest.entry(ContentComponent.BOX64)?.version
+        val profile =
+            ContentPinResolver.resolveInstalledProfile(
+                contentsManager,
+                ContentProfile.ContentType.CONTENT_TYPE_BOX64,
+                preferred,
+            ) ?: return ""
+        return ContentPinResolver.versionIdentity(ContentPinResolver.entryName(profile))
     }
 
     /**
@@ -240,19 +270,13 @@ constructor(
         prefix: String,
     ): String {
         val entry = manifest.entry(component)
-        val manifestEntryName = entry?.version // e.g. DXVK-3.0.2-gplasync-0
-        if (manifestEntryName != null) {
-            val profile = contentsManager.getProfileByEntryName(manifestEntryName)
-            if (profile != null && ContentsManager.getInstallDir(context, profile).isDirectory) {
-                return wrapperToken(prefix, profile)
-            }
-        }
-        val profiles = contentsManager.getProfiles(type)
-        if (!profiles.isNullOrEmpty()) {
-            for (p in profiles) {
-                if (p.isInstalled) return wrapperToken(prefix, p)
-            }
-        }
+        val profile =
+            ContentPinResolver.resolveInstalledProfile(
+                contentsManager,
+                type,
+                entry?.version,
+            )
+        if (profile != null) return ContentPinResolver.wrapperToken(prefix, profile)
         val verName = entry?.verName
         val verCode = entry?.verCode ?: 0
         if (verName != null) return "$prefix-$verName-$verCode"
@@ -265,12 +289,8 @@ constructor(
     /**
      * Rewrite [container]'s `wineVersion` when the manifest WINE pin moves.
      *
-     * [resolveWineVersion] only feeds [createDefaultContainer], so a container
-     * created against an older Proton kept pointing at it forever — the new
-     * Proton installed but nothing ever ran it. The prefix belongs to the Proton
-     * it was unpacked from, so this also arms `wineprefixNeedsUpdate`, which
-     * makes the preparer re-extract it from the new `prefixPack.txz`
-     * (`repairContainerWinePrefix` carries in-prefix save data across), and
+     * The prefix belongs to the Proton it was unpacked from, so this also arms
+     * `wineprefixNeedsUpdate` (`repairContainerWinePrefix` carries saves) and
      * clears the dxwrapper gate so DXVK/VKD3D DLLs land in the fresh prefix.
      */
     private fun ensurePinnedWineVersion(container: WnContainer, desired: String) {
@@ -288,6 +308,26 @@ constructor(
     }
 
     /**
+     * Rewrite [container]'s `box64Version` when reconcile pruned the old install.
+     * Clears the preparer/launcher gate so `usr/bin/box64` is re-applied.
+     */
+    private fun ensurePinnedBox64Version(container: WnContainer, desired: String) {
+        if (desired.isEmpty()) return
+        val current = container.getBox64Version() ?: ""
+        val applied = container.getExtra("box64Version") ?: ""
+        if (current == desired && applied == desired) return
+
+        android.util.Log.i(
+            "WinlatorContainerManager",
+            "Migrating container box64Version '$current' (applied='$applied') -> '$desired'",
+        )
+        container.setBox64Version(desired)
+        // Force extractBox64Files / ensureBox64RuntimeReady to re-applyContent.
+        container.putExtra("box64Version", "")
+        container.saveData()
+    }
+
+    /**
      * Rewrite [container]'s `dxwrapper` when it differs from the manifest-pinned
      * [desired] token (legacy `dxvk-1.0` / `vkd3d-None` / version bumps). Clears
      * the preparer gate so DLLs are re-applied on next launch.
@@ -296,9 +336,6 @@ constructor(
         val current = container.getDXWrapper() ?: ""
         if (current == desired) return
 
-        // Always converge on the manifest-pinned DXVK/VKD3D plus the selected
-        // DirectDraw wrapper. Preserving a stale token blocks both pin
-        // migrations and launcher wrapper changes.
         android.util.Log.i(
             "WinlatorContainerManager",
             "Migrating container dxwrapper '$current' -> '$desired'",
@@ -362,10 +399,6 @@ constructor(
         )
         container.saveData()
     }
-
-    /** `<prefix>-<verName>-<verCode>` — lowercase type prefix for preparer matching. */
-    private fun wrapperToken(prefix: String, profile: ContentProfile): String =
-        "$prefix-${profile.verName}-${profile.verCode}"
 
     private fun parseContainerId(id: ContainerId): Int = id.value.toIntOrNull() ?: DEFAULT_CONTAINER_ID.value.toInt()
 
