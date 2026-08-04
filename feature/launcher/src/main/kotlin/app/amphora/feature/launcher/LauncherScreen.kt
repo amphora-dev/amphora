@@ -11,20 +11,32 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -83,7 +95,23 @@ fun LauncherScreen(
         }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Amphora") }) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Amphora")
+                        Text(
+                            "Windows runtime for Android",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                actions = {
+                    TextButton(onClick = onOpenSettings) { Text("Settings") }
+                },
+            )
+        },
     ) { padding ->
         // Landscape (and short viewports) overflow the chip/button stack — must scroll.
         Column(
@@ -92,9 +120,9 @@ fun LauncherScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.Start,
         ) {
             VersionBlock(uiState = uiState, onRefresh = viewModel::refreshContentInfo)
 
@@ -104,39 +132,73 @@ fun LauncherScreen(
 
             StorageAccessBlock()
 
-            // --- exe picker ---------------------------------------------------
-            Button(
-                onClick = { pickExe.launch(arrayOf("*/*")) },
+            Text(
+                "Launch a program",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Card(
                 modifier = Modifier.fillMaxWidth(),
+                colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
             ) {
-                Text(
-                    uiState.stagedExePath?.let { "Exe: ${File(it).name}" }
-                        ?: if (uiState.staging) "Staging…" else "Pick a Windows .exe",
-                )
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        uiState.stagedExePath?.let { File(it).name } ?: "No program selected",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        if (uiState.stagedExePath == null) {
+                            "Choose a Windows executable. Amphora copies it into private storage " +
+                                "before Wine starts."
+                        } else {
+                            "Ready to run in a ${uiState.resolution.label} virtual desktop."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = { pickExe.launch(arrayOf("*/*")) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (uiState.staging) "Preparing…" else "Choose .exe")
+                    }
+                }
             }
 
-            // --- resolution selector -----------------------------------------
-            ResolutionSelector(
-                selected = uiState.resolution,
-                onSelect = viewModel::selectResolution,
-            )
-
-            GraphicsDriverSelector(
-                selected = uiState.graphicsDriver,
-                enabled = !uiState.driverBusy && !uiState.staging,
-                onSelect = viewModel::selectGraphicsDriver,
-            )
-            if (uiState.driverBusy) {
-                Text("Installing Turnip…", style = MaterialTheme.typography.bodySmall)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text("Active configuration", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "${uiState.resolution.label} · ${uiState.graphicsDriver.label}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "${uiState.directDrawWrapper.label} for legacy DirectDraw",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = onOpenSettings) {
+                        Text("Review settings and dependencies")
+                    }
+                }
             }
 
-            DirectDrawWrapperSelector(
-                selected = uiState.directDrawWrapper,
-                enabled = !uiState.staging,
-                onSelect = viewModel::selectDirectDrawWrapper,
-            )
-
-            // --- launch -------------------------------------------------------
             Button(
                 onClick = {
                     val path = uiState.stagedExePath
@@ -150,27 +212,46 @@ fun LauncherScreen(
                     !uiState.driverBusy &&
                     uiState.catalogStatus is ContentCatalog.Status.Ready,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Launch") }
-
-            uiState.stageError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            ) {
+                Text(
+                    if (uiState.catalogStatus is ContentCatalog.Status.Ready) {
+                        "Launch"
+                    } else {
+                        "Waiting for component information…"
+                    },
+                )
             }
 
-            Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) { Text("Settings") }
+            uiState.stageError?.let {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        it,
+                        modifier = Modifier.padding(12.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
 
             if (onDebugLaunchWine != null) {
-                Button(
+                Text("Diagnostics", style = MaterialTheme.typography.labelLarge)
+                OutlinedButton(
                     onClick = onDebugLaunchWine,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Debug: Wine smoke test") }
             }
 
             if (onDebugLaunchWineDiag != null) {
-                Button(
+                OutlinedButton(
                     onClick = onDebugLaunchWineDiag,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Debug: Wine + DXVK diag") }
             }
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
@@ -262,71 +343,71 @@ private fun allFilesAccessIntent(context: Context): Intent = Intent(
 
 @Composable
 private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
-    Column(
+    val unhealthyComponents =
+        uiState.components.count {
+            it.pinned == null || it.installed == null || !it.matchesPin
+        }
+    val unhealthyAssets = uiState.runtimeAssets.count { !it.healthy }
+    val healthy =
+        uiState.catalogStatus is ContentCatalog.Status.Ready &&
+            unhealthyComponents == 0 &&
+            unhealthyAssets == 0 &&
+            !uiState.imagefsResidue
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text("App ${uiState.appVersion}", style = MaterialTheme.typography.titleMedium)
-        val catalogLine =
-            when (val status = uiState.catalogStatus) {
-                is ContentCatalog.Status.Idle -> "Manifest: not loaded"
-                is ContentCatalog.Status.Loading -> "Manifest: loading…"
-                is ContentCatalog.Status.Ready -> "Manifest: remote OK (${status.manifest.all().size} components)"
-                is ContentCatalog.Status.Failed -> "Manifest: ${status.error}"
-            }
-        Text(
-            catalogLine,
-            style = MaterialTheme.typography.bodySmall,
-            color =
-            if (uiState.catalogStatus is ContentCatalog.Status.Failed) {
-                MaterialTheme.colorScheme.error
+        colors =
+        CardDefaults.cardColors(
+            containerColor =
+            if (healthy) {
+                MaterialTheme.colorScheme.primaryContainer
             } else {
-                MaterialTheme.colorScheme.onSurface
+                MaterialTheme.colorScheme.surfaceVariant
             },
-        )
-        if (uiState.components.isNotEmpty()) {
-            Text("Components", style = MaterialTheme.typography.labelLarge)
-            uiState.components.forEach { row ->
-                val installed = row.installed ?: "—"
-                val pinned = row.pinned ?: "…"
-                // A local inject deliberately diverges from the remote pin, so it
-                // is a warning (not an error) and must not read as "stale".
-                val suffix =
-                    when {
-                        row.localOverride -> " (local)"
-                        row.pinned == null -> " (no pin)"
-                        row.installed == null -> " (missing)"
-                        !row.matchesPin -> " (stale)"
-                        else -> ""
-                    }
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(11.dp)
+                    .background(
+                        if (healthy) Color(0xFF2E7D5B) else MaterialTheme.colorScheme.outline,
+                        CircleShape,
+                    ),
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    "${row.label}: installed $installed · pin $pinned$suffix",
-                    style = MaterialTheme.typography.bodySmall,
-                    color =
-                    when {
-                        row.localOverride -> LOCAL_BUILD_COLOR
-                        suffix.isNotEmpty() -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.onSurface
+                    if (healthy) "Runtime ready" else "Runtime status",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    when (val status = uiState.catalogStatus) {
+                        is ContentCatalog.Status.Idle -> "Component information has not loaded"
+                        is ContentCatalog.Status.Loading -> "Checking published components…"
+                        is ContentCatalog.Status.Failed -> "Could not check components: ${status.error}"
+                        is ContentCatalog.Status.Ready ->
+                            if (healthy) {
+                                "Proton, Box64 and graphics layers are ready"
+                            } else {
+                                "$unhealthyComponents components and $unhealthyAssets files need attention"
+                            }
                     },
-                    fontWeight = if (row.localOverride) FontWeight.Bold else null,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "App ${uiState.appVersion}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        if (uiState.runtimeAssets.isNotEmpty()) {
-            RuntimeAssetBlock(uiState.runtimeAssets)
-        }
-        if (uiState.imagefsResidue) {
-            Text(
-                "residue: imagefs.olddead (unusable husk)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        if (uiState.contentBusy) {
-            Text("Refreshing content pins…", style = MaterialTheme.typography.bodySmall)
-        }
-        TextButton(onClick = onRefresh, enabled = !uiState.contentBusy) {
-            Text("Refresh manifest")
+            TextButton(onClick = onRefresh, enabled = !uiState.contentBusy) {
+                Text(if (uiState.contentBusy) "Checking…" else "Refresh")
+            }
         }
     }
 }
