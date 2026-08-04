@@ -7,7 +7,6 @@ import android.net.ConnectivityManager;
 import android.os.Process;
 import android.util.Log;
 import androidx.preference.PreferenceManager;
-import app.amphora.core.engine.AppliedMarks;
 import app.amphora.core.engine.Box64Runtime;
 import app.amphora.core.engine.EmulatorRuntime;
 import com.winlator.cmod.runtime.compat.box64.Box64Preset;
