@@ -6,6 +6,7 @@ import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.content.ContentAssetInstaller
 import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.ContentReconciler
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.ProvisionProgressBus
 import app.amphora.core.content.RemoteContentSource
@@ -100,6 +101,13 @@ object EngineModule {
         urlResolver = urlResolver,
         progressBus = progressBus,
     )
+
+    @Provides
+    @Singleton
+    fun provideContentReconciler(
+        @ApplicationContext context: Context,
+        installer: ContentAssetInstaller,
+    ): ContentReconciler = ContentReconciler(context, installer)
 
     @Provides
     @Singleton

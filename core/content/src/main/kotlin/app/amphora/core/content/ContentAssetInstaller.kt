@@ -31,4 +31,13 @@ interface ContentAssetInstaller {
      * resolved path. Idempotent: if already installed, return [resolvedPath].
      */
     suspend fun install(entry: ManifestEntry, archiveFile: File): File
+
+    /**
+     * After the current pin is present on disk, delete sibling installs for the
+     * same component / WCP content-type that are **not** this pin.
+     *
+     * No-op when the pin itself is not installed — never remove an older copy
+     * before its replacement has landed. Returns the number of directories removed.
+     */
+    fun reconcileToPin(entry: ManifestEntry): Int = 0
 }

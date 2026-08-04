@@ -11,9 +11,11 @@ package app.amphora.core.content.model
  *   is not yet locked (verification is skipped with a log). All shipped entries
  *   are pinned as of 2026-07-14 (gap #1); see `docs/04-ASSET-MANIFEST.md` §4-5.
  * @property version Version string; encoded into the resolved path so a manifest
- *   bump naturally provisions a fresh copy (the stale dir is orphaned, not
- *   mutated). For [Kind.WCP] this is the ContentsManager entry name
- *   (`type-verName-verCode`).
+ *   bump provisions a fresh copy. For [Kind.WCP] this is the ContentsManager
+ *   entry name (`type-verName-verCode`) and **must** match the embedded
+ *   `profile.json`. Sibling installs of the same type are removed by
+ *   [app.amphora.core.content.ContentAssetInstaller.reconcileToPin] once the
+ *   new pin is present (update replaces; stale dirs are not left orphaned).
  * @property kind How the asset is provisioned (see [Kind]).
  * @property compression Archive compression for [Kind.ARCHIVE] (default ZSTD).
  * @property contentType / verName / verCode [Kind.WCP]-only: reconstruct a
