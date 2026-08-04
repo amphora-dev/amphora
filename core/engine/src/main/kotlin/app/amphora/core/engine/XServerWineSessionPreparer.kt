@@ -1250,8 +1250,7 @@ class XServerWineSessionPreparer @Inject constructor(
         val system32 = File(windowsDir, "system32")
         val syswow64 = File(windowsDir, "syswow64")
         fun validLink(file: File): Boolean = Files.isSymbolicLink(file.toPath()) && file.isFile
-        fun bothLinked(name: String): Boolean =
-            validLink(File(system32, name)) && validLink(File(syswow64, name))
+        fun bothLinked(name: String): Boolean = validLink(File(system32, name)) && validLink(File(syswow64, name))
 
         val parts = dxwrapper.split(";")
         if (parts.firstOrNull()?.startsWith("dxvk-") == true) {
