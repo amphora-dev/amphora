@@ -12,10 +12,7 @@ import java.io.File
  * 1. [ContentAssetInstaller.reconcileToPin] per non-ROOTFS component
  * 2. [ContentPackageCache.pruneToPins] for superseded download filenames
  */
-class ContentReconciler(
-    private val context: Context,
-    private val installer: ContentAssetInstaller,
-) {
+class ContentReconciler(private val context: Context, private val installer: ContentAssetInstaller) {
     data class Report(val siblingDirsRemoved: Int, val packageFilesRemoved: Int) {
         val changed: Boolean get() = siblingDirsRemoved > 0 || packageFilesRemoved > 0
     }

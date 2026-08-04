@@ -137,12 +137,11 @@ object ContentManifestLoader {
         }
     }
 
-    private fun acceptHeaderFor(remoteUrl: String): String =
-        if (isGithubContentsApi(remoteUrl)) {
-            "application/vnd.github.raw"
-        } else {
-            "application/json, text/plain, */*"
-        }
+    private fun acceptHeaderFor(remoteUrl: String): String = if (isGithubContentsApi(remoteUrl)) {
+        "application/vnd.github.raw"
+    } else {
+        "application/json, text/plain, */*"
+    }
 
     private fun isGithubContentsApi(remoteUrl: String): Boolean =
         remoteUrl.startsWith("https://api.github.com/repos/") &&
