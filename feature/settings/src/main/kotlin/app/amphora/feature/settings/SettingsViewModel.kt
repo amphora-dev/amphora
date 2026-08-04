@@ -15,8 +15,10 @@ import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.DirectDrawWrapperIds
+import app.amphora.core.engine.GraphicsDiag
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.TurnipDriverProvisioner
+import app.amphora.core.engine.WindowsComponentPreferences
 import app.amphora.core.rootfs.RootfsInstaller
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import com.winlator.cmod.runtime.content.ContentProfile
@@ -48,6 +50,7 @@ constructor(
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
     private val initialCustomEnv =
         prefs.getString(AdvancedRuntimePreferences.KEY_CUSTOM_ENV, "").orEmpty()
+    private val initialWindowsComponents = WindowsComponentPreferences.selections(context)
 
     private val _uiState =
         MutableStateFlow(
@@ -82,6 +85,16 @@ constructor(
                 WineLogMode.fromValue(
                     prefs.getString(AdvancedRuntimePreferences.KEY_WINE_DEBUG, null),
                 ),
+                dxvkHud = prefs.getBoolean(AdvancedRuntimePreferences.KEY_DXVK_HUD, false),
+                shaderCache = prefs.getBoolean(AdvancedRuntimePreferences.KEY_SHADER_CACHE, true),
+                shaderCacheSize =
+                ShaderCacheSize.fromValue(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_SHADER_CACHE_SIZE, null),
+                ),
+                windowsComponents =
+                WindowsComponentSetting.entries.associateWith { component ->
+                    initialWindowsComponents[component.id] ?: true
+                },
                 customEnv = initialCustomEnv,
                 rejectedEnvNames = AdvancedRuntimePreferences.rejectedCustomEnvNames(initialCustomEnv),
             ),
@@ -150,6 +163,51 @@ constructor(
     fun selectWineLog(value: WineLogMode) {
         prefs.edit { putString(AdvancedRuntimePreferences.KEY_WINE_DEBUG, value.value) }
         _uiState.update { it.copy(wineLog = value) }
+    }
+
+    fun setDxvkHud(enabled: Boolean) {
+        prefs.edit { putBoolean(AdvancedRuntimePreferences.KEY_DXVK_HUD, enabled) }
+        _uiState.update { it.copy(dxvkHud = enabled) }
+    }
+
+    fun setShaderCache(enabled: Boolean) {
+        prefs.edit { putBoolean(AdvancedRuntimePreferences.KEY_SHADER_CACHE, enabled) }
+        _uiState.update { it.copy(shaderCache = enabled) }
+    }
+
+    fun selectShaderCacheSize(value: ShaderCacheSize) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_SHADER_CACHE_SIZE, value.value) }
+        _uiState.update { it.copy(shaderCacheSize = value) }
+    }
+
+    fun setWindowsComponentNative(component: WindowsComponentSetting, useNative: Boolean) {
+        WindowsComponentPreferences.setNative(context, component.id, useNative)
+        _uiState.update {
+            it.copy(windowsComponents = it.windowsComponents + (component to useNative))
+        }
+    }
+
+    fun clearShaderCache() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(clearingShaderCache = true, cacheActionMessage = null) }
+            try {
+                withContext(dispatchers.io) { GraphicsDiag.clearStateCache(context) }
+                _uiState.update {
+                    it.copy(
+                        clearingShaderCache = false,
+                        cacheActionMessage = "Shader and DXVK state caches cleared.",
+                    )
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                _uiState.update {
+                    it.copy(
+                        clearingShaderCache = false,
+                        cacheActionMessage = "Could not clear caches: ${error.message}",
+                    )
+                }
+            }
+        }
     }
 
     fun setCustomEnv(value: String) {
@@ -286,6 +344,13 @@ data class SettingsUiState(
     val presentMode: PresentMode = PresentMode.AUTO,
     val bcnMode: BcnMode = BcnMode.DEFAULT,
     val wineLog: WineLogMode = WineLogMode.OFF,
+    val dxvkHud: Boolean = false,
+    val shaderCache: Boolean = true,
+    val shaderCacheSize: ShaderCacheSize = ShaderCacheSize.MB512,
+    val windowsComponents: Map<WindowsComponentSetting, Boolean> =
+        WindowsComponentSetting.entries.associateWith { true },
+    val clearingShaderCache: Boolean = false,
+    val cacheActionMessage: String? = null,
     val customEnv: String = "",
     val rejectedEnvNames: List<String> = emptyList(),
     val applyingDriver: Boolean = false,
@@ -409,4 +474,27 @@ enum class WineLogMode(val value: String, val label: String) {
     companion object {
         fun fromValue(value: String?): WineLogMode = entries.firstOrNull { it.value == value } ?: OFF
     }
+}
+
+enum class ShaderCacheSize(val value: String, val label: String) {
+    MB256("256MB", "256 MB"),
+    MB512("512MB", "512 MB"),
+    GB1("1GB", "1 GB"),
+    GB2("2GB", "2 GB"),
+    ;
+
+    companion object {
+        fun fromValue(value: String?): ShaderCacheSize = entries.firstOrNull { it.value == value } ?: MB512
+    }
+}
+
+enum class WindowsComponentSetting(val id: String, val label: String, val description: String) {
+    DIRECT3D("direct3d", "Direct3D helpers", "D3DX and shader compiler DLLs used by many games"),
+    DIRECT_SOUND("directsound", "DirectSound", "Legacy hardware-accelerated game audio"),
+    DIRECT_MUSIC("directmusic", "DirectMusic", "Music playback used by older DirectX games"),
+    DIRECT_SHOW("directshow", "DirectShow", "Video playback and media filters"),
+    DIRECT_PLAY("directplay", "DirectPlay", "Legacy multiplayer networking"),
+    XAUDIO("xaudio", "XAudio", "XAudio2 and XACT audio engines"),
+    DINPUT8("dinput8", "DirectInput 8", "Legacy keyboard, mouse and controller input"),
+    VCRUN2010("vcrun2010", "Visual C++ 2010", "Microsoft C/C++ runtime libraries"),
 }

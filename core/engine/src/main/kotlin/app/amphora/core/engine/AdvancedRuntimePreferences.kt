@@ -17,6 +17,9 @@ object AdvancedRuntimePreferences {
     const val KEY_PRESENT_MODE = "advanced_present_mode"
     const val KEY_BCN_MODE = "advanced_bcn_mode"
     const val KEY_WINE_DEBUG = "advanced_wine_debug"
+    const val KEY_DXVK_HUD = "advanced_dxvk_hud"
+    const val KEY_SHADER_CACHE = "advanced_shader_cache"
+    const val KEY_SHADER_CACHE_SIZE = "advanced_shader_cache_size"
     const val KEY_CUSTOM_ENV = "advanced_custom_env"
 
     private val validEnvName = Regex("[A-Z_][A-Z0-9_]*")
@@ -83,6 +86,19 @@ object AdvancedRuntimePreferences {
             "errors" -> env.put("WINEDEBUG", "+err")
             "warnings" -> env.put("WINEDEBUG", "+err,+warn")
             else -> env.put("WINEDEBUG", "-all")
+        }
+
+        if (prefs.getBoolean(KEY_DXVK_HUD, false)) {
+            env.put("DXVK_HUD", "fps,devinfo,api,memory,gpuload")
+        }
+
+        env.put(
+            "MESA_SHADER_CACHE_DISABLE",
+            if (prefs.getBoolean(KEY_SHADER_CACHE, true)) "false" else "true",
+        )
+        when (val size = prefs.getString(KEY_SHADER_CACHE_SIZE, "512MB")) {
+            "256MB", "512MB", "1GB", "2GB" -> env.put("MESA_SHADER_CACHE_MAX_SIZE", size)
+            else -> env.put("MESA_SHADER_CACHE_MAX_SIZE", "512MB")
         }
 
         parseCustomEnv(prefs.getString(KEY_CUSTOM_ENV, "").orEmpty()).forEach { (key, value) ->
