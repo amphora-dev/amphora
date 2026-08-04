@@ -34,6 +34,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -161,6 +162,8 @@ fun SettingsScreen(
                 )
             }
 
+            AdvancedRuntimeSection(state = state, viewModel = viewModel)
+
             StorageSection()
 
             ComponentSection(state = state, onRefresh = viewModel::refreshComponents)
@@ -180,6 +183,147 @@ fun SettingsScreen(
                 }
             }
             Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    SettingSection(
+        title = "Advanced runtime",
+        subtitle = "Box64, DXVK, Vulkan and Wine overrides",
+    ) {
+        Text(
+            "Automatic defaults are recommended. These values override container defaults " +
+                "for every program and take effect on the next launch.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            shape = RoundedCornerShape(10.dp),
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "${state.box64Mode.label} · ${state.presentMode.label}",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        "DXVK async ${if (state.dxvkAsync) "on" else "off"} · " +
+                            "limit ${state.frameLimit.label}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(if (expanded) "Hide" else "Configure", color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        if (expanded) {
+            HorizontalDivider()
+            ChoiceSetting(
+                title = "Box64 translation profile",
+                description =
+                "Performance is fastest. Compatibility and Stability progressively disable " +
+                    "aggressive dynamic recompilation for difficult games.",
+                impact = "Scope: x86_64 Wine and all Windows processes · next launch",
+                selected = state.box64Mode,
+                values = Box64Mode.entries,
+                label = { it.label },
+                onSelect = viewModel::selectBox64Mode,
+            )
+            HorizontalDivider()
+            ChoiceSetting(
+                title = "DXVK asynchronous pipelines",
+                description =
+                "Can reduce shader stutter with compatible DXVK builds, but may introduce " +
+                    "rendering glitches in some games.",
+                impact = "Scope: Direct3D through DXVK · next launch",
+                selected = state.dxvkAsync,
+                values = listOf(false, true),
+                label = { if (it) "Enabled" else "Disabled" },
+                onSelect = viewModel::setDxvkAsync,
+            )
+            ChoiceSetting(
+                title = "Frame limit",
+                description =
+                "Limits DXVK presentation rate. This can reduce heat and power use; it does " +
+                    "not affect WineD3D or software renderers.",
+                impact = "Environment: DXVK_FRAME_RATE · DXVK only",
+                selected = state.frameLimit,
+                values = FrameLimit.entries,
+                label = { it.label },
+                onSelect = viewModel::selectFrameLimit,
+            )
+            HorizontalDivider()
+            ChoiceSetting(
+                title = "Vulkan present mode",
+                description =
+                "Automatic follows the driver. Mailbox favors low-latency tear-free output; " +
+                    "VSync is conservative; Immediate may tear.",
+                impact = "Dependency: wrapper → Vulkan WSI · all Vulkan renderers",
+                selected = state.presentMode,
+                values = PresentMode.entries,
+                label = { it.label },
+                onSelect = viewModel::selectPresentMode,
+            )
+            ChoiceSetting(
+                title = "BC texture handling",
+                description =
+                "Controls fallback emulation when the selected GPU driver lacks BC texture " +
+                    "support. Full emulation improves compatibility at a performance cost.",
+                impact = "Scope: Vulkan wrapper texture formats · next launch",
+                selected = state.bcnMode,
+                values = BcnMode.entries,
+                label = { it.label },
+                onSelect = viewModel::selectBcnMode,
+            )
+            HorizontalDivider()
+            ChoiceSetting(
+                title = "Wine logging",
+                description =
+                "Enable only while troubleshooting. Warning logs can be large and may reduce " +
+                    "performance.",
+                impact = "Environment: WINEDEBUG · written to the session log",
+                selected = state.wineLog,
+                values = WineLogMode.entries,
+                label = { it.label },
+                onSelect = viewModel::selectWineLog,
+            )
+            Text("Custom environment", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "One KEY=VALUE per line. Engine-owned paths, sockets, loader variables and " +
+                    "the Vulkan ICD cannot be overridden.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = state.customEnv,
+                onValueChange = viewModel::setCustomEnv,
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                label = { Text("Environment overrides") },
+                placeholder = { Text("MESA_SHADER_CACHE_MAX_SIZE=2G") },
+                supportingText = {
+                    if (state.rejectedEnvNames.isEmpty()) {
+                        Text("Blank lines and lines beginning with # are ignored.")
+                    } else {
+                        Text(
+                            "Ignored protected or invalid names: " +
+                                state.rejectedEnvNames.distinct().joinToString(),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                },
+            )
         }
     }
 }
