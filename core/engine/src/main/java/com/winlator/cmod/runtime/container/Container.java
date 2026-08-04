@@ -320,11 +320,6 @@ public class Container {
         }
     }
 
-    /** True when [extraData] contains [name] (even if the value is empty). */
-    public boolean hasExtra(String name) {
-        return extraData != null && extraData.has(name);
-    }
-
     public void putExtra(String name, Object value) {
         if (extraData == null) extraData = new JSONObject();
         try {
