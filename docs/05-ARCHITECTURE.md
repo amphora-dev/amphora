@@ -95,12 +95,19 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 
 ## 3.2 容器配置怎么写进前缀
 
-两件事别混：
+只分两类，API 也按这个分：
 
-1. **声音这种小事**：每次启动直接看注册表，不对就改。不记「做过没」。
-2. **装 DLL、改一堆服务这种大事**：记一笔「做过没」，避免每次重做。前缀整份重建后清掉这些标记，逼下次重做。
+| 类型 | 做法 | 入口 |
+|---|---|---|
+| **小事** | 每次对照真实文件/注册表，不对就改。不记「做过没」 | `ensureWineAudioDriver`、`ensureJoystickRegistryKeys`、`ensureWinebusConfig`、盘符软链 |
+| **大事** | 贵；记「上次按哪个想要值做过了」。想要值变了或前缀重建才重做 | `AppliedMarks` + 解压 DLL / 装 Box64 / 改服务 |
 
-`PrefixApplyStamps` 只负责第 2 类在重建前缀时要清哪些标记。声音不在名单里——就算旧配置里还留着废字段，也不再读它。
+约定：
+
+- 顶层字段（如 `dxwrapper`、`audioDriver`）= **想要什么**
+- `AppliedMarks` 里的键（如 `appliedDxwrapper`）= **已经按什么做过**；和想要值不同名，避免搞混
+- 前缀重建后只调 `AppliedMarks.clearOwnedByPrefix`；Box64 装在 imagefs，不跟前缀一起清
+- Box64 安装只有一处：`Box64Runtime.ensureApplied`（准备阶段和启动器共用）
 
 ---
 

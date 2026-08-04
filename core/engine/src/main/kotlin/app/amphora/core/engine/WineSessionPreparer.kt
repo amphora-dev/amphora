@@ -23,7 +23,7 @@ import app.amphora.core.engine.model.LaunchSpec
  * ```
  * setupWineSystemFiles            // orchestrator
  *   -> ensureWinePrefixReady      // L7127 - create / validate WINEPREFIX
- *   -> ensureLaunchRuntimeFilesReady  // L6280 - box64 + runtime dlls (ensureBox64RuntimeReady L6290)
+ *   -> ensureLaunchRuntimeFilesReady  // L6280 - Box64Runtime.ensureApplied + ALSA layout
  *   -> ensureWinePrefixEssentialFiles // L7164 - system.reg / user.reg / dosdevices / ...
  *   -> extractDXWrapperFiles      // L7970 - DXVK / d8vk into prefix (extractD8VKIfNeeded L8098)
  * extractGraphicsDriverFiles      // L7537 - Turnip (D8: single pinned driver for MVP) + env vars

@@ -4,7 +4,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import app.amphora.core.engine.PrefixApplyStamps;
+import app.amphora.core.engine.AppliedMarks;
 import com.winlator.cmod.runtime.content.ContentProfile;
 import com.winlator.cmod.runtime.content.ContentsManager;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
@@ -640,8 +640,8 @@ public class ContainerManager {
 
       WineInfo wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion);
       container.putExtra("wineprefixArch", wineInfo.getArch());
-      // 前缀换新了：「做过没」作废，下次启动重装 DLL / 重写服务等。声音不靠这些标记。
-      PrefixApplyStamps.INSTANCE.clearForPrefixRepair(container);
+      // 前缀换新了：大事标记作废，下次启动重装 DLL / 重写服务等。
+      AppliedMarks.clearOwnedByPrefix(container);
       container.saveData();
       if (movedAside) {
         Log.i(
