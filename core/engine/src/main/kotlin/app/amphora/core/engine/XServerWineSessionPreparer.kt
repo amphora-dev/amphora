@@ -290,11 +290,13 @@ class XServerWineSessionPreparer @Inject constructor(
         }
 
         val audioDriver = c.getAudioDriver()?.takeIf { it.isNotBlank() } ?: Container.DEFAULT_AUDIO_DRIVER
-        val wineAudio = if (audioDriver == "pulseaudio") "alsa" else audioDriver
-        if (AppliedMarks.needsAudio(c, wineAudio) || firstTimeBoot) {
+        val wineAudio = WineUtils.wineAudioDriverName(audioDriver)
+        if (wineAudio != null && (AppliedMarks.needsAudio(c, wineAudio) || firstTimeBoot)) {
             WineUtils.ensureWineAudioDriver(c, imageFs.getRootDir(), audioDriver)
             AppliedMarks.markAudio(c, wineAudio)
             containerDataChanged = true
+        } else if (wineAudio == null) {
+            Log.w(TAG, "未知音频驱动配置 '$audioDriver'，跳过注册表写入")
         }
 
         WineStartMenuCreator.create(context, c)
