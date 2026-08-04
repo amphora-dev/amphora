@@ -612,25 +612,14 @@ public abstract class WineUtils {
   }
 
   /**
-   * Mirror WinNative {@code XServerDisplayActivity.changeWineAudioDriver}: write
-   * {@code Software\Wine\Drivers} {@code Audio}.
+   * Ensure {@code Software\Wine\Drivers\Audio} in {@code user.reg} matches desired policy.
    *
-   * <p>Amphora MVP only ships the ALSA path ({@code Audio=alsa}). Without this key Wine
-   * defaults to {@code pulse,alsa,...}; Amphora's imagefs has no {@code libpulse.so}, so
-   * mmdevapi's pulse probe fails with {@code c0000135} and games have no sound (or a
-   * sound-initialization dialog).
+   * <p>Apply model ({@code PrefixApplyStamps}): desired = {@code container.audioDriver}
+   * (Amphora MVP: {@code alsa}); applied sink = this registry key. Do <b>not</b> gate on
+   * {@code extra.audioDriver} — that WinNative stamp drifts across prefix repair and Amphora
+   * has no Pulse probe fallback when {@code Audio} is missing.
    *
-   * <p>Do <b>not</b> skip solely because {@code container.extra.audioDriver} is already
-   * stamped: a prefix recreate / wine rewrite can drop the registry key while the extra
-   * remains, which previously left Audio unset forever.
-   *
-   * <p>Engineering model (same idea as content pin sync): {@code container.audioDriver} is
-   * the <b>desired</b> policy; {@code user.reg} {@code Software\Wine\Drivers\Audio} is the
-   * <b>applied</b> sink Wine reads. {@code extra.audioDriver} is only a cache of last
-   * successful apply, never a substitute for reading the sink. WinNative uses the same
-   * extra-gated write ({@code XServerDisplayActivity.changeWineAudioDriver}) and also
-   * omits clearing {@code audioDriver} on prefix repair — less visible there because
-   * WinNative ships PulseAudio as a probe fallback; Amphora does not.
+   * <p>{@link WineRegistryEditor#setStringValue} is a no-op when the value already matches.
    */
   public static void changeWineAudioDriver(Container container, File rootDir, String audioDriver) {
     if (container == null || rootDir == null || audioDriver == null || audioDriver.isEmpty()) {
@@ -653,7 +642,6 @@ public abstract class WineUtils {
           "WineUtils",
           "changeWineAudioDriver: pulseaudio requested but Amphora MVP is ALSA-only; keeping alsa");
       wineAudio = "alsa";
-      audioDriver = "alsa";
     } else {
       Log.w("WineUtils", "changeWineAudioDriver: unknown driver " + audioDriver);
       return;
@@ -662,16 +650,10 @@ public abstract class WineUtils {
     try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
       String current = registryEditor.getStringValue("Software\\Wine\\Drivers", "Audio");
       if (wineAudio.equals(current)) {
-        if (!audioDriver.equals(container.getExtra("audioDriver"))) {
-          container.putExtra("audioDriver", audioDriver);
-          container.saveData();
-        }
         return;
       }
       registryEditor.setStringValue("Software\\Wine\\Drivers", "Audio", wineAudio);
     }
-    container.putExtra("audioDriver", audioDriver);
-    container.saveData();
     Log.i("WineUtils", "Wine audio driver set to " + wineAudio);
   }
 

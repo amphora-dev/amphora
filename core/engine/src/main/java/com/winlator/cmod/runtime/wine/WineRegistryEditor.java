@@ -180,7 +180,10 @@ public class WineRegistryEditor implements Closeable {
   }
 
   public void setStringValue(String key, String name, String value) {
-    setRawValue(key, name, value != null ? "\"" + escape(value) + "\"" : "\"\"");
+    String normalized = value != null ? value : "";
+    String current = getStringValue(key, name, null);
+    if (normalized.equals(current)) return;
+    setRawValue(key, name, "\"" + escape(normalized) + "\"");
   }
 
   public Integer getDwordValue(String key, String name) {
@@ -193,6 +196,8 @@ public class WineRegistryEditor implements Closeable {
   }
 
   public void setDwordValue(String key, String name, int value) {
+    Integer current = getDwordValue(key, name, null);
+    if (current != null && current == value) return;
     setRawValue(key, name, "dword:" + String.format("%08x", value));
   }
 

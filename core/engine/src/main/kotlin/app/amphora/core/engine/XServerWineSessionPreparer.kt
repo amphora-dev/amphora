@@ -209,7 +209,7 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val appVersion = appVersionCode(context)
         val imgVersion = imageFs.getVersion().toString()
-        var containerDataChanged = false
+        var containerDataChanged = PrefixApplyStamps.stripObsolete(c)
 
         if (c.getExtra("appVersion") != appVersion || c.getExtra("imgVersion") != imgVersion) {
             Log.d(TAG, "Version mismatch, applying general patches (app=$appVersion img=$imgVersion)")
@@ -326,17 +326,15 @@ class XServerWineSessionPreparer @Inject constructor(
         WineUtils.setJoystickRegistryKeys(c, dinputEnabled, exclusiveXInput)
         WineUtils.ensureWinebusConfig(c)
 
+        // Heavy-ish system.reg rewrite: stamp-gated (cleared on prefix repair).
         startupSelection = c.getStartupSelection().toString()
-        WineUtils.changeServicesStatus(c, startupSelection)
-        if (startupSelection != c.getExtra("startupSelection")) {
+        if (startupSelection != c.getExtra("startupSelection") || firstTimeBoot) {
+            WineUtils.changeServicesStatus(c, startupSelection)
             c.putExtra("startupSelection", startupSelection)
             containerDataChanged = true
         }
 
-        // WinNative XSDA calls changeWineAudioDriver() after setupWineSystemFiles /
-        // extractGraphicsDriverFiles. Amphora folds graphics extract into this method,
-        // so mirror the registry write here. Existing prefixes often lack
-        // Software\Wine\Drivers Audio=alsa (extra was never stamped).
+        // Cheap registry ensure: desired=container.audioDriver, applied=user.reg (no stamp).
         val audioDriver = c.getAudioDriver()?.takeIf { it.isNotBlank() } ?: Container.DEFAULT_AUDIO_DRIVER
         WineUtils.changeWineAudioDriver(c, imageFs.getRootDir(), audioDriver)
 

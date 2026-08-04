@@ -1,7 +1,7 @@
 # 05 - As-Built 架构
 
 > 当前实现的架构真源。决议见 [`01-RFC.md`](01-RFC.md)；进度手账见 [`03-TRACKING.md`](03-TRACKING.md)；资产锁见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)。
-> 最后更新: 2026-07-21 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
+> 最后更新: 2026-08-04 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
 
 ---
 
@@ -90,6 +90,26 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 启动**从不**按 hash 选二进制；按 entry / `verName-verCode` 选。  
 `WinlatorContainerManager.syncRuntimePins` 在每次 `getOrCreate` 把容器字段收敛到**当前已装 pin**（清单优先，否则 newest installed）。  
 `ContentPinResolver` 是唯一解析入口；DXVK/VKD3D 在 wipe DLL **之前**先 resolve，避免 prune 后空 prefix。
+
+---
+
+## 3.2 Prefix 配置：desired / applied / stamp
+
+容器策略写入 prefix 时同样分三层，不要用 stamp 冒充 applied：
+
+| 层 | 例子 | 职责 |
+|---|---|---|
+| **Desired** | `.container` 顶层 `audioDriver` / `dxwrapper` / `wincomponents` / `startupSelection` | 用户/同步后的目标策略 |
+| **Applied** | `user.reg` / `system.reg` / `drive_c/windows/system32/*.dll` / `usr/bin/box64` | Wine 真正读到的状态 |
+| **Stamp** | `extra.dxwrapper` / `extra.wincomponents` / `extra.startupSelection` / `extra.box64Version` | 上次**重** apply 成功的缓存，只用于跳过昂贵工作 |
+
+规则：
+
+1. **便宜 ensure（注册表少量键）**：每次对照 applied 写入。例：`WineUtils.changeWineAudioDriver` → 读/写 `Software\Wine\Drivers\Audio`。**禁止**再用 `extra.audioDriver`（已废弃，加载与 repair 时剔除）。
+2. **重 apply（解压 DLL / 拷贝 box64 / 大面积改 system.reg 服务）**：用 stamp 门控；`PrefixApplyStamps.clearForPrefixRepair` 在 prefix 重建后清 stamp，逼下次启动重 apply。
+3. **`WineRegistryEditor.setStringValue` / `setDwordValue`**：值未变则不落盘，避免 ensure 路径无谓重写 `.reg`。
+
+与 §3.1 的关系：content pin 管的是**磁盘上装了哪份二进制**；本节管的是**那份二进制如何被配进某个容器的 wine prefix**。
 
 ---
 
