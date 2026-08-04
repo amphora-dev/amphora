@@ -354,6 +354,40 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
             )
             HorizontalDivider()
             ChoiceSetting(
+                title = "Direct3D 12 feature level",
+                description =
+                "Limits the D3D feature level VKD3D reports. Automatic is recommended; " +
+                    "forcing a higher level cannot add missing GPU driver features.",
+                impact = "Environment: VKD3D_FEATURE_LEVEL · Direct3D 12 only",
+                selected = state.vkd3dFeatureLevel,
+                values = Vkd3dFeatureLevel.entries,
+                label = { it.label },
+                onSelect = viewModel::selectVkd3dFeatureLevel,
+            )
+            ChoiceSetting(
+                title = "Direct3D 12 shader model",
+                description =
+                "Controls the maximum shader model exposed by VKD3D-Proton. Values unsupported " +
+                    "by the driver may prevent a game from starting.",
+                impact = "Environment: VKD3D_SHADER_MODEL · Direct3D 12 only",
+                selected = state.vkd3dShaderModel,
+                values = Vkd3dShaderModel.entries,
+                label = { it.label },
+                onSelect = viewModel::selectVkd3dShaderModel,
+            )
+            ChoiceSetting(
+                title = "DirectX Raytracing",
+                description =
+                "Automatic lets VKD3D detect safe DXR support. Force can bypass its safety " +
+                    "checks; DXR 1.2 is experimental and requires opacity micromap support.",
+                impact = "Environment: VKD3D_CONFIG · Direct3D 12 only",
+                selected = state.vkd3dDxr,
+                values = Vkd3dDxrMode.entries,
+                label = { it.label },
+                onSelect = viewModel::selectVkd3dDxr,
+            )
+            HorizontalDivider()
+            ChoiceSetting(
                 title = "Vulkan present mode",
                 description =
                 "Automatic follows the driver. Mailbox favors low-latency tear-free output; " +
@@ -377,11 +411,22 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
             )
             HorizontalDivider()
             ChoiceSetting(
-                title = "DXVK performance HUD",
+                title = "Host performance overlay",
+                description =
+                "Shows X-present FPS, app CPU, GPU load, RAM and temperature above the game. " +
+                    "It works with DXVK, VKD3D/DX12, OpenGL/Zink and software rendering.",
+                impact = "Android overlay · all graphics APIs · next launch",
+                selected = state.hostPerformanceHud,
+                values = listOf(false, true),
+                label = { if (it) "Visible" else "Hidden" },
+                onSelect = viewModel::setHostPerformanceHud,
+            )
+            ChoiceSetting(
+                title = "DXVK in-game HUD",
                 description =
                 "Shows FPS, API, GPU and memory information over Direct3D games. " +
                     "This is display-only and does not enable verbose log files.",
-                impact = "Environment: DXVK_HUD · DXVK only",
+                impact = "Environment: DXVK_HUD · Direct3D 8–11 only",
                 selected = state.dxvkHud,
                 values = listOf(false, true),
                 label = { if (it) "Visible" else "Hidden" },
