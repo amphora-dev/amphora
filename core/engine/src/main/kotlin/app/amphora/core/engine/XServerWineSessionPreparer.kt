@@ -292,10 +292,21 @@ class XServerWineSessionPreparer @Inject constructor(
                 "DXVK/VKD3D extract: gate fired (key='$dxwrapperGateKey' prev='${c.getExtra("dxwrapper")}'" +
                     " firstTimeBoot=$firstTimeBoot forced=$forceWrapperApply)",
             )
-            wipeDxwrapperDllsForReextract()
-            extractDXWrapperFilesCore(localDxwrapper)
-            c.putExtra("dxwrapper", dxwrapperGateKey)
-            containerDataChanged = true
+            // Resolve profiles BEFORE wiping — a stale pin must not leave the
+            // prefix without d3d*/dxgi after reconcile pruned the old WCP.
+            val resolvedDxwrapper = resolveDxwrapperForExtract(localDxwrapper)
+            if (resolvedDxwrapper == null) {
+                Log.e(
+                    TAG,
+                    "DXVK/VKD3D extract aborted: required content profiles missing for '$localDxwrapper'",
+                )
+            } else {
+                localDxwrapper = resolvedDxwrapper
+                wipeDxwrapperDllsForReextract()
+                extractDXWrapperFilesCore(localDxwrapper)
+                c.putExtra("dxwrapper", "$localDxwrapper|arch=$wineArchKey")
+                containerDataChanged = true
+            }
         }
 
         // Steam / custom-shortcut visibility branches STRIPPED (D9: non-target).
@@ -391,7 +402,12 @@ class XServerWineSessionPreparer @Inject constructor(
         val box64Missing = !File(rootDir, "usr/bin/box64").exists()
         var box64Version = c.getBox64Version() ?: ""
         if (box64Version.isEmpty()) {
-            box64Version = pickNewestInstalledContentVersion(ContentProfile.ContentType.CONTENT_TYPE_BOX64)
+            box64Version =
+                ContentPinResolver.pickNewestInstalled(
+                    contentsManager,
+                    ContentProfile.ContentType.CONTENT_TYPE_BOX64,
+                )?.let { ContentPinResolver.versionIdentity(ContentPinResolver.entryName(it)) }
+                    ?: ""
             if (box64Version.isNotEmpty()) c.setBox64Version(box64Version)
         }
 
@@ -402,7 +418,24 @@ class XServerWineSessionPreparer @Inject constructor(
             return
         }
 
-        val profile = resolveContentProfile(ContentProfile.ContentType.CONTENT_TYPE_BOX64, box64Version)
+        var profile =
+            ContentPinResolver.resolveInstalledProfile(
+                contentsManager,
+                ContentProfile.ContentType.CONTENT_TYPE_BOX64,
+                box64Version,
+            )
+        if (profile != null) {
+            val resolved = ContentPinResolver.versionIdentity(ContentPinResolver.entryName(profile))
+            if (resolved != box64Version) {
+                Log.w(
+                    TAG,
+                    "Box64 content profile not installed for version: $box64Version; " +
+                        "falling back to installed $resolved",
+                )
+                box64Version = resolved
+                c.setBox64Version(box64Version)
+            }
+        }
         if (profile == null) {
             Log.w(TAG, "Box64 content profile not installed for version: $box64Version")
             return
@@ -413,6 +446,73 @@ class XServerWineSessionPreparer @Inject constructor(
         c.putExtra("box64Version", box64Version)
         c.saveData()
     }
+
+    /**
+     * Confirm DXVK / VKD3D profiles exist (with newest-installed fallback) and
+     * rewrite container tokens when they drifted. Returns the token to extract,
+     * or null when a required profile is still missing — caller must not wipe.
+     */
+    private fun resolveDxwrapperForExtract(dxwrapper: String): String? {
+        val c = wnContainer ?: return null
+        val parts = dxwrapper.split(";")
+        val dxvkToken = parts.getOrNull(0).orEmpty()
+        val vkd3dToken = parts.getOrNull(1).orEmpty()
+        val ddraw = parts.getOrNull(2).orEmpty()
+        var changed = false
+
+        var resolvedDxvk = dxvkToken
+        if (hasSelectedDxvkWrapper(dxvkToken)) {
+            val profile = resolveDxvkProfile(dxvkToken)
+            if (profile == null) {
+                Log.w(TAG, "DXVK profile missing for token=$dxvkToken")
+                return null
+            }
+            val token = ContentPinResolver.wrapperToken("dxvk", profile)
+            if (token != dxvkToken) {
+                Log.w(TAG, "DXVK token '$dxvkToken' -> installed '$token'")
+                resolvedDxvk = token
+                changed = true
+            }
+        }
+
+        var resolvedVkd3d = vkd3dToken
+        if (hasSelectedDxvkWrapper(dxvkToken) &&
+            vkd3dToken.isNotEmpty() &&
+            !vkd3dToken.contains("None", ignoreCase = true)
+        ) {
+            val profile = resolveVkd3dProfile(vkd3dToken)
+            if (profile == null) {
+                Log.w(TAG, "VKD3D profile missing for token=$vkd3dToken")
+                return null
+            }
+            val token = ContentPinResolver.wrapperToken("vkd3d", profile)
+            if (token != vkd3dToken) {
+                Log.w(TAG, "VKD3D token '$vkd3dToken' -> installed '$token'")
+                resolvedVkd3d = token
+                changed = true
+            }
+        }
+
+        val next =
+            buildList {
+                add(resolvedDxvk)
+                if (resolvedVkd3d.isNotEmpty()) add(resolvedVkd3d)
+                if (ddraw.isNotEmpty()) add(ddraw)
+            }.joinToString(";")
+        if (changed) {
+            c.setDXWrapper(next)
+            this.dxwrapper = next
+            c.saveData()
+        }
+        return next
+    }
+
+    private fun resolveVkd3dProfile(vkd3dWrapper: String): ContentProfile? =
+        ContentPinResolver.resolveInstalledProfile(
+            contentsManager,
+            ContentProfile.ContentType.CONTENT_TYPE_VKD3D,
+            vkd3dWrapper,
+        )
 
     // --- ensureWinePrefixEssentialFiles (XSDA L7164) -------------------------
 
@@ -607,7 +707,7 @@ class XServerWineSessionPreparer @Inject constructor(
             WinComponentSetup.restoreWineBuiltinDllFiles(imageFs, wineInfo, "d3d12.dll", "d3d12core.dll")
             return
         }
-        val vkd3dProfile = contentsManager.getProfileByEntryName(vkd3dWrapper)
+        val vkd3dProfile = resolveVkd3dProfile(vkd3dWrapper)
         if (vkd3dProfile != null) {
             Log.i(TAG, "Loading VKD3D content profile: $vkd3dWrapper")
             contentsManager.applyContent(vkd3dProfile)
@@ -635,19 +735,15 @@ class XServerWineSessionPreparer @Inject constructor(
 
     /**
      * Resolve a DXVK [ContentProfile] from the delimited-form token
-     * (`dxvk-<verName>-<verCode>` or full `DXVK-...` entry name). Tries
-     * [ContentsManager.getProfileByEntryName] first, then the XSDA
-     * [resolveContentProfile] fallback (type + version-after-first-dash).
+     * (`dxvk-<verName>-<verCode>` or full `DXVK-...` entry name). Prefers the
+     * named install, then newest installed of the type.
      */
-    private fun resolveDxvkProfile(dxvkWrapper: String): ContentProfile? {
-        contentsManager.getProfileByEntryName(dxvkWrapper)?.let { return it }
-        val version = if (dxvkWrapper.startsWith("dxvk-", ignoreCase = true)) {
-            dxvkWrapper.substringAfter('-')
-        } else {
-            dxvkWrapper
-        }
-        return resolveContentProfile(ContentProfile.ContentType.CONTENT_TYPE_DXVK, version)
-    }
+    private fun resolveDxvkProfile(dxvkWrapper: String): ContentProfile? =
+        ContentPinResolver.resolveInstalledProfile(
+            contentsManager,
+            ContentProfile.ContentType.CONTENT_TYPE_DXVK,
+            dxvkWrapper,
+        )
 
     private fun extractD8VKIfNeeded(dxvkWrapper: String, windowsDir: File) {
         if (compareVersion(dxvkWrapper, "2.4") >= 0) return

@@ -7,6 +7,7 @@ import android.net.ConnectivityManager;
 import android.os.Process;
 import android.util.Log;
 import androidx.preference.PreferenceManager;
+import app.amphora.core.engine.ContentPinResolver;
 import com.winlator.cmod.runtime.compat.box64.Box64Preset;
 import com.winlator.cmod.runtime.compat.box64.Box64PresetManager;
 import com.winlator.cmod.runtime.compat.fexcore.FEXCorePreset;
@@ -324,12 +325,28 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       if (box64Version.isEmpty()) {
         Log.w("GuestProgramLauncherComponent", "No Box64 version selected; skipping content extraction");
       } else {
-        ContentProfile profile = contentsManager.getProfileByEntryName("box64-" + box64Version);
+        ContentProfile profile =
+            ContentPinResolver.INSTANCE.resolveInstalledProfile(
+                contentsManager, ContentProfile.ContentType.CONTENT_TYPE_BOX64, box64Version);
         if (profile != null) {
+          String resolved =
+              ContentPinResolver.INSTANCE.versionIdentity(ContentPinResolver.INSTANCE.entryName(profile));
+          if (!resolved.equals(box64Version)) {
+            Log.w(
+                "GuestProgramLauncherComponent",
+                "Box64 content profile not installed for version="
+                    + box64Version
+                    + "; falling back to installed "
+                    + resolved);
+            box64Version = resolved;
+            container.setBox64Version(box64Version);
+          }
           Log.i(
               "GuestProgramLauncherComponent",
               "Loading Box64 content profile: version=" + box64Version);
           contentsManager.applyContent(profile);
+          container.putExtra("box64Version", box64Version);
+          container.saveData();
         } else {
           Log.w(
               "GuestProgramLauncherComponent",
@@ -337,8 +354,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                   + box64Version);
         }
       }
-      container.putExtra("box64Version", box64Version);
-      container.saveData();
     } else {
       Log.i(
           "GuestProgramLauncherComponent",
