@@ -51,6 +51,11 @@ class VerifiedAssetDownloader(
 
             destination.parentFile?.mkdirs()
             val partial = File(destination.absolutePath + PART_SUFFIX)
+            // A complete .part that already matches the pin must not Range-resume
+            // (bytes=<size>- → HTTP 416) and then get deleted.
+            if (promoteIfShaMatches(partial, destination, expectedSha256, expectedSize, relativePath)) {
+                return@withLock destination
+            }
             var lastFailure: Throwable? = null
             repeat(MAX_ATTEMPTS) { attempt ->
                 try {
@@ -64,33 +69,34 @@ class VerifiedAssetDownloader(
                             ),
                         )
                     }
-                    if (expectedSize != null && partial.length() != expectedSize) {
-                        throw IOException(
-                            "Truncated asset $relativePath: expected $expectedSize bytes, got ${partial.length()}",
-                        )
-                    }
-                    progressBus?.update(
-                        ProvisionProgress(
-                            stage = "verify",
-                            detail = label,
-                            bytesDownloaded = partial.length(),
-                            totalBytes = expectedSize ?: partial.length(),
-                        ),
-                    )
-                    val actual = AssetDigest.of(partial)
-                    if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                    if (!promoteIfShaMatches(partial, destination, expectedSha256, expectedSize, relativePath)) {
+                        val actual = AssetDigest.of(partial)
                         partial.delete()
                         throw SecurityException(
-                            "SHA-256 mismatch for $relativePath: expected=$expectedSha256 actual=$actual",
+                            "SHA-256 mismatch for $relativePath: expected=$expectedSha256 actual=$actual" +
+                                sizeHint(expectedSize, partial.length()),
                         )
                     }
-                    atomicReplace(partial, destination)
-                    AssetDigest.writePin(destination, expectedSha256)
                     return@withLock destination
                 } catch (failure: Throwable) {
                     if (failure is CancellationException) throw failure
                     lastFailure = failure
-                    if (failure is SecurityException) partial.delete()
+                    if (failure is SecurityException) {
+                        partial.delete()
+                    } else if (isUnsatisfiableRange(failure)) {
+                        // CDN file ends at partial.length(); accept if digest matches.
+                        if (promoteIfShaMatches(
+                                partial,
+                                destination,
+                                expectedSha256,
+                                expectedSize,
+                                relativePath,
+                            )
+                        ) {
+                            return@withLock destination
+                        }
+                        partial.delete()
+                    }
                     if (attempt + 1 < MAX_ATTEMPTS) {
                         Thread.sleep(RETRY_DELAYS_MS[attempt])
                     }
@@ -113,7 +119,23 @@ class VerifiedAssetDownloader(
     }
 
     private fun isVerified(file: File, expectedSha256: String, expectedSize: Long?): Boolean {
-        if (!file.isFile || (expectedSize != null && file.length() != expectedSize)) {
+        if (!file.isFile) {
+            AssetDigest.markerFor(file).delete()
+            return false
+        }
+        // SHA is authoritative. A stale size pin must not delete a digest-matching asset.
+        if (expectedSize != null && file.length() != expectedSize) {
+            if (AssetDigest.matchesPin(file, expectedSha256) ||
+                AssetDigest.of(file).equals(expectedSha256, ignoreCase = true)
+            ) {
+                android.util.Log.w(
+                    TAG,
+                    "Keeping $file despite size pin mismatch " +
+                        "(manifest=$expectedSize actual=${file.length()})",
+                )
+                AssetDigest.writePin(file, expectedSha256)
+                return true
+            }
             file.delete()
             AssetDigest.markerFor(file).delete()
             return false
@@ -124,6 +146,40 @@ class VerifiedAssetDownloader(
         return valid
     }
 
+    /**
+     * If [partial] digests to [expectedSha256], publish it to [destination].
+     * Size pins are advisory — stale sizes after a release bump must not block.
+     */
+    private fun promoteIfShaMatches(
+        partial: File,
+        destination: File,
+        expectedSha256: String,
+        expectedSize: Long?,
+        relativePath: String,
+    ): Boolean {
+        if (!partial.isFile || partial.length() <= 0L) return false
+        progressBus?.update(
+            ProvisionProgress(
+                stage = "verify",
+                detail = relativePath,
+                bytesDownloaded = partial.length(),
+                totalBytes = expectedSize ?: partial.length(),
+            ),
+        )
+        val actual = AssetDigest.of(partial)
+        if (!actual.equals(expectedSha256, ignoreCase = true)) return false
+        if (expectedSize != null && partial.length() != expectedSize) {
+            android.util.Log.w(
+                TAG,
+                "Size pin mismatch for $relativePath: manifest=$expectedSize " +
+                    "actual=${partial.length()}; accepting SHA match",
+            )
+        }
+        atomicReplace(partial, destination)
+        AssetDigest.writePin(destination, expectedSha256)
+        return true
+    }
+
     private fun downloadOnce(
         remoteUrl: String,
         partial: File,
@@ -131,15 +187,19 @@ class VerifiedAssetDownloader(
         onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
     ) {
         val existing = partial.length()
+        // Already at (or past) the size pin: a Range resume would 416. Caller
+        // should have promoted via SHA; if we still get here, force a full GET.
         val connection = URI(remoteUrl).toURL().openConnection() as HttpURLConnection
         connection.instanceFollowRedirects = true
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.setRequestProperty("Accept-Encoding", "identity")
-        if (existing > 0) connection.setRequestProperty("Range", "bytes=$existing-")
+        val resume =
+            existing > 0L && (expectedSize == null || existing < expectedSize)
+        if (resume) connection.setRequestProperty("Range", "bytes=$existing-")
         try {
             val response = connection.responseCode
-            val append = existing > 0 && response == HttpURLConnection.HTTP_PARTIAL
+            val append = resume && response == HttpURLConnection.HTTP_PARTIAL
             if (response !in 200..299) {
                 throw IOException("HTTP $response ${connection.responseMessage} for $remoteUrl")
             }
@@ -196,5 +256,19 @@ class VerifiedAssetDownloader(
         const val CONNECT_TIMEOUT_MS = 15_000
         const val READ_TIMEOUT_MS = 60_000
         val RETRY_DELAYS_MS = longArrayOf(1_000, 2_000)
+        private const val TAG = "VerifiedAssetDownloader"
+
+        private fun sizeHint(expectedSize: Long?, actualSize: Long): String =
+            if (expectedSize == null || expectedSize == actualSize) {
+                ""
+            } else {
+                " (manifest size=$expectedSize actual=$actualSize)"
+            }
+
+        private fun isUnsatisfiableRange(failure: Throwable): Boolean {
+            val message = failure.message.orEmpty()
+            return message.contains("HTTP 416") ||
+                message.contains("Range Not Satisfiable", ignoreCase = true)
+        }
     }
 }

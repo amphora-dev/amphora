@@ -16,7 +16,6 @@ import app.amphora.core.engine.model.SessionHandle
 import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.audio.alsaserver.ALSAClient
-import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import com.winlator.cmod.runtime.container.Container as WinNativeContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WinNativeContainerManager
 import com.winlator.cmod.runtime.content.ContentsManager
@@ -275,9 +274,12 @@ constructor(
         val requestedWineDebug = envVars.get("WINEDEBUG")?.takeIf { it.isNotBlank() && it != "-all" }
         // Preparer-computed DirectDraw / GPU / DXVK / OpenGL env.
         for ((key, value) in preparer.envVars()) envVars.put(key, value)
+        if (requestedWineDebug != null) envVars.put("WINEDEBUG", requestedWineDebug)
+        // Persisted advanced settings override automatic/container defaults, but
+        // LaunchSpec remains the final caller-controlled layer.
+        AdvancedRuntimePreferences.applyEnvOverrides(context, envVars)
         // Caller-supplied env (LaunchSpec.env).
         for ((key, value) in spec.env) envVars.put(key, value)
-        if (requestedWineDebug != null) envVars.put("WINEDEBUG", requestedWineDebug)
         if (envVars.get("DXVK_HUD") != null) {
             Log.i(
                 "WineEngineImpl",
@@ -348,7 +350,7 @@ constructor(
         Log.i("WineEngineImpl", "guestExecutable=$guestExecutable")
         launcher.setGuestExecutable(guestExecutable)
         launcher.setEnvVars(envVars)
-        launcher.setBox64Preset(Box64Preset.PERFORMANCE)
+        launcher.setBox64Preset(AdvancedRuntimePreferences.box64Preset(context))
         spec.workingDirectory?.let { launcher.setWorkingDir(File(it)) }
         return launcher
     }

@@ -59,11 +59,34 @@ constructor(
 ) : ViewModel() {
     private val prefs =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+    private val preferenceListener =
+        android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (
+                key == GraphicsDriverIds.PREFS_KEY_DRIVER_ID ||
+                key == DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID ||
+                key == PREF_RESOLUTION
+            ) {
+                _uiState.update {
+                    it.copy(
+                        resolution = Resolution.fromPreference(prefs.getString(PREF_RESOLUTION, null)),
+                        graphicsDriver =
+                        GraphicsDriverOption.fromDriverId(
+                            prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+                        ),
+                        directDrawWrapper =
+                        DirectDrawWrapperOption.fromId(
+                            prefs.getString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, null),
+                        ),
+                    )
+                }
+            }
+        }
 
     private val _uiState =
         MutableStateFlow(
             LauncherUiState(
                 appVersion = readAppVersion(),
+                resolution = Resolution.fromPreference(prefs.getString(PREF_RESOLUTION, null)),
                 graphicsDriver =
                 GraphicsDriverOption.fromDriverId(
                     prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
@@ -91,7 +114,12 @@ constructor(
         )
 
     init {
+        prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
         refreshContentInfo()
+    }
+
+    override fun onCleared() {
+        prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener)
     }
 
     fun refreshContentInfo() {
@@ -141,6 +169,7 @@ constructor(
     }
 
     fun selectResolution(resolution: Resolution) {
+        prefs.edit { putString(PREF_RESOLUTION, resolution.name) }
         _uiState.update { it.copy(resolution = resolution) }
     }
 
@@ -283,6 +312,10 @@ constructor(
     } catch (_: PackageManager.NameNotFoundException) {
         "unknown"
     }
+
+    companion object {
+        private const val PREF_RESOLUTION = "display_resolution"
+    }
 }
 
 private fun ManifestEntry.pinLabel(): String = verName ?: version
@@ -362,5 +395,6 @@ enum class Resolution(val width: Int, val height: Int, val label: String) {
 
     companion object {
         val DEFAULT = R1280x720
+        fun fromPreference(value: String?): Resolution = entries.firstOrNull { it.name == value } ?: DEFAULT
     }
 }
