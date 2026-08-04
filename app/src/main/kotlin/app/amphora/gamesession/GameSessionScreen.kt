@@ -1,8 +1,6 @@
 package app.amphora.gamesession
 
 import android.net.Uri
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -24,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -41,9 +38,9 @@ import androidx.navigation.navArgument
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.model.SessionState
+import app.amphora.gamesession.input.TouchpadView
 import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView
-import com.winlator.cmod.runtime.display.xserver.Pointer
 import com.winlator.cmod.runtime.display.xserver.XServer
 import kotlin.math.roundToInt
 
@@ -87,9 +84,10 @@ fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
 /**
  * The Wine game-session screen (RFC §8 / D9): the Compose rewrite of WinNative's 10,995-line
  * `XServerDisplayActivity`. Once the engine has built the [XServer] (exposed via the VM's
- * `surface`), it renders into an [XServerSurfaceView] (Vulkan) with a touch overlay that maps
- * touches to X pointer events. Lifecycle (pause/resume/stop) delegates to the VM, which
- * forwards to the [app.amphora.core.engine.model.SessionHandle] (XEnvironment + ProcessHelper).
+ * `surface`), it renders into an [XServerSurfaceView] (Vulkan) with a [TouchpadView] overlay
+ * (WinNative trackpad/touchscreen/stylus/external-mouse gestures, X-protocol inject only —
+ * no WinHandler). Lifecycle (pause/resume/stop) delegates to the VM, which forwards to the
+ * [app.amphora.core.engine.model.SessionHandle] (XEnvironment + ProcessHelper).
  *
  * P4: the launch chain is real ([app.amphora.core.container.ContainerManager] + launcher
  * exe picker wired); if a session fails to start the error is surfaced here + an Exit button.
@@ -129,7 +127,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         val sessionSurface = surface
         if (sessionSurface != null) {
             GameSurface(surface = sessionSurface, modifier = Modifier.fillMaxSize())
-            TouchInputOverlay(xServer = sessionSurface.xServer, modifier = Modifier.fillMaxSize())
+            TouchpadOverlay(xServer = sessionSurface.xServer, modifier = Modifier.fillMaxSize())
             if (viewModel.hostPerformanceHudEnabled) {
                 HostPerformanceOverlay(xServer = sessionSurface.xServer)
             }
@@ -244,52 +242,26 @@ private fun GameSurface(surface: GameSessionSurface, modifier: Modifier = Modifi
 }
 
 /**
- * Minimal touch overlay (D9 rewrite of `TouchpadView`). Touchpad/relative mode:
- * a drag moves the cursor by the finger's delta (not absolute), a quick tap
- * (little movement, <250ms) is a left click. Drag-to-select (tap then drag) and
- * gesture profiles are P4+ (TouchpadView parity) once the OSK / controls layer lands.
+ * WinNative-parity mouse/touch overlay. Defaults to trackpad mode (relative delta +
+ * tap/LMB, two-finger RMB/scroll, long-press RMB). External mouse and stylus are handled
+ * on the same View via generic motion. Touchscreen absolute mode is available via
+ * [TouchpadView.setScreenTouchMode].
  */
 @Composable
-private fun TouchInputOverlay(xServer: XServer, modifier: Modifier = Modifier) {
-    Box(
-        modifier =
-        modifier.pointerInput(xServer) {
-            awaitEachGesture {
-                val down = awaitFirstDown()
-                var lastX = down.position.x
-                var lastY = down.position.y
-                val downX = down.position.x
-                val downY = down.position.y
-                val downTime = System.currentTimeMillis()
-                var moved = false
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.first()
-                    if (!change.pressed) {
-                        // Tap = left click (little movement, short hold). Drag = just move, no click.
-                        val dt = System.currentTimeMillis() - downTime
-                        val totalMove = Math.abs(change.position.x - downX) + Math.abs(change.position.y - downY)
-                        if (!moved && dt < 250 && totalMove < 24f) {
-                            xServer.injectPointerButtonPress(Pointer.Button.BUTTON_LEFT)
-                            xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_LEFT)
-                        }
-                        break
-                    }
-                    val dx = (change.position.x - lastX).toInt()
-                    val dy = (change.position.y - lastY).toInt()
-                    if (dx != 0 || dy != 0) {
-                        xServer.injectPointerMoveDelta(dx, dy)
-                        if (totalMove(change.position.x, change.position.y, downX, downY) > 24f) moved = true
-                    }
-                    lastX = change.position.x
-                    lastY = change.position.y
-                }
+private fun TouchpadOverlay(xServer: XServer, modifier: Modifier = Modifier) {
+    AndroidView(
+        factory = { ctx ->
+            TouchpadView(ctx, xServer).also { pad ->
+                // Keep relativeMouseMovement=false: without WinHandler, buttons must stay on
+                // the X-protocol path. Trackpad still feels relative via injectPointerMoveDelta.
+                xServer.setRelativeMouseMovement(false)
+                pad.setScreenTouchMode(TouchpadView.MODE_TRACKPAD)
             }
         },
+        modifier = modifier,
+        onRelease = { pad -> pad.resetInputState() },
     )
 }
-
-private fun totalMove(x: Float, y: Float, downX: Float, downY: Float): Float = Math.abs(x - downX) + Math.abs(y - downY)
 
 @Composable
 private fun SessionPlaceholder(
