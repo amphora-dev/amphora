@@ -1,6 +1,7 @@
 package app.amphora.core.engine
 
 import android.content.Context
+import androidx.core.content.edit
 
 /**
  * User-selected Wine DLL source, using WinNative's `wincomponents` wire format.
@@ -37,10 +38,7 @@ object WindowsComponentPreferences {
         require(componentId in componentIds) { "Unknown Windows component: $componentId" }
         val values = parse(serialized(context)).toMutableMap()
         values[componentId] = if (useNative) "1" else "0"
-        prefs(context)
-            .edit()
-            .putString(KEY_WINCOMPONENTS, serialize(values))
-            .apply()
+        prefs(context).edit { putString(KEY_WINCOMPONENTS, serialize(values)) }
     }
 
     fun normalize(raw: String): String = serialize(parse(raw))
