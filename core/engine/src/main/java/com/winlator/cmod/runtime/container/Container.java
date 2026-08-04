@@ -320,6 +320,10 @@ public class Container {
         }
     }
 
+    public boolean hasExtra(String name) {
+        return extraData != null && extraData.has(name);
+    }
+
     public void putExtra(String name, Object value) {
         if (extraData == null) extraData = new JSONObject();
         try {

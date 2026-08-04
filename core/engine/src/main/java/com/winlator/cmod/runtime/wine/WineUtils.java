@@ -652,12 +652,6 @@ public abstract class WineUtils {
     Log.i("WineUtils", "Wine audio driver set to " + wineAudio);
   }
 
-  /** @deprecated 用 {@link #ensureWineAudioDriver} */
-  @Deprecated
-  public static void changeWineAudioDriver(Container container, File rootDir, String audioDriver) {
-    ensureWineAudioDriver(container, rootDir, audioDriver);
-  }
-
   public static void applySystemTweaks(Context context, WineInfo wineInfo) {
     File rootDir = ImageFs.find(context).getRootDir();
     File systemRegFile = new File(rootDir, ImageFs.WINEPREFIX + "/system.reg");
@@ -1372,12 +1366,6 @@ public abstract class WineUtils {
     }
   }
 
-  /** @deprecated 用 {@link #applyServiceStartupProfile} */
-  @Deprecated
-  public static void changeServicesStatus(Container container, String startupSelection) {
-    applyServiceStartupProfile(container, startupSelection);
-  }
-
   /** 小事：每次按输入设置写手柄相关注册表。 */
   public static void ensureJoystickRegistryKeys(
       Container container, boolean dinputEnabled, boolean exclusiveXInput) {
@@ -1398,13 +1386,6 @@ public abstract class WineUtils {
         }
       }
     }
-  }
-
-  /** @deprecated 用 {@link #ensureJoystickRegistryKeys} */
-  @Deprecated
-  public static void setJoystickRegistryKeys(
-      Container container, boolean dinputEnabled, boolean exclusiveXInput) {
-    ensureJoystickRegistryKeys(container, dinputEnabled, exclusiveXInput);
   }
 
   /** 小事：每次确保 winebus 参数正确。 */

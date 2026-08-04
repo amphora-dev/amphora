@@ -105,9 +105,10 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 约定：
 
 - 顶层字段（如 `dxwrapper`、`audioDriver`）= **想要什么**
-- `AppliedMarks` 里的键（如 `appliedDxwrapper`）= **已经按什么做过**；和想要值不同名，避免搞混
-- 前缀重建后只调 `AppliedMarks.clearOwnedByPrefix`；Box64 装在 imagefs，不跟前缀一起清
-- Box64 安装只有一处：`Box64Runtime.ensureApplied`（准备阶段和启动器共用）
+- `AppliedMarks` 键（如 `appliedDxwrapper`）= **已经按什么做过**
+- 前缀重建：`AppliedMarks.clearOwnedByPrefix`；Box64 不跟前缀清
+- 启动时 `scrubObsoleteExtras` 删掉旧版散落键（`dxwrapper`/`audioDriver`/…），不再读它们
+- Box64 只有一处：`Box64Runtime.ensureApplied`
 
 ---
 

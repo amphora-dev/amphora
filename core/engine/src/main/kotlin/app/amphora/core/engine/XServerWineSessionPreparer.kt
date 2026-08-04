@@ -209,7 +209,7 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val appVersion = appVersionCode(context)
         val imgVersion = imageFs.getVersion().toString()
-        var containerDataChanged = false
+        var containerDataChanged = AppliedMarks.scrubObsoleteExtras(c)
 
         // ========== 大事：贵，记「做过没」==========
         if (AppliedMarks.needsAppImagePatch(c, appVersion, imgVersion)) {
@@ -1131,8 +1131,6 @@ class XServerWineSessionPreparer @Inject constructor(
         TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "container_pattern_common.tzst", rootDir)
         // MVP is ALSA-only; pulseaudio.tzst extract omitted (nobody consumed filesDir/pulseaudio).
         WineUtils.applySystemTweaks(context, wineInfo)
-        c.putExtra("graphicsDriver", null)
-        c.putExtra("desktopTheme", null)
     }
 
     /**
