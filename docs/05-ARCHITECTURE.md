@@ -77,6 +77,22 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 
 ---
 
+## 3.1 内容身份：hash vs pin vs 容器字段
+
+三层不要混用：
+
+| 层 | 字段 | 职责 |
+|---|---|---|
+| **Hash** | manifest `sha256` | 下载完整性；`.wcp` / archive 字节是否可信 |
+| **Pin** | manifest `version`（=`Type-verName-verCode`） | 磁盘上保留哪一份；`reconcileToPin` 删 sibling |
+| **容器缓存** | `.container` 的 `wineVersion` / `box64Version` / `dxwrapper` | 启动时 ContentsManager 查找用的名字 |
+
+启动**从不**按 hash 选二进制；按 entry / `verName-verCode` 选。  
+`WinlatorContainerManager.syncRuntimePins` 在每次 `getOrCreate` 把容器字段收敛到**当前已装 pin**（清单优先，否则 newest installed）。  
+`ContentPinResolver` 是唯一解析入口；DXVK/VKD3D 在 wipe DLL **之前**先 resolve，避免 prune 后空 prefix。
+
+---
+
 ## 4. 渲染与输入
 
 | 层 | 组件 | 说明 |
