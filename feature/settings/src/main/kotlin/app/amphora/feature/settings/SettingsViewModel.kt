@@ -18,9 +18,9 @@ import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.TurnipDriverProvisioner
 import app.amphora.core.rootfs.RootfsInstaller
+import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
-import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -311,8 +311,7 @@ enum class DisplayResolution(val width: Int, val height: Int, val label: String)
 
     companion object {
         val DEFAULT = R1280x720
-        fun fromPreference(value: String?): DisplayResolution =
-            entries.firstOrNull { it.name == value } ?: DEFAULT
+        fun fromPreference(value: String?): DisplayResolution = entries.firstOrNull { it.name == value } ?: DEFAULT
     }
 }
 
