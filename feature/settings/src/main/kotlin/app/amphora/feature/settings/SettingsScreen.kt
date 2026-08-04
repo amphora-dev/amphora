@@ -63,10 +63,7 @@ import app.amphora.core.content.model.ContentComponent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
-    onBack: () -> Unit,
-    viewModel: SettingsViewModel = hiltViewModel(),
-) {
+fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     Scaffold(
         topBar = {
@@ -377,11 +374,7 @@ private fun SettingsOverview(state: SettingsUiState) {
 }
 
 @Composable
-private fun SettingSection(
-    title: String,
-    subtitle: String,
-    content: @Composable () -> Unit,
-) {
+private fun SettingSection(title: String, subtitle: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(
@@ -635,13 +628,12 @@ private enum class HealthTone {
 }
 
 @Composable
-private fun HealthTone.color(): Color =
-    when (this) {
-        HealthTone.GOOD -> Color(0xFF2E7D5B)
-        HealthTone.BAD -> MaterialTheme.colorScheme.error
-        HealthTone.NEUTRAL -> MaterialTheme.colorScheme.outline
-        HealthTone.LOCAL -> Color(0xFF3976A8)
-    }
+private fun HealthTone.color(): Color = when (this) {
+    HealthTone.GOOD -> Color(0xFF2E7D5B)
+    HealthTone.BAD -> MaterialTheme.colorScheme.error
+    HealthTone.NEUTRAL -> MaterialTheme.colorScheme.outline
+    HealthTone.LOCAL -> Color(0xFF3976A8)
+}
 
 private val ComponentHealth.label: String
     get() =
@@ -738,8 +730,7 @@ private fun hasExternalStorageAccess(context: Context): Boolean {
 }
 
 @RequiresApi(Build.VERSION_CODES.R)
-private fun allFilesAccessIntent(context: Context): Intent =
-    Intent(
-        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-        "package:${context.packageName}".toUri(),
-    )
+private fun allFilesAccessIntent(context: Context): Intent = Intent(
+    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+    "package:${context.packageName}".toUri(),
+)

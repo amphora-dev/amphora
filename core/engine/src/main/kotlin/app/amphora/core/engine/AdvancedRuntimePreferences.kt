@@ -90,30 +90,28 @@ object AdvancedRuntimePreferences {
         }
     }
 
-    fun parseCustomEnv(raw: String): Map<String, String> =
-        buildMap {
-            raw.lineSequence().forEach { line ->
-                val trimmed = line.trim()
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
-                val separator = trimmed.indexOf('=')
-                if (separator <= 0) return@forEach
-                val key = trimmed.substring(0, separator).trim()
-                val value = trimmed.substring(separator + 1).trim()
-                if (validEnvName.matches(key) && key !in protectedVariables) put(key, value)
-            }
+    fun parseCustomEnv(raw: String): Map<String, String> = buildMap {
+        raw.lineSequence().forEach { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
+            val separator = trimmed.indexOf('=')
+            if (separator <= 0) return@forEach
+            val key = trimmed.substring(0, separator).trim()
+            val value = trimmed.substring(separator + 1).trim()
+            if (validEnvName.matches(key) && key !in protectedVariables) put(key, value)
         }
+    }
 
-    fun rejectedCustomEnvNames(raw: String): List<String> =
-        raw
-            .lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("#") }
-            .mapNotNull { line ->
-                val separator = line.indexOf('=')
-                if (separator <= 0) return@mapNotNull line
-                val key = line.substring(0, separator).trim()
-                if (!validEnvName.matches(key) || key in protectedVariables) key else null
-            }.toList()
+    fun rejectedCustomEnvNames(raw: String): List<String> = raw
+        .lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") }
+        .mapNotNull { line ->
+            val separator = line.indexOf('=')
+            if (separator <= 0) return@mapNotNull line
+            val key = line.substring(0, separator).trim()
+            if (!validEnvName.matches(key) || key in protectedVariables) key else null
+        }.toList()
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)

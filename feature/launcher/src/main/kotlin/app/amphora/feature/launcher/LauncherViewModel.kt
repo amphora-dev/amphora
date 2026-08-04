@@ -395,7 +395,6 @@ enum class Resolution(val width: Int, val height: Int, val label: String) {
 
     companion object {
         val DEFAULT = R1280x720
-        fun fromPreference(value: String?): Resolution =
-            entries.firstOrNull { it.name == value } ?: DEFAULT
+        fun fromPreference(value: String?): Resolution = entries.firstOrNull { it.name == value } ?: DEFAULT
     }
 }
