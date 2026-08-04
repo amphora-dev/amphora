@@ -612,14 +612,10 @@ public abstract class WineUtils {
   }
 
   /**
-   * Ensure {@code Software\Wine\Drivers\Audio} in {@code user.reg} matches desired policy.
+   * 把注册表里的声音驱动写成容器想要的值（Amphora 只有 alsa）。
    *
-   * <p>Apply model ({@code PrefixApplyStamps}): desired = {@code container.audioDriver}
-   * (Amphora MVP: {@code alsa}); applied sink = this registry key. Do <b>not</b> gate on
-   * {@code extra.audioDriver} — that WinNative stamp drifts across prefix repair and Amphora
-   * has no Pulse probe fallback when {@code Audio} is missing.
-   *
-   * <p>{@link WineRegistryEditor#setStringValue} is a no-op when the value already matches.
+   * <p>每次对照注册表：缺了或写错就改。不要用 extra 里的「写过了」来跳过——
+   * 那笔记录会在前缀重建后骗人，Amphora 又没有 Pulse 兜底。
    */
   public static void changeWineAudioDriver(Container container, File rootDir, String audioDriver) {
     if (container == null || rootDir == null || audioDriver == null || audioDriver.isEmpty()) {

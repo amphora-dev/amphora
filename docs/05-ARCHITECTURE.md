@@ -93,23 +93,14 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 
 ---
 
-## 3.2 Prefix 配置：desired / applied / stamp
+## 3.2 容器配置怎么写进前缀
 
-容器策略写入 prefix 时同样分三层，不要用 stamp 冒充 applied：
+两件事别混：
 
-| 层 | 例子 | 职责 |
-|---|---|---|
-| **Desired** | `.container` 顶层 `audioDriver` / `dxwrapper` / `wincomponents` / `startupSelection` | 用户/同步后的目标策略 |
-| **Applied** | `user.reg` / `system.reg` / `drive_c/windows/system32/*.dll` / `usr/bin/box64` | Wine 真正读到的状态 |
-| **Stamp** | `extra.dxwrapper` / `extra.wincomponents` / `extra.startupSelection` / `extra.box64Version` | 上次**重** apply 成功的缓存，只用于跳过昂贵工作 |
+1. **声音这种小事**：每次启动直接看注册表，不对就改。不记「做过没」。
+2. **装 DLL、改一堆服务这种大事**：记一笔「做过没」，避免每次重做。前缀整份重建后清掉这些标记，逼下次重做。
 
-规则：
-
-1. **便宜 ensure（注册表少量键）**：每次对照 applied 写入。例：`WineUtils.changeWineAudioDriver` → 读/写 `Software\Wine\Drivers\Audio`。**禁止**再用 `extra.audioDriver`（已废弃，加载与 repair 时剔除）。
-2. **重 apply（解压 DLL / 拷贝 box64 / 大面积改 system.reg 服务）**：用 stamp 门控；`PrefixApplyStamps.clearForPrefixRepair` 在 prefix 重建后清 stamp，逼下次启动重 apply。
-3. **`WineRegistryEditor.setStringValue` / `setDwordValue`**：值未变则不落盘，避免 ensure 路径无谓重写 `.reg`。
-
-与 §3.1 的关系：content pin 管的是**磁盘上装了哪份二进制**；本节管的是**那份二进制如何被配进某个容器的 wine prefix**。
+`PrefixApplyStamps` 只负责第 2 类在重建前缀时要清哪些标记。声音不在名单里——就算旧配置里还留着废字段，也不再读它。
 
 ---
 

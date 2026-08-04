@@ -640,8 +640,7 @@ public class ContainerManager {
 
       WineInfo wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion);
       container.putExtra("wineprefixArch", wineInfo.getArch());
-      // Prefix-local apply stamps must be cleared so the next launch re-applies DLL/registry
-      // policy into the fresh prefix. See PrefixApplyStamps.
+      // 前缀换新了：「做过没」作废，下次启动重装 DLL / 重写服务等。声音不靠这些标记。
       PrefixApplyStamps.INSTANCE.clearForPrefixRepair(container);
       container.saveData();
       if (movedAside) {

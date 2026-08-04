@@ -537,8 +537,6 @@ public class Container {
                 case "extraData" : {
                     JSONObject extraData = data.getJSONObject(key);
                     checkObsoleteOrMissingProperties(extraData);
-                    // Obsolete stamp: desired = top-level audioDriver; applied = user.reg.
-                    extraData.remove("audioDriver");
                     setExtraData(extraData);
                     break;
                 }

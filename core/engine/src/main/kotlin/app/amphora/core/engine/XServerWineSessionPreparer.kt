@@ -209,7 +209,7 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val appVersion = appVersionCode(context)
         val imgVersion = imageFs.getVersion().toString()
-        var containerDataChanged = PrefixApplyStamps.stripObsolete(c)
+        var containerDataChanged = false
 
         if (c.getExtra("appVersion") != appVersion || c.getExtra("imgVersion") != imgVersion) {
             Log.d(TAG, "Version mismatch, applying general patches (app=$appVersion img=$imgVersion)")
@@ -326,7 +326,7 @@ class XServerWineSessionPreparer @Inject constructor(
         WineUtils.setJoystickRegistryKeys(c, dinputEnabled, exclusiveXInput)
         WineUtils.ensureWinebusConfig(c)
 
-        // Heavy-ish system.reg rewrite: stamp-gated (cleared on prefix repair).
+        // 服务列表：改动大，用「做过没」跳过；重建前缀时会清掉，下次重写。
         startupSelection = c.getStartupSelection().toString()
         if (startupSelection != c.getExtra("startupSelection") || firstTimeBoot) {
             WineUtils.changeServicesStatus(c, startupSelection)
@@ -334,7 +334,7 @@ class XServerWineSessionPreparer @Inject constructor(
             containerDataChanged = true
         }
 
-        // Cheap registry ensure: desired=container.audioDriver, applied=user.reg (no stamp).
+        // 声音：每次直接看注册表，不对就改。不记「做过没」。
         val audioDriver = c.getAudioDriver()?.takeIf { it.isNotBlank() } ?: Container.DEFAULT_AUDIO_DRIVER
         WineUtils.changeWineAudioDriver(c, imageFs.getRootDir(), audioDriver)
 
