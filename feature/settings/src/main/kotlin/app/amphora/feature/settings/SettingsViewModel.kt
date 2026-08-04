@@ -85,11 +85,25 @@ constructor(
                 WineLogMode.fromValue(
                     prefs.getString(AdvancedRuntimePreferences.KEY_WINE_DEBUG, null),
                 ),
+                hostPerformanceHud =
+                prefs.getBoolean(AdvancedRuntimePreferences.KEY_HOST_PERF_HUD, false),
                 dxvkHud = prefs.getBoolean(AdvancedRuntimePreferences.KEY_DXVK_HUD, false),
                 shaderCache = prefs.getBoolean(AdvancedRuntimePreferences.KEY_SHADER_CACHE, true),
                 shaderCacheSize =
                 ShaderCacheSize.fromValue(
                     prefs.getString(AdvancedRuntimePreferences.KEY_SHADER_CACHE_SIZE, null),
+                ),
+                vkd3dFeatureLevel =
+                Vkd3dFeatureLevel.fromValue(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_VKD3D_FEATURE_LEVEL, null),
+                ),
+                vkd3dShaderModel =
+                Vkd3dShaderModel.fromValue(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_VKD3D_SHADER_MODEL, null),
+                ),
+                vkd3dDxr =
+                Vkd3dDxrMode.fromValue(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_VKD3D_DXR, null),
                 ),
                 windowsComponents =
                 WindowsComponentSetting.entries.associateWith { component ->
@@ -170,6 +184,11 @@ constructor(
         _uiState.update { it.copy(dxvkHud = enabled) }
     }
 
+    fun setHostPerformanceHud(enabled: Boolean) {
+        prefs.edit { putBoolean(AdvancedRuntimePreferences.KEY_HOST_PERF_HUD, enabled) }
+        _uiState.update { it.copy(hostPerformanceHud = enabled) }
+    }
+
     fun setShaderCache(enabled: Boolean) {
         prefs.edit { putBoolean(AdvancedRuntimePreferences.KEY_SHADER_CACHE, enabled) }
         _uiState.update { it.copy(shaderCache = enabled) }
@@ -178,6 +197,21 @@ constructor(
     fun selectShaderCacheSize(value: ShaderCacheSize) {
         prefs.edit { putString(AdvancedRuntimePreferences.KEY_SHADER_CACHE_SIZE, value.value) }
         _uiState.update { it.copy(shaderCacheSize = value) }
+    }
+
+    fun selectVkd3dFeatureLevel(value: Vkd3dFeatureLevel) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_VKD3D_FEATURE_LEVEL, value.value) }
+        _uiState.update { it.copy(vkd3dFeatureLevel = value) }
+    }
+
+    fun selectVkd3dShaderModel(value: Vkd3dShaderModel) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_VKD3D_SHADER_MODEL, value.value) }
+        _uiState.update { it.copy(vkd3dShaderModel = value) }
+    }
+
+    fun selectVkd3dDxr(value: Vkd3dDxrMode) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_VKD3D_DXR, value.value) }
+        _uiState.update { it.copy(vkd3dDxr = value) }
     }
 
     fun setWindowsComponentNative(component: WindowsComponentSetting, useNative: Boolean) {
@@ -344,9 +378,13 @@ data class SettingsUiState(
     val presentMode: PresentMode = PresentMode.AUTO,
     val bcnMode: BcnMode = BcnMode.DEFAULT,
     val wineLog: WineLogMode = WineLogMode.OFF,
+    val hostPerformanceHud: Boolean = false,
     val dxvkHud: Boolean = false,
     val shaderCache: Boolean = true,
     val shaderCacheSize: ShaderCacheSize = ShaderCacheSize.MB512,
+    val vkd3dFeatureLevel: Vkd3dFeatureLevel = Vkd3dFeatureLevel.AUTO,
+    val vkd3dShaderModel: Vkd3dShaderModel = Vkd3dShaderModel.AUTO,
+    val vkd3dDxr: Vkd3dDxrMode = Vkd3dDxrMode.AUTO,
     val windowsComponents: Map<WindowsComponentSetting, Boolean> =
         WindowsComponentSetting.entries.associateWith { true },
     val clearingShaderCache: Boolean = false,
@@ -485,6 +523,47 @@ enum class ShaderCacheSize(val value: String, val label: String) {
 
     companion object {
         fun fromValue(value: String?): ShaderCacheSize = entries.firstOrNull { it.value == value } ?: MB512
+    }
+}
+
+enum class Vkd3dFeatureLevel(val value: String, val label: String) {
+    AUTO("auto", "Automatic"),
+    LEVEL_11_0("11_0", "11.0"),
+    LEVEL_12_0("12_0", "12.0"),
+    LEVEL_12_1("12_1", "12.1"),
+    LEVEL_12_2("12_2", "12.2"),
+    ;
+
+    companion object {
+        fun fromValue(value: String?): Vkd3dFeatureLevel = entries.firstOrNull { it.value == value } ?: AUTO
+    }
+}
+
+enum class Vkd3dShaderModel(val value: String, val label: String) {
+    AUTO("auto", "Automatic"),
+    MODEL_6_0("6_0", "6.0"),
+    MODEL_6_3("6_3", "6.3"),
+    MODEL_6_5("6_5", "6.5"),
+    MODEL_6_6("6_6", "6.6"),
+    MODEL_6_7("6_7", "6.7"),
+    MODEL_6_8("6_8", "6.8"),
+    MODEL_6_9("6_9", "6.9"),
+    ;
+
+    companion object {
+        fun fromValue(value: String?): Vkd3dShaderModel = entries.firstOrNull { it.value == value } ?: AUTO
+    }
+}
+
+enum class Vkd3dDxrMode(val value: String, val label: String) {
+    AUTO("auto", "Automatic"),
+    DISABLED("disabled", "Disabled"),
+    FORCE("force", "Force DXR"),
+    EXPERIMENTAL_1_2("experimental_1_2", "DXR 1.2"),
+    ;
+
+    companion object {
+        fun fromValue(value: String?): Vkd3dDxrMode = entries.firstOrNull { it.value == value } ?: AUTO
     }
 }
 

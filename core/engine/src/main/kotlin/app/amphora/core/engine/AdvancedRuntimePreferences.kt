@@ -17,9 +17,13 @@ object AdvancedRuntimePreferences {
     const val KEY_PRESENT_MODE = "advanced_present_mode"
     const val KEY_BCN_MODE = "advanced_bcn_mode"
     const val KEY_WINE_DEBUG = "advanced_wine_debug"
+    const val KEY_HOST_PERF_HUD = "advanced_host_perf_hud"
     const val KEY_DXVK_HUD = "advanced_dxvk_hud"
     const val KEY_SHADER_CACHE = "advanced_shader_cache"
     const val KEY_SHADER_CACHE_SIZE = "advanced_shader_cache_size"
+    const val KEY_VKD3D_FEATURE_LEVEL = "advanced_vkd3d_feature_level"
+    const val KEY_VKD3D_SHADER_MODEL = "advanced_vkd3d_shader_model"
+    const val KEY_VKD3D_DXR = "advanced_vkd3d_dxr"
     const val KEY_CUSTOM_ENV = "advanced_custom_env"
 
     private val validEnvName = Regex("[A-Z_][A-Z0-9_]*")
@@ -88,6 +92,19 @@ object AdvancedRuntimePreferences {
             else -> env.put("WINEDEBUG", "-all")
         }
 
+        when (val level = prefs.getString(KEY_VKD3D_FEATURE_LEVEL, "auto")) {
+            "12_0", "12_1", "12_2", "11_0" -> env.put("VKD3D_FEATURE_LEVEL", level)
+        }
+        when (val shaderModel = prefs.getString(KEY_VKD3D_SHADER_MODEL, "auto")) {
+            "6_0", "6_3", "6_5", "6_6", "6_7", "6_8", "6_9" ->
+                env.put("VKD3D_SHADER_MODEL", shaderModel)
+        }
+        when (prefs.getString(KEY_VKD3D_DXR, "auto")) {
+            "disabled" -> env.put("VKD3D_CONFIG", "nodxr")
+            "force" -> env.put("VKD3D_CONFIG", "dxr")
+            "experimental_1_2" -> env.put("VKD3D_CONFIG", "dxr12")
+        }
+
         if (prefs.getBoolean(KEY_DXVK_HUD, false)) {
             env.put("DXVK_HUD", "fps,devinfo,api,memory,gpuload")
         }
@@ -128,6 +145,8 @@ object AdvancedRuntimePreferences {
             val key = line.substring(0, separator).trim()
             if (!validEnvName.matches(key) || key in protectedVariables) key else null
         }.toList()
+
+    fun hostPerformanceHudEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_HOST_PERF_HUD, false)
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
