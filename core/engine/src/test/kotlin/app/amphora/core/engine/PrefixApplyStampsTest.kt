@@ -6,14 +6,13 @@ import org.junit.Test
 
 class PrefixApplyStampsTest {
     @Test
-    fun prefixRepairClearsHeavyStampsAndObsoleteAudio() {
+    fun prefixRepairClearsHeavyWorkMarksOnly() {
         val keys = PrefixApplyStamps.prefixRepairClearKeys
         assertTrue(keys.contains("dxwrapper"))
         assertTrue(keys.contains("wincomponents"))
         assertTrue(keys.contains("startupSelection"))
-        assertTrue(keys.contains(PrefixApplyStamps.OBSOLETE_AUDIO_DRIVER))
-        // Content pins live outside the wine prefix — must survive repair.
+        // 声音不靠这些标记；box64 也不在前缀里，重建前缀不用清。
+        assertFalse(keys.contains("audioDriver"))
         assertFalse(keys.contains("box64Version"))
-        assertFalse(keys.contains("fexcoreVersion"))
     }
 }
