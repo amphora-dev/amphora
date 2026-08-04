@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.container.model.DEFAULT_CONTAINER_ID
+import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.GraphicsDiag
@@ -50,6 +51,8 @@ constructor(
 ) : ViewModel() {
     val surface: StateFlow<GameSessionSurface?> = surfaceProvider.surface
     val provisionProgress = wineEngine.provisionProgress
+    val hostPerformanceHudEnabled =
+        AdvancedRuntimePreferences.hostPerformanceHudEnabled(appContext)
 
     private val _sessionState = MutableStateFlow<SessionState?>(null)
     val sessionState: StateFlow<SessionState?> = _sessionState.asStateFlow()

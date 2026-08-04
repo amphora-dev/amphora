@@ -95,12 +95,13 @@ constructor(
 
         val wineVersion = resolveWineVersion(manifest)
         val dxwrapper = resolveDxwrapper(manifest)
+        val wincomponents = WindowsComponentPreferences.serialized(context)
         val targetId = parseContainerId(id)
 
         wnContainerManager.loadContainers()
         val existing = wnContainerManager.getContainerById(targetId)
         val wnContainer =
-            existing ?: createDefaultContainer(wineVersion, dxwrapper)
+            existing ?: createDefaultContainer(wineVersion, dxwrapper, wincomponents)
                 ?: throw IllegalStateException(
                     "ContainerManager.createContainer returned null for wineVersion=$wineVersion " +
                         "(see logcat 'ContainerManager'); is the Proton prefixPack installed?",
@@ -112,6 +113,9 @@ constructor(
         // (dxvk-1.0 / vkd3d-None / missing profile). Clear the dxwrapper gate
         // extra so the preparer re-extracts DLLs on the next launch.
         ensureRealDxwrapper(wnContainer, dxwrapper)
+        // Mirror WinNative's ComponentsSection selection into the shared
+        // container. The preparer compares this with its last-applied snapshot.
+        ensureWinComponents(wnContainer, wincomponents)
         // One-shot: incomplete upstream DXVK profile.json omitted d3d8/d3d10*;
         // clear the preparer gate so applyContent re-runs with trust augment.
         ensureDxvkTrustAugmentReapply(wnContainer)
@@ -176,7 +180,7 @@ constructor(
      * DLLs. Do **not** use `dxvk-1.0` / `vkd3d-None` — those never match a
      * profile and fall through to Wine builtins / stubs.
      */
-    private fun createDefaultContainer(wineVersion: String, dxwrapper: String): WnContainer? {
+    private fun createDefaultContainer(wineVersion: String, dxwrapper: String, wincomponents: String): WnContainer? {
         val data =
             JSONObject().apply {
                 put("name", "Amphora")
@@ -195,7 +199,7 @@ constructor(
                     "graphicsDriverConfig",
                     "vulkanVersion=1.3;version=wrapper;blacklistedExtensions=;maxDeviceMemory=0;presentMode=mailbox;syncFrame=0;disablePresentWait=1;resourceType=auto;bcnEmulation=auto;bcnEmulationType=compute;bcnEmulationCache=0;gpuName=Device",
                 )
-                put("wincomponents", WnContainer.FALLBACK_WINCOMPONENTS)
+                put("wincomponents", wincomponents)
             }
         return wnContainerManager.createContainer(data, contentsManager)
     }
@@ -301,6 +305,17 @@ constructor(
         )
         container.setDXWrapper(desired)
         container.putExtra("dxwrapper", "")
+        container.saveData()
+    }
+
+    private fun ensureWinComponents(container: WnContainer, desired: String) {
+        val current = WindowsComponentPreferences.normalize(container.getWinComponents() ?: "")
+        if (current == desired) return
+        android.util.Log.i(
+            "WinlatorContainerManager",
+            "Migrating container wincomponents '$current' -> '$desired'",
+        )
+        container.setWinComponents(desired)
         container.saveData()
     }
 
