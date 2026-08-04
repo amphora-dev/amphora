@@ -7,15 +7,18 @@ import org.junit.Test
 
 class ContentManifestLoaderTest {
     @Test
-    fun defaultRemoteUrlTracksMainBranchNotACommit() {
+    fun defaultRemoteUrlTracksLatestPinsNotACommit() {
         val url = ContentManifestLoader.DEFAULT_REMOTE_URL
         assertTrue(url.startsWith("https://"))
         assertTrue(url.contains("amphora-dev/content_manifest"))
         assertTrue(url.endsWith("content_manifest.json") || url.contains("content_manifest.json?"))
-        // Must follow main tip — never pin a 40-char commit SHA in the default URL.
+        // Prefer jsDelivr @latest (semver tags CI purges). Never embed a commit SHA.
         assertTrue(
-            "default manifest URL must track main, got $url",
-            url.contains("@main/") || url.contains("/main/") || url.contains("ref=main"),
+            "default manifest URL must track latest/main, got $url",
+            url.contains("@latest/") ||
+                url.contains("@main/") ||
+                url.contains("/main/") ||
+                url.contains("ref=main"),
         )
         assertFalse(
             "default manifest URL must not embed a commit SHA: $url",
@@ -25,14 +28,15 @@ class ContentManifestLoaderTest {
     }
 
     @Test
-    fun candidateUrlsPreferPrimaryThenBranchTrackingMirrors() {
+    fun candidateUrlsPreferPrimaryThenFreshnessAwareMirrors() {
         val primary =
-            "https://cdn.jsdelivr.net/gh/amphora-dev/content_manifest@main/content_manifest.json"
+            "https://cdn.jsdelivr.net/gh/amphora-dev/content_manifest@latest/content_manifest.json"
         val candidates = ContentManifestLoader.candidateUrls(primary)
         assertEquals(primary, candidates.first())
-        assertTrue(candidates.any { it.contains("api.github.com") && it.contains("ref=main") })
         assertTrue(candidates.any { it.contains("raw.githubusercontent.com") && it.contains("/main/") })
-        // No commit-SHA mirrors.
+        assertTrue(candidates.any { it.contains("api.github.com") && it.contains("ref=main") })
+        // API is last (rate-limited).
+        assertTrue(candidates.last().contains("api.github.com"))
         assertTrue(candidates.none { Regex("""@[0-9a-f]{40}/""").containsMatchIn(it) })
     }
 
