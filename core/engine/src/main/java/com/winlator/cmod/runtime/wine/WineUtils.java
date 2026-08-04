@@ -614,17 +614,16 @@ public abstract class WineUtils {
   /**
    * 把注册表里的声音驱动写成容器想要的值（Amphora 只有 alsa）。
    *
-   * <p>每次对照注册表：缺了或写错就改。不要用 extra 里的「写过了」来跳过——
-   * 那笔记录会在前缀重建后骗人，Amphora 又没有 Pulse 兜底。
+   * <p>小事：每次对照注册表，缺了或写错就改。不记「做过没」。
    */
-  public static void changeWineAudioDriver(Container container, File rootDir, String audioDriver) {
+  public static void ensureWineAudioDriver(Container container, File rootDir, String audioDriver) {
     if (container == null || rootDir == null || audioDriver == null || audioDriver.isEmpty()) {
       return;
     }
 
     File userRegFile = new File(rootDir, ImageFs.WINEPREFIX + "/user.reg");
     if (!userRegFile.isFile()) {
-      Log.w("WineUtils", "changeWineAudioDriver: missing " + userRegFile);
+      Log.w("WineUtils", "ensureWineAudioDriver: missing " + userRegFile);
       return;
     }
 
@@ -636,10 +635,10 @@ public abstract class WineUtils {
       // pulseaudio.tzst; refuse rather than point Wine at a missing backend.
       Log.w(
           "WineUtils",
-          "changeWineAudioDriver: pulseaudio requested but Amphora MVP is ALSA-only; keeping alsa");
+          "ensureWineAudioDriver: pulseaudio requested but Amphora MVP is ALSA-only; keeping alsa");
       wineAudio = "alsa";
     } else {
-      Log.w("WineUtils", "changeWineAudioDriver: unknown driver " + audioDriver);
+      Log.w("WineUtils", "ensureWineAudioDriver: unknown driver " + audioDriver);
       return;
     }
 
@@ -651,6 +650,12 @@ public abstract class WineUtils {
       registryEditor.setStringValue("Software\\Wine\\Drivers", "Audio", wineAudio);
     }
     Log.i("WineUtils", "Wine audio driver set to " + wineAudio);
+  }
+
+  /** @deprecated 用 {@link #ensureWineAudioDriver} */
+  @Deprecated
+  public static void changeWineAudioDriver(Container container, File rootDir, String audioDriver) {
+    ensureWineAudioDriver(container, rootDir, audioDriver);
   }
 
   public static void applySystemTweaks(Context context, WineInfo wineInfo) {
@@ -1285,7 +1290,12 @@ public abstract class WineUtils {
     }
   }
 
-  public static void changeServicesStatus(Container container, String startupSelection) {
+  /**
+   * 按服务启动策略改写 system.reg 里一批服务的 Start 值。
+   *
+   * <p>大事：调用方用 {@code AppliedMarks} 记「做过没」，避免每次启动整表重写。
+   */
+  public static void applyServiceStartupProfile(Container container, String startupSelection) {
     String[] services = {
       "BITS:3",
       "Eventlog:2",
@@ -1362,7 +1372,14 @@ public abstract class WineUtils {
     }
   }
 
-  public static void setJoystickRegistryKeys(
+  /** @deprecated 用 {@link #applyServiceStartupProfile} */
+  @Deprecated
+  public static void changeServicesStatus(Container container, String startupSelection) {
+    applyServiceStartupProfile(container, startupSelection);
+  }
+
+  /** 小事：每次按输入设置写手柄相关注册表。 */
+  public static void ensureJoystickRegistryKeys(
       Container container, boolean dinputEnabled, boolean exclusiveXInput) {
     File userRegFile = new File(container.getRootDir(), ".wine/user.reg");
     String value = dinputEnabled ? "override" : "disabled";
@@ -1383,6 +1400,14 @@ public abstract class WineUtils {
     }
   }
 
+  /** @deprecated 用 {@link #ensureJoystickRegistryKeys} */
+  @Deprecated
+  public static void setJoystickRegistryKeys(
+      Container container, boolean dinputEnabled, boolean exclusiveXInput) {
+    ensureJoystickRegistryKeys(container, dinputEnabled, exclusiveXInput);
+  }
+
+  /** 小事：每次确保 winebus 参数正确。 */
   public static void ensureWinebusConfig(Container container) {
     File systemRegFile = new File(container.getRootDir(), ".wine/system.reg");
     if (!systemRegFile.exists()) return;

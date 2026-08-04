@@ -7,7 +7,8 @@ import android.net.ConnectivityManager;
 import android.os.Process;
 import android.util.Log;
 import androidx.preference.PreferenceManager;
-import app.amphora.core.engine.ContentPinResolver;
+import app.amphora.core.engine.AppliedMarks;
+import app.amphora.core.engine.Box64Runtime;
 import com.winlator.cmod.runtime.compat.box64.Box64Preset;
 import com.winlator.cmod.runtime.compat.box64.Box64PresetManager;
 import com.winlator.cmod.runtime.compat.fexcore.FEXCorePreset;
@@ -309,61 +310,11 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
   private void extractBox64Files() {
     ImageFs imageFs = environment.getImageFs();
-
-    // Use the configured runtime version; legacy containers may only have the app default.
-    String box64Version = container.getBox64Version();
-    if (box64Version == null) box64Version = "";
-
     Log.i(
         "GuestProgramLauncherComponent",
-        "Launch runtime selected: Box64 version=" + box64Version);
-
-    File rootDir = imageFs.getRootDir();
-    boolean box64Missing = !new File(rootDir, "usr/bin/box64").exists();
-
-    if (box64Missing || !box64Version.equals(container.getExtra("box64Version"))) {
-      if (box64Version.isEmpty()) {
-        Log.w("GuestProgramLauncherComponent", "No Box64 version selected; skipping content extraction");
-      } else {
-        ContentProfile profile =
-            ContentPinResolver.INSTANCE.resolveInstalledProfile(
-                contentsManager, ContentProfile.ContentType.CONTENT_TYPE_BOX64, box64Version);
-        if (profile != null) {
-          String resolved =
-              ContentPinResolver.INSTANCE.versionIdentity(ContentPinResolver.INSTANCE.entryName(profile));
-          if (!resolved.equals(box64Version)) {
-            Log.w(
-                "GuestProgramLauncherComponent",
-                "Box64 content profile not installed for version="
-                    + box64Version
-                    + "; falling back to installed "
-                    + resolved);
-            box64Version = resolved;
-            container.setBox64Version(box64Version);
-          }
-          Log.i(
-              "GuestProgramLauncherComponent",
-              "Loading Box64 content profile: version=" + box64Version);
-          contentsManager.applyContent(profile);
-          container.putExtra("box64Version", box64Version);
-          container.saveData();
-        } else {
-          Log.w(
-              "GuestProgramLauncherComponent",
-              "Box64 content profile not installed; no bundled Box64 archive will be loaded: version="
-                  + box64Version);
-        }
-      }
-    } else {
-      Log.i(
-          "GuestProgramLauncherComponent",
-          "Box64 already loaded for launch: version=" + box64Version);
-    }
-
-    // Set execute permissions for box64 just in case
-    File box64File = new File(rootDir, "usr/bin/box64");
-    if (box64File.exists()) {
-      FileUtils.chmod(box64File, 0755);
+        "Launch runtime selected: Box64 version=" + container.getBox64Version());
+    if (Box64Runtime.ensureApplied(container, imageFs, contentsManager)) {
+      container.saveData();
     }
   }
 
@@ -424,7 +375,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
 
     if (usesWowbox64
-        && (wowbox64DllMissing || !wowbox64Version.equals(container.getExtra("box64Version")))) {
+        && (wowbox64DllMissing || !wowbox64Version.equals(AppliedMarks.INSTANCE.box64(container)))) {
       if (wowbox64Version.isEmpty()) {
         Log.w("GuestProgramLauncherComponent", "No WowBox64 version selected; skipping content extraction");
       } else {
@@ -441,7 +392,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                   + wowbox64Version);
         }
       }
-      container.putExtra("box64Version", wowbox64Version);
+      AppliedMarks.INSTANCE.markBox64(container, wowbox64Version);
       containerDataChanged = true;
     } else if (usesWowbox64) {
       Log.i(

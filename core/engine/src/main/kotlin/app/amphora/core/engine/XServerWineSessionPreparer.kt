@@ -211,11 +211,11 @@ class XServerWineSessionPreparer @Inject constructor(
         val imgVersion = imageFs.getVersion().toString()
         var containerDataChanged = false
 
-        if (c.getExtra("appVersion") != appVersion || c.getExtra("imgVersion") != imgVersion) {
-            Log.d(TAG, "Version mismatch, applying general patches (app=$appVersion img=$imgVersion)")
+        // ========== 大事：贵，记「做过没」==========
+        if (AppliedMarks.needsAppImagePatch(c, appVersion, imgVersion)) {
+            Log.d(TAG, "版本变更，打通用补丁 (app=$appVersion img=$imgVersion)")
             applyGeneralPatches(c)
-            c.putExtra("appVersion", appVersion)
-            c.putExtra("imgVersion", imgVersion)
+            AppliedMarks.markAppImagePatched(c, appVersion, imgVersion)
             firstTimeBoot = true
             containerDataChanged = true
         }
@@ -268,28 +268,28 @@ class XServerWineSessionPreparer @Inject constructor(
         }
 
         val wincomponents = c.getWinComponents()
-        if (wincomponents != c.getExtra("wincomponents") || firstTimeBoot) {
+        if (AppliedMarks.needsWincomponents(c, wincomponents) || firstTimeBoot) {
             WinComponentSetup.applyWinComponents(
                 context,
                 imageFs,
                 wineInfo,
                 c,
                 wincomponents,
-                c.getExtra("wincomponents", Container.FALLBACK_WINCOMPONENTS),
+                AppliedMarks.wincomponents(c).ifEmpty { Container.FALLBACK_WINCOMPONENTS },
                 firstTimeBoot,
                 null,
             )
-            c.putExtra("wincomponents", wincomponents)
+            AppliedMarks.markWincomponents(c, wincomponents)
             containerDataChanged = true
         }
 
         val wineArchKey = if (wineVersion.contains("arm64ec")) "arm64ec" else "x86_64"
         val dxwrapperGateKey = "$localDxwrapper|arch=$wineArchKey"
         val forceWrapperApply = sharedGraphicsLinksNeedRefresh(localDxwrapper)
-        if (dxwrapperGateKey != c.getExtra("dxwrapper") || firstTimeBoot || forceWrapperApply) {
+        if (AppliedMarks.needsDxwrapper(c, dxwrapperGateKey) || firstTimeBoot || forceWrapperApply) {
             Log.i(
                 TAG,
-                "DXVK/VKD3D extract: gate fired (key='$dxwrapperGateKey' prev='${c.getExtra("dxwrapper")}'" +
+                "DXVK/VKD3D extract: gate fired (key='$dxwrapperGateKey' prev='${AppliedMarks.dxwrapperKey(c)}'" +
                     " firstTimeBoot=$firstTimeBoot forced=$forceWrapperApply)",
             )
             // Resolve profiles BEFORE wiping — a stale pin must not leave the
@@ -304,17 +304,19 @@ class XServerWineSessionPreparer @Inject constructor(
                 localDxwrapper = resolvedDxwrapper
                 wipeDxwrapperDllsForReextract()
                 extractDXWrapperFilesCore(localDxwrapper)
-                c.putExtra("dxwrapper", "$localDxwrapper|arch=$wineArchKey")
+                AppliedMarks.markDxwrapper(c, "$localDxwrapper|arch=$wineArchKey")
                 containerDataChanged = true
             }
         }
 
-        // Steam / custom-shortcut visibility branches STRIPPED (D9: non-target).
-        // Activity teardown guard (xServer/isFinishing/isDestroyed) STRIPPED --
-        // prep has no Activity/xServer.
-        // desktopTheme apply omitted (WineThemeManager.apply removed for MVP)
-        // deferred to P3 setupXEnvironment (post xServer creation).
+        startupSelection = c.getStartupSelection().toString()
+        if (AppliedMarks.needsServices(c, startupSelection) || firstTimeBoot) {
+            WineUtils.applyServiceStartupProfile(c, startupSelection)
+            AppliedMarks.markServices(c, startupSelection)
+            containerDataChanged = true
+        }
 
+        // ========== 小事：每次对照真实状态 ==========
         WineStartMenuCreator.create(context, c)
         stageGraphicsTestExes(c)
         WineUtils.createDosdevicesSymlinks(c, getActiveGameDirectoryPath(), isSteamShortcut())
@@ -323,20 +325,11 @@ class XServerWineSessionPreparer @Inject constructor(
         val dinputFlag = Container.FLAG_INPUT_TYPE_DINPUT.toInt()
         val dinputEnabled = (inputType and dinputFlag) == dinputFlag
         val exclusiveXInput = c.isExclusiveXInput()
-        WineUtils.setJoystickRegistryKeys(c, dinputEnabled, exclusiveXInput)
+        WineUtils.ensureJoystickRegistryKeys(c, dinputEnabled, exclusiveXInput)
         WineUtils.ensureWinebusConfig(c)
 
-        // 服务列表：改动大，用「做过没」跳过；重建前缀时会清掉，下次重写。
-        startupSelection = c.getStartupSelection().toString()
-        if (startupSelection != c.getExtra("startupSelection") || firstTimeBoot) {
-            WineUtils.changeServicesStatus(c, startupSelection)
-            c.putExtra("startupSelection", startupSelection)
-            containerDataChanged = true
-        }
-
-        // 声音：每次直接看注册表，不对就改。不记「做过没」。
         val audioDriver = c.getAudioDriver()?.takeIf { it.isNotBlank() } ?: Container.DEFAULT_AUDIO_DRIVER
-        WineUtils.changeWineAudioDriver(c, imageFs.getRootDir(), audioDriver)
+        WineUtils.ensureWineAudioDriver(c, imageFs.getRootDir(), audioDriver)
 
         if (containerDataChanged) {
             Log.d(TAG, "Saving container data id=${c.id}")
@@ -351,10 +344,10 @@ class XServerWineSessionPreparer @Inject constructor(
         val c = wnContainer ?: return
         val containerDir = c.getRootDir()
         val prefixInvalid = !WineUtils.isPrefixValid(containerDir)
-        val storedPrefixArch = c.getExtra("wineprefixArch")
+        val storedPrefixArch = AppliedMarks.wineprefixArch(c)
         val archMismatch = storedPrefixArch.isNotEmpty() &&
             !storedPrefixArch.equals(wineInfo.getArch(), ignoreCase = true)
-        val prefixNeedsUpdate = "t".equals(c.getExtra("wineprefixNeedsUpdate"), ignoreCase = true)
+        val prefixNeedsUpdate = AppliedMarks.prefixNeedsUpdate(c)
         Log.d(
             TAG,
             "ensureWinePrefixReady: prefixInvalid=$prefixInvalid archMismatch=$archMismatch" +
@@ -363,8 +356,8 @@ class XServerWineSessionPreparer @Inject constructor(
 
         if (!prefixInvalid && !archMismatch && !prefixNeedsUpdate) {
             if (storedPrefixArch.isEmpty()) {
-                c.putExtra("wineprefixArch", wineInfo.getArch())
-                c.putExtra("wineprefixNeedsUpdate", null)
+                AppliedMarks.markWineprefixArch(c, wineInfo.getArch())
+                AppliedMarks.clearPrefixNeedsUpdate(c)
                 c.saveData()
             }
             return
@@ -390,59 +383,11 @@ class XServerWineSessionPreparer @Inject constructor(
     private fun ensureLaunchRuntimeFilesReadyCore() {
         val c = wnContainer ?: return
         // D5: arm64ec rejected -> box64 only (ensureArm64EcRuntimeDllsReady stripped).
-        ensureBox64RuntimeReady(c)
+        if (Box64Runtime.ensureApplied(c, imageFs, contentsManager)) {
+            c.saveData()
+        }
         // ALSA layout must exist before winealsa.so / android_aserver load.
         com.winlator.cmod.runtime.audio.AlsaRuntimeSupport.ensureImageFsLayout(imageFs.getRootDir())
-    }
-
-    private fun ensureBox64RuntimeReady(c: Container) {
-        val rootDir = imageFs.getRootDir()
-        val box64Missing = !File(rootDir, "usr/bin/box64").exists()
-        var box64Version = c.getBox64Version() ?: ""
-        if (box64Version.isEmpty()) {
-            box64Version =
-                ContentPinResolver.pickNewestInstalled(
-                    contentsManager,
-                    ContentProfile.ContentType.CONTENT_TYPE_BOX64,
-                )?.let { ContentPinResolver.versionIdentity(ContentPinResolver.entryName(it)) }
-                    ?: ""
-            if (box64Version.isNotEmpty()) c.setBox64Version(box64Version)
-        }
-
-        if (!box64Missing && box64Version == c.getExtra("box64Version")) return
-
-        if (box64Version.isEmpty()) {
-            Log.w(TAG, "No Box64 version selected before first boot; runtime extraction skipped")
-            return
-        }
-
-        var profile =
-            ContentPinResolver.resolveInstalledProfile(
-                contentsManager,
-                ContentProfile.ContentType.CONTENT_TYPE_BOX64,
-                box64Version,
-            )
-        if (profile != null) {
-            val resolved = ContentPinResolver.versionIdentity(ContentPinResolver.entryName(profile))
-            if (resolved != box64Version) {
-                Log.w(
-                    TAG,
-                    "Box64 content profile not installed for version: $box64Version; " +
-                        "falling back to installed $resolved",
-                )
-                box64Version = resolved
-                c.setBox64Version(box64Version)
-            }
-        }
-        if (profile == null) {
-            Log.w(TAG, "Box64 content profile not installed for version: $box64Version")
-            return
-        }
-
-        Log.i(TAG, "Preparing Box64 before Wine setup: version=$box64Version")
-        contentsManager.applyContent(profile)
-        c.putExtra("box64Version", box64Version)
-        c.saveData()
     }
 
     /**

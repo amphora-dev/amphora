@@ -302,19 +302,19 @@ constructor(
             "Migrating container wineVersion '$current' -> '$desired'",
         )
         container.setWineVersion(desired)
-        container.putExtra("wineprefixNeedsUpdate", "t")
-        container.putExtra("dxwrapper", "")
+        AppliedMarks.markPrefixNeedsUpdate(container)
+        AppliedMarks.invalidateDxwrapper(container)
         container.saveData()
     }
 
     /**
      * Rewrite [container]'s `box64Version` when reconcile pruned the old install.
-     * Clears the preparer/launcher gate so `usr/bin/box64` is re-applied.
+     * Clears the applied mark so `usr/bin/box64` is re-installed.
      */
     private fun ensurePinnedBox64Version(container: WnContainer, desired: String) {
         if (desired.isEmpty()) return
         val current = container.getBox64Version() ?: ""
-        val applied = container.getExtra("box64Version") ?: ""
+        val applied = AppliedMarks.box64(container)
         if (current == desired && applied == desired) return
 
         android.util.Log.i(
@@ -322,15 +322,14 @@ constructor(
             "Migrating container box64Version '$current' (applied='$applied') -> '$desired'",
         )
         container.setBox64Version(desired)
-        // Force extractBox64Files / ensureBox64RuntimeReady to re-applyContent.
-        container.putExtra("box64Version", "")
+        AppliedMarks.invalidateBox64(container)
         container.saveData()
     }
 
     /**
      * Rewrite [container]'s `dxwrapper` when it differs from the manifest-pinned
      * [desired] token (legacy `dxvk-1.0` / `vkd3d-None` / version bumps). Clears
-     * the preparer gate so DLLs are re-applied on next launch.
+     * the applied mark so DLLs are re-applied on next launch.
      */
     private fun ensureRealDxwrapper(container: WnContainer, desired: String) {
         val current = container.getDXWrapper() ?: ""
@@ -341,7 +340,7 @@ constructor(
             "Migrating container dxwrapper '$current' -> '$desired'",
         )
         container.setDXWrapper(desired)
-        container.putExtra("dxwrapper", "")
+        AppliedMarks.invalidateDxwrapper(container)
         container.saveData()
     }
 
@@ -365,9 +364,9 @@ constructor(
         if (container.getExtra(DXVK_TRUST_AUGMENT_EXTRA) == "1") return
         android.util.Log.i(
             "WinlatorContainerManager",
-            "Clearing dxwrapper gate for DXVK trust-file augment re-apply",
+            "Clearing dxwrapper applied mark for DXVK trust-file augment re-apply",
         )
-        container.putExtra("dxwrapper", "")
+        AppliedMarks.invalidateDxwrapper(container)
         container.putExtra(DXVK_TRUST_AUGMENT_EXTRA, "1")
         container.saveData()
     }
