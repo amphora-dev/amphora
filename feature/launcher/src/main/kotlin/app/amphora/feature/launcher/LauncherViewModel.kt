@@ -120,7 +120,6 @@ constructor(
 
     override fun onCleared() {
         prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener)
-        super.onCleared()
     }
 
     fun refreshContentInfo() {
