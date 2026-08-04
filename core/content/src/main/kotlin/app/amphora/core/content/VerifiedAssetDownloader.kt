@@ -121,7 +121,23 @@ class VerifiedAssetDownloader(
     }
 
     private fun isVerified(file: File, expectedSha256: String, expectedSize: Long?): Boolean {
-        if (!file.isFile || (expectedSize != null && file.length() != expectedSize)) {
+        if (!file.isFile) {
+            AssetDigest.markerFor(file).delete()
+            return false
+        }
+        // SHA is authoritative. A stale size pin must not delete a digest-matching asset.
+        if (expectedSize != null && file.length() != expectedSize) {
+            if (AssetDigest.matchesPin(file, expectedSha256) ||
+                AssetDigest.of(file).equals(expectedSha256, ignoreCase = true)
+            ) {
+                android.util.Log.w(
+                    TAG,
+                    "Keeping $file despite size pin mismatch " +
+                        "(manifest=$expectedSize actual=${file.length()})",
+                )
+                AssetDigest.writePin(file, expectedSha256)
+                return true
+            }
             file.delete()
             AssetDigest.markerFor(file).delete()
             return false
