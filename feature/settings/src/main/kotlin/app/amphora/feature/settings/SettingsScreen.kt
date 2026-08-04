@@ -159,6 +159,8 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 )
             }
 
+            WindowsComponentsSection(state = state, viewModel = viewModel)
+
             AdvancedRuntimeSection(state = state, viewModel = viewModel)
 
             StorageSection()
@@ -180,6 +182,96 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 }
             }
             Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun WindowsComponentsSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val nativeCount = state.windowsComponents.count { it.value }
+    SettingSection(
+        title = "Windows components",
+        subtitle = "Wine builtin or Microsoft-compatible DLLs",
+    ) {
+        Text(
+            "Matches WinNative's component model. Native can improve game compatibility; " +
+                "Builtin keeps Proton's implementation and is often sufficient.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            shape = RoundedCornerShape(10.dp),
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "$nativeCount native · ${state.windowsComponents.size - nativeCount} builtin",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        "Changes update the shared Wine prefix on next launch",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(if (expanded) "Hide" else "Configure", color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        if (expanded) {
+            HorizontalDivider()
+            WindowsComponentSetting.entries.forEachIndexed { index, component ->
+                WindowsComponentChoice(
+                    component = component,
+                    useNative = state.windowsComponents[component] ?: true,
+                    onChange = { useNative ->
+                        viewModel.setWindowsComponentNative(component, useNative)
+                    },
+                )
+                if (index != WindowsComponentSetting.entries.lastIndex) HorizontalDivider()
+            }
+            Text(
+                "Compatibility archives are verified during runtime provisioning. Native links " +
+                    "them into the prefix; switching back restores Proton's DLLs and overrides.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WindowsComponentChoice(
+    component: WindowsComponentSetting,
+    useNative: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(component.label, style = MaterialTheme.typography.titleSmall)
+        Text(
+            component.description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = !useNative,
+                onClick = { onChange(false) },
+                label = { Text("Wine builtin") },
+            )
+            FilterChip(
+                selected = useNative,
+                onClick = { onChange(true) },
+                label = { Text("Native") },
+            )
         }
     }
 }
@@ -283,6 +375,53 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                 label = { it.label },
                 onSelect = viewModel::selectBcnMode,
             )
+            HorizontalDivider()
+            ChoiceSetting(
+                title = "DXVK performance HUD",
+                description =
+                "Shows FPS, API, GPU and memory information over Direct3D games. " +
+                    "This is display-only and does not enable verbose log files.",
+                impact = "Environment: DXVK_HUD · DXVK only",
+                selected = state.dxvkHud,
+                values = listOf(false, true),
+                label = { if (it) "Visible" else "Hidden" },
+                onSelect = viewModel::setDxvkHud,
+            )
+            ChoiceSetting(
+                title = "Mesa shader cache",
+                description =
+                "Reuses compiled shaders to reduce stutter on later launches. Disable only " +
+                    "when investigating corrupt-cache rendering problems.",
+                impact = "Scope: Turnip and Zink · stored in private app storage",
+                selected = state.shaderCache,
+                values = listOf(true, false),
+                label = { if (it) "Enabled" else "Disabled" },
+                onSelect = viewModel::setShaderCache,
+            )
+            if (state.shaderCache) {
+                ChoiceSetting(
+                    title = "Shader cache limit",
+                    description = "Maximum disk space Mesa may use for cached shaders.",
+                    impact = "Environment: MESA_SHADER_CACHE_MAX_SIZE",
+                    selected = state.shaderCacheSize,
+                    values = ShaderCacheSize.entries,
+                    label = { it.label },
+                    onSelect = viewModel::selectShaderCacheSize,
+                )
+            }
+            TextButton(
+                onClick = viewModel::clearShaderCache,
+                enabled = !state.clearingShaderCache,
+            ) {
+                Text(if (state.clearingShaderCache) "Clearing cache…" else "Clear shader caches")
+            }
+            state.cacheActionMessage?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             HorizontalDivider()
             ChoiceSetting(
                 title = "Wine logging",
