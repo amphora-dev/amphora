@@ -13,12 +13,14 @@ import app.amphora.core.content.RuntimeAssetLocalOverride
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
+import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.TurnipDriverProvisioner
 import app.amphora.core.rootfs.RootfsInstaller
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
+import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -44,6 +46,8 @@ constructor(
 ) : ViewModel() {
     private val prefs =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+    private val initialCustomEnv =
+        prefs.getString(AdvancedRuntimePreferences.KEY_CUSTOM_ENV, "").orEmpty()
 
     private val _uiState =
         MutableStateFlow(
@@ -57,6 +61,29 @@ constructor(
                 DirectDrawSetting.fromId(
                     prefs.getString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, null),
                 ),
+                box64Mode =
+                Box64Mode.fromId(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_BOX64_PRESET, null),
+                ),
+                dxvkAsync = prefs.getBoolean(AdvancedRuntimePreferences.KEY_DXVK_ASYNC, false),
+                frameLimit =
+                FrameLimit.fromValue(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_FRAME_RATE, null),
+                ),
+                presentMode =
+                PresentMode.fromValue(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_PRESENT_MODE, null),
+                ),
+                bcnMode =
+                BcnMode.fromValue(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_BCN_MODE, null),
+                ),
+                wineLog =
+                WineLogMode.fromValue(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_WINE_DEBUG, null),
+                ),
+                customEnv = initialCustomEnv,
+                rejectedEnvNames = AdvancedRuntimePreferences.rejectedCustomEnvNames(initialCustomEnv),
             ),
         )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -93,6 +120,46 @@ constructor(
     fun selectDirectDraw(value: DirectDrawSetting) {
         prefs.edit { putString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, value.id) }
         _uiState.update { it.copy(directDrawWrapper = value) }
+    }
+
+    fun selectBox64Mode(value: Box64Mode) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_BOX64_PRESET, value.id) }
+        _uiState.update { it.copy(box64Mode = value) }
+    }
+
+    fun setDxvkAsync(enabled: Boolean) {
+        prefs.edit { putBoolean(AdvancedRuntimePreferences.KEY_DXVK_ASYNC, enabled) }
+        _uiState.update { it.copy(dxvkAsync = enabled) }
+    }
+
+    fun selectFrameLimit(value: FrameLimit) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_FRAME_RATE, value.value) }
+        _uiState.update { it.copy(frameLimit = value) }
+    }
+
+    fun selectPresentMode(value: PresentMode) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_PRESENT_MODE, value.value) }
+        _uiState.update { it.copy(presentMode = value) }
+    }
+
+    fun selectBcnMode(value: BcnMode) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_BCN_MODE, value.value) }
+        _uiState.update { it.copy(bcnMode = value) }
+    }
+
+    fun selectWineLog(value: WineLogMode) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_WINE_DEBUG, value.value) }
+        _uiState.update { it.copy(wineLog = value) }
+    }
+
+    fun setCustomEnv(value: String) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_CUSTOM_ENV, value) }
+        _uiState.update {
+            it.copy(
+                customEnv = value,
+                rejectedEnvNames = AdvancedRuntimePreferences.rejectedCustomEnvNames(value),
+            )
+        }
     }
 
     fun refreshComponents() {
@@ -213,6 +280,14 @@ data class SettingsUiState(
     val resolution: DisplayResolution = DisplayResolution.DEFAULT,
     val graphicsDriver: GraphicsDriverSetting = GraphicsDriverSetting.WRAPPER,
     val directDrawWrapper: DirectDrawSetting = DirectDrawSetting.DXWRAPPER,
+    val box64Mode: Box64Mode = Box64Mode.PERFORMANCE,
+    val dxvkAsync: Boolean = false,
+    val frameLimit: FrameLimit = FrameLimit.OFF,
+    val presentMode: PresentMode = PresentMode.AUTO,
+    val bcnMode: BcnMode = BcnMode.DEFAULT,
+    val wineLog: WineLogMode = WineLogMode.OFF,
+    val customEnv: String = "",
+    val rejectedEnvNames: List<String> = emptyList(),
     val applyingDriver: Boolean = false,
     val refreshing: Boolean = false,
     val manifestReady: Boolean = false,
@@ -275,3 +350,64 @@ enum class ComponentHealth { READY, MISSING, UPDATE, NO_PIN }
 data class RuntimeAssetHealth(val path: String, val health: AssetHealth)
 
 enum class AssetHealth { READY, MISSING, MISMATCH, UNVERIFIED, LOCAL }
+
+enum class Box64Mode(val id: String, val label: String) {
+    PERFORMANCE(Box64Preset.PERFORMANCE, "Performance"),
+    BALANCED(Box64Preset.INTERMEDIATE, "Balanced"),
+    COMPATIBILITY(Box64Preset.COMPATIBILITY, "Compatibility"),
+    STABILITY(Box64Preset.STABILITY, "Stability"),
+    ;
+
+    companion object {
+        fun fromId(value: String?): Box64Mode = entries.firstOrNull { it.id == value } ?: PERFORMANCE
+    }
+}
+
+enum class FrameLimit(val value: String, val label: String) {
+    OFF("off", "Off"),
+    FPS30("30", "30"),
+    FPS45("45", "45"),
+    FPS60("60", "60"),
+    FPS90("90", "90"),
+    FPS120("120", "120"),
+    ;
+
+    companion object {
+        fun fromValue(value: String?): FrameLimit = entries.firstOrNull { it.value == value } ?: OFF
+    }
+}
+
+enum class PresentMode(val value: String, val label: String) {
+    AUTO("auto", "Automatic"),
+    MAILBOX("mailbox", "Mailbox"),
+    FIFO("fifo", "VSync"),
+    IMMEDIATE("immediate", "Immediate"),
+    ;
+
+    companion object {
+        fun fromValue(value: String?): PresentMode = entries.firstOrNull { it.value == value } ?: AUTO
+    }
+}
+
+enum class BcnMode(val value: String, val label: String) {
+    DEFAULT("default", "Driver default"),
+    AUTO("auto", "Automatic"),
+    FULL("full", "Full emulation"),
+    NONE("none", "Disabled"),
+    ;
+
+    companion object {
+        fun fromValue(value: String?): BcnMode = entries.firstOrNull { it.value == value } ?: DEFAULT
+    }
+}
+
+enum class WineLogMode(val value: String, val label: String) {
+    OFF("off", "Off"),
+    ERRORS("errors", "Errors"),
+    WARNINGS("warnings", "Errors + warnings"),
+    ;
+
+    companion object {
+        fun fromValue(value: String?): WineLogMode = entries.firstOrNull { it.value == value } ?: OFF
+    }
+}
