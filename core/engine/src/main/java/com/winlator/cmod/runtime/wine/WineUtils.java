@@ -613,18 +613,21 @@ public abstract class WineUtils {
 
   /**
    * Mirror WinNative {@code XServerDisplayActivity.changeWineAudioDriver}: write
-   * {@code Software\Wine\Drivers} {@code Audio} when the container's selected driver
-   * changes.
+   * {@code Software\Wine\Drivers} {@code Audio}.
    *
    * <p>Amphora MVP only ships the ALSA path ({@code Audio=alsa}). Without this key Wine
    * defaults to {@code pulse,alsa,...}; Amphora's imagefs has no {@code libpulse.so}, so
-   * the pulse probe fails and games surface a sound-initialization error.
+   * mmdevapi's pulse probe fails with {@code c0000135} and games have no sound (or a
+   * sound-initialization dialog).
+   *
+   * <p>Do <b>not</b> skip solely because {@code container.extra.audioDriver} is already
+   * stamped: a prefix recreate / wine rewrite can drop the registry key while the extra
+   * remains, which previously left Audio unset forever.
    */
   public static void changeWineAudioDriver(Container container, File rootDir, String audioDriver) {
     if (container == null || rootDir == null || audioDriver == null || audioDriver.isEmpty()) {
       return;
     }
-    if (audioDriver.equals(container.getExtra("audioDriver"))) return;
 
     File userRegFile = new File(rootDir, ImageFs.WINEPREFIX + "/user.reg");
     if (!userRegFile.isFile()) {
@@ -649,6 +652,14 @@ public abstract class WineUtils {
     }
 
     try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
+      String current = registryEditor.getStringValue("Software\\Wine\\Drivers", "Audio");
+      if (wineAudio.equals(current)) {
+        if (!audioDriver.equals(container.getExtra("audioDriver"))) {
+          container.putExtra("audioDriver", audioDriver);
+          container.saveData();
+        }
+        return;
+      }
       registryEditor.setStringValue("Software\\Wine\\Drivers", "Audio", wineAudio);
     }
     container.putExtra("audioDriver", audioDriver);
