@@ -51,6 +51,11 @@ class VerifiedAssetDownloader(
 
             destination.parentFile?.mkdirs()
             val partial = File(destination.absolutePath + PART_SUFFIX)
+            // A complete .part that already matches the pin must not Range-resume
+            // (bytes=<size>- → HTTP 416) and then get deleted.
+            if (promoteIfShaMatches(partial, destination, expectedSha256, expectedSize, relativePath)) {
+                return@withLock destination
+            }
             var lastFailure: Throwable? = null
             repeat(MAX_ATTEMPTS) { attempt ->
                 try {
@@ -64,39 +69,32 @@ class VerifiedAssetDownloader(
                             ),
                         )
                     }
-                    progressBus?.update(
-                        ProvisionProgress(
-                            stage = "verify",
-                            detail = label,
-                            bytesDownloaded = partial.length(),
-                            totalBytes = expectedSize ?: partial.length(),
-                        ),
-                    )
-                    val actual = AssetDigest.of(partial)
-                    if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                    if (!promoteIfShaMatches(partial, destination, expectedSha256, expectedSize, relativePath)) {
+                        val actual = AssetDigest.of(partial)
                         partial.delete()
                         throw SecurityException(
                             "SHA-256 mismatch for $relativePath: expected=$expectedSha256 actual=$actual" +
                                 sizeHint(expectedSize, partial.length()),
                         )
                     }
-                    if (expectedSize != null && partial.length() != expectedSize) {
-                        // SHA is the pin of record. A stale size in content_manifest must not
-                        // reject a complete, digest-matching asset or leave a .part that later
-                        // Range resumes into HTTP 416 against the CDN.
-                        android.util.Log.w(
-                            TAG,
-                            "Size pin mismatch for $relativePath: manifest=$expectedSize " +
-                                "actual=${partial.length()}; accepting SHA match",
-                        )
-                    }
-                    atomicReplace(partial, destination)
-                    AssetDigest.writePin(destination, expectedSha256)
                     return@withLock destination
                 } catch (failure: Throwable) {
                     if (failure is CancellationException) throw failure
                     lastFailure = failure
-                    if (failure is SecurityException || isUnsatisfiableRange(failure)) {
+                    if (failure is SecurityException) {
+                        partial.delete()
+                    } else if (isUnsatisfiableRange(failure)) {
+                        // CDN file ends at partial.length(); accept if digest matches.
+                        if (promoteIfShaMatches(
+                                partial,
+                                destination,
+                                expectedSha256,
+                                expectedSize,
+                                relativePath,
+                            )
+                        ) {
+                            return@withLock destination
+                        }
                         partial.delete()
                     }
                     if (attempt + 1 < MAX_ATTEMPTS) {
@@ -148,6 +146,40 @@ class VerifiedAssetDownloader(
         return valid
     }
 
+    /**
+     * If [partial] digests to [expectedSha256], publish it to [destination].
+     * Size pins are advisory — stale sizes after a release bump must not block.
+     */
+    private fun promoteIfShaMatches(
+        partial: File,
+        destination: File,
+        expectedSha256: String,
+        expectedSize: Long?,
+        relativePath: String,
+    ): Boolean {
+        if (!partial.isFile || partial.length() <= 0L) return false
+        progressBus?.update(
+            ProvisionProgress(
+                stage = "verify",
+                detail = relativePath,
+                bytesDownloaded = partial.length(),
+                totalBytes = expectedSize ?: partial.length(),
+            ),
+        )
+        val actual = AssetDigest.of(partial)
+        if (!actual.equals(expectedSha256, ignoreCase = true)) return false
+        if (expectedSize != null && partial.length() != expectedSize) {
+            android.util.Log.w(
+                TAG,
+                "Size pin mismatch for $relativePath: manifest=$expectedSize " +
+                    "actual=${partial.length()}; accepting SHA match",
+            )
+        }
+        atomicReplace(partial, destination)
+        AssetDigest.writePin(destination, expectedSha256)
+        return true
+    }
+
     private fun downloadOnce(
         remoteUrl: String,
         partial: File,
@@ -155,15 +187,19 @@ class VerifiedAssetDownloader(
         onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
     ) {
         val existing = partial.length()
+        // Already at (or past) the size pin: a Range resume would 416. Caller
+        // should have promoted via SHA; if we still get here, force a full GET.
         val connection = URI(remoteUrl).toURL().openConnection() as HttpURLConnection
         connection.instanceFollowRedirects = true
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.setRequestProperty("Accept-Encoding", "identity")
-        if (existing > 0) connection.setRequestProperty("Range", "bytes=$existing-")
+        val resume =
+            existing > 0L && (expectedSize == null || existing < expectedSize)
+        if (resume) connection.setRequestProperty("Range", "bytes=$existing-")
         try {
             val response = connection.responseCode
-            val append = existing > 0 && response == HttpURLConnection.HTTP_PARTIAL
+            val append = resume && response == HttpURLConnection.HTTP_PARTIAL
             if (response !in 200..299) {
                 throw IOException("HTTP $response ${connection.responseMessage} for $remoteUrl")
             }
