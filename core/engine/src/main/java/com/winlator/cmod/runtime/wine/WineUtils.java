@@ -612,48 +612,48 @@ public abstract class WineUtils {
   }
 
   /**
-   * Mirror WinNative {@code XServerDisplayActivity.changeWineAudioDriver}: write
-   * {@code Software\Wine\Drivers} {@code Audio} when the container's selected driver
-   * changes.
+   * 把注册表里的声音驱动写成容器想要的值。
    *
-   * <p>Amphora MVP only ships the ALSA path ({@code Audio=alsa}). Without this key Wine
-   * defaults to {@code pulse,alsa,...}; Amphora's imagefs has no {@code libpulse.so}, so
-   * the pulse probe fails and games surface a sound-initialization error.
+   * <p>由调用方用 AppliedMarks 门控：想要 ≠ 装过才调用；成功后更新标记。
+   * Amphora 当前实现了 {@code alsa}；{@code pulseaudio} 映射为 Wine 的 {@code pulse}，
+   * 便于以后接 Pulse 后端，缺后端时由运行时暴露错误而不是静默改成别的驱动。
    */
-  public static void changeWineAudioDriver(Container container, File rootDir, String audioDriver) {
+  public static void ensureWineAudioDriver(Container container, File rootDir, String audioDriver) {
     if (container == null || rootDir == null || audioDriver == null || audioDriver.isEmpty()) {
       return;
     }
-    if (audioDriver.equals(container.getExtra("audioDriver"))) return;
 
     File userRegFile = new File(rootDir, ImageFs.WINEPREFIX + "/user.reg");
     if (!userRegFile.isFile()) {
-      Log.w("WineUtils", "changeWineAudioDriver: missing " + userRegFile);
+      Log.w("WineUtils", "ensureWineAudioDriver: missing " + userRegFile);
       return;
     }
 
-    String wineAudio;
-    if ("alsa".equals(audioDriver)) {
-      wineAudio = "alsa";
-    } else if ("pulseaudio".equals(audioDriver)) {
-      // WinNative maps pulseaudio -> pulse. Amphora does not ship PulseAudioComponent /
-      // pulseaudio.tzst; refuse rather than point Wine at a missing backend.
-      Log.w(
-          "WineUtils",
-          "changeWineAudioDriver: pulseaudio requested but Amphora MVP is ALSA-only; keeping alsa");
-      wineAudio = "alsa";
-      audioDriver = "alsa";
-    } else {
-      Log.w("WineUtils", "changeWineAudioDriver: unknown driver " + audioDriver);
+    String wineAudio = wineAudioDriverName(audioDriver);
+    if (wineAudio == null) {
+      Log.w("WineUtils", "ensureWineAudioDriver: unknown driver " + audioDriver);
       return;
     }
 
     try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
+      String current = registryEditor.getStringValue("Software\\Wine\\Drivers", "Audio");
+      if (wineAudio.equals(current)) {
+        return;
+      }
       registryEditor.setStringValue("Software\\Wine\\Drivers", "Audio", wineAudio);
     }
-    container.putExtra("audioDriver", audioDriver);
-    container.saveData();
-    Log.i("WineUtils", "Wine audio driver set to " + wineAudio);
+    Log.i("WineUtils", "Wine audio driver set to " + wineAudio + " (config=" + audioDriver + ")");
+  }
+
+  /**
+   * 容器配置名 → Wine {@code Software\Wine\Drivers\Audio} 取值。
+   * 未知配置返回 null。
+   */
+  public static String wineAudioDriverName(String audioDriver) {
+    if (audioDriver == null) return null;
+    if ("alsa".equals(audioDriver)) return "alsa";
+    if ("pulseaudio".equals(audioDriver)) return "pulse";
+    return null;
   }
 
   public static void applySystemTweaks(Context context, WineInfo wineInfo) {
@@ -1288,7 +1288,12 @@ public abstract class WineUtils {
     }
   }
 
-  public static void changeServicesStatus(Container container, String startupSelection) {
+  /**
+   * 按服务启动策略改写 system.reg 里一批服务的 Start 值。
+   *
+   * <p>由调用方用 AppliedMarks 门控：想要 ≠ 装过才调用。
+   */
+  public static void applyServiceStartupProfile(Container container, String startupSelection) {
     String[] services = {
       "BITS:3",
       "Eventlog:2",
@@ -1365,7 +1370,8 @@ public abstract class WineUtils {
     }
   }
 
-  public static void setJoystickRegistryKeys(
+  /** 按容器输入设置写手柄相关注册表（AppliedMarks 门控后调用）。 */
+  public static void ensureJoystickRegistryKeys(
       Container container, boolean dinputEnabled, boolean exclusiveXInput) {
     File userRegFile = new File(container.getRootDir(), ".wine/user.reg");
     String value = dinputEnabled ? "override" : "disabled";
@@ -1386,6 +1392,7 @@ public abstract class WineUtils {
     }
   }
 
+  /** 写 winebus 参数（AppliedMarks 门控后调用）。 */
   public static void ensureWinebusConfig(Container container) {
     File systemRegFile = new File(container.getRootDir(), ".wine/system.reg");
     if (!systemRegFile.exists()) return;

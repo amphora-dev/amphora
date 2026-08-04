@@ -209,91 +209,60 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val appVersion = appVersionCode(context)
         val imgVersion = imageFs.getVersion().toString()
-        var containerDataChanged = false
+        var containerDataChanged = AppliedMarks.scrubObsoleteExtras(c)
 
-        if (c.getExtra("appVersion") != appVersion || c.getExtra("imgVersion") != imgVersion) {
-            Log.d(TAG, "Version mismatch, applying general patches (app=$appVersion img=$imgVersion)")
+        // 唯一方式：想要(容器) ≠ 装过(AppliedMarks) → 去做 → 更新标记
+        if (AppliedMarks.needsAppImagePatch(c, appVersion, imgVersion)) {
+            Log.d(TAG, "版本变更，打通用补丁 (app=$appVersion img=$imgVersion)")
             applyGeneralPatches(c)
-            c.putExtra("appVersion", appVersion)
-            c.putExtra("imgVersion", imgVersion)
+            AppliedMarks.markAppImagePatched(c, appVersion, imgVersion)
             firstTimeBoot = true
             containerDataChanged = true
         }
 
         ensureWinePrefixEssentialFilesCore()
 
-        // No shortcut (D9): derive dxwrapper + config straight from the container.
+        // 只认分号格式：dxvk-…;vkd3d-…;dd7to9
         var localDxwrapper = dxwrapper
-
-        // amphora: WinlatorContainerManager writes the full delimited form
-        // ("dxvk-…;vkd3d-…;dd7to9") into `dxwrapper` and
-        // leaves `dxwrapperConfig` empty. WinNative's XSDA, by contrast, stores the
-        // short form ("dxvk+vkd3d") in `dxwrapper` and reconstructs the delimited
-        // form from `dxwrapperConfig` below. Detect which shape we have and only rebuild
-        // when the short form is present — otherwise pass the delimited form
-        // through as-is so the version token isn't lost.
-        if (!localDxwrapper.contains(";")) {
-            val dxwrapperConfigStr = dxwrapperConfig.toString()
-            val currentDXWrapperConfig = DXVKConfigUtils.parseConfig(dxwrapperConfigStr)
-
-            if (localDxwrapper.contains("dxvk")) {
-                val dxvkWrapper = "dxvk-" + currentDXWrapperConfig.get("version")
-                val vkd3dWrapper = "vkd3d-" + currentDXWrapperConfig.get("vkd3dVersion")
-                val ddrawrapper = currentDXWrapperConfig.get("ddrawrapper")
-                Log.i(
-                    TAG,
-                    "Launch DX wrapper files selected: dxvk='$dxvkWrapper' " +
-                        "vkd3d='$vkd3dWrapper' ddrawrapper='$ddrawrapper'",
-                )
-                localDxwrapper = "$dxvkWrapper;$vkd3dWrapper;$ddrawrapper"
-            } else {
-                val vkd3dVersion = currentDXWrapperConfig.get("vkd3dVersion")
-                if (hasSelectedVkd3dVersion(vkd3dVersion)) {
-                    val vkd3dWrapper = "vkd3d-$vkd3dVersion"
-                    Log.i(TAG, "Launch VKD3D-only wrapper files selected: vkd3d='$vkd3dWrapper'")
-                    localDxwrapper = "$localDxwrapper;$vkd3dWrapper"
-                }
-            }
+        val selection = DxWrapperSelection.parse(localDxwrapper)
+        if (selection == null) {
+            Log.e(TAG, "dxwrapper 必须是分号格式，当前='$localDxwrapper'")
         } else {
-            // Already delimited — log the passthrough for diagnostics.
-            val parts = localDxwrapper.split(";")
-            val dxvkWrapper = if (parts.size > 0) parts[0] else ""
-            val vkd3dWrapper = if (parts.size > 1) parts[1] else ""
-            val ddrawrapper = if (parts.size > 2) parts[2] else ""
             Log.i(
                 TAG,
-                "Launch DX wrapper files selected (delimited form): dxvk='$dxvkWrapper' " +
-                    "vkd3d='$vkd3dWrapper' ddrawrapper='$ddrawrapper'",
+                "DX 包装: dxvk='${selection.dxvk}' vkd3d='${selection.vkd3d}' ddraw='${selection.ddraw}'",
             )
+            localDxwrapper = selection.asDelimited()
         }
 
         val wincomponents = c.getWinComponents()
-        if (wincomponents != c.getExtra("wincomponents") || firstTimeBoot) {
+        if (AppliedMarks.needsWincomponents(c, wincomponents) || firstTimeBoot) {
             WinComponentSetup.applyWinComponents(
                 context,
                 imageFs,
                 wineInfo,
                 c,
                 wincomponents,
-                c.getExtra("wincomponents", Container.FALLBACK_WINCOMPONENTS),
+                AppliedMarks.wincomponents(c).ifEmpty { Container.FALLBACK_WINCOMPONENTS },
                 firstTimeBoot,
                 null,
             )
-            c.putExtra("wincomponents", wincomponents)
+            AppliedMarks.markWincomponents(c, wincomponents)
             containerDataChanged = true
         }
 
         val wineArchKey = if (wineVersion.contains("arm64ec")) "arm64ec" else "x86_64"
-        val dxwrapperGateKey = "$localDxwrapper|arch=$wineArchKey"
+        val dxwrapperGateKey =
+            selection?.gateKey(wineArchKey) ?: "$localDxwrapper|arch=$wineArchKey"
         val forceWrapperApply = sharedGraphicsLinksNeedRefresh(localDxwrapper)
-        if (dxwrapperGateKey != c.getExtra("dxwrapper") || firstTimeBoot || forceWrapperApply) {
+        if (selection != null &&
+            (AppliedMarks.needsDxwrapper(c, dxwrapperGateKey) || firstTimeBoot || forceWrapperApply)
+        ) {
             Log.i(
                 TAG,
-                "DXVK/VKD3D extract: gate fired (key='$dxwrapperGateKey' prev='${c.getExtra("dxwrapper")}'" +
-                    " firstTimeBoot=$firstTimeBoot forced=$forceWrapperApply)",
+                "DXVK/VKD3D extract: key='$dxwrapperGateKey' prev='${AppliedMarks.dxwrapperKey(c)}'" +
+                    " firstTimeBoot=$firstTimeBoot forced=$forceWrapperApply",
             )
-            // Resolve profiles BEFORE wiping — a stale pin must not leave the
-            // prefix without d3d*/dxgi after reconcile pruned the old WCP.
             val resolvedDxwrapper = resolveDxwrapperForExtract(localDxwrapper)
             if (resolvedDxwrapper == null) {
                 Log.e(
@@ -304,41 +273,58 @@ class XServerWineSessionPreparer @Inject constructor(
                 localDxwrapper = resolvedDxwrapper
                 wipeDxwrapperDllsForReextract()
                 extractDXWrapperFilesCore(localDxwrapper)
-                c.putExtra("dxwrapper", "$localDxwrapper|arch=$wineArchKey")
+                val resolvedSelection = DxWrapperSelection.parse(localDxwrapper)
+                AppliedMarks.markDxwrapper(
+                    c,
+                    resolvedSelection?.gateKey(wineArchKey) ?: "$localDxwrapper|arch=$wineArchKey",
+                )
                 containerDataChanged = true
             }
         }
 
-        // Steam / custom-shortcut visibility branches STRIPPED (D9: non-target).
-        // Activity teardown guard (xServer/isFinishing/isDestroyed) STRIPPED --
-        // prep has no Activity/xServer.
-        // desktopTheme apply omitted (WineThemeManager.apply removed for MVP)
-        // deferred to P3 setupXEnvironment (post xServer creation).
+        startupSelection = c.getStartupSelection().toString()
+        if (AppliedMarks.needsServices(c, startupSelection) || firstTimeBoot) {
+            WineUtils.applyServiceStartupProfile(c, startupSelection)
+            AppliedMarks.markServices(c, startupSelection)
+            containerDataChanged = true
+        }
+
+        val audioDriver = c.getAudioDriver()?.takeIf { it.isNotBlank() } ?: Container.DEFAULT_AUDIO_DRIVER
+        val wineAudio = WineUtils.wineAudioDriverName(audioDriver)
+        if (wineAudio != null && (AppliedMarks.needsAudio(c, wineAudio) || firstTimeBoot)) {
+            WineUtils.ensureWineAudioDriver(c, imageFs.getRootDir(), audioDriver)
+            AppliedMarks.markAudio(c, wineAudio)
+            containerDataChanged = true
+        } else if (wineAudio == null) {
+            Log.w(TAG, "未知音频驱动配置 '$audioDriver'，跳过注册表写入")
+        }
 
         WineStartMenuCreator.create(context, c)
         stageGraphicsTestExes(c)
-        WineUtils.createDosdevicesSymlinks(c, getActiveGameDirectoryPath(), isSteamShortcut())
+
+        val drivesDesired = c.getDrives() ?: ""
+        if (AppliedMarks.needsDrives(c, drivesDesired) || firstTimeBoot) {
+            WineUtils.createDosdevicesSymlinks(c, getActiveGameDirectoryPath(), isSteamShortcut())
+            AppliedMarks.markDrives(c, c.getDrives() ?: drivesDesired)
+            containerDataChanged = true
+        }
 
         val inputType = c.getInputType()
         val dinputFlag = Container.FLAG_INPUT_TYPE_DINPUT.toInt()
         val dinputEnabled = (inputType and dinputFlag) == dinputFlag
         val exclusiveXInput = c.isExclusiveXInput()
-        WineUtils.setJoystickRegistryKeys(c, dinputEnabled, exclusiveXInput)
-        WineUtils.ensureWinebusConfig(c)
-
-        startupSelection = c.getStartupSelection().toString()
-        WineUtils.changeServicesStatus(c, startupSelection)
-        if (startupSelection != c.getExtra("startupSelection")) {
-            c.putExtra("startupSelection", startupSelection)
+        val inputKey = AppliedMarks.inputKey(inputType, exclusiveXInput)
+        if (AppliedMarks.needsInput(c, inputKey) || firstTimeBoot) {
+            WineUtils.ensureJoystickRegistryKeys(c, dinputEnabled, exclusiveXInput)
+            AppliedMarks.markInput(c, inputKey)
             containerDataChanged = true
         }
 
-        // WinNative XSDA calls changeWineAudioDriver() after setupWineSystemFiles /
-        // extractGraphicsDriverFiles. Amphora folds graphics extract into this method,
-        // so mirror the registry write here. Existing prefixes often lack
-        // Software\Wine\Drivers Audio=alsa (extra was never stamped).
-        val audioDriver = c.getAudioDriver()?.takeIf { it.isNotBlank() } ?: Container.DEFAULT_AUDIO_DRIVER
-        WineUtils.changeWineAudioDriver(c, imageFs.getRootDir(), audioDriver)
+        if (AppliedMarks.needsWinebus(c) || firstTimeBoot) {
+            WineUtils.ensureWinebusConfig(c)
+            AppliedMarks.markWinebus(c)
+            containerDataChanged = true
+        }
 
         if (containerDataChanged) {
             Log.d(TAG, "Saving container data id=${c.id}")
@@ -353,10 +339,10 @@ class XServerWineSessionPreparer @Inject constructor(
         val c = wnContainer ?: return
         val containerDir = c.getRootDir()
         val prefixInvalid = !WineUtils.isPrefixValid(containerDir)
-        val storedPrefixArch = c.getExtra("wineprefixArch")
+        val storedPrefixArch = AppliedMarks.wineprefixArch(c)
         val archMismatch = storedPrefixArch.isNotEmpty() &&
             !storedPrefixArch.equals(wineInfo.getArch(), ignoreCase = true)
-        val prefixNeedsUpdate = "t".equals(c.getExtra("wineprefixNeedsUpdate"), ignoreCase = true)
+        val prefixNeedsUpdate = AppliedMarks.prefixNeedsUpdate(c)
         Log.d(
             TAG,
             "ensureWinePrefixReady: prefixInvalid=$prefixInvalid archMismatch=$archMismatch" +
@@ -365,8 +351,8 @@ class XServerWineSessionPreparer @Inject constructor(
 
         if (!prefixInvalid && !archMismatch && !prefixNeedsUpdate) {
             if (storedPrefixArch.isEmpty()) {
-                c.putExtra("wineprefixArch", wineInfo.getArch())
-                c.putExtra("wineprefixNeedsUpdate", null)
+                AppliedMarks.markWineprefixArch(c, wineInfo.getArch())
+                AppliedMarks.clearPrefixNeedsUpdate(c)
                 c.saveData()
             }
             return
@@ -392,59 +378,11 @@ class XServerWineSessionPreparer @Inject constructor(
     private fun ensureLaunchRuntimeFilesReadyCore() {
         val c = wnContainer ?: return
         // D5: arm64ec rejected -> box64 only (ensureArm64EcRuntimeDllsReady stripped).
-        ensureBox64RuntimeReady(c)
+        if (Box64Runtime.ensureApplied(c, imageFs, contentsManager)) {
+            c.saveData()
+        }
         // ALSA layout must exist before winealsa.so / android_aserver load.
         com.winlator.cmod.runtime.audio.AlsaRuntimeSupport.ensureImageFsLayout(imageFs.getRootDir())
-    }
-
-    private fun ensureBox64RuntimeReady(c: Container) {
-        val rootDir = imageFs.getRootDir()
-        val box64Missing = !File(rootDir, "usr/bin/box64").exists()
-        var box64Version = c.getBox64Version() ?: ""
-        if (box64Version.isEmpty()) {
-            box64Version =
-                ContentPinResolver.pickNewestInstalled(
-                    contentsManager,
-                    ContentProfile.ContentType.CONTENT_TYPE_BOX64,
-                )?.let { ContentPinResolver.versionIdentity(ContentPinResolver.entryName(it)) }
-                    ?: ""
-            if (box64Version.isNotEmpty()) c.setBox64Version(box64Version)
-        }
-
-        if (!box64Missing && box64Version == c.getExtra("box64Version")) return
-
-        if (box64Version.isEmpty()) {
-            Log.w(TAG, "No Box64 version selected before first boot; runtime extraction skipped")
-            return
-        }
-
-        var profile =
-            ContentPinResolver.resolveInstalledProfile(
-                contentsManager,
-                ContentProfile.ContentType.CONTENT_TYPE_BOX64,
-                box64Version,
-            )
-        if (profile != null) {
-            val resolved = ContentPinResolver.versionIdentity(ContentPinResolver.entryName(profile))
-            if (resolved != box64Version) {
-                Log.w(
-                    TAG,
-                    "Box64 content profile not installed for version: $box64Version; " +
-                        "falling back to installed $resolved",
-                )
-                box64Version = resolved
-                c.setBox64Version(box64Version)
-            }
-        }
-        if (profile == null) {
-            Log.w(TAG, "Box64 content profile not installed for version: $box64Version")
-            return
-        }
-
-        Log.i(TAG, "Preparing Box64 before Wine setup: version=$box64Version")
-        contentsManager.applyContent(profile)
-        c.putExtra("box64Version", box64Version)
-        c.saveData()
     }
 
     /**
@@ -960,31 +898,8 @@ class XServerWineSessionPreparer @Inject constructor(
     // --- extractGraphicsDriverFiles (XSDA L7537) ------------------------------
 
     private fun extractGraphicsDriverFilesCore() {
-        // Launcher SharedPreferences is the source of truth for adrenotools id
-        // (selectGraphicsDriver only writes prefs). Container version= can lag;
-        // using a stale wrapper id here leaves ADRENOTOOLS_DRIVER_* unset so the
-        // guest silently runs proprietary Adreno (DX9 FF PSO -13 with HUD).
-        val prefsDriverId = GraphicsDriverIds.normalize(
-            context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, android.content.Context.MODE_PRIVATE)
-                .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
-        )
-        val containerDriverId = GraphicsDriverIds.normalize(graphicsDriverConfig["version"])
-        val adrenoToolsDriverId = prefsDriverId
-        if (adrenoToolsDriverId != containerDriverId) {
-            Log.i(
-                TAG,
-                "Using prefs adrenotools id '$adrenoToolsDriverId' (container had '$containerDriverId')",
-            )
-            graphicsDriverConfig["version"] = adrenoToolsDriverId
-            // Persist so host VulkanRenderer (reads container) stays in sync with guest.
-            val c = wnContainer
-            if (c != null) {
-                c.setGraphicsDriverConfig(
-                    GraphicsDriverConfigUtils.toGraphicsDriverConfig(graphicsDriverConfig),
-                )
-                c.saveData()
-            }
-        }
+        // 图形驱动：容器是唯一真相（getOrCreate 已从设置写入）。
+        val adrenoToolsDriverId = GraphicsDriverIds.normalize(graphicsDriverConfig["version"])
         Log.i(TAG, "Launch graphics driver selected: graphicsDriver='$graphicsDriver' driverId='$adrenoToolsDriverId'")
 
         // applyPreferredRefreshRate() STRIPPED (D9: Activity/Window refresh UI -> Compose P3).
@@ -1188,8 +1103,6 @@ class XServerWineSessionPreparer @Inject constructor(
         TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "container_pattern_common.tzst", rootDir)
         // MVP is ALSA-only; pulseaudio.tzst extract omitted (nobody consumed filesDir/pulseaudio).
         WineUtils.applySystemTweaks(context, wineInfo)
-        c.putExtra("graphicsDriver", null)
-        c.putExtra("desktopTheme", null)
     }
 
     /**
