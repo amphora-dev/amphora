@@ -12,6 +12,7 @@ import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.ContentAssetInstaller
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentManifest
+import app.amphora.core.content.ContentReconciler
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.content.ProvisionProgressBus
 import app.amphora.core.content.RuntimeAssetLocalOverride
@@ -55,6 +56,7 @@ constructor(
     private val catalog: ContentCatalog,
     private val rootfsInstaller: RootfsInstaller,
     private val assetInstaller: ContentAssetInstaller,
+    private val contentReconciler: ContentReconciler,
     progressBus: ProvisionProgressBus,
 ) : ViewModel() {
     private val prefs =
@@ -127,7 +129,11 @@ constructor(
             _uiState.update { it.copy(contentBusy = true, stageError = null) }
             try {
                 val manifest = catalog.refresh()
-                val components = withContext(dispatchers.io) { scanComponents(manifest) }
+                val components =
+                    withContext(dispatchers.io) {
+                        contentReconciler.reconcile(manifest)
+                        scanComponents(manifest)
+                    }
                 val runtimeAssets = withContext(dispatchers.io) { scanRuntimeAssets(manifest) }
                 val residue =
                     withContext(dispatchers.io) {
