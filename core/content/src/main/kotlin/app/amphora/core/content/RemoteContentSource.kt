@@ -14,6 +14,8 @@ import kotlinx.coroutines.sync.withLock
  *
  * Installed components are returned without network access. Cache misses use a
  * resumable verified download, then hand the archive to [ContentAssetInstaller].
+ * After a hit or install, [ContentAssetInstaller.reconcileToPin] drops sibling
+ * installs so pin bumps replace rather than accumulate.
  */
 class RemoteContentSource(
     private val context: Context,
@@ -33,10 +35,16 @@ class RemoteContentSource(
         require(entry.kind != ManifestEntry.Kind.ROOTFS) {
             "ROOTFS is managed by RootfsInstaller"
         }
-        if (installer.isInstalled(entry)) return resolved(entry)
+        if (installer.isInstalled(entry)) {
+            installer.reconcileToPin(entry)
+            return resolved(entry)
+        }
 
         return locks.getOrPut(component) { Mutex() }.withLock {
-            if (installer.isInstalled(entry)) return@withLock resolved(entry)
+            if (installer.isInstalled(entry)) {
+                installer.reconcileToPin(entry)
+                return@withLock resolved(entry)
+            }
             val sha =
                 requireNotNull(entry.sha256) {
                     "Remote component ${entry.assetPath} must have a pinned SHA-256"
@@ -51,7 +59,7 @@ class RemoteContentSource(
             )
             val archive =
                 downloader.acquire(
-                    root = File(context.cacheDir, "amphora-packages"),
+                    root = ContentPackageCache.root(context),
                     relativePath = entry.assetPath,
                     remoteUrl = urlResolver.resolve(entry, manifest.wcpCatalogUrl),
                     expectedSha256 = sha,

@@ -9,6 +9,7 @@ import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.ContentAssetInstaller
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentManifest
+import app.amphora.core.content.ContentReconciler
 import app.amphora.core.content.RuntimeAssetLocalOverride
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
@@ -44,6 +45,7 @@ constructor(
     private val catalog: ContentCatalog,
     private val rootfsInstaller: RootfsInstaller,
     private val assetInstaller: ContentAssetInstaller,
+    private val contentReconciler: ContentReconciler,
     private val turnipProvisioner: TurnipDriverProvisioner,
 ) : ViewModel() {
     private val prefs =
@@ -262,6 +264,7 @@ constructor(
                 val manifest = catalog.refresh()
                 val snapshot =
                     withContext(dispatchers.io) {
+                        contentReconciler.reconcile(manifest)
                         ComponentSnapshot(
                             components = scanComponents(manifest),
                             runtimeAssets = scanRuntimeAssets(manifest),
