@@ -614,7 +614,7 @@ public abstract class WineUtils {
   /**
    * 把注册表里的声音驱动写成容器想要的值（Amphora 只有 alsa）。
    *
-   * <p>小事：每次对照注册表，缺了或写错就改。不记「做过没」。
+   * <p>由调用方用 AppliedMarks 门控：想要 ≠ 装过才调用；成功后更新标记。
    */
   public static void ensureWineAudioDriver(Container container, File rootDir, String audioDriver) {
     if (container == null || rootDir == null || audioDriver == null || audioDriver.isEmpty()) {

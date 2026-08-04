@@ -372,9 +372,9 @@ constructor(
     }
 
     /**
-     * Apply the user-selected adrenotools id (`graphicsDriverConfig.version`).
-     * Default [GraphicsDriverIds.WRAPPER]; optional [GraphicsDriverIds.TURNIP_BALANCED]
-     * downloads+installs the WN-Turnip zip first.
+     * Apply the user-selected adrenotools id into the container
+     * (`graphicsDriverConfig.version`). 设置只写 prefs；这里同步进容器，
+     * 之后启动只读容器。
      */
     private suspend fun ensureAdrenotoolsDriver(container: WnContainer) {
         val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)

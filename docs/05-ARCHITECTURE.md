@@ -93,22 +93,17 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 
 ---
 
-## 3.2 容器配置怎么写进前缀
+## 3.2 容器配置怎么应用
 
-只分两类，API 也按这个分：
+一种方式：
 
-| 类型 | 做法 | 入口 |
-|---|---|---|
-| **小事** | 每次对照真实文件/注册表，不对就改。不记「做过没」 | `ensureWineAudioDriver`、`ensureJoystickRegistryKeys`、`ensureWinebusConfig`、盘符软链 |
-| **大事** | 贵；记「上次按哪个想要值做过了」。想要值变了或前缀重建才重做 | `AppliedMarks` + 解压 DLL / 装 Box64 / 改服务 |
+1. **想要什么**：只在容器（唯一真相）。设置页 / 清单只负责改写容器。
+2. **装过什么**：`AppliedMarks`（`applied*`）。
+3. 想要的 ≠ 装过的 → 去做 → 成功后更新标记。
+4. 前缀重建 → `clearOwnedByPrefix`，标记全清，下次会重做。
 
-约定：
-
-- 顶层字段（如 `dxwrapper`、`audioDriver`）= **想要什么**
-- `AppliedMarks` 键（如 `appliedDxwrapper`）= **已经按什么做过**
-- 前缀重建：`AppliedMarks.clearOwnedByPrefix`；Box64 不跟前缀清
-- 启动时 `scrubObsoleteExtras` 删掉旧版散落键（`dxwrapper`/`audioDriver`/…），不再读它们
-- Box64 只有一处：`Box64Runtime.ensureApplied`
+声音、服务、DLL、组件、盘符、输入、Box64/FEX 全部同一套。  
+`dxwrapper` 只认分号格式。图形启动只读容器（`getOrCreate` 已从设置写入）。
 
 ---
 
