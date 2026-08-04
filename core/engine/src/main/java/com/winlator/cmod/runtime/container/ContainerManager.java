@@ -648,6 +648,11 @@ public class ContainerManager {
       container.putExtra("startupSelection", null);
       container.putExtra("mono_installed", null);
       container.putExtra("mono_version", null);
+      // Prefix-local apply stamps: user.reg / wincomponents must be re-applied after
+      // repair. WinNative clears the list above but not audioDriver; Amphora is
+      // ALSA-only (no pulse fallback), so a stale audioDriver extra would skip
+      // rewriting Software\Wine\Drivers\Audio into the fresh user.reg.
+      container.putExtra("audioDriver", null);
       container.saveData();
       if (movedAside) {
         Log.i(
