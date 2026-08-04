@@ -275,9 +275,9 @@ constructor(
                     "WINEDEBUG=${envVars.get("WINEDEBUG")}",
             )
         }
-        // ALSA socket (RFC §8: MVP is ALSA-only; PulseAudio is a non-target).
-        // Matches WinNative setupXEnvironment alsa branch: ANDROID_ALSA_SERVER + SHM.
-        // 声音：容器 audioDriver → AppliedMarks 门控写入注册表；不靠 env。
+        // ALSA socket when using alsa backend (WinNative alsa branch).
+        // Registry Audio 由 AppliedMarks 门控写入；可配置 alsa / pulseaudio。
+        // 当前运行时只接了 ALSA aserver；选 pulse 需另接 Pulse 组件。
         val rootPath = imageFs.getRootDir().path
         envVars.put("ANDROID_ALSA_SERVER", rootPath + UnixSocketConfig.ALSA_SERVER_PATH)
         envVars.put("ANDROID_ASERVER_USE_SHM", "true")
