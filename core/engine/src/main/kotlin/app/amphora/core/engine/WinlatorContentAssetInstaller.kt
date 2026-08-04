@@ -140,10 +140,7 @@ constructor(@ApplicationContext private val context: Context) :
         return removed
     }
 
-    private fun profileFromInstallDir(
-        type: ContentProfile.ContentType,
-        installDir: File,
-    ): ContentProfile? {
+    private fun profileFromInstallDir(type: ContentProfile.ContentType, installDir: File): ContentProfile? {
         val split = installDir.name.lastIndexOf('-')
         if (split <= 0 || split >= installDir.name.length - 1) {
             Log.w(TAG, "Skipping unreadable WCP dir ${installDir.name}")
