@@ -95,7 +95,7 @@ internal class HostPerformanceMonitor(context: Context, private val xServer: XSe
             appCpuPercent = cpuPercent,
             gpuPercent = readGpuPercent(),
             ramPercent = ramPercent,
-            appMemoryMb = Debug.getPss() / 1024,
+            appMemoryMb = (Debug.getPss() / 1024).toInt(),
             batteryTemperatureC = readBatteryTemperature(),
         )
     }
