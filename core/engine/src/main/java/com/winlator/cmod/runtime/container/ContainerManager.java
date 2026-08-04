@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import app.amphora.core.engine.PrefixApplyStamps;
 import com.winlator.cmod.runtime.content.ContentProfile;
 import com.winlator.cmod.runtime.content.ContentsManager;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
@@ -639,20 +640,9 @@ public class ContainerManager {
 
       WineInfo wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion);
       container.putExtra("wineprefixArch", wineInfo.getArch());
-      container.putExtra("wineprefixNeedsUpdate", null);
-      container.putExtra("appVersion", null);
-      container.putExtra("imgVersion", null);
-      container.putExtra("dxwrapper", null);
-      container.putExtra("wincomponents", null);
-      container.putExtra("desktopTheme", null);
-      container.putExtra("startupSelection", null);
-      container.putExtra("mono_installed", null);
-      container.putExtra("mono_version", null);
-      // Prefix-local apply stamps: user.reg / wincomponents must be re-applied after
-      // repair. WinNative clears the list above but not audioDriver; Amphora is
-      // ALSA-only (no pulse fallback), so a stale audioDriver extra would skip
-      // rewriting Software\Wine\Drivers\Audio into the fresh user.reg.
-      container.putExtra("audioDriver", null);
+      // Prefix-local apply stamps must be cleared so the next launch re-applies DLL/registry
+      // policy into the fresh prefix. See PrefixApplyStamps.
+      PrefixApplyStamps.INSTANCE.clearForPrefixRepair(container);
       container.saveData();
       if (movedAside) {
         Log.i(
