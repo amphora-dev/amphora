@@ -623,6 +623,14 @@ public abstract class WineUtils {
    * <p>Do <b>not</b> skip solely because {@code container.extra.audioDriver} is already
    * stamped: a prefix recreate / wine rewrite can drop the registry key while the extra
    * remains, which previously left Audio unset forever.
+   *
+   * <p>Engineering model (same idea as content pin sync): {@code container.audioDriver} is
+   * the <b>desired</b> policy; {@code user.reg} {@code Software\Wine\Drivers\Audio} is the
+   * <b>applied</b> sink Wine reads. {@code extra.audioDriver} is only a cache of last
+   * successful apply, never a substitute for reading the sink. WinNative uses the same
+   * extra-gated write ({@code XServerDisplayActivity.changeWineAudioDriver}) and also
+   * omits clearing {@code audioDriver} on prefix repair — less visible there because
+   * WinNative ships PulseAudio as a probe fallback; Amphora does not.
    */
   public static void changeWineAudioDriver(Container container, File rootDir, String audioDriver) {
     if (container == null || rootDir == null || audioDriver == null || audioDriver.isEmpty()) {
