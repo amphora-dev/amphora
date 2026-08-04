@@ -27,15 +27,15 @@ object ContentManifestLoader {
     const val DEFAULT_REMOTE_URL: String = BuildConfig.CONTENT_MANIFEST_URL
 
     /**
-     * Branch-tracking mirrors for [DEFAULT_REMOTE_URL]. All follow `main` tip —
-     * never a commit SHA — so pin bumps land without an APK rebuild. Order prefers
-     * CDNs that refresh faster than raw.githubusercontent.com (which can lag ~5min).
+     * Branch-/latest-tracking mirrors for [DEFAULT_REMOTE_URL]. Prefer jsDelivr
+     * `@latest` (semver tags that CI purges on every pin bump). Never embed a
+     * commit SHA. GitHub Contents API is last — unauthenticated rate limits.
      */
     val BRANCH_TRACKING_MIRRORS: List<String> =
         listOf(
-            "https://cdn.jsdelivr.net/gh/amphora-dev/content_manifest@main/content_manifest.json",
-            "https://api.github.com/repos/amphora-dev/content_manifest/contents/content_manifest.json?ref=main",
+            "https://cdn.jsdelivr.net/gh/amphora-dev/content_manifest@latest/content_manifest.json",
             "https://raw.githubusercontent.com/amphora-dev/content_manifest/main/content_manifest.json",
+            "https://api.github.com/repos/amphora-dev/content_manifest/contents/content_manifest.json?ref=main",
         )
 
     /**
