@@ -30,10 +30,7 @@ import com.winlator.cmod.shared.math.XForm
  *   `ClientSocket.write` on the UI thread ANRs when Wine is slow to drain the X socket
  *   (seen as "Input dispatching timed out" on MainActivity).
  */
-class TouchpadView(
-    context: Context,
-    private val xServer: XServer,
-) : View(context) {
+class TouchpadView(context: Context, private val xServer: XServer) : View(context) {
     companion object {
         const val CURSOR_ACCELERATION = 1.25f
         const val CURSOR_ACCELERATION_THRESHOLD: Byte = 6
@@ -285,12 +282,10 @@ class TouchpadView(
             return Mathf.roundPoint(dy)
         }
 
-        fun isTap(): Boolean =
-            System.currentTimeMillis() - touchTime < MAX_TAP_MILLISECONDS &&
-                travelDistance() < MAX_TAP_TRAVEL_DISTANCE
+        fun isTap(): Boolean = System.currentTimeMillis() - touchTime < MAX_TAP_MILLISECONDS &&
+            travelDistance() < MAX_TAP_TRAVEL_DISTANCE
 
-        fun travelDistance(): Float =
-            Math.hypot((x - startX).toDouble(), (y - startY).toDouble()).toFloat()
+        fun travelDistance(): Float = Math.hypot((x - startX).toDouble(), (y - startY).toDouble()).toFloat()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -308,11 +303,10 @@ class TouchpadView(
         return result
     }
 
-    private fun selectTouchHandler(): (MotionEvent) -> Boolean =
-        when (screenTouchMode) {
-            MODE_TOUCHSCREEN -> ::handleTouchscreenEvent
-            else -> ::handleTouchpadEvent
-        }
+    private fun selectTouchHandler(): (MotionEvent) -> Boolean = when (screenTouchMode) {
+        MODE_TOUCHSCREEN -> ::handleTouchscreenEvent
+        else -> ::handleTouchpadEvent
+    }
 
     private fun showCursor() {
         xServer.renderer?.setCursorVisible(true)
@@ -568,8 +562,11 @@ class TouchpadView(
         val scrollDistance = finger1.y - finger2.y
         if (Math.abs(scrollDistance) > 10) {
             val button =
-                if (scrollDistance > 0) Pointer.Button.BUTTON_SCROLL_UP
-                else Pointer.Button.BUTTON_SCROLL_DOWN
+                if (scrollDistance > 0) {
+                    Pointer.Button.BUTTON_SCROLL_UP
+                } else {
+                    Pointer.Button.BUTTON_SCROLL_DOWN
+                }
             clickButton(button)
         }
     }
@@ -848,9 +845,8 @@ class TouchpadView(
         )
     }
 
-    private fun createTransparentBg(): StateListDrawable =
-        StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_focused), ColorDrawable(Color.TRANSPARENT))
-            addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
-        }
+    private fun createTransparentBg(): StateListDrawable = StateListDrawable().apply {
+        addState(intArrayOf(android.R.attr.state_focused), ColorDrawable(Color.TRANSPARENT))
+        addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
+    }
 }
