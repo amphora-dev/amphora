@@ -73,7 +73,7 @@ GameSessionScreen
 ```
 
 Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停环境并回收 Wine 子进程。
-> **专项**：Exit 曾因 Main 线程 `XConnectorEpoll.join` 卡在 `recvAncillaryMsg` 触发 ANR；已 IO + 2s join 超时止血，根治见 [`03-TRACKING.md` §专项](03-TRACKING.md)。
+> **专项**：Exit 曾因 Main 上 `join` + `recvAncillaryMsg` 阻塞触发 ANR；已 IO 调度 + **先关 client FD 再 join** 根治（2s timeout 仅兜底）。见 [`03-TRACKING.md` §专项](03-TRACKING.md)。
 
 ---
 
@@ -178,7 +178,8 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 ## 9. 当前缺口（v0.2+ 候选）
 
-- `:feature:settings` 续增强；键盘/手柄；音频音量接线；Exit teardown 根治
+- `:feature:settings` 续增强；键盘/手柄；音频音量接线
 - Present/DRI3 完善；多容器/prefix
 - targetSdk 上探（须先把可执行文件迁到可 exec 位置）
 - 部分 runtime 资产仍 pin 自 WinNative raw（可逐步迁到自有 Release）
+- Exit 真机连点 / FD 泄漏回归
