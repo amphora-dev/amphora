@@ -60,7 +60,7 @@
 - ✅ MVP 再削: `WineThemeManager` 仅留默认串; 删 `MSBitmap`/`LogManager`/`CPUStatus`/`UnitUtils`/`fakeinput.cpp`; Box64/FEX 仅留 `getEnvVars`; 去掉 pulseaudio.tzst 旁路提取 + manifest `audio_plugin`（MVP ALSA-only，aserver 在 imagefs）。`:feature:settings` **保留**（v0.2 实质项）。
 - ✅ 内核再削 (2026-07-21): 删 Shortcut / PE 图标 / WineThemeManager / EffectComposer；GPLC 去 shortcut 与浏览器/剪贴板 prefs；ContainerManager 去 duplicate/shortcuts；ContentsManager 去 remote profiles；`NativeContentIO` 去 download JNI 包装；`AssetPaths` 仅留 GPU_CARDS+WINE_STARTMENU；un-include `:core:ui`。
 - ✅ **AIO DX8/DX9 / OpenGL·DX7 黑屏** (2026-07-26 记档 → 后续已关闭): DX8 CreateDevice（IMMEDIATE→DEFAULT）+ DXVK d3d8/d3d10 trust-augment；OpenGL/DX7 靠容器 env 合并 + 不再误钉 `GALLIUM_DRIVER=zink` / `LIBGL_KOPPER_DISABLE`。真机路径已可用；文档不再当开放项。
-- ✅ **adrenotools hooks 收敛为单份** (2026-08-05): guest / host 都用 `wrapper.tzst` → `imagefs/usr/lib`（CI pin `8483dfd`）。APK **不编不打包** hooks（`cmake targets(winlator)` + packaging excludes）；host `vulkan.c` 读 `ImageFs.getLibDir()`。
+- ✅ **adrenotools hooks 收敛为单份** (2026-08-05): guest / host 都用 `wrapper.tzst` → `imagefs/usr/lib`（CI pin `8483dfd`）。APK **不建** SHARED hooks（只静链 `adrenotools`；hooks 由 imagefs wrapper CI 产出）；host `vulkan.c` 读 `ImageFs.getLibDir()`。
 - 🗑 **删除空壳 `:core:ui`** (2026-08-05)。
 - ✅ **资产供应链已切自建主通道** (2026-08): 默认 wine = `amphora-dev/proton-wine` **Proton-11.0-amphora**；rootfs / Box64 / wrapper = `amphora-dev/imagefs`；pin 面 = `content_manifest`（jsDelivr `@latest`）。`amphora-assets` Private **不再阻塞**。部分 wincomponents / pattern / DXVK 仍可 pin 上游。
 - ✅ **`extra_libs.tzst` 已废止 / Mesa GL 自建并入 imagefs** (2026-08-01)。
