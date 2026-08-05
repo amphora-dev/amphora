@@ -15,6 +15,10 @@ class AndroidNativeConventionPlugin : Plugin<Project> {
                 ndk { abiFilters += "arm64-v8a" }
                 externalNativeBuild {
                     cmake {
+                        // Only build libwinlator.so (+ static adrenotools). The four
+                        // adrenotools hook SHARED libs ship in wrapper.tzst → imagefs;
+                        // building them here just wastes CI time (packaging already excludes).
+                        targets("winlator")
                         val nativeCache =
                             rootProject.layout.projectDirectory
                                 .dir(".native-cache")

@@ -1,7 +1,7 @@
 # 05 - As-Built 架构
 
 > 当前实现的架构真源。决议见 [`01-RFC.md`](01-RFC.md)；进度手账见 [`03-TRACKING.md`](03-TRACKING.md)；资产锁见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)。
-> 最后更新: 2026-08-04 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
+> 最后更新: 2026-08-05 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
 
 ---
 
@@ -16,7 +16,7 @@ Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 
 ```
 :app
 ├─ :feature:launcher      SAF 选 .exe + 分辨率 → 导航到会话
-├─ :feature:settings      设置页骨架（无实质项）
+├─ :feature:settings      图形/组件/Box64/容器等设置（已有实质 UI）
 └─ :core:engine           ★ 架构核心
    ├─ api  → :core:common, :core:content, :core:container
    └─ impl → :core:native, :core:rootfs
@@ -178,7 +178,7 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 ## 9. 当前缺口（v0.2+ 候选）
 
-- `:feature:settings` 实质项；键盘/手柄；音频音量接线
+- `:feature:settings` 续增强；键盘/手柄；音频音量接线；Exit teardown 根治
 - Present/DRI3 完善；多容器/prefix
-- Proton 11 自建（见 `RESEARCH-proton-wine-selfbuild.md`）
 - targetSdk 上探（须先把可执行文件迁到可 exec 位置）
+- 部分 runtime 资产仍 pin 自 WinNative raw（可逐步迁到自有 Release）
