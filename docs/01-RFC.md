@@ -220,8 +220,13 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 ### D3: 项目名 ✅ 已定
 - **Amphora**，包名 `app.amphora`，目录 `/Users/sky/co/github/amphora`。
 
-### D4: 首个 .wcp 下载源 ✅ 已定
-- MVP **不做下载**，捆绑固定二进制。v0.3 起接入下载源时优先复用 `nicholasx417/WinNative-Components`（代码已验证可用），自建留作后备。
+### D4: 内容获取 ✅ 已定（后经演进）
+- 原 MVP 决议「不做下载、捆绑固定二进制」已被运行时路径取代。
+- **现状**：设备经 `RemoteContentSource` + `VerifiedAssetDownloader` 拉取
+  [`amphora-dev/content_manifest`](https://github.com/amphora-dev/content_manifest)
+ （jsDelivr `@latest`）中的 SHA pin；native `nativeDownloadFile` 仍为 stub（仅保留符号）。
+- 自建通道：`amphora-dev/proton-wine`（Proton 11）、`amphora-dev/imagefs`（rootfs / Box64 / wrapper）。
+  部分 runtime 资产与 DXVK 仍可来自 WinNative / nicholasx417 上游 pin。
 
 ### D5: Wine 架构与版本 ✅ 已定
 - **Proton 11 x86_64 + box64**（`WinNative-Emu/proton-wine` 默认分支 `proton_11.0`，源码自建，见 D7）。
@@ -307,7 +312,7 @@ GameSessionViewModel.launch(LaunchSpec)
 - [x] D1 架构路线 -> Bionic
 - [x] D2 执行模型 -> 不需要 proot
 - [x] D3 项目名 -> Amphora
-- [x] D4 下载源 -> MVP 不做下载，捆绑固定二进制
+- [x] D4 内容获取 -> `RemoteContentSource` + 远程 manifest pin（自建 Proton/imagefs；非 APK 捆绑）
 - [x] D5 Wine 架构与版本 -> Proton 11 x86_64 + box64（否决 arm64ec）
 - [x] D6 patchelf -> 不移植（死代码，Bionic 无需 ELF patch）
 - [x] D7 MVP Proton 来源 -> 自建（fork proton-wine CI），termuxfs/prefixPack 复用上游 SHA 锁定

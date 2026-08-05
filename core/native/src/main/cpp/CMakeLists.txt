@@ -82,6 +82,15 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/adrenotools/CMakeLists.txt")
         "Initialize it with: git submodule update --init --recursive")
 endif()
 add_subdirectory(adrenotools)
+# Hooks are not linked into libwinlator (static adrenotools only). They ship in
+# wrapper.tzst → imagefs/usr/lib for both host and guest. Mark EXCLUDE_FROM_ALL so
+# a full CMake build (outside AGP targets filter) still skips them.
+if(TARGET main_hook)
+    set_target_properties(
+        main_hook file_redirect_hook gsl_alloc_hook hook_impl
+        PROPERTIES EXCLUDE_FROM_ALL TRUE
+    )
+endif()
 
 # ----------------------------------------------------------------------------
 # SPIR-V shader compilation

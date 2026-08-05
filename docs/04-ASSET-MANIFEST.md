@@ -159,7 +159,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 | | 现状典型目录（WinNative 原样） | **本定稿默认集** |
 |---|---|---|
 | rootfs | 官方 `imagefs.tzst` **199.8 MB**（解压 ~877 MB） | 自建 **~27.5 MB**（解压 ~187 MB） |
-| 图形叠加 | `extra_libs` 21.1 + `layers` 4.4 + `wrapper` 3.8 ≈ **29 MB**（含未用层/双份 Turnip/调试符号） | `wrapper` 0.7 + hooks@APK ≈ **~1 MB**（自建 Mesa GL 已并入 imagefs 的 +3 MB） |
+| 图形叠加 | `extra_libs`+`layers`+旧 wrapper ≈ **29 MB**（历史） | `wrapper` ~0.7 MB（含 hooks；Mesa GL 已并入 imagefs） |
 | 容器模板 | `container_pattern_common` **41.6 MB**（字体堆 + 内嵌 cnc-ddraw） | pattern ≲2 + **单字体** ~8 ≈ **~10 MB** |
 | 运行时+DX | Proton+Box64+DXVK+VKD3D ≈ **181 MB** | **同左**（暂不自砍 Proton） |
 | **默认合计（量级）** | **≳ 450 MB** 资产面 | **~230–240 MB**（再去掉可选 FFmpeg/Turnip/ddraw/layers） |
@@ -191,7 +191,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
 5. **ddraw** 默认 DxWrapper Dd7to9；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份。两套资产均仅含 PE32 `syswow64/ddraw.dll`：32-bit 优先 native wrapper；x86_64 无 native DLL，按 `ddraw=n,b` 回退 Proton builtin ddraw/WineD3D→Zink。
 6. **字体** 全局一份；多容器不重复打进 pattern。
-7. **发布面**：默认产物进公开 `amphora-assets`（或等价）固定标签；可选包同仓另附件，不塞进默认 APK。
+7. **发布面**：默认 pin / 产物走公开 GitHub Release（`amphora-dev/*`）+ `content_manifest`（jsDelivr `@latest`）；不塞进默认 APK。
 
 ### 图形栈的依赖归属（实测）
 
@@ -319,7 +319,7 @@ _ZN14HookImplParamsC2EiPKcS1_S1_S1_S1_P23adrenotools_gpu_mapping
 | 来源 | 落点 | 现状 |
 |---|---|---|
 | 自建 `wrapper.tzst` | `imagefs/usr/lib/` | ✅ guest env + host `hookLibDir` |
-| APK submodule hooks | `nativeLibraryDir` | ❌ packaging `excludes`；CMake 仍编但不进 APK |
+| APK submodule hooks | — | ❌ **不编**：`cmake targets(winlator)` + `EXCLUDE_FROM_ALL`；packaging excludes 兜底 |
 | imagefs rootfs | — | ✅ 配方不打 hooks |
 
 `AppUtils.getNativeLibDir` 已不存在；host 若再读 `nativeLibraryDir` 会静默回退系统 Adreno。
@@ -348,8 +348,9 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 | 决策 | 状态 |
 |---|---|
 | wrapper + adrenotools hooks 单独更新、不焊 imagefs | ✅ |
-| hooks 全局唯一来源 = APK（自建 imagefs 不打包 + 重打 wrapper 剔除）| ✅ 决策；2 步收尾待做 |
+| hooks 全局唯一来源 = 自建 `wrapper.tzst` → `imagefs/usr/lib`（host+guest）| ✅ 2026-08-05；APK **不编不打包** hooks |
 | 自建 imagefs 为唯一默认 rootfs；官方 199 MB 退出默认 | ✅ |
+| Proton **11.0-amphora**（`amphora-dev/proton-wine`）为默认 wine pin | ✅ 见远程 `content_manifest` |
 | `extra_libs` 废止；strip 后的 Mesa GL **并入 imagefs**（不单独拆包，见上）；砍 vkBasalt/BCn/包内 Turnip | ✅ |
 | `layers` / WN-Turnip / ddraw 包装器 = 可选 | ✅ |
 | 字体从 pattern 拆出共享；pattern 去内嵌 ddraw | ✅ |
@@ -368,24 +369,14 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 | 产出方 | 产物 | 通道 | 体积 | 落地 | 状态 |
 |---|---|---|---|---|---|
 | **amphora APK**（本仓 `:core:native`） | `libwinlator.so`（含**静态** adrenotools + 19 shader + zstd/xz）| — | 2.5 MB | `nativeLibraryDir` | ✅ |
-| 同上 | ~~4× adrenotools hook~~ | — | — | — | ❌ 已排除出 APK（2026-08-05）；hooks 只随 `wrapper.tzst` |
-| **`amphora-dev/imagefs`**（自建）| `wrapper.tzst`（wrapper + adrenotools@8483dfd + 4 hooks + ICD）| wrapper+hooks | ~0.7 MB | imagefs `usr/lib` | ✅ **hooks 唯一来源** |
-| **`winlator-imagefs`**（cnb 自建配方）| `imagefs.txz`（43 包 Bionic 基线）| imagefs | 27.5 MB（解压 187 MB）| imagefs 根 | 🟡 PR #1 待合 |
-| 同上（规划） | + strip 后 Mesa `libGL`+`libglapi` | imagefs | +4–6 MB | imagefs `usr/lib` | ⬜ 待做 |
-| **`nicholasx417/WinNative-Components`**（GitHub Release）| `Proton-10.0-4-x86_64.wcp` | runtime | 168.6 MB | WCP → imagefs | ✅ |
-| 同上 | `Box64-0.4.3-*.wcp` | runtime | 2.8 MB | WCP → imagefs | ✅ |
-| 同上 | `Dxvk-3.0.2-gplasync.wcp` | dx | 6.7 MB | 容器 `system32`/`syswow64` | ✅ |
-| 同上 | `Vkd3d-3.0.1-S6_9.wcp` | dx | 3.4 MB | 同上 | ✅ |
-| **`WinNative-Emu/WinNative`**（GitHub LFS，上游）| ~~`wrapper.tzst`~~ | — | — | — | ⛔ 已由 `amphora-dev/imagefs` Release `wrapper` 替代 |
-| 同上 | `container_pattern_common.tzst` | container-pattern | 41.6 MB | 每容器一份 | 🟡 待瘦身+拆字体 |
-| 同上 | `wincomponents/*.tzst`（7 个）| wincomponents | ~38 MB | 容器 DLL | ✅ 机制不变 |
-| 同上 | `ddrawrapper/*.tzst`（3 个）| ddraw | 0.2–3 MB | 容器 `syswow64` | ⚪ 可选，默认 `none` |
-| 同上 | `imagefs.tzst`（官方 199.8 MB）| — | 199.8 MB | imagefs 根 | ⛔ 待自建替换 |
-| 同上 | `extra_libs.tzst` | — | 21.1 MB | — | ⛔ 已废止（GL 自建并入 imagefs，2026-08-01）|
-| 同上 | `layers.tzst` | 调试 | 4.4 MB | imagefs | ⚪ 仅调试 |
-| 同上 | 裸配置（`gpu_cards` / `startmenu` / `wincomponents` json / `default.box64rc`）| meta | 31 KB | 直拷 | ✅ |
+| 同上 | ~~4× adrenotools hook~~ | — | — | — | ❌ **不编不打包**（`cmake targets(winlator)`）|
+| **`amphora-dev/imagefs`** | `imagefs.txz` / `Box64-*.wcp` / `wrapper-*.tzst`（含 hooks@8483dfd）| rootfs+box64+wrapper | 见 pin | imagefs | ✅ 默认 rootfs / hooks 唯一来源 |
+| **`amphora-dev/proton-wine`** | `Proton-11.0-amphora-x86_64.wcp` | runtime | ~62 MB | WCP → imagefs | ✅ **默认 wine** |
+| **`nicholasx417/WinNative-Components`** | `Dxvk-*.wcp` / catalog VKD3D 等 | dx | 见 pin | 容器 DLL | ✅ 以远程 manifest 为准 |
+| **`WinNative-Emu/WinNative`**（raw / LFS）| `container_pattern` / `wincomponents` / `ddrawrapper` / meta json 等 | runtimeAssets | 见 pin | 各落地根 | 🟡 仍有 pin；可逐步自有化 |
+| 同上 | ~~官方 `imagefs.tzst` / `wrapper.tzst` / `extra_libs.tzst`~~ | — | — | — | ⛔ 已由 amphora-dev 自建或废止 |
 | **`WinNative-Emu/Drivers`** | `WN-Turnip-*.zip` | 可选驱动 | 2.7 MB | `contents/adrenotools/<id>/` | ⚪ 可选 |
-| **`amphora-assets`**（cnb 镜像）| 上述 24 个资产的固定标签镜像 | 发布面 | — | — | 🟡 仍 Private |
+| **`amphora-assets`（cnb）** | 历史镜像设想 | — | — | — | ⛔ **不再阻塞**（生产 = GitHub Release + `content_manifest` / jsDelivr）|
 | **`aio-graphics-test`**（cnb）| 图形自测 PE | 测试 | 小 | 容器 `drive_c` | ✅ |
 
 ### 按落地根（覆盖域视角）
@@ -409,7 +400,7 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 | 其中 rootfs | 199.8 MB | **27.5 MB**（+Mesa GL ~33 MB）|
 | 其中图形叠加 | ~29 MB | **~4 MB** |
 | 其中容器模板 | 41.6 MB | **~10 MB** |
-| hooks 副本数 | 3（imagefs / wrapper / APK）| **1**（APK）|
+| hooks 副本数 | 3（历史）| **1**（`wrapper.tzst` → `imagefs/usr/lib`）|
 
 ---
 
@@ -568,13 +559,17 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 |---|---|---|---|
 | **DXVK** | `Dxvk-3.0.2-gplasync.wcp` | `DXVK-3.0.2-gplasync-0` → `dxvk-3.0.2-gplasync-0` | D3D8/9/10/11 → Vulkan（TB322FC 上 DX10/11 有画面） |
 | **VKD3D** | `Vkd3d-3.0.1-S6_9.wcp` | profile `verName=3.0.1-sm69` → `vkd3d-3.0.1-sm69-0` | D3D12 → Vulkan（替换 Wine stub `d3d12.dll`） |
-| **Proton** | `Proton-10.0-4-x86_64.wcp` | `Proton-10.0-4-x86_64-0` | Wine/Proton 运行时 + prefixPack |
+| **Proton** | `Proton-11.0-amphora-x86_64.wcp`（`amphora-dev/proton-wine`）| `Proton-11.0-amphora-x86_64-1` | 自建 Wine/Proton + prefixPack |
 | **Box64** | `Box64-0.4.3-c08554e3f.wcp` | `Box64-0.4.3-c08554e3f-0` | x86_64 → ARM64 用户态翻译 |
 | **Turnip** | `graphics_driver/wrapper.tzst` | ARCHIVE `version=1` | Adreno Mesa Turnip + adrenotools wrapper ICD |
 
 容器默认 `dxwrapper`：`dxvk-…;vkd3d-…;dd7to9`；第三段可由 UI 在 `dd7to9` 与 `cnc-ddraw` 之间切换。
 
-选型原则：跟上游 **Stable** x86_64（非 arm64ec）。DXVK 默认 **3.0.2-gplasync**：在 TB322FC（Adreno 830 / Turnip）上 DX10/11 可用；曾试 `2.4.1-pre-reg` 想修 D3D9 黑屏，结果 DX9–11 **闪退**，已回退。DX8/DX9「有 FPS 无画面」仍为开放项（已定位 FF PSO compile `-13`；DX8 = DXVK D3D8 compatibility → 同一条 FF 路径）。候选未默认启用：`2.4.1-a6xx-fix` / `2.4.1-special+d8`。VKD3D 仍锁 **3.0.1-S6_9**。
+选型原则：跟上游 **Stable** x86_64（非 arm64ec）。**默认 DXVK 以远程
+`content_manifest` 为准**（当前 pin `Dxvk-2.7.1-gplasync`）。DX8 CreateDevice /
+DX9·OpenGL 路径已在后续修复中关闭（见 [`03-TRACKING.md`](03-TRACKING.md)）；勿再把
+「FF PSO `-13` 黑屏」当开放项。VKD3D 仍常见为 **3.0.1-S6_9**（catalog 解析，可无
+`remoteUrl`）。
 
 ### 5.3 可选 adrenotools Turnip（WN-Turnip）
 
@@ -612,6 +607,10 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 
 **默认目录**：设备端下载走 manifest `wcpCatalogUrl`（`default.json`），当前 Stable 默认只挂少数条目（含我们锁定的 DXVK/VKD3D）；完整历史包仍在 GitHub `Stable-Dxvk` / `Stable-VKD3D` release 资产列表里。
 
-**⚠️ D4 download stub (amphora 当前)**: `native_content_io.cpp:783` `nativeDownloadFile` 返回 `JNI_FALSE`, `nativeFetchContentLength` 返回 `-1` (RFC §10 D4 -- MVP 不做远程抓取, 符号保留避免 UnsatisfiedLinkError). 故 amphora 当前**无法在设备上直接 `syncContents`/下载 `.wcp`**.
+**D4 native download stub（有意保留）**: `native_content_io.cpp` 的
+`nativeDownloadFile` / `nativeFetchContentLength` 仍返回失败——**设备下载不走 JNI**。
+生产路径是 Kotlin `RemoteContentSource` + `VerifiedAssetDownloader`（可续传 + SHA），
+按 jsDelivr / GitHub 上的 `content_manifest.json` pin 拉取 `.wcp` / ARCHIVE / ROOTFS。
+不要把 native stub 理解成「设备不能下载」。
 - **preparer 真验可行路径** (绕过 stub): host `curl` 下载 `.wcp` -> `adb push` -> `ContentsManager.extraContentFile(Uri, callback)` 本地装 (走 `nativeExtractArchive`, 非 download) -> `createContainer` (抽 Wine prefix) -> 跑 preparer.
 - **v0.3**: 恢复 curl body 解除 stub -> 设备直接下载.
