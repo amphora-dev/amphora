@@ -846,18 +846,15 @@ class XServerWineSessionPreparer @Inject constructor(
     }
 
     /**
-     * `hookLibDir` for **guest** adrenotools (env consumed by imagefs
-     * `libvulkan_wrapper.so` → `libadrenotools.so`).
+     * Single on-disk hook set for **guest and host** adrenotools.
      *
-     * Must match the guest `libadrenotools.so` vintage: that blob ships in
-     * `wrapper.tzst` / imagefs and only successfully `dlopen`s the hook set
-     * extracted beside it under `imageFs.getLibDir()`. Pointing at APK
-     * `nativeLibraryDir` (our submodule hooks) makes guest adrenotools log
-     * `Couldn't preload the hook implementation`, so Turnip never loads and
-     * every DXVK path returns `vkCreateInstance -9`.
-     *
-     * Host [VulkanRenderer] still uses `nativeLibraryDir` via JNI — that path
-     * links adrenotools into `libwinlator.so` and is a separate binary.
+     * `wrapper.tzst` extracts `libadrenotools.so` + 4 hooks into
+     * `imageFs.getLibDir()` (CI pins adrenotools @ 8483dfd, same as the static
+     * copy linked into `libwinlator.so`). Guest ICD loads them via this env;
+     * host [VulkanRenderer] passes the same path as `hookLibDir` (see
+     * `vulkan.c`). APK no longer packages a second hook set — pointing guest at
+     * `nativeLibraryDir` used to fail with `Couldn't preload the hook
+     * implementation` / `vkCreateInstance -9`.
      */
     private fun adrenotoolsHooksPath(): String = imageFs.getLibDir().path
 

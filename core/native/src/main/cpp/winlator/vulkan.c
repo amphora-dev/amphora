@@ -6,6 +6,7 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <jni.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -23,38 +24,92 @@ PFN_vkDestroyInstance destroyInstance;
 
 static void *vulkan_handle = NULL;
 
-static char *get_native_library_dir(JNIEnv *env, jobject context) {
-  char *native_libdir = NULL;
+/**
+ * Host adrenotools hookLibDir — same directory as the guest
+ * ADRENOTOOLS_HOOKS_PATH: imagefs/usr/lib from wrapper.tzst.
+ *
+ * AppUtils.getNativeLibDir was deleted; APK no longer ships the four hook
+ * .so files. wrapper CI pins adrenotools @ 8483dfd (same as the static
+ * libadrenotools linked into libwinlator.so), so host and guest share one
+ * on-disk hook set.
+ */
+static char *get_adrenotools_hooks_dir(JNIEnv *env, jobject context) {
+  char *hooks_dir = NULL;
 
   if (context == NULL)
     return NULL;
 
-  jclass class_ =
-      (*env)->FindClass(env, "com/winlator/cmod/shared/android/AppUtils");
-  if (class_ == NULL) {
+  jclass image_fs_class = (*env)->FindClass(
+      env, "com/winlator/cmod/runtime/display/environment/ImageFs");
+  if (image_fs_class == NULL) {
     (*env)->ExceptionClear(env);
     return NULL;
   }
 
-  jmethodID getNativeLibraryDir = (*env)->GetStaticMethodID(
-      env, class_, "getNativeLibDir",
-      "(Landroid/content/Context;)Ljava/lang/String;");
-  if (getNativeLibraryDir == NULL) {
+  jmethodID find = (*env)->GetStaticMethodID(
+      env, image_fs_class, "find",
+      "(Landroid/content/Context;)Lcom/winlator/cmod/runtime/display/"
+      "environment/ImageFs;");
+  if (find == NULL) {
     (*env)->ExceptionClear(env);
     return NULL;
   }
 
-  jstring nativeLibDir = (jstring)(*env)->CallStaticObjectMethod(
-      env, class_, getNativeLibraryDir, context);
-  if ((*env)->ExceptionCheck(env)) {
+  jobject image_fs =
+      (*env)->CallStaticObjectMethod(env, image_fs_class, find, context);
+  if ((*env)->ExceptionCheck(env) || image_fs == NULL) {
     (*env)->ExceptionClear(env);
     return NULL;
   }
 
-  if (nativeLibDir)
-    native_libdir = (char *)(*env)->GetStringUTFChars(env, nativeLibDir, NULL);
+  jmethodID get_lib_dir =
+      (*env)->GetMethodID(env, image_fs_class, "getLibDir", "()Ljava/io/File;");
+  if (get_lib_dir == NULL) {
+    (*env)->ExceptionClear(env);
+    return NULL;
+  }
 
-  return native_libdir;
+  jobject lib_dir = (*env)->CallObjectMethod(env, image_fs, get_lib_dir);
+  if ((*env)->ExceptionCheck(env) || lib_dir == NULL) {
+    (*env)->ExceptionClear(env);
+    return NULL;
+  }
+
+  jclass file_class = (*env)->GetObjectClass(env, lib_dir);
+  if (file_class == NULL) {
+    (*env)->ExceptionClear(env);
+    return NULL;
+  }
+
+  jmethodID get_absolute_path = (*env)->GetMethodID(
+      env, file_class, "getAbsolutePath", "()Ljava/lang/String;");
+  if (get_absolute_path == NULL) {
+    (*env)->ExceptionClear(env);
+    return NULL;
+  }
+
+  jstring path =
+      (jstring)(*env)->CallObjectMethod(env, lib_dir, get_absolute_path);
+  if ((*env)->ExceptionCheck(env) || path == NULL) {
+    (*env)->ExceptionClear(env);
+    return NULL;
+  }
+
+  const char *utf = (*env)->GetStringUTFChars(env, path, NULL);
+  if (utf == NULL)
+    return NULL;
+
+  /* Require the guest/wrapper hook set before handing it to adrenotools. */
+  char probe[4096];
+  snprintf(probe, sizeof(probe), "%s/libhook_impl.so", utf);
+  if (access(probe, F_OK) != 0) {
+    (*env)->ReleaseStringUTFChars(env, path, utf);
+    return NULL;
+  }
+
+  hooks_dir = strdup(utf);
+  (*env)->ReleaseStringUTFChars(env, path, utf);
+  return hooks_dir;
 }
 
 static char *get_driver_path(JNIEnv *env, jobject context,
@@ -212,8 +267,9 @@ void *winlator_open_vulkan(JNIEnv *env, jobject context, const char *driver_name
   }
 
   char *library_name = get_library_name(env, context, driver_name);
-  char *native_library_dir = get_native_library_dir(env, context);
-  if (!library_name || !native_library_dir) {
+  char *hooks_dir = get_adrenotools_hooks_dir(env, context);
+  if (!library_name || !hooks_dir) {
+    free(hooks_dir);
     return winlator_open_system_vulkan();
   }
 
@@ -224,8 +280,9 @@ void *winlator_open_vulkan(JNIEnv *env, jobject context, const char *driver_name
   void *handle = adrenotools_open_libvulkan(
       RTLD_LOCAL | RTLD_NOW,
       ADRENOTOOLS_DRIVER_CUSTOM, tmpdir,
-      native_library_dir, driver_path, library_name, NULL,
+      hooks_dir, driver_path, library_name, NULL,
       NULL);
+  free(hooks_dir);
   if (!handle) return winlator_open_system_vulkan();
   return handle;
 }

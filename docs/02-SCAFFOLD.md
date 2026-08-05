@@ -38,14 +38,13 @@
 ## 3. 模块图（已落地）
 
 ```
-:app  ── :feature:launcher, :feature:settings, :core:ui, :core:common, :core:engine
+:app  ── :feature:launcher, :feature:settings, :core:common, :core:engine
 :feature:launcher ── :core:engine
 :core:engine ── api(:core:common, :content, :container) + impl(:core:native, :rootfs)
 :core:container ── api(:core:common, :content)
 :core:content  ── api(:core:common)
 :core:rootfs   ── api(:core:common)
-:core:ui       ── api(:core:common)
-:core:native   ── (无向上依赖；CMake 出 libwinlator.so + libfakeinput.so)
+:core:native   ── (无向上依赖；CMake 出 libwinlator.so)
 :core:common   ── api(kotlinx-coroutines)
 ```
 

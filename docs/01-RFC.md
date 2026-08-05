@@ -63,7 +63,6 @@
 ```
 :app                       Compose 壳: 导航/DI 装配/启动
 :core:common               工具/协程/错误模型
-:core:ui                   设计系统/主题/通用 Compose 组件
 :core:native               C/C++: winlator(vk_renderer+X compositor) + fakeinput + adrenotools (JNI)  ← 复用
 :core:rootfs               imagefs 安装/提取/版本  ← 复用 winlator-imagefs
 :core:content              组件管理 (ContentSource 接口: bundled/remote)
