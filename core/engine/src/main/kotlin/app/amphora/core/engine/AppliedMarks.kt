@@ -60,8 +60,7 @@ object AppliedMarks {
 
     fun dxwrapperKey(container: Container): String = container.getExtra(DXWRAPPER)
 
-    fun needsDxwrapper(container: Container, gateKey: String): Boolean =
-        dxwrapperKey(container) != gateKey
+    fun needsDxwrapper(container: Container, gateKey: String): Boolean = dxwrapperKey(container) != gateKey
 
     fun markDxwrapper(container: Container, gateKey: String) {
         container.putExtra(DXWRAPPER, gateKey)
@@ -75,8 +74,7 @@ object AppliedMarks {
 
     fun wincomponents(container: Container): String = container.getExtra(WINCOMPONENTS)
 
-    fun needsWincomponents(container: Container, desired: String): Boolean =
-        wincomponents(container) != desired
+    fun needsWincomponents(container: Container, desired: String): Boolean = wincomponents(container) != desired
 
     fun markWincomponents(container: Container, desired: String) {
         container.putExtra(WINCOMPONENTS, desired)
@@ -84,8 +82,7 @@ object AppliedMarks {
 
     // --- 服务 ---
 
-    fun needsServices(container: Container, desired: String): Boolean =
-        container.getExtra(SERVICES) != desired
+    fun needsServices(container: Container, desired: String): Boolean = container.getExtra(SERVICES) != desired
 
     fun markServices(container: Container, desired: String) {
         container.putExtra(SERVICES, desired)
@@ -93,8 +90,7 @@ object AppliedMarks {
 
     // --- 声音 ---
 
-    fun needsAudio(container: Container, desired: String): Boolean =
-        container.getExtra(AUDIO) != desired
+    fun needsAudio(container: Container, desired: String): Boolean = container.getExtra(AUDIO) != desired
 
     fun markAudio(container: Container, desired: String) {
         container.putExtra(AUDIO, desired)
@@ -102,11 +98,9 @@ object AppliedMarks {
 
     // --- 输入（手柄注册表） ---
 
-    fun inputKey(inputType: Int, exclusiveXInput: Boolean): String =
-        "$inputType|${if (exclusiveXInput) "1" else "0"}"
+    fun inputKey(inputType: Int, exclusiveXInput: Boolean): String = "$inputType|${if (exclusiveXInput) "1" else "0"}"
 
-    fun needsInput(container: Container, key: String): Boolean =
-        container.getExtra(INPUT) != key
+    fun needsInput(container: Container, key: String): Boolean = container.getExtra(INPUT) != key
 
     fun markInput(container: Container, key: String) {
         container.putExtra(INPUT, key)
@@ -114,8 +108,7 @@ object AppliedMarks {
 
     // --- 盘符 ---
 
-    fun needsDrives(container: Container, desired: String): Boolean =
-        container.getExtra(DRIVES) != desired
+    fun needsDrives(container: Container, desired: String): Boolean = container.getExtra(DRIVES) != desired
 
     fun markDrives(container: Container, desired: String) {
         container.putExtra(DRIVES, desired)
@@ -125,8 +118,7 @@ object AppliedMarks {
 
     private const val WINEBUS_VALUE = "1"
 
-    fun needsWinebus(container: Container): Boolean =
-        container.getExtra(WINEBUS) != WINEBUS_VALUE
+    fun needsWinebus(container: Container): Boolean = container.getExtra(WINEBUS) != WINEBUS_VALUE
 
     fun markWinebus(container: Container) {
         container.putExtra(WINEBUS, WINEBUS_VALUE)
@@ -136,8 +128,7 @@ object AppliedMarks {
 
     fun box64(container: Container): String = container.getExtra(BOX64)
 
-    fun needsBox64(container: Container, desired: String): Boolean =
-        box64(container) != desired
+    fun needsBox64(container: Container, desired: String): Boolean = box64(container) != desired
 
     fun markBox64(container: Container, desired: String) {
         container.putExtra(BOX64, desired)

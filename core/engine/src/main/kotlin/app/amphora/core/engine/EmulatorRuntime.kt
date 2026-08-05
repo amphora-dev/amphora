@@ -16,11 +16,7 @@ object EmulatorRuntime {
     data class Result(val changed: Boolean, val fexUnixLibsActive: Boolean)
 
     @JvmStatic
-    fun ensureApplied(
-        container: Container,
-        imageFs: ImageFs,
-        contentsManager: ContentsManager,
-    ): Result {
+    fun ensureApplied(container: Container, imageFs: ImageFs, contentsManager: ContentsManager): Result {
         val rootDir = imageFs.getRootDir()
         val system32 = File(rootDir, "home/xuser/.wine/drive_c/windows/system32")
         var changed = false
