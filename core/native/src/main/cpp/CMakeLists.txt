@@ -75,22 +75,32 @@ endif()
 
 # ----------------------------------------------------------------------------
 # adrenotools (GPU driver loading) -- statically linked into libwinlator.so.
+#
+# Do NOT add_subdirectory(adrenotools): that would also build the four SHARED
+# hook .so targets. Those are compiled by amphora-dev/imagefs wrapper CI and
+# ship in wrapper.tzst → imagefs/usr/lib (host + guest). APK only needs the
+# static adrenotools + linkernsbypass used by vulkan.c.
 # ----------------------------------------------------------------------------
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/adrenotools/CMakeLists.txt")
+set(ADRENOTOOLS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/adrenotools")
+if(NOT EXISTS "${ADRENOTOOLS_DIR}/src/driver.cpp")
     message(FATAL_ERROR
-        "adrenotools submodule is missing under ${CMAKE_CURRENT_SOURCE_DIR}/adrenotools.\n"
+        "adrenotools submodule is missing under ${ADRENOTOOLS_DIR}.\n"
         "Initialize it with: git submodule update --init --recursive")
 endif()
-add_subdirectory(adrenotools)
-# Hooks are not linked into libwinlator (static adrenotools only). They ship in
-# wrapper.tzst → imagefs/usr/lib for both host and guest. Mark EXCLUDE_FROM_ALL so
-# a full CMake build (outside AGP targets filter) still skips them.
-if(TARGET main_hook)
-    set_target_properties(
-        main_hook file_redirect_hook gsl_alloc_hook hook_impl
-        PROPERTIES EXCLUDE_FROM_ALL TRUE
-    )
-endif()
+
+add_subdirectory("${ADRENOTOOLS_DIR}/lib/linkernsbypass"
+                 "${CMAKE_CURRENT_BINARY_DIR}/linkernsbypass")
+
+add_library(adrenotools STATIC
+        "${ADRENOTOOLS_DIR}/src/bcenabler.cpp"
+        "${ADRENOTOOLS_DIR}/src/driver.cpp"
+)
+target_include_directories(adrenotools
+        PUBLIC "${ADRENOTOOLS_DIR}/include"
+        PRIVATE "${ADRENOTOOLS_DIR}" "${ADRENOTOOLS_DIR}/src"
+)
+target_compile_options(adrenotools PRIVATE -Wall -Wextra)
+target_link_libraries(adrenotools PRIVATE android linkernsbypass)
 
 # ----------------------------------------------------------------------------
 # SPIR-V shader compilation

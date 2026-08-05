@@ -22,20 +22,12 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
                     ndk { abiFilters += "arm64-v8a" }
                 }
                 // useLegacyPackaging keeps libwinlator.so extracted on disk (dlopen /
-                // mmap). adrenotools hooks are NOT built or packaged — host and guest
-                // load the single set from wrapper.tzst → imagefs/usr/lib (8483dfd).
-                // Safe for 16KB page-size devices: NDK r28 LOAD segments are 0x4000-aligned.
+                // mmap). Safe for 16KB page-size devices: NDK r28 LOAD segments are
+                // 0x4000-aligned. adrenotools hooks are not part of this APK — they
+                // ship in wrapper.tzst (imagefs wrapper CI).
                 packaging {
                     jniLibs {
                         useLegacyPackaging = true
-                        // Belt-and-suspenders if a full CMake build ever emits hooks.
-                        excludes +=
-                            listOf(
-                                "**/libmain_hook.so",
-                                "**/libfile_redirect_hook.so",
-                                "**/libgsl_alloc_hook.so",
-                                "**/libhook_impl.so",
-                            )
                     }
                 }
                 // Shared debug signing keystore. Android's default debug.keystore is

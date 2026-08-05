@@ -319,7 +319,7 @@ _ZN14HookImplParamsC2EiPKcS1_S1_S1_S1_P23adrenotools_gpu_mapping
 | 来源 | 落点 | 现状 |
 |---|---|---|
 | 自建 `wrapper.tzst` | `imagefs/usr/lib/` | ✅ guest env + host `hookLibDir` |
-| APK submodule hooks | — | ❌ **不编**：`cmake targets(winlator)` + `EXCLUDE_FROM_ALL`；packaging excludes 兜底 |
+| APK submodule hooks | — | ❌ **不建**：APK 只静链 `adrenotools`；SHARED hooks 由 imagefs wrapper CI 编进 `wrapper.tzst` |
 | imagefs rootfs | — | ✅ 配方不打 hooks |
 
 `AppUtils.getNativeLibDir` 已不存在；host 若再读 `nativeLibraryDir` 会静默回退系统 Adreno。
@@ -369,7 +369,7 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 | 产出方 | 产物 | 通道 | 体积 | 落地 | 状态 |
 |---|---|---|---|---|---|
 | **amphora APK**（本仓 `:core:native`） | `libwinlator.so`（含**静态** adrenotools + 19 shader + zstd/xz）| — | 2.5 MB | `nativeLibraryDir` | ✅ |
-| 同上 | ~~4× adrenotools hook~~ | — | — | — | ❌ **不编不打包**（`cmake targets(winlator)`）|
+| 同上 | ~~4× adrenotools hook~~ | — | — | — | ❌ APK 不建；由 `wrapper.tzst` 提供 |
 | **`amphora-dev/imagefs`** | `imagefs.txz` / `Box64-*.wcp` / `wrapper-*.tzst`（含 hooks@8483dfd）| rootfs+box64+wrapper | 见 pin | imagefs | ✅ 默认 rootfs / hooks 唯一来源 |
 | **`amphora-dev/proton-wine`** | `Proton-11.0-amphora-x86_64.wcp` | runtime | ~62 MB | WCP → imagefs | ✅ **默认 wine** |
 | **`nicholasx417/WinNative-Components`** | `Dxvk-*.wcp` / catalog VKD3D 等 | dx | 见 pin | 容器 DLL | ✅ 以远程 manifest 为准 |
