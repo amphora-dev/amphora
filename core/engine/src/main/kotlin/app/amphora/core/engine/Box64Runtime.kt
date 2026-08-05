@@ -20,11 +20,7 @@ object Box64Runtime {
      * @return 是否改过容器数据（调用方决定是否 [Container.saveData]）
      */
     @JvmStatic
-    fun ensureApplied(
-        container: Container,
-        imageFs: ImageFs,
-        contentsManager: ContentsManager,
-    ): Boolean {
+    fun ensureApplied(container: Container, imageFs: ImageFs, contentsManager: ContentsManager): Boolean {
         val rootDir = imageFs.getRootDir()
         val box64File = File(rootDir, "usr/bin/box64")
         val missing = !box64File.exists()

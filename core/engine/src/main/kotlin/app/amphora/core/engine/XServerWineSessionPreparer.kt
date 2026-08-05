@@ -445,12 +445,11 @@ class XServerWineSessionPreparer @Inject constructor(
         return next
     }
 
-    private fun resolveVkd3dProfile(vkd3dWrapper: String): ContentProfile? =
-        ContentPinResolver.resolveInstalledProfile(
-            contentsManager,
-            ContentProfile.ContentType.CONTENT_TYPE_VKD3D,
-            vkd3dWrapper,
-        )
+    private fun resolveVkd3dProfile(vkd3dWrapper: String): ContentProfile? = ContentPinResolver.resolveInstalledProfile(
+        contentsManager,
+        ContentProfile.ContentType.CONTENT_TYPE_VKD3D,
+        vkd3dWrapper,
+    )
 
     // --- ensureWinePrefixEssentialFiles (XSDA L7164) -------------------------
 
@@ -676,12 +675,11 @@ class XServerWineSessionPreparer @Inject constructor(
      * (`dxvk-<verName>-<verCode>` or full `DXVK-...` entry name). Prefers the
      * named install, then newest installed of the type.
      */
-    private fun resolveDxvkProfile(dxvkWrapper: String): ContentProfile? =
-        ContentPinResolver.resolveInstalledProfile(
-            contentsManager,
-            ContentProfile.ContentType.CONTENT_TYPE_DXVK,
-            dxvkWrapper,
-        )
+    private fun resolveDxvkProfile(dxvkWrapper: String): ContentProfile? = ContentPinResolver.resolveInstalledProfile(
+        contentsManager,
+        ContentProfile.ContentType.CONTENT_TYPE_DXVK,
+        dxvkWrapper,
+    )
 
     private fun extractD8VKIfNeeded(dxvkWrapper: String, windowsDir: File) {
         if (compareVersion(dxvkWrapper, "2.4") >= 0) return

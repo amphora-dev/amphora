@@ -26,8 +26,7 @@ object ContentPinResolver {
     }
 
     /** `dxvk-<verName>-<verCode>` style token used in container `dxwrapper`. */
-    fun wrapperToken(prefix: String, profile: ContentProfile): String =
-        "$prefix-${profile.verName}-${profile.verCode}"
+    fun wrapperToken(prefix: String, profile: ContentProfile): String = "$prefix-${profile.verName}-${profile.verCode}"
 
     fun entryName(profile: ContentProfile): String = ContentsManager.getEntryName(profile)
 
@@ -45,7 +44,7 @@ object ContentPinResolver {
             if (preferred != null && preferred.isInstalled) return preferred
             // Token may already be the identity after the type dash
             // (`0.4.5-…` or `dxvk-2.7.1-…`).
-            val asTyped = contentsManager.getProfileByEntryName("${type}-$preferredEntryName")
+            val asTyped = contentsManager.getProfileByEntryName("$type-$preferredEntryName")
             if (asTyped != null && asTyped.isInstalled) return asTyped
             val byIdentity =
                 findInstalledByIdentity(contentsManager, type, preferredEntryName)
@@ -54,10 +53,7 @@ object ContentPinResolver {
         return pickNewestInstalled(contentsManager, type)
     }
 
-    fun pickNewestInstalled(
-        contentsManager: ContentsManager,
-        type: ContentProfile.ContentType,
-    ): ContentProfile? {
+    fun pickNewestInstalled(contentsManager: ContentsManager, type: ContentProfile.ContentType): ContentProfile? {
         val profiles = contentsManager.getProfiles(type) ?: return null
         var best: ContentProfile? = null
         for (profile in profiles) {
@@ -104,7 +100,7 @@ object ContentPinResolver {
             if (entry.equals(trimmed, ignoreCase = true) ||
                 verId.equals(trimmed, ignoreCase = true) ||
                 verId.equals(withoutWrapperPrefix, ignoreCase = true) ||
-                entry.equals("${type}-$withoutWrapperPrefix", ignoreCase = true)
+                entry.equals("$type-$withoutWrapperPrefix", ignoreCase = true)
             ) {
                 return profile
             }
