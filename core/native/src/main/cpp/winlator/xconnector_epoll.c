@@ -56,7 +56,13 @@ Java_com_winlator_cmod_runtime_display_connector_XConnectorEpoll_createEpollFd(
 JNIEXPORT void JNICALL
 Java_com_winlator_cmod_runtime_display_connector_XConnectorEpoll_closeFd(
     JNIEnv *env, jobject obj, jint fd) {
-  close(fd);
+  (void)env;
+  (void)obj;
+  // Java callers must close each FD at most once (see XConnectorEpoll.killConnection).
+  // Skipping negatives avoids accidental close(2) on an unset sentinel.
+  if (fd >= 0) {
+    close(fd);
+  }
 }
 
 JNIEXPORT jboolean JNICALL
@@ -206,15 +212,23 @@ JNIEXPORT jboolean JNICALL
 Java_com_winlator_cmod_runtime_display_connector_XConnectorEpoll_waitForSocketRead(
     JNIEnv *env, jobject obj, jint clientFd, jint shutdownFd) {
   struct pollfd pfds[2];
+  int nfds = 1;
   pfds[0].fd = clientFd;
   pfds[0].events = POLLIN;
+  pfds[0].revents = 0;
 
+  // shutdownFd may already have been claimed/closed by a concurrent killConnection;
+  // poll(2) with fd < 0 ignores that entry (POSIX).
   pfds[1].fd = shutdownFd;
   pfds[1].events = POLLIN;
+  pfds[1].revents = 0;
+  if (shutdownFd >= 0) nfds = 2;
 
-  int res = poll(pfds, 2, -1);
-  if (res < 0 || (pfds[1].revents & POLLIN))
-    return JNI_FALSE;
+  int res = poll(pfds, nfds, -1);
+  if (res < 0) return JNI_FALSE;
+  if (shutdownFd >= 0 && (pfds[1].revents & POLLIN)) return JNI_FALSE;
+  // Closed/hung-up client sockets often report POLLHUP|POLLERR with POLLIN.
+  if (pfds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) return JNI_FALSE;
 
   if (pfds[0].revents & POLLIN) {
     jclass cls = (*env)->GetObjectClass(env, obj);

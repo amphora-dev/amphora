@@ -11,8 +11,8 @@ public class Client {
   private XOutputStream outputStream;
   private Object tag;
   protected Thread pollThread;
-  protected int shutdownFd;
-  protected boolean connected;
+  protected int shutdownFd = -1;
+  protected volatile boolean connected;
 
   public Client(XConnectorEpoll connector, ClientSocket clientSocket) {
     this.connector = connector;
@@ -55,10 +55,16 @@ public class Client {
   }
 
   protected void requestShutdown() {
+    requestShutdown(shutdownFd);
+  }
+
+  /** Write to a specific shutdown eventfd (used after ownership was claimed). */
+  protected void requestShutdown(int eventFd) {
+    if (eventFd < 0) return;
     try {
       ByteBuffer data = ByteBuffer.allocateDirect(8);
       data.asLongBuffer().put(1);
-      (new ClientSocket(shutdownFd)).write(data);
+      (new ClientSocket(eventFd)).write(data);
       XInputStream.freeDirectBuffer(data);
     } catch (IOException e) {
     }
