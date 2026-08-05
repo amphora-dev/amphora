@@ -6,37 +6,29 @@
 
 ---
 
-## 专项 · Exit ANR / 会话 teardown（待根治）
+## 专项 · Exit ANR / 会话 teardown
 
-> 状态: **已止血，未根治** · 记档 2026-07-26 · 提交 `7dc3dc9`
+> 状态: **已根治（关 FD 唤醒）** · 原记档 2026-07-26 · 止血 `7dc3dc9` · 根治 2026-08-05
 
-### 现象
-点 GameSession **Exit** 后主线程卡死 → 系统「应用无响应」(ANR)。
+### 现象（历史）
+点 GameSession **Exit** 后主线程卡死 → ANR。
 
-### 根因（已核实）
-1. `GameSessionViewModel.stop/pause/resume` 原先在 `viewModelScope`（默认 **Main**）上调用 `SessionHandle.stop()`。
-2. teardown 路径会 `XConnectorEpoll.stop()` → `Thread.join()` **无限等待**。
-3. client poll 线程堵在 native `ClientSocket.recvAncillaryMsg`（ancillary FD 收包），`requestShutdown` 未必能立刻唤醒，join 永久挂起 → Main ANR。
+### 根因
+1. `stop` 曾在 Main 上跑；teardown → `XConnectorEpoll.stop()` → `Thread.join()` 无限等。
+2. client poll 堵在 native `recvAncillaryMsg`（`recvmsg`）；只写 shutdown eventfd **唤不醒**（已过 `poll`、在 `handleExistingConnection` 内）。
+3. 旧 `killConnection` **先 join 再 close fd**，关不上也就唤醒不了。
 
-### 已做止血（`7dc3dc9`）
-- ViewModel：`stop` / `pause` / `resume` 改到 `Dispatchers.IO`（`cleanupScope` 亦用 IO）。
-- `XConnectorEpoll`：`joinOrGiveUp(..., JOIN_TIMEOUT_MS=2000)`，epoll / client poll 最多等 2s 后 `interrupt` 放弃。
+### 修复
+- 止血：`Dispatchers.IO` + `joinOrGiveUp(2s)`（保留作兜底）。
+- **根治**：`ClientSocket.close()` 幂等；`stop` / `killConnection` **先关 client fd** 再 join，使阻塞中的 `recvmsg`/`read` 立即返回。
 
-### 已知残留 / 专项目标
-超时放弃后可能留下**会话级**残留：epoll/client 线程、socket FD、ancillary FD、尚未释放的 direct ByteBuffer。优于 ANR，但多次进出会话可能泄漏或二次启动异常。
+### 验收
+- [x] Exit 不 ANR（IO + 关 FD 唤醒）
+- [ ] 真机多次 Exit→再开：logcat 无持续涨 FD/thread（建议回归）
+- [x] shutdown 路径强制关闭 client FD
+- [ ] 回归：`GameSessionLaunchTest` + 真机连点 Exit
 
-2026-07-26 续：返回/Exit 后偶发 **整进程闪退** —
-`XClientRequestHandler.handleNormalRequest` 对已 `releaseIOStreams()` 的 null
-`XInputStream` 调 `available()` → NPE（`XConnectorEpoll` 在 `inputStream==null`
-时仍误调 `handleRequest`）。已加 null 守卫 + teardown 竞态吞 RuntimeException。
-
-专项验收建议：
-- [ ] Exit 后 5s 内 UI 回到 launcher，**永不** ANR（已基本满足）
-- [ ] logcat 无持续增长的 FD / thread（多次 Exit→再开）
-- [ ] 根治：shutdown 路径强制关闭 client FD / 唤醒阻塞中的 `recv*`，使 join 在超时前正常结束；评估是否仍需 timeout 兜底
-- [ ] 回归：`GameSessionLaunchTest` + 真机 Exit 连点 / 快速重开
-
-相关代码：`GameSessionViewModel.kt` · `XConnectorEpoll.java` · `ClientSocket.recvAncillaryMsg`
+相关：`ClientSocket.java` · `XConnectorEpoll.java` · `GameSessionViewModel.kt`
 
 ---
 
@@ -65,7 +57,7 @@
 - ✅ **资产供应链已切自建主通道** (2026-08): 默认 wine = `amphora-dev/proton-wine` **Proton-11.0-amphora**；rootfs / Box64 / wrapper = `amphora-dev/imagefs`；pin 面 = `content_manifest`（jsDelivr `@latest`）。`amphora-assets` Private **不再阻塞**。部分 wincomponents / pattern / DXVK 仍可 pin 上游。
 - ✅ **`extra_libs.tzst` 已废止 / Mesa GL 自建并入 imagefs** (2026-08-01)。
 - 🩹 **Wine 全白窗口 / libpng patchelf** (2026-08-01): 已在 imagefs 配方侧修（链接期 SONAME + LOAD 同余断言）；见 imagefs `ELF-PITFALLS.md`。
-- ⏭ 下一步: **Exit ANR 根治**；键盘手柄 / Pulse·FEX 扩展；WinNative raw runtimeAssets 逐步自有化。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
+- ⏭ 下一步: 键盘手柄 / Pulse·FEX 扩展；WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
 |---|---|

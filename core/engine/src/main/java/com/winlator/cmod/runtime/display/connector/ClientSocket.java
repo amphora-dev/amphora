@@ -4,10 +4,12 @@ import androidx.annotation.Keep;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ClientSocket {
   public final int fd;
   private final ArrayDeque<Integer> ancillaryFds = new ArrayDeque<>();
+  private final AtomicBoolean closed = new AtomicBoolean(false);
 
   static {
     System.loadLibrary("winlator");
@@ -15,6 +17,21 @@ public class ClientSocket {
 
   public ClientSocket(int fd) {
     this.fd = fd;
+  }
+
+  public boolean isClosed() {
+    return closed.get();
+  }
+
+  /**
+   * Close the client socket once. Safe to call from a teardown thread while
+   * another thread is blocked in {@code recvmsg}/{@code read} — closing the fd
+   * unblocks the native call so poll threads can exit without a join timeout.
+   */
+  public void close() {
+    if (!closed.compareAndSet(false, true)) return;
+    closeAncillaryFds();
+    XConnectorEpoll.closeFd(fd);
   }
 
   public boolean hasAncillaryFds() {
@@ -38,6 +55,7 @@ public class ClientSocket {
   }
 
   public int read(ByteBuffer data) throws IOException {
+    if (closed.get()) return -1;
     int position = data.position();
     int bytesRead = read(fd, data, position, data.remaining());
     if (bytesRead > 0) {
@@ -49,6 +67,7 @@ public class ClientSocket {
   }
 
   public void write(ByteBuffer data) throws IOException {
+    if (closed.get()) throw new IOException("Socket closed.");
     int bytesWritten = write(fd, data, data.limit());
     if (bytesWritten >= 0) {
       data.position(bytesWritten);
@@ -56,6 +75,7 @@ public class ClientSocket {
   }
 
   public int recvAncillaryMsg(ByteBuffer data) throws IOException {
+    if (closed.get()) return -1;
     int position = data.position();
     int bytesRead = recvAncillaryMsg(fd, data, position, data.remaining());
     if (bytesRead > 0) {
@@ -67,6 +87,7 @@ public class ClientSocket {
   }
 
   public void sendAncillaryMsg(ByteBuffer data, int ancillaryFd) throws IOException {
+    if (closed.get()) throw new IOException("Socket closed.");
     int bytesSent = sendAncillaryMsg(fd, data, data.limit(), ancillaryFd);
     if (bytesSent >= 0) {
       data.position(bytesSent);

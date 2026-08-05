@@ -68,9 +68,25 @@ public class XConnectorEpoll implements Runnable {
     if (!running || epollThread == null) return;
     running = false;
     requestShutdown();
-
+    // Unblock client poll threads stuck in recvmsg/read before joining epoll.
+    // (epoll itself wakes via shutdownFd; client recv does not.)
+    wakeBlockedClientIo();
     joinOrGiveUp(epollThread, JOIN_TIMEOUT_MS);
     epollThread = null;
+  }
+
+  /** Close every client socket so native recvmsg/read returns and poll loops exit. */
+  private void wakeBlockedClientIo() {
+    synchronized (connectedClients) {
+      for (int i = 0; i < connectedClients.size(); i++) {
+        Client client = connectedClients.valueAt(i);
+        client.connected = false;
+        if (multithreadedClients) {
+          client.requestShutdown();
+        }
+        client.clientSocket.close();
+      }
+    }
   }
 
   @Override
@@ -146,21 +162,33 @@ public class XConnectorEpoll implements Runnable {
     if (multithreadedClients) {
       if (Thread.currentThread() != client.pollThread) {
         client.requestShutdown();
+        // Close the client fd *before* join: poll threads block in recvmsg inside
+        // handleExistingConnection, where shutdown eventfd cannot wake them.
+        client.clientSocket.close();
         joinOrGiveUp(client.pollThread, JOIN_TIMEOUT_MS);
         client.pollThread = null;
+      } else {
+        client.clientSocket.close();
       }
-      closeFd(client.shutdownFd);
-    } else removeFdFromEpoll(epollFd, client.clientSocket.fd);
-    // Free direct byte buffers and ancillary FDs to avoid resource leak warnings
+      if (client.shutdownFd >= 0) {
+        closeFd(client.shutdownFd);
+        client.shutdownFd = -1;
+      }
+    } else {
+      removeFdFromEpoll(epollFd, client.clientSocket.fd);
+      client.clientSocket.close();
+    }
+    // Free direct byte buffers; ancillary FDs already closed in ClientSocket.close().
     client.releaseIOStreams();
-    client.clientSocket.closeAncillaryFds();
-    closeFd(client.clientSocket.fd);
     synchronized (connectedClients) {
       connectedClients.remove(client.clientSocket.fd);
     }
   }
 
-  /** Bounded join so a stuck native recv cannot freeze session teardown forever. */
+  /**
+   * Bounded join as a safety net. Prefer waking via {@link ClientSocket#close()} so
+   * threads exit before the timeout; interrupt alone does not unblock native recvmsg.
+   */
   private static void joinOrGiveUp(Thread thread, long timeoutMs) {
     if (thread == null) return;
     final long deadline = System.currentTimeMillis() + timeoutMs;
