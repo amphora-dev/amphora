@@ -84,6 +84,7 @@ public class XConnectorEpoll implements Runnable {
         if (multithreadedClients) {
           client.requestShutdown();
         }
+        // Idempotent: full killConnection may also close this socket moments later.
         client.clientSocket.close();
       }
     }
@@ -102,12 +103,16 @@ public class XConnectorEpoll implements Runnable {
     client.connected = true;
     if (multithreadedClients) {
       client.shutdownFd = createEventFd();
+      final int clientShutdownFd = client.shutdownFd;
       client.pollThread =
           new Thread(
               () -> {
                 connectionHandler.handleNewConnection(client);
+                // Use the captured eventfd: killConnection claims client.shutdownFd under
+                // lock and sets it to -1 before close; the poll loop must keep watching
+                // the original descriptor until it exits.
                 while (client.connected
-                    && waitForSocketRead(client.clientSocket.fd, client.shutdownFd)) {
+                    && waitForSocketRead(client.clientSocket.fd, clientShutdownFd)) {
                   handleExistingConnection(client.clientSocket.fd);
                 }
               });
@@ -156,33 +161,62 @@ public class XConnectorEpoll implements Runnable {
     }
   }
 
+  /**
+   * Tear down a client connection exactly once.
+   *
+   * <p>Closing the client socket unblocks any poll thread stuck in {@code recvmsg}/{@code read}.
+   * Concurrent callers (teardown {@link #wakeBlockedClientIo()}, epoll/poll after hangup, and
+   * {@link #shutdown()}) used to race on {@code shutdownFd}: the first {@code close} freed the
+   * number, the kernel reused it for a {@code unique_fd}-tagged descriptor, and the second
+   * {@code close} aborted under fdsan. Ownership of {@code shutdownFd} is therefore claimed
+   * under {@code connectedClients} before any native close.
+   */
   public void killConnection(Client client) {
-    client.connected = false;
-    connectionHandler.handleConnectionShutdown(client);
-    if (multithreadedClients) {
-      if (Thread.currentThread() != client.pollThread) {
-        client.requestShutdown();
-        // Close the client fd *before* join: poll threads block in recvmsg inside
-        // handleExistingConnection, where shutdown eventfd cannot wake them.
-        client.clientSocket.close();
-        joinOrGiveUp(client.pollThread, JOIN_TIMEOUT_MS);
-        client.pollThread = null;
-      } else {
-        client.clientSocket.close();
+    final int shutdownFdToClose;
+    final Thread pollThreadToJoin;
+    final boolean alreadyRemoved;
+    synchronized (connectedClients) {
+      alreadyRemoved = connectedClients.get(client.clientSocket.fd) != client;
+      if (!alreadyRemoved) {
+        connectedClients.remove(client.clientSocket.fd);
       }
-      if (client.shutdownFd >= 0) {
-        closeFd(client.shutdownFd);
-        client.shutdownFd = -1;
+      client.connected = false;
+      shutdownFdToClose = client.shutdownFd;
+      client.shutdownFd = -1;
+      pollThreadToJoin = client.pollThread;
+      // Clear before join so a concurrent killConnection cannot join the same thread twice.
+      if (pollThreadToJoin != null && Thread.currentThread() != pollThreadToJoin) {
+        client.pollThread = null;
+      }
+    }
+
+    if (alreadyRemoved) {
+      // Another killConnection owns full cleanup; still ensure the socket is closed so any
+      // peer blocked in recv wakes up.
+      client.clientSocket.close();
+      return;
+    }
+
+    connectionHandler.handleConnectionShutdown(client);
+
+    // Close the client fd before joining: poll threads block in recvmsg inside
+    // handleExistingConnection, where shutdown eventfd alone cannot wake them.
+    client.clientSocket.close();
+
+    if (multithreadedClients) {
+      if (pollThreadToJoin != null && Thread.currentThread() != pollThreadToJoin) {
+        client.requestShutdown(shutdownFdToClose);
+        joinOrGiveUp(pollThreadToJoin, JOIN_TIMEOUT_MS);
+      }
+      if (shutdownFdToClose >= 0) {
+        closeFd(shutdownFdToClose);
       }
     } else {
+      // Socket may already be closed (wakeBlockedClientIo); DEL on a closed fd is fine.
       removeFdFromEpoll(epollFd, client.clientSocket.fd);
-      client.clientSocket.close();
     }
-    // Free direct byte buffers; ancillary FDs already closed in ClientSocket.close().
+
     client.releaseIOStreams();
-    synchronized (connectedClients) {
-      connectedClients.remove(client.clientSocket.fd);
-    }
   }
 
   /**
