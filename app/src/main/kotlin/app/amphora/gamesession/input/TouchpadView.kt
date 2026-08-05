@@ -1,8 +1,8 @@
 package app.amphora.gamesession.input
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.HandlerThread
@@ -12,6 +12,7 @@ import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.View
 import android.widget.FrameLayout
+import androidx.core.graphics.drawable.toDrawable
 import com.winlator.cmod.runtime.display.renderer.ViewTransformation
 import com.winlator.cmod.runtime.display.xserver.Pointer
 import com.winlator.cmod.runtime.display.xserver.XServer
@@ -29,7 +30,11 @@ import com.winlator.cmod.shared.math.XForm
  * - Pointer inject runs on a dedicated thread with motion coalescing: synchronous
  *   `ClientSocket.write` on the UI thread ANRs when Wine is slow to drain the X socket
  *   (seen as "Input dispatching timed out" on MainActivity).
+ *
+ * Constructed only from Compose [AndroidView] with an [XServer]; XML inflation is unused
+ * (same pattern as [com.winlator.cmod.runtime.display.ui.XServerSurfaceView]).
  */
+@SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 class TouchpadView(context: Context, private val xServer: XServer) : View(context) {
     companion object {
         const val CURSOR_ACCELERATION = 1.25f
@@ -846,7 +851,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     }
 
     private fun createTransparentBg(): StateListDrawable = StateListDrawable().apply {
-        addState(intArrayOf(android.R.attr.state_focused), ColorDrawable(Color.TRANSPARENT))
-        addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
+        addState(intArrayOf(android.R.attr.state_focused), Color.TRANSPARENT.toDrawable())
+        addState(intArrayOf(), Color.TRANSPARENT.toDrawable())
     }
 }
