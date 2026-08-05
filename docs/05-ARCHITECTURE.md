@@ -69,7 +69,7 @@ GameSessionViewModel
 
 GameSessionScreen
   → AndroidView(XServerSurfaceView)  // TextureView + VulkanRenderer 线程
-  → TouchInputOverlay                // 相对触控板 + 短按左键
+  → AndroidView(TouchpadView)        // WinNative 触控板手势 → X inject（无 WinHandler）
 ```
 
 Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停环境并回收 Wine 子进程。
@@ -111,14 +111,14 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 
 | 层 | 组件 | 说明 |
 |---|---|---|
-| UI | `GameSessionScreen` / `TouchInputOverlay` | Compose；触控走 `injectPointerMoveDelta` + tap |
+| UI | `GameSessionScreen` / `TouchpadView` | 触控板：相对位移 + 单击左键 / 双指右键与滚轮 / 长按右键；触屏绝对模式；外接鼠标与手写笔 |
 | Surface | `XServerSurfaceView` | `TextureView`（Compose `AndroidView` 下 SurfaceView 子窗口不可靠） |
 | Java 渲染 | `VulkanRenderer` | 加载 `winlator`，direct scene buffer |
 | Native | `vk_renderer.c` + adrenotools | swapchain / AHB 导入 / Turnip 或系统 `libvulkan.so` |
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
 | Guest 图形 | Turnip wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw→DxWrapper Dd7to9 或 cnc-ddraw→D3D9/DXVK；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | host renderer 与 guest 共用 adrenotools-wrapped driver |
 
-已知裁剪：无 OSK/字符注入；音频 `setVolume` 未接真实 `AudioTrack`；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
+已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；音频 `setVolume` 未接真实 `AudioTrack`；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 
 ---
 
