@@ -35,23 +35,31 @@ public class ClientSocket {
   }
 
   public boolean hasAncillaryFds() {
-    return !ancillaryFds.isEmpty();
+    synchronized (ancillaryFds) {
+      return !ancillaryFds.isEmpty();
+    }
   }
 
   public int getAncillaryFd() {
-    return hasAncillaryFds() ? ancillaryFds.poll() : -1;
+    synchronized (ancillaryFds) {
+      return ancillaryFds.isEmpty() ? -1 : ancillaryFds.poll();
+    }
   }
 
   public void closeAncillaryFds() {
-    while (!ancillaryFds.isEmpty()) {
-      int ancillaryFd = ancillaryFds.poll();
-      if (ancillaryFd >= 0) XConnectorEpoll.closeFd(ancillaryFd);
+    synchronized (ancillaryFds) {
+      while (!ancillaryFds.isEmpty()) {
+        int ancillaryFd = ancillaryFds.poll();
+        if (ancillaryFd >= 0) XConnectorEpoll.closeFd(ancillaryFd);
+      }
     }
   }
 
   @Keep
   public void addAncillaryFd(int ancillaryFd) {
-    ancillaryFds.add(ancillaryFd);
+    synchronized (ancillaryFds) {
+      ancillaryFds.add(ancillaryFd);
+    }
   }
 
   public int read(ByteBuffer data) throws IOException {
