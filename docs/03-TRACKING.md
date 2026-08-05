@@ -141,7 +141,7 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [x] 定位/clone `winlator-imagefs` (cnb.cool/atowerlight, 构建配方非预产物; imagefs.tzst 真资产来自 WinNative Git LFS)
 - [x] `RootfsInstaller` 真实现 (`c593021`, `ImageFsRootfsInstaller` in `:core:engine`): imagefs 提取 (shard/单档) + 版本 (`.img_version`); 剥 Steam/Container/Activity. **契约留 `:core:rootfs`, concretion 落 `:core:engine` (DIP -- `:core:rootfs` 不可见 `TarCompressorUtils`/`ImageFs`)**
 - [x] termuxfs rpath 核实 (D7): imagefs 内**无** `/data/data/com.termux/...` 路径 (grep 0 命中); rpath 烙在 Wine ELF, 运行时由 launch `LD_LIBRARY_PATH` 解析 (P3 事项, 非提取阻塞)
-- [ ] 自建 Proton 11 x86_64 (fork `WinNative-Emu/proton-wine`, 锁 `proton_11.0`, 见 [`RESEARCH-proton-wine-selfbuild.md`](RESEARCH-proton-wine-selfbuild.md) + D7); termuxfs+prefixPack 复用上游 SHA 锁定
+- [x] 自建 Proton 11 x86_64（`amphora-dev/proton-wine`，默认 pin `Proton-11.0-amphora-x86_64`；见远程 `content_manifest`）
 - [x] box64 / Turnip / DXVK: SHA256 锁定 (D4/D8, MVP 单 Turnip=`graphics_driver/wrapper.tzst`; 见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) §2)
 - [x] `:core:content` `BundledContentSource` 实现 (2026-07-13): `ContentManifest`+`content_manifest.json` (5 组件, 04-ASSET-MANIFEST 派生) + `BundledContentSource` (编排: 查 manifest -> 拷资产 + SHA-256 流式校验 -> 委托 `BundledAssetInstaller` -> `Resolved`) + `WinlatorBundledAssetInstaller` (`:core:engine`, ARCHIVE=`TarCompressorUtils.extract(File)`, WCP=`ContentsManager.extraContentFile`+`finishInstallContent`); `EngineModule` 绑 `ContentSource`. DIP (契约 `:core:content`, concretion `:core:engine`). `:core:content:test` 6 JVM 单测过, `:app:assembleDebug` 绿 (APK 含 manifest+libwinlator.so). 详见 §P2 #8.
 - [x] **`WineSessionPreparer` body 抽取** (D9, `829e83b`): `XServerWineSessionPreparer` 849 行, XSDA 6 方法 + helpers 逐字移植, 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI (D5/D8/D9); 4 个小类移植 (WinComponentSetup + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils); 接口加 `envVars()` 输出 accessor; `StubWineSessionPreparer` 删除, EngineModule 绑真实现。✅ **真机验证通过** (见 §P2 #7): `extractGraphicsDriverFiles` 填 14 envVars (`WRAPPER_VK_VERSION=1.3.284` 等) + `wrapper.tzst` 提进 imagefs root。
@@ -256,7 +256,7 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [x] `winlator-imagefs` 仓库地址确认 + clone ✅ cnb.cool/atowerlight (构建配方); imagefs.tzst 真资产 = WinNative Git LFS (190MB, SHA `0902e324...`)
 - [x] ~~adrenotools submodule 来源~~ ✅ 已引为 amphora git submodule (`core/native/src/main/cpp/adrenotools` @ `8483dfd`, 递归 linkernsbypass `b10d485`); `git submodule update --init --recursive` 即可
 - [x] ~~`NativeContentIO` 是否排除~~ ✅ P0 排除 (省 curl), P2 (`c593021`) **恢复提取**: `native_content_io.cpp` 回归 + zstd/xz 静态链, curl/download 2 JNI stub. `TarCompressorUtils` kernel-wide 可用 (见 P2 关键发现 #1)
-- [ ] Proton 11 自建 CI 跑通前, 是否临时用 `proton-9.0-x86_64` 回退 (D5 回退路径)
+- [x] Proton 11 自建已上线为默认 wine pin（无需 proton-9 临时回退）
 - [ ] minor: AGP 9 debug strip 对本 .so no-op (见 P0 修正); release strip 在 P4 核实
 - [x] ~~13 个 JNI 绑定类全放 :core:engine 还是 leaf 下沉~~ ✅ 已定: 11 个全落 `:core:engine` (leaf 下沉不可行, 见关键发现 #2)
 - [x] ~~P2/P4: `RootfsInstaller` + `WineSessionPreparer` + `ContainerManager` 已真实现~~ ✅ `RootfsInstaller` (P2 `c593021`) + `WineSessionPreparer` (P2 `829e83b`, `XServerWineSessionPreparer` 849 行) + `ContainerManager` (P4, `WinlatorContainerManager`) concretion 均在 `:core:engine` (DIP -- `:core:rootfs`/`:core:container` 不可见 kernel). `:core:rootfs`/`:core:container` 无需 Hilt. **`EngineModule` 零 stub 剩余** (三个 sibling 接口全毕业, `StubContainerManager` 删除).
