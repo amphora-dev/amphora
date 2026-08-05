@@ -28,7 +28,7 @@ Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 
         └─ :core:common      协程 dispatcher
 ```
 
-`core/ui/` 仍在磁盘（`build.gradle` 保留便于再加），但 **未** `include(":core:ui")`。
+`core/ui` 已删除（从未 include，无源码）。
 
 `build-logic`（included build）提供 convention 插件：`amphora.android.{application,library,compose,hilt,native,feature}` + `amphora.content.staging`。
 

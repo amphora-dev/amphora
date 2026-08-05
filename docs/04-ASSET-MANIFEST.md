@@ -115,10 +115,10 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 `WN-Turnip` zip 里 14.8 MB（2026-07-22）。后者装到 `filesDir/contents/adrenotools/`，通过
 `ADRENOTOOLS_DRIVER_PATH` 指定，不覆盖前者。imagefs 本身不带 Turnip。
 
-**A 类的覆盖顺序有实际后果（过渡期）。** 现状三份 hook：imagefs / `wrapper.tzst` /
-APK `nativeLibraryDir`，版本彼此漂移。**目标（已拍板）**：hooks 只认 `nativeLibraryDir`；
-imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新通道**，不焊进 imagefs
-（见 §0.6）。
+**A 类 hooks（定稿 · 2026-08-05）。** 唯一来源 = 自建 `wrapper.tzst`
+（`libadrenotools` + 4 hooks，CI pin `8483dfd`）→ `imagefs/usr/lib`。guest
+`ADRENOTOOLS_HOOKS_PATH` 与 host `vulkan.c` `hookLibDir` 都指这里。APK **不**再打包
+第二份 hooks。imagefs rootfs 本身不携带 hooks。
 
 **`extra_libs.tzst` 73.3% 是调试符号。** 实测 `.debug_*` + 符号表占 82.2 MB / 112.2 MB
 （解压后）：`libGL.so.1.5.0` 80.7 MB 里 66.5 MB 是调试信息，strip 后 14.2 MB；
@@ -138,8 +138,8 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 | # | 通道 / 产物 | 角色 | 体积目标（压缩） | 落地 | 默认？ |
 |---|---|---|---|---|---|
 | 1 | **`imagefs`**（自建 `imagefs.tzst`） | Bionic 基线：Wine unix 依赖（**gnutls 链 + GStreamer**）、ALSA、X11 客户端链、pulse **客户端**… | **~25–28 MB**（现状 CI 27.5 MB xz） | `filesDir/imagefs` | ✅ 唯一 rootfs |
-| 2 | **`wrapper.tzst`** | `libvulkan_wrapper` + `libadrenotools` + `wrapper_icd` | **~3.7 MB**（去掉包内 hook 后几乎不变） | imagefs `usr/lib` + ICD | ✅ **独立发版** |
-| 3 | **adrenotools hooks**（4× `.so`） | `main_hook` / `file_redirect_hook` / `gsl_alloc_hook` / `hook_impl` | **~0.3 MB**（随 APK） | `nativeLibraryDir`（首选；见「约束有多硬」） | ✅ **与 wrapper 同通道共版**（ABI 耦合） |
+| 2 | **`wrapper.tzst`** | `libvulkan_wrapper` + `libadrenotools` + **4 hooks** + `wrapper_icd` | **~0.7 MB**（自建 strip） | imagefs `usr/lib` + ICD | ✅ **独立发版；hooks 唯一来源** |
+| 3 | ~~adrenotools hooks @ APK~~ | — | — | — | ❌ **已取消**（2026-08-05）：APK 排除 4 hook `.so`；host/guest 共用 wrapper 那份 |
 | 4 | **Mesa GL 进 imagefs**（不再独立包） | **自建** `libGL.so.1`（`packages/graphics/mesa-gl.sh`：上游 Mesa 源码 + zink + xlib GLX，Termux 链接画像）。Mesa 25.3 起 glapi 已并入 libGL，无 `libglapi` 附件 | 使 imagefs 增约 **+3 MB**（解压 +16 MB） | imagefs `usr/lib` | ✅ 随 imagefs（2026-08-01 落地） |
 | 5 | **`Proton-*.wcp`** | Wine 运行时 | ~169 MB | WCP → imagefs | ✅ |
 | 6 | **`Box64-*.wcp`** | x86_64 翻译 | ~2.8 MB | WCP → imagefs | ✅ |
@@ -174,8 +174,8 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 | `libbcn_layer.so` + JSON | 条件为非高通；Adreno 830 默认路径不走 |
 | `extra_libs` 内 `libvulkan_freedreno` + freedreno ICD | 默认 Wrapper 模式用系统 Adreno；完整 Turnip 只走可选 zip |
 | `layers.tzst`（默认） | validation 仅调试 |
-| `wrapper.tzst` / imagefs 内的 4 hook | 契约只认 `nativeLibraryDir`；避免三份版本漂移 |
-| `wrapper-leegao` / `virgl-*` / `zink-*` / `pulseaudio.tzst` | Amphora MVP 不用 |
+| `wrapper.tzst` 内的 4 hook | ✅ 唯一来源（guest+host）；APK 不再打包第二份 |
+| `wrapper-leegao` / `virgl-*` / `zink-*` / `pulseaudio.tzst` | Amphora MVP 不用（Pulse/FEX 保留扩展位） |
 | pattern 内多字体（日文装饰体等）+ 内嵌 `cnc-ddraw` | 默认 DxWrapper Dd7to9；字体共享单文件 |
 | `d8vk-1.0.tzst` | 默认 DXVK ≥ 3.x 已带 d3d8 |
 | wincomponents → WCP | 无版本轮换需求，改格式零收益；**维持 tzst** |
@@ -183,9 +183,9 @@ imagefs **不**再携带 hooks；`wrapper.tzst` 与 hooks **同属独立更新�
 ### 通道规则（必须遵守）
 
 1. **imagefs** 唯一基线；换 TLS/媒体/**Mesa GL** 才重发；**永不**因换 wrapper/hooks/Turnip/字体重打。
-2. **wrapper + hooks** 同通道单独发版（上一决策不变）：hooks → APK；wrapper → ARCHIVE。
+2. **wrapper + hooks** 同包单独发版（`wrapper.tzst` ARCHIVE）：hooks **不**进 APK。
    **必须同版本**——`HookImplParams` 跨 `.so` 传 C++ 结构体，见下「ABI」一节。
-   **hooks 全局只保留一份**（APK）：自建 imagefs 不打包，重打 `wrapper.tzst` 时剔除，
+   **hooks 全局只保留一份**（随 wrapper → `imagefs/usr/lib`）；host/guest 共用。
    见下「收敛到只有一份 hooks」。
 3. **Mesa GL 不单独拆包**，理由见下「为什么 Mesa GL 进 imagefs 而 wrapper 不进」。
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
@@ -312,24 +312,18 @@ _ZN14HookImplParamsC2EiPKcS1_S1_S1_S1_P23adrenotools_gpu_mapping
 尽管如此，§0.6 的「wrapper 与 hooks 同通道共版」规则保留：这条 ABI 边界是真实存在的，
 只是当前两版恰好一致。**任何一侧升级都必须重新比对这个 mangled 构造签名。**
 
-### 收敛到「只有一份 hooks」还差两步
+### 收敛到「只有一份 hooks」✅ 已完成（2026-08-05）
 
-**运行时引用**已经只有一份：APK 的 `nativeLibraryDir`。实测 `app-debug.apk` 内
-`lib/arm64-v8a/` 有 `libmain_hook.so`(8320) / `libhook_impl.so`(203280) /
-`libfile_redirect_hook.so`(6800) / `libgsl_alloc_hook.so`(8320)，由 submodule `8483dfd`
-经 `add_subdirectory(adrenotools)` → `src/hook` 编出；`libadrenotools` 本身**不是**独立
-`.so`（静态链进 `libwinlator.so`，host 侧用）。
+**唯一来源**：自建 `wrapper.tzst`（adrenotools @ `8483dfd`）→ `imagefs/usr/lib`。
 
-但**磁盘上仍会落下第二份**，因为两处提取仍来自上游包：
+| 来源 | 落点 | 现状 |
+|---|---|---|
+| 自建 `wrapper.tzst` | `imagefs/usr/lib/` | ✅ guest env + host `hookLibDir` |
+| APK submodule hooks | `nativeLibraryDir` | ❌ packaging `excludes`；CMake 仍编但不进 APK |
+| imagefs rootfs | — | ✅ 配方不打 hooks |
 
-| 来源 | 落点 | 现状 | 消除方式 |
-|---|---|---|---|
-| APK（submodule `8483dfd`） | `nativeLibraryDir` | ✅ 唯一被引用 | — |
-| 官方 `imagefs.tzst` | `imagefs/usr/lib/` | 仍会解出 | **切自建 imagefs**（配方不打 hooks） |
-| 官方 `wrapper.tzst` | `imagefs/usr/lib/`（覆盖上一行）| 仍会解出，见 `XServerWineSessionPreparer` firstTimeBoot 与 `installAdrenotoolsDriverIfNeeded` | **重打 `wrapper.tzst`，剔除 4 个 hook**，只留 `libvulkan_wrapper.so` + `libadrenotools.so` + `wrapper_icd.aarch64.json` |
-
-这两步做完，磁盘上就只剩 APK 那一份，`imagefs/usr/lib/` 不再有 hook 文件。在那之前
-残留文件无害（无人引用），但**版本对比时容易误判**，所以两步都列为收尾动作。
+`AppUtils.getNativeLibDir` 已不存在；host 若再读 `nativeLibraryDir` 会静默回退系统 Adreno。
+`vulkan.c` 现经 `ImageFs.find(context).getLibDir()` 取 hooks，并校验 `libhook_impl.so` 存在。
 
 > `winlator-imagefs` 曾用 `build-native-libs.sh` 编这 4 个 hook（连同 proot /
 > virglrenderer）进 `native-libs.tar.xz`。**2026-07-30 已删除该脚本与对应 CI 阶段**：
@@ -342,11 +336,11 @@ _ZN14HookImplParamsC2EiPKcS1_S1_S1_S1_P23adrenotools_gpu_mapping
 ### 默认冷启动安装顺序
 
 ```
-imagefs（已含 strip 后的 Mesa GL）→ wrapper
+imagefs（已含 strip 后的 Mesa GL）→ wrapper（含 hooks）
        → Proton.wcp → Box64.wcp
        → Dxvk.wcp → Vkd3d.wcp
        → fonts（共享）→ container_pattern（瘦）→ wincomponents（FALLBACK）
-hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
+ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 ```
 
 ### 已拍板摘要
@@ -374,15 +368,15 @@ hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
 | 产出方 | 产物 | 通道 | 体积 | 落地 | 状态 |
 |---|---|---|---|---|---|
 | **amphora APK**（本仓 `:core:native`） | `libwinlator.so`（含**静态** adrenotools + 19 shader + zstd/xz）| — | 2.5 MB | `nativeLibraryDir` | ✅ |
-| 同上 | **4× adrenotools hook** `.so`（submodule `8483dfd`）| wrapper+hooks | 0.23 MB | `nativeLibraryDir` | ✅ **hooks 唯一来源** |
-| 同上 | `libfakeinput.so` | — | 小 | `nativeLibraryDir` | ✅ |
+| 同上 | ~~4× adrenotools hook~~ | — | — | — | ❌ 已排除出 APK（2026-08-05）；hooks 只随 `wrapper.tzst` |
+| **`amphora-dev/imagefs`**（自建）| `wrapper.tzst`（wrapper + adrenotools@8483dfd + 4 hooks + ICD）| wrapper+hooks | ~0.7 MB | imagefs `usr/lib` | ✅ **hooks 唯一来源** |
 | **`winlator-imagefs`**（cnb 自建配方）| `imagefs.txz`（43 包 Bionic 基线）| imagefs | 27.5 MB（解压 187 MB）| imagefs 根 | 🟡 PR #1 待合 |
 | 同上（规划） | + strip 后 Mesa `libGL`+`libglapi` | imagefs | +4–6 MB | imagefs `usr/lib` | ⬜ 待做 |
 | **`nicholasx417/WinNative-Components`**（GitHub Release）| `Proton-10.0-4-x86_64.wcp` | runtime | 168.6 MB | WCP → imagefs | ✅ |
 | 同上 | `Box64-0.4.3-*.wcp` | runtime | 2.8 MB | WCP → imagefs | ✅ |
 | 同上 | `Dxvk-3.0.2-gplasync.wcp` | dx | 6.7 MB | 容器 `system32`/`syswow64` | ✅ |
 | 同上 | `Vkd3d-3.0.1-S6_9.wcp` | dx | 3.4 MB | 同上 | ✅ |
-| **`WinNative-Emu/WinNative`**（GitHub LFS，上游）| `wrapper.tzst` | wrapper+hooks | 3.8 MB | imagefs `usr/lib` + ICD | 🟡 待重打剔 hook |
+| **`WinNative-Emu/WinNative`**（GitHub LFS，上游）| ~~`wrapper.tzst`~~ | — | — | — | ⛔ 已由 `amphora-dev/imagefs` Release `wrapper` 替代 |
 | 同上 | `container_pattern_common.tzst` | container-pattern | 41.6 MB | 每容器一份 | 🟡 待瘦身+拆字体 |
 | 同上 | `wincomponents/*.tzst`（7 个）| wincomponents | ~38 MB | 容器 DLL | ✅ 机制不变 |
 | 同上 | `ddrawrapper/*.tzst`（3 个）| ddraw | 0.2–3 MB | 容器 `syswow64` | ⚪ 可选，默认 `none` |
@@ -404,7 +398,7 @@ hooks 已在 APK nativeLibraryDir；ADRENOTOOLS_HOOKS_PATH 指向它
 | `filesDir/contents/<type>/<ver>/` | `ContentsManager`（WCP） | 版本化，无冲突 |
 | `filesDir/contents/DDRAW/<id>-<sha>/` | runtime asset 解压一次后的 immutable DLL cache | prefix 只链接 DLL；INI/shader 仍为容器私有 |
 | `filesDir/contents/adrenotools/<id>/` | wrapper ICD 桥接 + 可选 Turnip | 单选 |
-| **`nativeLibraryDir`** | **APK 唯一** | 无——hooks 的唯一权威来源 |
+| **`imagefs/usr/lib`（wrapper.tzst）** | **hooks 唯一权威来源**（guest env + host `hookLibDir`） | APK 不再带 hooks |
 
 ### 数量与体积汇总
 

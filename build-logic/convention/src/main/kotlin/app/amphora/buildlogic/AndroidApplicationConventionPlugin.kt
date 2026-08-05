@@ -21,15 +21,23 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
                     // armeabi-v7a / x86 / x86_64 variants are not merged into the APK.
                     ndk { abiFilters += "arm64-v8a" }
                 }
-                // adrenotools (driver.h) REQUIRES useLegacyPackaging = true: it installs
-                // GPU driver hooks into nativeLibraryDir and dlopen()s them from that path,
-                // which only works when .so files are extracted to disk. Also matches
-                // upstream WinNative / Bannerlator. Safe for 16KB page-size devices - all
-                // .so LOAD segments are 0x4000-aligned (NDK r28 default), so mmap from
-                // disk works on 16KB kernels.
+                // useLegacyPackaging keeps libwinlator.so extracted on disk (dlopen /
+                // mmap). adrenotools hooks are NOT packaged here — host and guest both
+                // load the single set from wrapper.tzst → imagefs/usr/lib (8483dfd).
+                // Safe for 16KB page-size devices: NDK r28 LOAD segments are 0x4000-aligned.
                 packaging {
                     jniLibs {
                         useLegacyPackaging = true
+                        // CMake still builds these SHARED targets via adrenotools/
+                        // src/hook; keep them out of the APK so only wrapper.tzst
+                        // supplies hooks on device.
+                        excludes +=
+                            listOf(
+                                "**/libmain_hook.so",
+                                "**/libfile_redirect_hook.so",
+                                "**/libgsl_alloc_hook.so",
+                                "**/libhook_impl.so",
+                            )
                     }
                 }
                 // Shared debug signing keystore. Android's default debug.keystore is
