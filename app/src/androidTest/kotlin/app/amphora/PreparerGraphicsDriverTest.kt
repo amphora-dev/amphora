@@ -193,6 +193,9 @@ class PreparerGraphicsDriverTest {
 
         // extractGraphicsDriverFiles → populates envVars (unconditional envState.put).
         preparer.extractGraphicsDriverFiles(amphoraContainer)
+        // Prefix repair restores physical builtin DLLs. Production setup then
+        // runs the DX-wrapper phase, which replaces them with shared links.
+        preparer.extractDXWrapperFiles(amphoraContainer, wnContainer.getDXWrapper())
 
         // --- Phase 4: verify envVars (Tier 1, unconditional) -----------------
         val env = preparer.envVars()
