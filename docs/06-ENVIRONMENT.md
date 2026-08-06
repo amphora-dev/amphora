@@ -317,3 +317,4 @@ sudo brew services stop tailscale
 
 On the cloud host, stop the `tailscaled` tmux session. Remove the cloud node from
 the Tailscale admin console if it was created only for an ephemeral agent.
+probe 20260806192843
