@@ -60,14 +60,21 @@ jobs:
             :app:assembleDebugAndroidTest
         timeout-minutes: 60
 
-      - name: Upload debug APKs
+      - name: Upload debug APK directly
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: amphora-debug-${{ github.sha }}
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android test APK directly
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          archive: false
           if-no-files-found: error
           retention-days: 14
 
