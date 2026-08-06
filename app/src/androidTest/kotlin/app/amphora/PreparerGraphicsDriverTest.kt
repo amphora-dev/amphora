@@ -17,6 +17,7 @@ import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.container.Container as WnContainer
 import com.winlator.cmod.runtime.container.ContainerManager
 import com.winlator.cmod.runtime.content.ContentsManager
+import com.winlator.cmod.shared.io.FileUtils
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import java.io.File
@@ -177,7 +178,10 @@ class PreparerGraphicsDriverTest {
         // Proton prefixPack. Best-effort — Tier-1 envVars do not depend on this.
         var firstTimeBoot = false
         if (preparerSynced) {
-            File(rootDir, ".wine").deleteRecursively()
+            assertTrue(
+                "failed to remove existing prefix without following directory symlinks",
+                FileUtils.delete(File(rootDir, ".wine")),
+            )
             try {
                 preparer.ensureWinePrefixReady(amphoraContainer)
                 firstTimeBoot = true
