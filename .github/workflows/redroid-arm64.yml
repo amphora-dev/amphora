@@ -49,9 +49,9 @@ jobs:
           persist-credentials: false
 
       - name: Download CI APKs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          pattern: amphora-debug-*
+          pattern: app-debug*.apk
           path: ${{ runner.temp }}/amphora-apks
           merge-multiple: true
           github-token: ${{ github.token }}
@@ -64,8 +64,8 @@ jobs:
           APK_DIR="$RUNNER_TEMP/amphora-apks"
           EVIDENCE_DIR="$RUNNER_TEMP/redroid-evidence"
           bash scripts/redroid-ci.sh \
-            "$APK_DIR/debug/app-debug.apk" \
-            "$APK_DIR/androidTest/debug/app-debug-androidTest.apk" \
+            "$APK_DIR/app-debug.apk" \
+            "$APK_DIR/app-debug-androidTest.apk" \
             "$EVIDENCE_DIR"
 
       - name: Upload ReDroid evidence
