@@ -1,12 +1,12 @@
 package app.amphora
 
 import android.content.Context
-import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.container.model.ContainerId
+import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
@@ -16,18 +16,11 @@ import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.container.Container as WnContainer
 import com.winlator.cmod.runtime.container.ContainerManager
-import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
-import com.winlator.cmod.runtime.content.ContentsManager.InstallFailedReason
-import com.winlator.cmod.runtime.content.ContentsManager.OnInstallFinishedCallback
-import com.winlator.cmod.runtime.display.environment.ImageFsInstaller
-import com.winlator.cmod.shared.io.TarCompressorUtils
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import java.io.File
 import java.nio.file.Files
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -35,7 +28,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -45,19 +37,12 @@ import org.junit.runner.RunWith
  * P2 real-device verification of [XServerWineSessionPreparer] graphics-driver
  * extraction, exercised end-to-end against remotely provisioned runtime assets.
  *
- * Proves the "local .wcp install" workaround for the D4 download stub
- * (native_content_io.cpp:783 `nativeDownloadFile` returns JNI_FALSE): the `.wcp`
- * files are bundled in the *app* APK by `./gradlew :app:stageBundledContent`,
- * staged to temp files by the test, and installed locally via
- * [ContentsManager.extraContentFile] (which routes through `nativeExtractArchive`,
- * NOT the stubbed `nativeDownloadFile`).
+ * Uses the production SHA-pinned [ContentSource], so package identities follow
+ * the live manifest instead of stale APK asset names.
  *
  * Flow:
- *  1. Ensure imagefs at `filesDir/imagefs` (from app APK asset `imagefs.tzst`,
- *     staged by `stageBundledContent`).
- *  2. Install Proton + Bionic-Box64 `.wcp` (staged from app APK assets) via
- *     `extraContentFile` + `finishInstallContent` (local extract, bypasses D4
- *     download stub).
+ *  1. Ensure the manifest-pinned imagefs at `filesDir/imagefs`.
+ *  2. Resolve Proton + Bionic-Box64 `.wcp` through production provisioning.
  *  3. Create a WinNative [WnContainer] (`ContainerManager.createContainer`) —
  *     extracts the Wine prefix from the Proton `prefixPack.txz`.
  *  4. [XServerWineSessionPreparer]: `ensureWinePrefixReady` (repair →
@@ -78,6 +63,9 @@ class PreparerGraphicsDriverTest {
     lateinit var contentSource: ContentSource
 
     @Inject
+    lateinit var catalog: ContentCatalog
+
+    @Inject
     lateinit var rootfsInstaller: RootfsInstaller
 
     @Inject
@@ -89,6 +77,7 @@ class PreparerGraphicsDriverTest {
     @Test
     fun installRuntimes_createContainer_extractGraphicsDriver() = runBlocking {
         val appCtx = ApplicationProvider.getApplicationContext<Context>()
+        val manifest = catalog.require()
 
         // --- Phase 0: ensure imagefs at filesDir/imagefs ----------------------
         val imagefsDir = File(appCtx.filesDir, "imagefs")
@@ -97,7 +86,7 @@ class PreparerGraphicsDriverTest {
             rootfsInstaller.ensureInstalled(
                 RootfsSpec(
                     targetRoot = imagefsDir.absolutePath,
-                    imagefsVersion = ImageFsInstaller.LATEST_VERSION.toString(),
+                    imagefsVersion = manifest.entry(ContentComponent.ROOTFS)!!.version,
                     termuxfsSha256 = "",
                 ),
             ),
@@ -107,20 +96,16 @@ class PreparerGraphicsDriverTest {
 
         // --- Phase 1: provision Proton + Box64 + kernel-direct assets --------
         runtimeAssets.ensureAvailable()
-        contentSource.resolve(ContentComponent.WINE.id)
-        contentSource.resolve(ContentComponent.BOX64.id)
+        val protonArtifact = contentSource.resolve(ContentComponent.WINE.id)
+        val box64Artifact = contentSource.resolve(ContentComponent.BOX64.id)
 
         val cm = ContentsManager(appCtx)
         cm.syncContents()
 
-        // Proton (skip re-install if already present from a prior run).
-        var protonProfile = cm.getProfileByEntryName(PROTON_ENTRY)
-        if (protonProfile == null || !ContentsManager.getInstallDir(appCtx, protonProfile).isDirectory) {
-            val protonWcp = stageWcpFromAssets(appCtx, PROTON_WCP)
-            println("INSTALLING Proton .wcp (${protonWcp.length()} bytes)…")
-            protonProfile = installWcp(cm, protonWcp)
-            cm.syncContents()
-        }
+        val protonProfile =
+            requireNotNull(cm.getProfileByEntryName(protonArtifact.version)) {
+                "resolved Proton profile not loaded: ${protonArtifact.version}"
+            }
         val protonDir = ContentsManager.getInstallDir(appCtx, protonProfile)
         assertTrue("proton install dir missing: $protonDir", protonDir.isDirectory)
         assertTrue("proton bin/ missing", File(protonDir, protonProfile.wineBinPath).isDirectory)
@@ -131,14 +116,10 @@ class PreparerGraphicsDriverTest {
         )
         println("PROTON_INSTALLED dir=$protonDir entry=${ContentsManager.getEntryName(protonProfile)}")
 
-        // Box64.
-        var box64Profile = cm.getProfileByEntryName(BOX64_ENTRY)
-        if (box64Profile == null || !ContentsManager.getInstallDir(appCtx, box64Profile).isDirectory) {
-            val box64Wcp = stageWcpFromAssets(appCtx, BOX64_WCP)
-            println("INSTALLING Box64 .wcp (${box64Wcp.length()} bytes)…")
-            box64Profile = installWcp(cm, box64Wcp)
-            cm.syncContents()
-        }
+        val box64Profile =
+            requireNotNull(cm.getProfileByEntryName(box64Artifact.version)) {
+                "resolved Box64 profile not loaded: ${box64Artifact.version}"
+            }
         val box64Dir = ContentsManager.getInstallDir(appCtx, box64Profile)
         assertTrue("box64 install dir missing: $box64Dir", box64Dir.isDirectory)
         assertTrue("box64 binary missing in install dir", File(box64Dir, "box64").isFile)
@@ -269,108 +250,5 @@ class PreparerGraphicsDriverTest {
             "PREPARER_VERIFY_OK envVars=${env.size} wineVersion=$wineVersion " +
                 "container=${wnContainer.id} firstTimeBoot=$firstTimeBoot",
         )
-    }
-
-    // --- helpers -------------------------------------------------------------
-
-    /** Extract imagefs.tzst (app APK asset) to filesDir/imagefs if usr/lib absent. */
-    private fun ensureImagefs(appCtx: Context, imagefsDir: File) {
-        if (File(imagefsDir, "usr/lib").isDirectory) {
-            println("imagefs already present at $imagefsDir")
-            return
-        }
-        val assets =
-            appCtx.assets
-                .list("")
-                .orEmpty()
-                .toList()
-        assumeTrue(
-            "imagefs.tzst not bundled in app assets (have: $assets); " +
-                "run ./gradlew :app:stageBundledContent first (see docs/04-ASSET-MANIFEST.md)",
-            "imagefs.tzst" in assets,
-        )
-        imagefsDir.deleteRecursively()
-        assertTrue("mkdirs imagefs failed", imagefsDir.mkdirs())
-        val t0 = System.currentTimeMillis()
-        val ok =
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD,
-                appCtx,
-                "imagefs.tzst",
-                imagefsDir,
-            )
-        val dtMs = System.currentTimeMillis() - t0
-        assertTrue("imagefs extract failed (dt=${dtMs}ms)", ok)
-        println("IMAGEFS_EXTRACTED dt_ms=$dtMs -> $imagefsDir")
-    }
-
-    /**
-     * Copy a `.wcp` from the app APK assets (bundled by `stageBundledContent`)
-     * to a temp file under [Context]'s cacheDir, for feeding to
-     * [ContentsManager.extraContentFile]. Idempotent: reuses an existing copy.
-     */
-    private fun stageWcpFromAssets(appCtx: Context, name: String): File {
-        val out = File(appCtx.cacheDir, name).apply { parentFile?.mkdirs() }
-        if (!out.exists() || out.length() == 0L) {
-            appCtx.assets.open(name).use { input -> out.outputStream().use { input.copyTo(it) } }
-        }
-        return out
-    }
-
-    /**
-     * Install a .wcp via extraContentFile + finishInstallContent.
-     * Both are synchronous (blocking native extract), but a latch guards the
-     * callback for safety. Idempotent: ERROR_EXIST (already installed) returns
-     * the profile.
-     */
-    private fun installWcp(cm: ContentsManager, wcp: File): ContentProfile {
-        val result = arrayOfNulls<ContentProfile>(1)
-        val error = arrayOfNulls<InstallFailedReason>(1)
-        val latch = CountDownLatch(1)
-        cm.extraContentFile(
-            Uri.fromFile(wcp),
-            object : OnInstallFinishedCallback {
-                override fun onSucceed(profile: ContentProfile) {
-                    cm.finishInstallContent(
-                        profile,
-                        object : OnInstallFinishedCallback {
-                            override fun onSucceed(p: ContentProfile) {
-                                result[0] = profile
-                                latch.countDown()
-                            }
-
-                            override fun onFailed(reason: InstallFailedReason, e: Exception?) {
-                                if (reason == InstallFailedReason.ERROR_EXIST) {
-                                    result[0] = profile // already installed from a prior run
-                                    latch.countDown()
-                                } else {
-                                    error[0] = reason
-                                    latch.countDown()
-                                }
-                            }
-                        },
-                    )
-                }
-
-                override fun onFailed(reason: InstallFailedReason, e: Exception?) {
-                    error[0] = reason
-                    latch.countDown()
-                }
-            },
-        )
-        assertTrue("install timed out: ${wcp.name}", latch.await(180, TimeUnit.SECONDS))
-        assertNull("install failed: ${error[0]} (${wcp.name})", error[0])
-        assertNotNull("install returned null profile (${wcp.name})", result[0])
-        return result[0]!!
-    }
-
-    private companion object {
-        // Entry names = type-verName-verCode (versionCode=0 in both .wcp profile.json).
-        private const val PROTON_ENTRY = "Proton-10.0-4-x86_64-0"
-        private const val BOX64_ENTRY = "Box64-0.4.3-c08554e3f-0"
-
-        // Asset names (bundled in the app APK by stageBundledContent).
-        private const val PROTON_WCP = "Proton-10.0-4-x86_64.wcp"
-        private const val BOX64_WCP = "Box64-0.4.3-c08554e3f.wcp"
     }
 }
