@@ -18,6 +18,7 @@ import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.container.Container as WnContainer
 import com.winlator.cmod.runtime.container.ContainerManager
 import com.winlator.cmod.runtime.content.ContentsManager
+import com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
 import com.winlator.cmod.shared.io.FileUtils
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
@@ -215,9 +216,8 @@ class PreparerGraphicsDriverTest {
         assertNotNull("WRAPPER_VK_VERSION missing", env["WRAPPER_VK_VERSION"])
         val selectedDriver =
             GraphicsDriverIds.normalize(
-                appCtx
-                    .getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
-                    .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+                GraphicsDriverConfigUtils
+                    .parseGraphicsDriverConfig(wnContainer.getGraphicsDriverConfig())["version"],
             )
         if (selectedDriver == GraphicsDriverIds.SYSTEM) {
             assertNull("System Vulkan must use loader discovery", env["VK_ICD_FILENAMES"])
