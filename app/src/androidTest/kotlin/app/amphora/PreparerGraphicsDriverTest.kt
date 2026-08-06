@@ -11,6 +11,7 @@ import app.amphora.core.content.ContentSource
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.id
+import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.XServerWineSessionPreparer
 import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
@@ -212,10 +213,20 @@ class PreparerGraphicsDriverTest {
         assertEquals("LIBGL_KOPPER_DRI2", "1", env["LIBGL_KOPPER_DRI2"])
         assertNull("LIBGL_KOPPER_DISABLE must stay unset", env["LIBGL_KOPPER_DISABLE"])
         assertNotNull("WRAPPER_VK_VERSION missing", env["WRAPPER_VK_VERSION"])
-        assertTrue(
-            "VK_ICD_FILENAMES not pointing at wrapper_icd: ${env["VK_ICD_FILENAMES"]}",
-            env["VK_ICD_FILENAMES"]?.contains("wrapper_icd.aarch64.json") == true,
-        )
+        val selectedDriver =
+            GraphicsDriverIds.normalize(
+                appCtx
+                    .getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+                    .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+            )
+        if (selectedDriver == GraphicsDriverIds.SYSTEM) {
+            assertNull("System Vulkan must use loader discovery", env["VK_ICD_FILENAMES"])
+        } else {
+            assertTrue(
+                "VK_ICD_FILENAMES not pointing at wrapper_icd: ${env["VK_ICD_FILENAMES"]}",
+                env["VK_ICD_FILENAMES"]?.contains("wrapper_icd.aarch64.json") == true,
+            )
+        }
         assertTrue("MESA_VK_WSI_PRESENT_MODE missing", env.containsKey("MESA_VK_WSI_PRESENT_MODE"))
         assertTrue("WRAPPER_EMULATE_BCN missing", env.containsKey("WRAPPER_EMULATE_BCN"))
         assertTrue("WRAPPER_EXTENSION_BLACKLIST missing", env.containsKey("WRAPPER_EXTENSION_BLACKLIST"))
