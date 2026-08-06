@@ -30,6 +30,7 @@ import com.winlator.cmod.runtime.display.environment.components.SysVSharedMemory
 import com.winlator.cmod.runtime.display.environment.components.XServerComponent
 import com.winlator.cmod.runtime.display.xserver.ScreenInfo
 import com.winlator.cmod.runtime.display.xserver.XServer
+import com.winlator.cmod.runtime.system.GPUInformation
 import com.winlator.cmod.runtime.system.ProcessHelper
 import com.winlator.cmod.runtime.wine.EnvVars
 import com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
@@ -152,12 +153,25 @@ constructor(
                 GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
                     wnContainer.getGraphicsDriverConfig(),
                 )
-            // 容器是唯一真相（getOrCreate 已从设置同步）。
-            val hostDriver =
+            // Container is the source of truth on supported Adreno devices:
+            // host composition must match the guest ICD for DRI3/AHB scanout.
+            val configuredHostDriver =
                 driverConfig["version"]
                     ?.takeIf { it.isNotEmpty() && !it.equals("System", ignoreCase = true) }
                     ?.let { GraphicsDriverIds.normalize(it) }
                     ?: GraphicsDriverIds.WRAPPER
+            // Wrapper/Turnip are Adreno drivers. Virtual devices and other GPUs
+            // cannot create a host VulkanRenderer with them, leaving a live Wine
+            // session behind a blank surface. Their system Vulkan implementation
+            // is the only valid host compositor backend.
+            val hostDriver =
+                if (GPUInformation.isAdrenoGPU(context)) configuredHostDriver else "System"
+            if (hostDriver == "System") {
+                Log.i(
+                    "WineEngineImpl",
+                    "Non-Adreno host; using system Vulkan renderer instead of '$configuredHostDriver'",
+                )
+            }
             _surface.value =
                 GameSessionSurface(
                     xServer = xServer,
