@@ -14,6 +14,9 @@ object GraphicsDriverIds {
     /** Bundled WinNative wrapper ICD (default). */
     const val WRAPPER = "wrapper"
 
+    /** Android's system Vulkan loader/ICD (Mali, virtual GPUs, SwiftShader). */
+    const val SYSTEM = "System"
+
     /**
      * Optional open-source Turnip (Balanced). Folder name under adrenotools;
      * must match the unzip target used by [TurnipDriverProvisioner].
@@ -27,10 +30,11 @@ object GraphicsDriverIds {
      */
     const val TURNIP_ZIP_RELATIVE = "adrenotools/WN-Turnip-1.06-b_Axxx.zip"
 
-    fun isKnown(id: String): Boolean = id == WRAPPER || id == TURNIP_BALANCED
+    fun isKnown(id: String): Boolean = id == WRAPPER || id == SYSTEM || id == TURNIP_BALANCED
 
     fun normalize(id: String?): String = when {
         id.isNullOrBlank() -> WRAPPER
+        id.equals(SYSTEM, ignoreCase = true) -> SYSTEM
         id == TURNIP_BALANCED -> TURNIP_BALANCED
         else -> WRAPPER
     }
