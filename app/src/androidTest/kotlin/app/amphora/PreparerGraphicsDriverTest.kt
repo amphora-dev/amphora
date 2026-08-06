@@ -141,7 +141,8 @@ class PreparerGraphicsDriverTest {
             }
         val wnContainer = cMgr.createContainer(data, cm)
         assertNotNull("createContainer returned null (see logcat ContainerManager)", wnContainer)
-        val rootDir = wnContainer!!.getRootDir()
+        assertTrue("created container could not be activated", cMgr.activateContainer(wnContainer!!))
+        val rootDir = wnContainer.getRootDir()
         println("CONTAINER_CREATED id=${wnContainer.id} rootDir=$rootDir wineVersion=$wineVersion")
         assertTrue(
             "container .wine prefix missing (prefixPack extraction failed during createContainer)",
