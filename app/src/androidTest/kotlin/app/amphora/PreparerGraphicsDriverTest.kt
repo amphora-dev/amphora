@@ -96,15 +96,17 @@ class PreparerGraphicsDriverTest {
 
         // --- Phase 1: provision Proton + Box64 + kernel-direct assets --------
         runtimeAssets.ensureAvailable()
-        val protonArtifact = contentSource.resolve(ContentComponent.WINE.id)
-        val box64Artifact = contentSource.resolve(ContentComponent.BOX64.id)
+        val protonEntry = manifest.entry(ContentComponent.WINE)!!
+        val box64Entry = manifest.entry(ContentComponent.BOX64)!!
+        contentSource.resolve(ContentComponent.WINE.id)
+        contentSource.resolve(ContentComponent.BOX64.id)
 
         val cm = ContentsManager(appCtx)
         cm.syncContents()
 
         val protonProfile =
-            requireNotNull(cm.getProfileByEntryName(protonArtifact.version)) {
-                "resolved Proton profile not loaded: ${protonArtifact.version}"
+            requireNotNull(cm.getProfileByEntryName(protonEntry.version)) {
+                "resolved Proton profile not loaded: ${protonEntry.version}"
             }
         val protonDir = ContentsManager.getInstallDir(appCtx, protonProfile)
         assertTrue("proton install dir missing: $protonDir", protonDir.isDirectory)
@@ -117,8 +119,8 @@ class PreparerGraphicsDriverTest {
         println("PROTON_INSTALLED dir=$protonDir entry=${ContentsManager.getEntryName(protonProfile)}")
 
         val box64Profile =
-            requireNotNull(cm.getProfileByEntryName(box64Artifact.version)) {
-                "resolved Box64 profile not loaded: ${box64Artifact.version}"
+            requireNotNull(cm.getProfileByEntryName(box64Entry.version)) {
+                "resolved Box64 profile not loaded: ${box64Entry.version}"
             }
         val box64Dir = ContentsManager.getInstallDir(appCtx, box64Profile)
         assertTrue("box64 install dir missing: $box64Dir", box64Dir.isDirectory)
@@ -127,7 +129,7 @@ class PreparerGraphicsDriverTest {
 
         // --- Phase 2: create WinNative container (extracts Wine prefix) -------
         val cMgr = ContainerManager(appCtx)
-        val wineVersion = ContentsManager.getEntryName(protonProfile) // "Proton-10.0-4-x86_64-0"
+        val wineVersion = ContentsManager.getEntryName(protonProfile)
         val data =
             JSONObject().apply {
                 put("name", "preparer-test")
