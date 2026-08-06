@@ -426,7 +426,7 @@ enum class DisplayResolution(val width: Int, val height: Int, val label: String)
 
 enum class GraphicsDriverSetting(val id: String, val label: String) {
     WRAPPER(GraphicsDriverIds.WRAPPER, "Adreno wrapper"),
-    SYSTEM(GraphicsDriverIds.SYSTEM, "Android system Vulkan"),
+    SYSTEM(GraphicsDriverIds.SYSTEM, "Android system Vulkan · 2D/test"),
     TURNIP(GraphicsDriverIds.TURNIP_BALANCED, "Turnip 1.06-b"),
     ;
 
