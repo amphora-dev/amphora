@@ -1,5 +1,6 @@
 package app.amphora
 
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,8 +15,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        val isDebuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         val debugStartRoute =
-            if (BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_DEBUG_WINE_SMOKE, false)) {
+            if (isDebuggable && intent.getBooleanExtra(EXTRA_DEBUG_WINE_SMOKE, false)) {
                 gameSessionRoute(
                     exePath = stageDebugWineExe(this),
                     width = intent.getIntExtra(EXTRA_DEBUG_WIDTH, 1280),
