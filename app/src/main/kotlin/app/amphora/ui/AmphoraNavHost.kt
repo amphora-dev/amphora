@@ -20,9 +20,6 @@ import app.amphora.gamesession.gameSessionScreen
  */
 private const val DEBUG_AUTO_LAUNCH_WINE = false
 
-private const val DEBUG_WIDTH = 1280
-private const val DEBUG_HEIGHT = 720
-
 @Composable
 fun AmphoraNavHost(navController: NavHostController) {
     val context = LocalContext.current
@@ -40,17 +37,17 @@ fun AmphoraNavHost(navController: NavHostController) {
                 navController.navigate(gameSessionRoute(exePath, width, height))
             },
             onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
-            onDebugLaunchWine = {
+            onDebugLaunchWine = { width, height ->
                 navController.navigate(
-                    gameSessionRoute(stageDebugWineExe(context), DEBUG_WIDTH, DEBUG_HEIGHT),
+                    gameSessionRoute(stageDebugWineExe(context), width, height),
                 )
             },
-            onDebugLaunchWineDiag = {
+            onDebugLaunchWineDiag = { width, height ->
                 navController.navigate(
                     gameSessionRoute(
                         stageDebugWineExe(context),
-                        DEBUG_WIDTH,
-                        DEBUG_HEIGHT,
+                        width,
+                        height,
                         graphicsDiag = true,
                     ),
                 )

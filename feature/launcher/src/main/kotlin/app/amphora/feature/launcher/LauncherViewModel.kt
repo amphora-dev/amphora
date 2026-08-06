@@ -370,7 +370,7 @@ data class LauncherUiState(
 /** Adrenotools backend selectable from the launcher (persisted). */
 enum class GraphicsDriverOption(val driverId: String, val label: String) {
     WRAPPER(GraphicsDriverIds.WRAPPER, "Adreno wrapper"),
-    SYSTEM(GraphicsDriverIds.SYSTEM, "Android system Vulkan"),
+    SYSTEM(GraphicsDriverIds.SYSTEM, "Android system Vulkan · 2D/test"),
     TURNIP_BALANCED(GraphicsDriverIds.TURNIP_BALANCED, "Turnip 1.06-b"),
     ;
 
