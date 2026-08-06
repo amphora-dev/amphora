@@ -52,7 +52,6 @@ __pycache__/
 *.wcp
 *.exe
 !docs/**
-!testdata/aio-graphics-test/*.exe
 !core/content/src/main/assets/winnative/*.exe
 
 # stageBundledContent output: app/src/main/assets/ is populated by

@@ -496,7 +496,7 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 公开源与固定 Release：[`cnb.cool/atowerlight/aio-graphics-test`](https://cnb.cool/atowerlight/aio-graphics-test)
 标签 **`amphora`**（每次 `main` 推送由 CI 覆盖附件，不保留历史版本）。设备端按
 `content_manifest.json` 的 `remoteUrl` 下载并校验后复制到 Wine
-`ProgramData/Microsoft/Windows`（APK assets / `testdata/aio-graphics-test/` 作离线兜底）：
+`ProgramData/Microsoft/Windows`（APK assets `winnative/Graphics-Test-*.exe`）：
 
 | 资产 | SHA-256 | 大小 | remoteUrl |
 |---|---|---:|---|
