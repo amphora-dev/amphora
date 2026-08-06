@@ -156,17 +156,20 @@ constructor(
             // Container is the source of truth on supported Adreno devices:
             // host composition must match the guest ICD for DRI3/AHB scanout.
             val configuredHostDriver =
-                driverConfig["version"]
-                    ?.takeIf { it.isNotEmpty() && !it.equals("System", ignoreCase = true) }
-                    ?.let { GraphicsDriverIds.normalize(it) }
-                    ?: GraphicsDriverIds.WRAPPER
+                GraphicsDriverIds.normalize(driverConfig["version"])
             // Wrapper/Turnip are Adreno drivers. Virtual devices and other GPUs
             // cannot create a host VulkanRenderer with them, leaving a live Wine
             // session behind a blank surface. Their system Vulkan implementation
             // is the only valid host compositor backend.
             val hostDriver =
-                if (GPUInformation.isAdrenoGPU(context)) configuredHostDriver else "System"
-            if (hostDriver == "System") {
+                if (configuredHostDriver == GraphicsDriverIds.SYSTEM ||
+                    !GPUInformation.isAdrenoGPU(context)
+                ) {
+                    GraphicsDriverIds.SYSTEM
+                } else {
+                    configuredHostDriver
+                }
+            if (hostDriver == GraphicsDriverIds.SYSTEM) {
                 Log.i(
                     "WineEngineImpl",
                     "Non-Adreno host; using system Vulkan renderer instead of '$configuredHostDriver'",
