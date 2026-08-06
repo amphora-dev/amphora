@@ -1,5 +1,8 @@
 package app.amphora.gamesession
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +30,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -99,6 +105,22 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     val launchError by viewModel.launchError.collectAsState()
     val provisionProgress by viewModel.provisionProgress.collectAsState()
 
+    // Game content owns the whole physical display. System bars remain
+    // transiently reachable with an edge swipe and are restored on exit.
+    val activity = LocalContext.current.findActivity()
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val controller =
+            window?.let {
+                WindowCompat.setDecorFitsSystemWindows(it, false)
+                WindowCompat.getInsetsController(it, it.decorView)
+            }
+        controller?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
+    }
+
     // Auto-exit when the guest process terminates normally (SessionHandle.markStopped).
     LaunchedEffect(sessionState) {
         if (sessionState == SessionState.STOPPED) onExit()
@@ -146,6 +168,15 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
             modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
         ) { Text("Exit") }
     }
+}
+
+private fun Context.findActivity(): Activity? {
+    var current: Context? = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return current as? Activity
 }
 
 @Composable

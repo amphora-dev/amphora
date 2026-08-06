@@ -1018,7 +1018,17 @@ class XServerWineSessionPreparer @Inject constructor(
             )
         }
 
-        envState.put("VK_ICD_FILENAMES", imageFs.getShareDir().path + "/vulkan/icd.d/wrapper_icd.aarch64.json")
+        if (adrenoToolsDriverId == GraphicsDriverIds.SYSTEM) {
+            // Let Android's Vulkan loader select the platform ICD (Mali,
+            // SwiftShader, virtual GPU, ...). Pointing at wrapper_icd here would
+            // re-enter the Adreno-only wrapper despite the explicit selection.
+            Log.i(TAG, "Guest Vulkan backend: Android system loader")
+        } else {
+            envState.put(
+                "VK_ICD_FILENAMES",
+                imageFs.getShareDir().path + "/vulkan/icd.d/wrapper_icd.aarch64.json",
+            )
+        }
 
         var vulkanVersion = graphicsDriverConfig["vulkanVersion"]
         if (vulkanVersion == null) vulkanVersion = "1.3"
