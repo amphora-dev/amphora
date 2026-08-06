@@ -30,8 +30,6 @@ jobs:
     env:
       ANDROID_SERIAL: 127.0.0.1:5555
       REDROID_CONTAINER: redroid15
-      APK_DIR: ${{ runner.temp }}/amphora-apks
-      EVIDENCE_DIR: ${{ runner.temp }}/redroid-evidence
     steps:
       - name: Resolve source CI run
         id: source
@@ -54,7 +52,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: amphora-debug-*
-          path: ${{ env.APK_DIR }}
+          path: ${{ runner.temp }}/amphora-apks
           merge-multiple: true
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -63,6 +61,8 @@ jobs:
       - name: Test Android 15 ARM64 and capture Wine
         shell: bash
         run: |
+          APK_DIR="$RUNNER_TEMP/amphora-apks"
+          EVIDENCE_DIR="$RUNNER_TEMP/redroid-evidence"
           bash scripts/redroid-ci.sh \
             "$APK_DIR/debug/app-debug.apk" \
             "$APK_DIR/androidTest/debug/app-debug-androidTest.apk" \
@@ -73,6 +73,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: redroid-arm64-${{ github.run_id }}
-          path: ${{ env.EVIDENCE_DIR }}
+          path: ${{ runner.temp }}/redroid-evidence
           if-no-files-found: warn
           retention-days: 14
