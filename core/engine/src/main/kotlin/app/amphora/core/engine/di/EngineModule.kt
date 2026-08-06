@@ -13,6 +13,7 @@ import app.amphora.core.content.RemoteContentSource
 import app.amphora.core.content.RemoteUrlResolver
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.VerifiedAssetDownloader
+import app.amphora.core.content.update.AppUpdater
 import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.ImageFsRootfsInstaller
 import app.amphora.core.engine.WineEngine
@@ -70,6 +71,14 @@ object EngineModule {
         dispatchers: DispatcherProvider,
         progressBus: ProvisionProgressBus,
     ): VerifiedAssetDownloader = VerifiedAssetDownloader(dispatchers, progressBus)
+
+    @Provides
+    @Singleton
+    fun provideAppUpdater(
+        @ApplicationContext context: Context,
+        dispatchers: DispatcherProvider,
+        downloader: VerifiedAssetDownloader,
+    ): AppUpdater = AppUpdater(context, dispatchers, downloader)
 
     @Provides
     @Singleton

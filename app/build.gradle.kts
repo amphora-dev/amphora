@@ -10,8 +10,19 @@ android {
 
     defaultConfig {
         applicationId = "app.amphora"
-        versionCode = 1
-        versionName = "0.1.0"
+        // Main CI overrides these (-Pamphora.versionCode / -Pamphora.versionName)
+        // when publishing the rolling `apk` Release. Local/PR defaults stay at 1 / 0.1.0.
+        versionCode =
+            providers
+                .gradleProperty("amphora.versionCode")
+                .map { it.toInt() }
+                .orElse(1)
+                .get()
+        versionName =
+            providers
+                .gradleProperty("amphora.versionName")
+                .orElse("0.1.0")
+                .get()
         testInstrumentationRunner = "app.amphora.HiltTestRunner"
     }
 

@@ -17,6 +17,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+permissions:
+  contents: write
+
 env:
   CCACHE_DIR: ${{ github.workspace }}/.native-cache/ccache
   CCACHE_MAXSIZE: 2G
@@ -47,17 +50,40 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.ref != 'refs/heads/main' }}
 
+      - name: Compute publish version
+        id: ver
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          # Stay under Int.MAX_VALUE; local/PR builds keep versionCode=1 so CI APKs
+          # are always newer. run_number is monotonic for the whole Actions history.
+          VERSION_CODE=$((20000000 + ${{ github.run_number }}))
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+          VERSION_NAME="0.1.0+${{ github.run_number }}.${SHORT_SHA}"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
       # One invocation for every gate: formatting, lint, JVM tests and the two
       # APKs. Four separate ./gradlew calls each paid a JVM start, configuration
       # and task graph, and could not overlap; here Gradle interleaves the graphs
       # across modules.
       - name: Check
         run: |
+          set -euo pipefail
+          extra=()
+          if [ -n "${{ steps.ver.outputs.version_code }}" ]; then
+            extra+=(
+              "-Pamphora.versionCode=${{ steps.ver.outputs.version_code }}"
+              "-Pamphora.versionName=${{ steps.ver.outputs.version_name }}"
+            )
+          fi
           bash scripts/ci-check.sh \
             spotlessCheck \
             lint \
             :app:assembleDebug \
-            :app:assembleDebugAndroidTest
+            :app:assembleDebugAndroidTest \
+            "${extra[@]}"
         timeout-minutes: 60
 
       - name: Upload debug APK directly
@@ -77,6 +103,18 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish APK + content_manifest app_update.json
+        if: success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          # Same org PAT imagefs uses to bump content_manifest (cross-repo push).
+          AMPHORA_REPO_TOKEN: ${{ secrets.AMPHORA_REPO_TOKEN }}
+          VERSION_CODE: ${{ steps.ver.outputs.version_code }}
+          VERSION_NAME: ${{ steps.ver.outputs.version_name }}
+          SHORT_SHA: ${{ steps.ver.outputs.short_sha }}
+          COMMIT_SHA: ${{ github.sha }}
+          APK_PATH: app/build/outputs/apk/debug/app-debug.apk
+        run: bash scripts/ci/publish-app-update.sh
 
       - name: Upload lint reports
         if: failure()

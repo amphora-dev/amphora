@@ -1,6 +1,7 @@
 package app.amphora.feature.settings
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -162,6 +163,8 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
             WindowsComponentsSection(state = state, viewModel = viewModel)
 
             AdvancedRuntimeSection(state = state, viewModel = viewModel)
+
+            AppUpdateSection(state = state, viewModel = viewModel)
 
             StorageSection()
 
@@ -837,6 +840,82 @@ private val AssetHealth.label: String
             AssetHealth.UNVERIFIED -> "Unverified"
             AssetHealth.LOCAL -> "Local override"
         }
+
+@Composable
+private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val unknownSourcesLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            activity?.let(viewModel::installPendingUpdate)
+        }
+
+    SettingSection(
+        title = "App update",
+        subtitle = "Install the latest CI debug APK (SHA-pinned via content_manifest)",
+    ) {
+        Text(
+            "Installed: ${state.installedVersionName} (${state.installedVersionCode})",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        state.availableUpdate?.let { update ->
+            Text(
+                "Available: ${update.versionName} (${update.versionCode}) · ${update.channel}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            update.notes?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        state.updateMessage?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (state.updateBusy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
+            TextButton(
+                onClick = viewModel::checkForUpdate,
+                enabled = !state.updateBusy,
+            ) {
+                Text("Check")
+            }
+            if (state.availableUpdate != null && !state.installReady) {
+                TextButton(
+                    onClick = viewModel::downloadAndPrepareInstall,
+                    enabled = !state.updateBusy,
+                ) {
+                    Text("Download")
+                }
+            }
+            if (state.installReady && state.pendingApk != null) {
+                TextButton(
+                    onClick = {
+                        if (viewModel.needsInstallPermission()) {
+                            unknownSourcesLauncher.launch(viewModel.installPermissionSettingsIntent())
+                        } else {
+                            activity?.let(viewModel::installPendingUpdate)
+                        }
+                    },
+                    enabled = !state.updateBusy,
+                ) {
+                    Text("Install")
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun StorageSection() {

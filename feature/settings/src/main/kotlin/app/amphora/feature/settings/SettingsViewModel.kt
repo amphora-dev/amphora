@@ -1,5 +1,6 @@
 package app.amphora.feature.settings
 
+import android.app.Activity
 import android.content.Context
 import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
@@ -14,6 +15,9 @@ import app.amphora.core.content.RuntimeAssetLocalOverride
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
+import app.amphora.core.content.update.AppUpdateCheckResult
+import app.amphora.core.content.update.AppUpdateManifest
+import app.amphora.core.content.update.AppUpdater
 import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.GraphicsDiag
@@ -47,6 +51,7 @@ constructor(
     private val assetInstaller: ContentAssetInstaller,
     private val contentReconciler: ContentReconciler,
     private val turnipProvisioner: TurnipDriverProvisioner,
+    private val appUpdater: AppUpdater,
 ) : ViewModel() {
     private val prefs =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
@@ -57,6 +62,8 @@ constructor(
     private val _uiState =
         MutableStateFlow(
             SettingsUiState(
+                installedVersionName = appUpdater.installedVersionName(),
+                installedVersionCode = appUpdater.installedVersionCode(),
                 resolution = DisplayResolution.fromPreference(prefs.getString(PREF_RESOLUTION, null)),
                 graphicsDriver =
                 GraphicsDriverSetting.fromId(
@@ -358,6 +365,93 @@ constructor(
             ?.joinToString(", ")
     }
 
+    fun checkForUpdate() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(updateBusy = true, updateMessage = null, pendingApk = null, installReady = false)
+            }
+            when (val result = appUpdater.check()) {
+                is AppUpdateCheckResult.UpToDate ->
+                    _uiState.update {
+                        it.copy(
+                            updateBusy = false,
+                            availableUpdate = null,
+                            updateMessage = "Up to date (${result.remote.versionName})",
+                        )
+                    }
+                is AppUpdateCheckResult.UpdateAvailable ->
+                    _uiState.update {
+                        it.copy(
+                            updateBusy = false,
+                            availableUpdate = result.remote,
+                            updateMessage =
+                            "Update available: ${result.remote.versionName} " +
+                                "(${result.installedVersionCode} → ${result.remote.versionCode})",
+                        )
+                    }
+                is AppUpdateCheckResult.Unavailable ->
+                    _uiState.update {
+                        it.copy(updateBusy = false, availableUpdate = null, updateMessage = result.reason)
+                    }
+                is AppUpdateCheckResult.Failed ->
+                    _uiState.update {
+                        it.copy(
+                            updateBusy = false,
+                            availableUpdate = null,
+                            updateMessage = result.error.message ?: result.error.toString(),
+                        )
+                    }
+            }
+        }
+    }
+
+    fun downloadAndPrepareInstall() {
+        val remote = _uiState.value.availableUpdate ?: return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    updateBusy = true,
+                    updateMessage = "Downloading ${remote.versionName}…",
+                    installReady = false,
+                    pendingApk = null,
+                )
+            }
+            try {
+                val apk = appUpdater.download(remote)
+                _uiState.update {
+                    it.copy(
+                        updateBusy = false,
+                        pendingApk = apk,
+                        installReady = true,
+                        updateMessage = "Download ready. Tap Install to continue.",
+                    )
+                }
+            } catch (failure: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        updateBusy = false,
+                        pendingApk = null,
+                        installReady = false,
+                        updateMessage = failure.message ?: failure.toString(),
+                    )
+                }
+            }
+        }
+    }
+
+    fun needsInstallPermission(): Boolean = appUpdater.needsInstallPermission()
+
+    fun installPermissionSettingsIntent() = appUpdater.installPermissionSettingsIntent()
+
+    fun installPendingUpdate(activity: Activity) {
+        val apk = _uiState.value.pendingApk ?: return
+        if (appUpdater.needsInstallPermission()) {
+            activity.startActivity(appUpdater.installPermissionSettingsIntent())
+            return
+        }
+        activity.startActivity(appUpdater.installIntent(apk))
+    }
+
     private data class ComponentSnapshot(
         val components: List<ComponentStatus>,
         val runtimeAssets: List<RuntimeAssetHealth>,
@@ -372,6 +466,13 @@ constructor(
 private fun ManifestEntry.pinLabel(): String = verName ?: version
 
 data class SettingsUiState(
+    val installedVersionName: String = "unknown",
+    val installedVersionCode: Long = 0,
+    val updateBusy: Boolean = false,
+    val availableUpdate: AppUpdateManifest? = null,
+    val pendingApk: File? = null,
+    val installReady: Boolean = false,
+    val updateMessage: String? = null,
     val resolution: DisplayResolution = DisplayResolution.DEFAULT,
     val graphicsDriver: GraphicsDriverSetting = GraphicsDriverSetting.WRAPPER,
     val directDrawWrapper: DirectDrawSetting = DirectDrawSetting.DXWRAPPER,
