@@ -19,6 +19,8 @@ import app.amphora.gamesession.gameSessionScreen
  * exposes a **Debug: Wine smoke test** button that uses the same staging helper.
  */
 private const val DEBUG_AUTO_LAUNCH_WINE = false
+private const val DEBUG_AUTO_WIDTH = 1280
+private const val DEBUG_AUTO_HEIGHT = 720
 
 @Composable
 fun AmphoraNavHost(navController: NavHostController) {
@@ -26,7 +28,7 @@ fun AmphoraNavHost(navController: NavHostController) {
     val startRoute =
         remember {
             if (DEBUG_AUTO_LAUNCH_WINE) {
-                gameSessionRoute(stageDebugWineExe(context), DEBUG_WIDTH, DEBUG_HEIGHT)
+                gameSessionRoute(stageDebugWineExe(context), DEBUG_AUTO_WIDTH, DEBUG_AUTO_HEIGHT)
             } else {
                 LAUNCHER_ROUTE
             }
