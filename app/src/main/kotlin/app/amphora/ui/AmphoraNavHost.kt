@@ -23,12 +23,16 @@ private const val DEBUG_AUTO_WIDTH = 1280
 private const val DEBUG_AUTO_HEIGHT = 720
 
 @Composable
-fun AmphoraNavHost(navController: NavHostController) {
+fun AmphoraNavHost(navController: NavHostController, startRouteOverride: String? = null) {
     val context = LocalContext.current
     val startRoute =
-        remember {
-            if (DEBUG_AUTO_LAUNCH_WINE) {
-                gameSessionRoute(stageDebugWineExe(context), DEBUG_AUTO_WIDTH, DEBUG_AUTO_HEIGHT)
+        remember(startRouteOverride) {
+            startRouteOverride ?: if (DEBUG_AUTO_LAUNCH_WINE) {
+                gameSessionRoute(
+                    stageDebugWineExe(context),
+                    DEBUG_AUTO_WIDTH,
+                    DEBUG_AUTO_HEIGHT,
+                )
             } else {
                 LAUNCHER_ROUTE
             }

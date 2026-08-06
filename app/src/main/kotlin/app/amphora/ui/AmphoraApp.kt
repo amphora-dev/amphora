@@ -8,11 +8,14 @@ import androidx.navigation.compose.rememberNavController
 import app.amphora.ui.theme.AmphoraTheme
 
 @Composable
-fun AmphoraApp() {
+fun AmphoraApp(startRouteOverride: String? = null) {
     AmphoraTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             val navController = rememberNavController()
-            AmphoraNavHost(navController = navController)
+            AmphoraNavHost(
+                navController = navController,
+                startRouteOverride = startRouteOverride,
+            )
         }
     }
 }

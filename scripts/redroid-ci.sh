@@ -82,13 +82,16 @@ if (( instrument_rc != 0 )) ||
   exit 1
 fi
 
-# Open the launcher, reveal Diagnostics, and start the deterministic Wine PE.
+# The debug APK exposes a guarded Intent route to the deterministic Wine PE.
+# Release builds ignore these extras; no coordinate-based UI automation.
 adb -s "$SERIAL" logcat -c
-adb -s "$SERIAL" shell am start -W -n app.amphora/.MainActivity >/dev/null
-sleep 2
-adb -s "$SERIAL" shell input swipe 960 1050 960 300 500
-sleep 1
-adb -s "$SERIAL" shell input tap 960 924
+adb -s "$SERIAL" shell am force-stop app.amphora
+adb -s "$SERIAL" shell am start -W \
+  -n app.amphora/.MainActivity \
+  --ez app.amphora.debug.WINE_SMOKE true \
+  --ei app.amphora.debug.WIDTH 1920 \
+  --ei app.amphora.debug.HEIGHT 1200 \
+  >/dev/null
 sleep 15
 
 adb -s "$SERIAL" shell \
