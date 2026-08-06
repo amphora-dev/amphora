@@ -3,9 +3,10 @@ package app.amphora
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
-import com.winlator.cmod.runtime.display.environment.ImageFsInstaller
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import java.io.File
@@ -37,6 +38,9 @@ class ImagefsExtractionTest {
     @Inject
     lateinit var rootfsInstaller: RootfsInstaller
 
+    @Inject
+    lateinit var catalog: ContentCatalog
+
     @Before
     fun setUp() = hiltRule.inject()
 
@@ -44,20 +48,21 @@ class ImagefsExtractionTest {
     fun provisionRealImagefsFromRemoteSource() = runBlocking {
         val appCtx = ApplicationProvider.getApplicationContext<Context>()
         val outDir = File(appCtx.filesDir, "imagefs")
+        val expectedVersion = catalog.require().entry(ContentComponent.ROOTFS)!!.version
 
         val t0 = System.currentTimeMillis()
         val ok =
             rootfsInstaller.ensureInstalled(
                 RootfsSpec(
                     targetRoot = outDir.absolutePath,
-                    imagefsVersion = ImageFsInstaller.LATEST_VERSION.toString(),
+                    imagefsVersion = expectedVersion,
                     termuxfsSha256 = "",
                 ),
             )
         val dtMs = System.currentTimeMillis() - t0
         assertTrue("remote rootfs provisioning failed (dt=${dtMs}ms)", ok)
         assertEquals(
-            ImageFsInstaller.LATEST_VERSION.toString(),
+            expectedVersion,
             rootfsInstaller.currentVersion(),
         )
 

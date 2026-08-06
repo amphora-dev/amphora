@@ -66,13 +66,14 @@ class RemoteContentSourceTest {
 
     @Test
     fun resolve_wine_wcp_installsFromRemoteSource() = runBlocking {
+        val expected = catalog.require().entry(ContentComponent.WINE)!!
         val resolved = source.resolve(ContentComponent.WINE.id)
 
         assertTrue("expected Resolved artifact", resolved is ContentArtifact.Resolved)
         resolved as ContentArtifact.Resolved
         assertEquals(ContentComponent.WINE, resolved.component)
-        assertEquals("Proton-10.0-4-x86_64-0", resolved.version)
-        // Install dir = filesDir/contents/Proton/10.0-4-x86_64-0 (ContentsManager.getInstallDir).
+        assertEquals(expected.version, resolved.version)
+        // Install dir follows the manifest's contentType-verName-verCode identity.
         assertTrue("proton install dir missing: ${resolved.path}", resolved.path.isDirectory)
         assertTrue("proton bin/ missing: ${resolved.path}", File(resolved.path, "bin").isDirectory)
         assertTrue(
