@@ -391,3 +391,6 @@ class ContentStagingConventionPlugin : Plugin<Project> {
 
 /** Gradle property holding the runtime manifest URL; see `gradle.properties`. */
 const val CONTENT_MANIFEST_URL_PROPERTY = "amphora.contentManifest.url"
+
+/** Gradle property holding the APK update pin URL; see `gradle.properties`. */
+const val APP_UPDATE_URL_PROPERTY = "amphora.appUpdate.url"
