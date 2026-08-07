@@ -114,7 +114,15 @@ EOF
 )"
 git push origin HEAD:main
 
-# Best-effort CDN purge (validate.yml also purges after the content_manifest push).
+# Push events from a PAT sometimes do not schedule workflows on content_manifest
+# (seen after GH Actions incidents). Explicitly dispatch validate so it still
+# cuts a semver tag and purges jsDelivr @latest for app_update.json.
+gh workflow run validate.yml \
+  --repo "${CONTENT_MANIFEST_REPO}" \
+  --ref main \
+  || echo "WARN: could not dispatch content_manifest validate.yml"
+
+# Best-effort immediate purge; validate.yml also purges after tagging.
 for path in \
   "gh/amphora-dev/content_manifest@latest/app_update.json"
 do
