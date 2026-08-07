@@ -12,20 +12,38 @@ import androidx.core.view.WindowCompat
 
 private val DarkColors =
     darkColorScheme(
-        primary = AmphoraPrimary,
-        onPrimary = AmphoraOnPrimary,
-        secondary = AmphoraSecondary,
-        tertiary = AmphoraTertiary,
-        background = AmphoraBackground,
-        surface = AmphoraSurface,
+        primary = AmphoraDarkPrimary,
+        onPrimary = AmphoraDarkOnPrimary,
+        primaryContainer = AmphoraDarkPrimaryContainer,
+        onPrimaryContainer = AmphoraDarkOnPrimaryContainer,
+        secondary = AmphoraDarkSecondary,
+        onSecondary = AmphoraDarkOnSecondary,
+        secondaryContainer = AmphoraDarkSecondaryContainer,
+        onSecondaryContainer = AmphoraDarkOnSecondaryContainer,
+        background = AmphoraDarkBackground,
+        onBackground = AmphoraDarkOnBackground,
+        surface = AmphoraDarkSurface,
+        onSurface = AmphoraDarkOnSurface,
+        surfaceVariant = AmphoraDarkSurfaceVariant,
+        onSurfaceVariant = AmphoraDarkOnSurfaceVariant,
     )
 
 private val LightColors =
     lightColorScheme(
-        primary = AmphoraPrimary,
-        onPrimary = AmphoraOnPrimary,
-        secondary = AmphoraSecondary,
-        tertiary = AmphoraTertiary,
+        primary = AmphoraLightPrimary,
+        onPrimary = AmphoraLightOnPrimary,
+        primaryContainer = AmphoraLightPrimaryContainer,
+        onPrimaryContainer = AmphoraLightOnPrimaryContainer,
+        secondary = AmphoraLightSecondary,
+        onSecondary = AmphoraLightOnSecondary,
+        secondaryContainer = AmphoraLightSecondaryContainer,
+        onSecondaryContainer = AmphoraLightOnSecondaryContainer,
+        background = AmphoraLightBackground,
+        onBackground = AmphoraLightOnBackground,
+        surface = AmphoraLightSurface,
+        onSurface = AmphoraLightOnSurface,
+        surfaceVariant = AmphoraLightSurfaceVariant,
+        onSurfaceVariant = AmphoraLightOnSurfaceVariant,
     )
 
 @Composable

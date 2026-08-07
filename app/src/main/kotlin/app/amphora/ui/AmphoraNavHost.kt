@@ -12,6 +12,7 @@ import app.amphora.feature.settings.navigation.SETTINGS_ROUTE
 import app.amphora.feature.settings.navigation.settingsScreen
 import app.amphora.gamesession.gameSessionRoute
 import app.amphora.gamesession.gameSessionScreen
+import app.amphora.gamesession.wineExplorerSessionRoute
 
 /**
  * Flip to `true` for the "open app → Wine session" iteration loop (bypasses SAF).
@@ -42,22 +43,10 @@ fun AmphoraNavHost(navController: NavHostController, startRouteOverride: String?
             onLaunch = { exePath, width, height ->
                 navController.navigate(gameSessionRoute(exePath, width, height))
             },
+            onOpenExplorer = { width, height ->
+                navController.navigate(wineExplorerSessionRoute(width, height))
+            },
             onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
-            onDebugLaunchWine = { width, height ->
-                navController.navigate(
-                    gameSessionRoute(stageDebugWineExe(context), width, height),
-                )
-            },
-            onDebugLaunchWineDiag = { width, height ->
-                navController.navigate(
-                    gameSessionRoute(
-                        stageDebugWineExe(context),
-                        width,
-                        height,
-                        graphicsDiag = true,
-                    ),
-                )
-            },
         )
         settingsScreen(onBack = { navController.popBackStack() })
         gameSessionScreen(onExit = { navController.popBackStack() })

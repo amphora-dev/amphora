@@ -281,7 +281,7 @@ fun LauncherScreen(
  * WinNative asks the same two ways from its setup wizard.
  */
 @Composable
-private fun StorageAccessBlock() {
+internal fun StorageAccessBlock() {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(hasExternalStorageAccess(context)) }
 
@@ -351,7 +351,7 @@ private fun allFilesAccessIntent(context: Context): Intent = Intent(
 )
 
 @Composable
-private fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
+internal fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
     val unhealthyComponents =
         uiState.components.count {
             it.pinned == null || it.installed == null || !it.matchesPin
@@ -478,7 +478,7 @@ private fun RuntimeAssetBlock(assets: List<RuntimeAssetStatus>) {
 }
 
 @Composable
-private fun ProvisionProgressBlock(progress: ProvisionProgress) {
+internal fun ProvisionProgressBlock(progress: ProvisionProgress) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
