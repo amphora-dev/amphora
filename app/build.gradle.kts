@@ -50,6 +50,9 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // Manifest registers ShizukuProvider directly; keep it on :app's lint
+    // compile classpath instead of relying on :core:engine's implementation edge.
+    implementation(libs.shizuku.provider)
 
     androidTestImplementation(project(":core:engine"))
     androidTestImplementation(project(":core:rootfs"))

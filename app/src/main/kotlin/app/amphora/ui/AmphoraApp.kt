@@ -1,6 +1,6 @@
 package app.amphora.ui
 
-import android.app.Activity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -15,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import app.amphora.ui.theme.AmphoraTheme
@@ -40,7 +39,7 @@ private fun StartupUpdatePrompt(viewModel: StartupUpdateViewModel = hiltViewMode
     val update = state.available ?: return
     if (state.dismissed) return
 
-    val activity = LocalContext.current as? Activity
+    val activity = LocalActivity.current
     val installPermissionLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             activity?.let(viewModel::launchSystemInstaller)
