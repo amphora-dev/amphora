@@ -3,7 +3,7 @@ package app.amphora.gamesession
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -33,14 +33,9 @@ import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.navigation.NavGraphBuilder
-import androidx.navigation.NavType
-import androidx.navigation.compose.composable
-import androidx.navigation.navArgument
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.model.SessionState
@@ -49,43 +44,6 @@ import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView
 import com.winlator.cmod.runtime.display.xserver.XServer
 import kotlin.math.roundToInt
-
-const val GAME_SESSION_ROUTE = "game_session"
-
-private const val GAME_SESSION_ROUTE_WITH_ARGS =
-    "$GAME_SESSION_ROUTE?exePath={exePath}&width={width}&height={height}&graphicsDiag={graphicsDiag}"
-
-/** Builds the navigation URL for the game-session route (exe path URL-encoded). */
-fun gameSessionRoute(exePath: String, width: Int = 1280, height: Int = 720, graphicsDiag: Boolean = false): String =
-    "$GAME_SESSION_ROUTE?exePath=${Uri.encode(exePath)}&width=$width&height=$height" +
-        "&graphicsDiag=$graphicsDiag"
-
-fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
-    composable(
-        route = GAME_SESSION_ROUTE_WITH_ARGS,
-        arguments =
-        listOf(
-            navArgument("exePath") {
-                type = NavType.StringType
-                defaultValue = ""
-            },
-            navArgument("width") {
-                type = NavType.IntType
-                defaultValue = 1280
-            },
-            navArgument("height") {
-                type = NavType.IntType
-                defaultValue = 720
-            },
-            navArgument("graphicsDiag") {
-                type = NavType.BoolType
-                defaultValue = false
-            },
-        ),
-    ) {
-        GameSessionScreen(viewModel = hiltViewModel(), onExit = onExit)
-    }
-}
 
 /**
  * The Wine game-session screen (RFC §8 / D9): the Compose rewrite of WinNative's 10,995-line
@@ -105,6 +63,14 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     val launchError by viewModel.launchError.collectAsState()
     val provisionProgress by viewModel.provisionProgress.collectAsState()
 
+    BackHandler {
+        when (sessionState) {
+            SessionState.STARTING, SessionState.RUNNING, SessionState.PAUSED -> viewModel.stop()
+            SessionState.STOPPING -> Unit
+            else -> onExit()
+        }
+    }
+
     // Game content owns the whole physical display. System bars remain
     // transiently reachable with an edge swipe and are restored on exit.
     val activity = LocalContext.current.findActivity()
@@ -121,7 +87,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
-    // Auto-exit when the guest process terminates normally (SessionHandle.markStopped).
+    // STOPPED is emitted only after Wine and XEnvironment teardown completes.
     LaunchedEffect(sessionState) {
         if (sessionState == SessionState.STOPPED) onExit()
     }
@@ -143,7 +109,14 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val running = sessionState in setOf(SessionState.STARTING, SessionState.RUNNING, SessionState.PAUSED)
+    val running =
+        sessionState in
+            setOf(
+                SessionState.STARTING,
+                SessionState.RUNNING,
+                SessionState.PAUSED,
+                SessionState.STOPPING,
+            )
 
     Box(modifier = Modifier.fillMaxSize()) {
         val sessionSurface = surface
@@ -165,8 +138,9 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         // or exits immediately when not running.
         Button(
             onClick = { if (running) viewModel.stop() else onExit() },
+            enabled = sessionState != SessionState.STOPPING,
             modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
-        ) { Text("Exit") }
+        ) { Text(if (sessionState == SessionState.STOPPING) "Closing…" else "Exit") }
     }
 }
 

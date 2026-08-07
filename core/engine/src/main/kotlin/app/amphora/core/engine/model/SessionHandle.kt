@@ -2,7 +2,7 @@ package app.amphora.core.engine.model
 
 import kotlinx.coroutines.flow.StateFlow
 
-enum class SessionState { CREATED, STARTING, RUNNING, PAUSED, STOPPED, FAILED }
+enum class SessionState { CREATED, STARTING, RUNNING, PAUSED, STOPPING, STOPPED, FAILED }
 
 /**
  * Handle to a running Wine session (RFC §6 / D9). Backed by the ported XEnvironment

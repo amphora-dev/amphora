@@ -193,7 +193,7 @@ constructor(
             // 8. Guest launcher: `box64 wine explorer /desktop=WxH "<exe>"` (D9: Amphora passes
             //    exe + env only; it never rewrites getWineStartCommand).
             val launcher = buildGuestLauncher(wnContainer, wineInfo, spec, envVars)
-            launcher.setTerminationCallback { handle.markStopped() }
+            launcher.setTerminationCallback { handle.requestStop() }
             environment.addComponent(launcher)
             // 9. Start (GPLC starts last and execs the guest process).
             handle.markStarting()
