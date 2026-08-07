@@ -382,6 +382,7 @@ constructor(
 
     private companion object {
         const val PRELAUNCH_CLEANUP_TIMEOUT_MS = 1_000L
+
         /** Pinned imagefs version (WinNative `ImageFsInstaller.LATEST_VERSION`). */
         const val IMAGEFS_VERSION = ImageFsInstaller.LATEST_VERSION.toString()
     }

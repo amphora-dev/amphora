@@ -2,6 +2,7 @@ package app.amphora.core.engine
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
 import android.util.Log
@@ -14,7 +15,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import rikka.shizuku.Shizuku
-import rikka.shizuku.ShizukuServiceConnection
 
 enum class ShizukuCleanupStatus {
     UNAVAILABLE,
@@ -32,9 +32,7 @@ enum class ShizukuCleanupStatus {
 @Singleton
 class ShizukuEmergencyStopper
 @Inject
-constructor(
-    @ApplicationContext private val context: Context,
-) {
+constructor(@ApplicationContext private val context: Context) {
     private val _status = MutableStateFlow(readStatus())
     val status: StateFlow<ShizukuCleanupStatus> = _status.asStateFlow()
 
@@ -57,7 +55,7 @@ constructor(
             if (requestCode == PERMISSION_REQUEST_CODE) refreshStatus()
         }
     private val connection =
-        object : ShizukuServiceConnection {
+        object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
                 remote = IPrivilegedCleanupService.Stub.asInterface(service)
                 if (stopPending) scheduleRemoteStop()

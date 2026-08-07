@@ -14,9 +14,9 @@ internal fun interface SessionProcessCleaner {
 }
 
 internal object DefaultSessionProcessCleaner : SessionProcessCleaner {
-    override fun terminateAndWait(timeoutMs: Long): List<String> =
-        ProcessHelper.terminateSessionProcessesAndWait(
-            timeoutMs,
-            /* forceKillAfterTimeout = */ true,
-        )
+    override fun terminateAndWait(timeoutMs: Long): List<String> = ProcessHelper.terminateSessionProcessesAndWait(
+        timeoutMs,
+        /* forceKillAfterTimeout = */
+        true,
+    )
 }
