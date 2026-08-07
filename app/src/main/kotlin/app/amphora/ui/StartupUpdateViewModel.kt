@@ -15,6 +15,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,6 +69,18 @@ constructor(
                         waitingForShizukuPermission = true,
                         message = "Grant Shizuku access to install automatically.",
                     )
+                }
+                viewModelScope.launch {
+                    delay(SHIZUKU_PERMISSION_WAIT_MS)
+                    if (_state.value.waitingForShizukuPermission) {
+                        _state.update {
+                            it.copy(
+                                waitingForShizukuPermission = false,
+                                message = "Shizuku authorization was not completed; using fallback.",
+                            )
+                        }
+                        downloadAndInstall()
+                    }
                 }
             }
             return
@@ -151,6 +164,7 @@ constructor(
 
     private companion object {
         const val TAG = "StartupUpdate"
+        const val SHIZUKU_PERMISSION_WAIT_MS = 10_000L
     }
 }
 
