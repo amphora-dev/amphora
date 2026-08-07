@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import app.amphora.core.content.update.AppUpdateCheckResult
 import app.amphora.core.content.update.AppUpdateManifest
 import app.amphora.core.content.update.AppUpdater
+import app.amphora.core.engine.ShizukuCleanupStatus
 import app.amphora.core.engine.ShizukuEmergencyStopper
 import app.amphora.core.engine.ShizukuInstallResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,6 +32,21 @@ constructor(
     val state: StateFlow<StartupUpdateState> = _state.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            shizuku.status.collect { status ->
+                if (status == ShizukuCleanupStatus.READY &&
+                    _state.value.waitingForShizukuPermission
+                ) {
+                    _state.update {
+                        it.copy(
+                            waitingForShizukuPermission = false,
+                            message = "Shizuku authorized. Starting update…",
+                        )
+                    }
+                    downloadAndInstall()
+                }
+            }
+        }
         if (appUpdater.shouldCheckAtStartup()) {
             Log.i(TAG, "Checking for app update at startup")
             checkAtStartup()
@@ -44,7 +60,24 @@ constructor(
     }
 
     fun installUpdate() {
+        if (_state.value.busy) return
+        if (shizuku.status.value == ShizukuCleanupStatus.PERMISSION_REQUIRED) {
+            if (shizuku.requestPermission()) {
+                _state.update {
+                    it.copy(
+                        waitingForShizukuPermission = true,
+                        message = "Grant Shizuku access to install automatically.",
+                    )
+                }
+            }
+            return
+        }
+        downloadAndInstall()
+    }
+
+    private fun downloadAndInstall() {
         val update = _state.value.available ?: return
+        if (_state.value.busy) return
         viewModelScope.launch {
             _state.update {
                 it.copy(
@@ -127,4 +160,5 @@ data class StartupUpdateState(
     val pendingSystemApk: File? = null,
     val message: String? = null,
     val dismissed: Boolean = false,
+    val waitingForShizukuPermission: Boolean = false,
 )
