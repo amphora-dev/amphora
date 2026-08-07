@@ -126,6 +126,10 @@ class XServerWineSessionPreparer @Inject constructor(
     override suspend fun setupWineSystemFiles(spec: LaunchSpec, container: AmphoraContainer) =
         withContext(dispatchers.io) {
             envState.clear()
+            // setupWineSystemFiles is the launch boundary. getOrCreate may have
+            // reconciled prefs into .container through another ContainerManager,
+            // so discard this singleton preparer's previous in-memory snapshot.
+            wnContainer = null
             resolveState(spec, container)
             setupWineSystemFilesCore()
         }
