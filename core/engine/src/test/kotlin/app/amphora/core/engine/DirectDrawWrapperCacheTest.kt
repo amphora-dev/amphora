@@ -1,6 +1,7 @@
 package app.amphora.core.engine
 
 import java.io.File
+import java.nio.file.Files
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertArrayEquals
@@ -11,7 +12,7 @@ import org.junit.Test
 class DirectDrawWrapperCacheTest {
     @Test
     fun extractsUpstreamD7vkX32LayoutIntoSyswow64() {
-        val root = createTempDir(prefix = "d7vk-cache-")
+        val root = Files.createTempDirectory("d7vk-cache-").toFile()
         try {
             val archive = File(root, "d7vk.zip")
             val payload = byteArrayOf(0x4d, 0x5a, 1, 2, 3)
@@ -36,7 +37,7 @@ class DirectDrawWrapperCacheTest {
 
     @Test
     fun rejectsArchiveWithoutX32Ddraw() {
-        val root = createTempDir(prefix = "d7vk-cache-")
+        val root = Files.createTempDirectory("d7vk-cache-").toFile()
         try {
             val archive = File(root, "d7vk.zip")
             writeZip(archive, mapOf("d7vk-v2.0/x64/ddraw.dll" to byteArrayOf(1)))
