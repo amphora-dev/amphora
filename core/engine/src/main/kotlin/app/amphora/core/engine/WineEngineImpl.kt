@@ -188,7 +188,20 @@ constructor(
             // 7. XEnvironment + service components (GPLC added separately so the handle can wire its
             //    termination callback first).
             val environment = buildEnvironment(xServer, envVars)
-            val handle = XServerSessionHandle(environment, xServer, dispatchers)
+            lateinit var handle: XServerSessionHandle
+            handle =
+                XServerSessionHandle(
+                    environment,
+                    xServer,
+                    dispatchers,
+                    onStopped = {
+                        if (currentHandle === handle) {
+                            _surface.value = null
+                            currentXServer = null
+                            currentHandle = null
+                        }
+                    },
+                )
             currentHandle = handle
             // 8. Guest launcher: `box64 wine explorer /desktop=WxH "<exe>"` (D9: Amphora passes
             //    exe + env only; it never rewrites getWineStartCommand).
