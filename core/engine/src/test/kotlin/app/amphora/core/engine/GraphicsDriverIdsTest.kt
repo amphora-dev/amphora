@@ -5,6 +5,24 @@ import org.junit.Test
 
 class GraphicsDriverIdsTest {
     @Test
+    fun normalizePreservesSupportedSelectionsAndFallsBackToWrapper() {
+        val cases =
+            mapOf(
+                null to GraphicsDriverIds.WRAPPER,
+                "" to GraphicsDriverIds.WRAPPER,
+                GraphicsDriverIds.WRAPPER to GraphicsDriverIds.WRAPPER,
+                "system" to GraphicsDriverIds.SYSTEM,
+                GraphicsDriverIds.SYSTEM to GraphicsDriverIds.SYSTEM,
+                GraphicsDriverIds.TURNIP_BALANCED to GraphicsDriverIds.TURNIP_BALANCED,
+                "unknown-driver" to GraphicsDriverIds.WRAPPER,
+            )
+
+        cases.forEach { (input, expected) ->
+            assertEquals("normalize($input)", expected, GraphicsDriverIds.normalize(input))
+        }
+    }
+
+    @Test
     fun wrapperUsesSystemVulkanForHostCompositor() {
         assertEquals(
             GraphicsDriverIds.SYSTEM,
