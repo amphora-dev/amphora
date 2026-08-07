@@ -9,6 +9,7 @@ import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.SessionState
 import app.amphora.ui.DebugWineFixture
+import com.winlator.cmod.runtime.system.ProcessHelper
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import java.io.File
@@ -87,6 +88,11 @@ class GameSessionLaunchTest {
             )
         } finally {
             handle.stop()
+            val remaining = ProcessHelper.listRunningWineProcessDetails()
+            assertTrue(
+                "session teardown left Wine/Box64 processes: $remaining",
+                remaining.isEmpty(),
+            )
         }
     }
 }

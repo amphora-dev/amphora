@@ -33,6 +33,7 @@ internal class XServerSessionHandle(
     private val environment: XEnvironment,
     private val xServer: XServer,
     private val dispatchers: DispatcherProvider,
+    private val processCleaner: SessionProcessCleaner = DefaultSessionProcessCleaner,
 ) : SessionHandle {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(SessionState.CREATED)
@@ -89,6 +90,8 @@ internal class XServerSessionHandle(
     override suspend fun stop() = mutex.withLock {
         if (teardownDone) return@withLock
         teardownDone = true
+        val terminalState =
+            if (_state.value == SessionState.FAILED) SessionState.FAILED else SessionState.STOPPED
         try {
             environment.stopEnvironmentComponents()
         } catch (e: Exception) {
@@ -96,24 +99,22 @@ internal class XServerSessionHandle(
             // a belt-and-braces guard so a teardown exception never escapes stop().
         }
         try {
-            ProcessHelper.terminateAllWineProcesses()
+            processCleaner.terminateAndWait(PROCESS_EXIT_TIMEOUT_MS)
         } catch (e: Exception) {
-            // Best-effort; the kernel reaps stragglers via forceKillAllWineProcesses below.
-        }
-        try {
-            if (ProcessHelper.listRunningWineProcesses().isNotEmpty()) {
-                ProcessHelper.forceKillAllWineProcesses()
-            }
-        } catch (e: Exception) {
-            // ignore
+            // Best-effort at this boundary. A subsequent launch runs the same
+            // bounded cleanup before creating any new guest processes.
         }
         try {
             xServer.stop()
         } catch (e: Exception) {
             // ignore
         }
-        _state.value = SessionState.STOPPED
+        _state.value = terminalState
         // Release anyone awaiting readiness so coroutines don't hang on a failed/stopped session.
         readiness.complete(Unit)
+    }
+
+    private companion object {
+        const val PROCESS_EXIT_TIMEOUT_MS = 2_000L
     }
 }

@@ -108,6 +108,12 @@ constructor(
     private val sessionAudioSink = XServerAudioSink()
 
     override suspend fun launch(spec: LaunchSpec): SessionHandle = withContext(dispatchers.default) {
+        // A new launch is also the recovery boundary after process death or an
+        // interrupted teardown. Stop the previous handle first, then sweep any
+        // own-UID Wine/Box64 processes that survived before creating new ones.
+        currentHandle?.stop()
+        DefaultSessionProcessCleaner.terminateAndWait(PRELAUNCH_CLEANUP_TIMEOUT_MS)
+
         // Clear any prior session state before starting a new one.
         _surface.value = null
         currentXServer = null
@@ -195,6 +201,10 @@ constructor(
                 handle.markRunning()
             } catch (e: Exception) {
                 handle.markFailed(e)
+                // launch() throws, so the ViewModel never receives this handle.
+                // Teardown must happen here or partially-started components and
+                // Wine children become unreachable.
+                handle.stop()
                 throw e
             }
             handle
@@ -371,6 +381,7 @@ constructor(
     }
 
     private companion object {
+        const val PRELAUNCH_CLEANUP_TIMEOUT_MS = 1_000L
         /** Pinned imagefs version (WinNative `ImageFsInstaller.LATEST_VERSION`). */
         const val IMAGEFS_VERSION = ImageFsInstaller.LATEST_VERSION.toString()
     }
