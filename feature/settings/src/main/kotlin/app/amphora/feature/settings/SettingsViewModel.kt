@@ -565,6 +565,7 @@ enum class GraphicsDriverSetting(val id: String, val label: String) {
 
 enum class DirectDrawSetting(val id: String, val label: String) {
     DXWRAPPER(DirectDrawWrapperIds.DXWRAPPER_DD7TO9, "DxWrapper"),
+    D7VK(DirectDrawWrapperIds.D7VK, "d7vk"),
     CNC_DDRAW(DirectDrawWrapperIds.CNC_DDRAW, "cnc-ddraw"),
     ;
 
