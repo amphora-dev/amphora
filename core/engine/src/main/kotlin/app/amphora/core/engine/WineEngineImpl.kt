@@ -389,8 +389,7 @@ constructor(
     }
 }
 
-internal fun buildWineExplorerCommand(screenInfo: String): String =
-    "wine explorer /desktop=shell,$screenInfo"
+internal fun buildWineExplorerCommand(screenInfo: String): String = "wine explorer /desktop=shell,$screenInfo"
 
 internal fun buildWineProgramCommand(screenInfo: String, wineExePath: String): String =
     "wine explorer /desktop=shell,$screenInfo \"$wineExePath\""

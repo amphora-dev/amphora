@@ -64,17 +64,15 @@ fun gameSessionRoute(
     height: Int = 720,
     target: LaunchTarget = LaunchTarget.PROGRAM,
     graphicsDiag: Boolean = false,
-): String =
-    "$GAME_SESSION_ROUTE?exePath=${Uri.encode(exePath)}&width=$width&height=$height" +
-        "&target=${target.name}&graphicsDiag=$graphicsDiag"
+): String = "$GAME_SESSION_ROUTE?exePath=${Uri.encode(exePath)}&width=$width&height=$height" +
+    "&target=${target.name}&graphicsDiag=$graphicsDiag"
 
-fun wineExplorerSessionRoute(width: Int = 1280, height: Int = 720): String =
-    gameSessionRoute(
-        exePath = "",
-        width = width,
-        height = height,
-        target = LaunchTarget.EXPLORER,
-    )
+fun wineExplorerSessionRoute(width: Int = 1280, height: Int = 720): String = gameSessionRoute(
+    exePath = "",
+    width = width,
+    height = height,
+    target = LaunchTarget.EXPLORER,
+)
 
 fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
     composable(

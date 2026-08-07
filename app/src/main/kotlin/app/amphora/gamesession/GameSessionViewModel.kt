@@ -84,13 +84,7 @@ constructor(
         }
     }
 
-    private fun launch(
-        exePath: String,
-        width: Int,
-        height: Int,
-        target: LaunchTarget,
-        graphicsDiag: Boolean,
-    ) {
+    private fun launch(exePath: String, width: Int, height: Int, target: LaunchTarget, graphicsDiag: Boolean) {
         viewModelScope.launch {
             _sessionState.value = SessionState.STARTING
             try {

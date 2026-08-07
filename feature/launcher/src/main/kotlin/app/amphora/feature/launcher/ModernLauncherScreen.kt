@@ -248,12 +248,7 @@ private fun ExplorerCard(enabled: Boolean, busy: Boolean, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun ProgramCard(
-    state: LauncherUiState,
-    runtimeReady: Boolean,
-    onChoose: () -> Unit,
-    onLaunch: () -> Unit,
-) {
+private fun ProgramCard(state: LauncherUiState, runtimeReady: Boolean, onChoose: () -> Unit, onLaunch: () -> Unit) {
     val selectedName = state.stagedExePath?.let { File(it).name }
     Card(
         modifier = Modifier.fillMaxWidth(),
