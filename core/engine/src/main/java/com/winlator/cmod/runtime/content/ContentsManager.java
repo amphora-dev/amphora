@@ -728,9 +728,10 @@ public class ContentsManager {
   public boolean applyContent(ContentProfile profile) {
     if (profile.type != ContentProfile.ContentType.CONTENT_TYPE_WINE
         && profile.type != ContentProfile.ContentType.CONTENT_TYPE_PROTON) {
-      // Upstream DXVK .wcp packages sometimes ship d3d8/d3d10*.dll on disk but
-      // omit them from profile.json files[]. DXVK ≥ 2.4 includes d3d8 natively;
-      // without these entries the Wine builtins stay in the prefix and DX8 breaks.
+      // Some fork DXVK .wcp packages ship d3d8/d3d10*.dll on disk but omit them
+      // from profile.json files[]. Trust-augment links any that are present.
+      // Amphora's self-built DXVK 3.0.2 matches upstream ≥ 2.0 (d3d8 + d3d10core
+      // only); d3d10/d3d10_1 stay Wine builtins restored after applyContent.
       augmentFileListWithPresentTrustedFiles(profile);
       for (ContentProfile.ContentFile contentFile : profile.fileList) {
         File targetFile = new File(getPathFromTemplate(contentFile.target));

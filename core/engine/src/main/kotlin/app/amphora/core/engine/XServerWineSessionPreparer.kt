@@ -542,6 +542,16 @@ class XServerWineSessionPreparer @Inject constructor(
                             ContentsManager.getEntryName(dxvkProfile),
                     )
                     contentsManager.applyContent(dxvkProfile)
+                    // DXVK ≥ 2.0 dropped its incomplete d3d10/d3d10_1 front-ends;
+                    // Amphora's self-built 3.0.2 WCP matches upstream and only ships
+                    // d3d10core. Wine's builtins forward CreateDevice/effects there.
+                    // The pre-extract wipe clears stale fork links, so restore them.
+                    WinComponentSetup.restoreWineBuiltinDllFiles(
+                        imageFs,
+                        wineInfo,
+                        "d3d10.dll",
+                        "d3d10_1.dll",
+                    )
                     extractD8VKIfNeeded(dxvkWrapper, windowsDir)
                 } else {
                     // Match WinNative XSDA: no fake ARCHIVE/Wine-builtin substitute.
@@ -1194,8 +1204,9 @@ class XServerWineSessionPreparer @Inject constructor(
         var deleted = 0
         for (name in DXWRAPPER_DLLS) {
             // Keep d3dimm.dll — owned by ddraw wrappers, not DXVK applyContent.
-            // Do wipe d3d8/d3d10/d3d10_1: DXVK ≥ 2.4 ships them, and skipping left
-            // Wine builtins in the prefix when profile.json omitted those entries.
+            // Wipe d3d8 (DXVK ships it) and d3d10/d3d10_1 (Wine front-ends after
+            // DXVK ≥ 2.0) so stale fork links to missing WCPs are cleared; extract
+            // re-links DXVK DLLs and restores Wine d3d10/d3d10_1 afterward.
             if (name == "d3dimm.dll") continue
             val a = File(system32, name)
             val b = File(syswow64, name)
@@ -1276,17 +1287,18 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val parts = dxwrapper.split(";")
         if (parts.firstOrNull()?.startsWith("dxvk-") == true) {
+            // DLLs owned by the DXVK WCP (Amphora 3.0.2 / upstream ≥ 2.0).
             val dxvkDlls =
                 arrayOf(
                     "d3d8.dll",
                     "d3d9.dll",
-                    "d3d10.dll",
-                    "d3d10_1.dll",
                     "d3d10core.dll",
                     "d3d11.dll",
                     "dxgi.dll",
                 )
             if (dxvkDlls.any { !bothLinked(it) }) return true
+            // Wine front-ends (not in the DXVK WCP); still must be present links.
+            if (arrayOf("d3d10.dll", "d3d10_1.dll").any { !bothLinked(it) }) return true
         }
         if (parts.getOrNull(1)?.startsWith("vkd3d-") == true &&
             arrayOf("d3d12.dll", "d3d12core.dll").any { !bothLinked(it) }
