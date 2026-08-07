@@ -4,6 +4,11 @@ import app.amphora.core.container.model.ContainerId
 
 data class DisplaySize(val width: Int, val height: Int)
 
+enum class LaunchTarget {
+    PROGRAM,
+    EXPLORER,
+}
+
 /**
  * What the engine needs to start a Wine session (RFC §6 / §8). The launch
  * command itself (`box64 wine explorer /desktop=WxH exe`) is constructed by the
@@ -14,6 +19,7 @@ data class LaunchSpec(
     val exePath: String,
     val containerId: ContainerId,
     val displaySize: DisplaySize,
+    val target: LaunchTarget = LaunchTarget.PROGRAM,
     val env: Map<String, String> = emptyMap(),
     val workingDirectory: String? = null,
 )

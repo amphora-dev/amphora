@@ -43,6 +43,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.engine.GameSessionSurface
+import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.core.engine.model.SessionState
 import app.amphora.gamesession.input.TouchpadView
 import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
@@ -53,12 +54,27 @@ import kotlin.math.roundToInt
 const val GAME_SESSION_ROUTE = "game_session"
 
 private const val GAME_SESSION_ROUTE_WITH_ARGS =
-    "$GAME_SESSION_ROUTE?exePath={exePath}&width={width}&height={height}&graphicsDiag={graphicsDiag}"
+    "$GAME_SESSION_ROUTE?exePath={exePath}&width={width}&height={height}" +
+        "&target={target}&graphicsDiag={graphicsDiag}"
 
 /** Builds the navigation URL for the game-session route (exe path URL-encoded). */
-fun gameSessionRoute(exePath: String, width: Int = 1280, height: Int = 720, graphicsDiag: Boolean = false): String =
+fun gameSessionRoute(
+    exePath: String,
+    width: Int = 1280,
+    height: Int = 720,
+    target: LaunchTarget = LaunchTarget.PROGRAM,
+    graphicsDiag: Boolean = false,
+): String =
     "$GAME_SESSION_ROUTE?exePath=${Uri.encode(exePath)}&width=$width&height=$height" +
-        "&graphicsDiag=$graphicsDiag"
+        "&target=${target.name}&graphicsDiag=$graphicsDiag"
+
+fun wineExplorerSessionRoute(width: Int = 1280, height: Int = 720): String =
+    gameSessionRoute(
+        exePath = "",
+        width = width,
+        height = height,
+        target = LaunchTarget.EXPLORER,
+    )
 
 fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
     composable(
@@ -76,6 +92,10 @@ fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
             navArgument("height") {
                 type = NavType.IntType
                 defaultValue = 720
+            },
+            navArgument("target") {
+                type = NavType.StringType
+                defaultValue = LaunchTarget.PROGRAM.name
             },
             navArgument("graphicsDiag") {
                 type = NavType.BoolType

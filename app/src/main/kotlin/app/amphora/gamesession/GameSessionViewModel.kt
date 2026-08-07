@@ -13,6 +13,7 @@ import app.amphora.core.engine.GraphicsDiag
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
+import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.core.engine.model.SessionHandle
 import app.amphora.core.engine.model.SessionState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -69,16 +70,27 @@ constructor(
         val exePath = savedStateHandle.get<String>(EXE_PATH_ARG).orEmpty()
         val width = savedStateHandle.get<Int>(WIDTH_ARG) ?: DEFAULT_WIDTH
         val height = savedStateHandle.get<Int>(HEIGHT_ARG) ?: DEFAULT_HEIGHT
+        val target =
+            savedStateHandle
+                .get<String>(TARGET_ARG)
+                ?.let { runCatching { LaunchTarget.valueOf(it) }.getOrNull() }
+                ?: LaunchTarget.PROGRAM
         val graphicsDiag = savedStateHandle.get<Boolean>(GRAPHICS_DIAG_ARG) == true
-        if (exePath.isEmpty()) {
+        if (target == LaunchTarget.PROGRAM && exePath.isEmpty()) {
             _launchError.value = "No game selected"
             _sessionState.value = SessionState.FAILED
         } else {
-            launch(exePath, width, height, graphicsDiag)
+            launch(exePath, width, height, target, graphicsDiag)
         }
     }
 
-    private fun launch(exePath: String, width: Int, height: Int, graphicsDiag: Boolean) {
+    private fun launch(
+        exePath: String,
+        width: Int,
+        height: Int,
+        target: LaunchTarget,
+        graphicsDiag: Boolean,
+    ) {
         viewModelScope.launch {
             _sessionState.value = SessionState.STARTING
             try {
@@ -99,6 +111,7 @@ constructor(
                         exePath = exePath,
                         containerId = DEFAULT_CONTAINER_ID,
                         displaySize = DisplaySize(width, height),
+                        target = target,
                         env = diagEnv,
                     )
                 val h = wineEngine.launch(spec)
@@ -138,6 +151,7 @@ constructor(
         const val EXE_PATH_ARG = "exePath"
         const val WIDTH_ARG = "width"
         const val HEIGHT_ARG = "height"
+        const val TARGET_ARG = "target"
         const val GRAPHICS_DIAG_ARG = "graphicsDiag"
         const val DEFAULT_WIDTH = 1280
         const val DEFAULT_HEIGHT = 720
