@@ -47,10 +47,9 @@ object GraphicsDriverIds {
      * open the platform loader directly. Downloaded Turnip packages are Android HALs and can
      * be loaded through adrenotools, but only on Adreno devices.
      */
-    fun resolveHostDriver(id: String?, isAdreno: Boolean): String =
-        when (normalize(id)) {
-            TURNIP_BALANCED -> if (isAdreno) TURNIP_BALANCED else SYSTEM
-            WRAPPER, SYSTEM -> SYSTEM
-            else -> SYSTEM
-        }
+    fun resolveHostDriver(id: String?, isAdreno: Boolean): String = when (normalize(id)) {
+        TURNIP_BALANCED -> if (isAdreno) TURNIP_BALANCED else SYSTEM
+        WRAPPER, SYSTEM -> SYSTEM
+        else -> SYSTEM
+    }
 }
