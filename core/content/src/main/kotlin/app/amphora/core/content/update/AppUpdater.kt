@@ -149,8 +149,7 @@ class AppUpdater(
     }
 }
 
-internal fun isDevelopmentVersionCode(versionCode: Long): Boolean =
-    versionCode < DISTRIBUTION_VERSION_CODE_BASE
+internal fun isDevelopmentVersionCode(versionCode: Long): Boolean = versionCode < DISTRIBUTION_VERSION_CODE_BASE
 
 private const val DISTRIBUTION_VERSION_CODE_BASE = 20_000_000L
 
