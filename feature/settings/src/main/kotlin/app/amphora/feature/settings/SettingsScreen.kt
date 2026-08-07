@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,6 +62,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import app.amphora.core.content.model.ContentComponent
+import app.amphora.core.engine.ShizukuCleanupStatus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -167,6 +169,8 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
             AppUpdateSection(state = state, viewModel = viewModel)
 
             StorageSection()
+
+            SessionCleanupSection(state = state, viewModel = viewModel)
 
             ComponentSection(state = state, onRefresh = viewModel::refreshComponents)
 
@@ -681,6 +685,67 @@ private fun ComponentSection(state: SettingsUiState, onRefresh: () -> Unit) {
         TextButton(onClick = onRefresh, enabled = !state.refreshing) {
             Text(if (state.refreshing) "Refreshing…" else "Refresh component status")
         }
+    }
+}
+
+@Composable
+private fun SessionCleanupSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    var confirmEmergencyStop by rememberSaveable { mutableStateOf(false) }
+    SettingSection(
+        title = "Session cleanup",
+        subtitle = "Normal teardown is built in; Shizuku is an emergency fallback",
+    ) {
+        Text(
+            "Exit first stops environment components, then waits for Wine/Box64, sends SIGKILL " +
+                "when needed, and reaps child processes. No elevated permission is required.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            when (state.shizukuCleanupStatus) {
+                ShizukuCleanupStatus.UNAVAILABLE -> "Shizuku: unavailable or not running"
+                ShizukuCleanupStatus.PERMISSION_REQUIRED -> "Shizuku: permission required"
+                ShizukuCleanupStatus.READY -> "Shizuku: ready for emergency force-stop"
+            },
+            style = MaterialTheme.typography.labelMedium,
+        )
+        when (state.shizukuCleanupStatus) {
+            ShizukuCleanupStatus.UNAVAILABLE -> Unit
+            ShizukuCleanupStatus.PERMISSION_REQUIRED ->
+                TextButton(onClick = viewModel::requestShizukuPermission) {
+                    Text("Grant Shizuku access")
+                }
+            ShizukuCleanupStatus.READY ->
+                TextButton(onClick = { confirmEmergencyStop = true }) {
+                    Text("Emergency force-stop Amphora")
+                }
+        }
+    }
+
+    if (confirmEmergencyStop) {
+        AlertDialog(
+            onDismissRequest = { confirmEmergencyStop = false },
+            title = { Text("Force-stop Amphora?") },
+            text = {
+                Text(
+                    "This asks Shizuku to stop the entire app and every Wine/Box64 process. " +
+                        "Use it only if normal Exit did not finish.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmEmergencyStop = false
+                        viewModel.emergencyForceStop()
+                    },
+                ) {
+                    Text("Force stop")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmEmergencyStop = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
