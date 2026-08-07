@@ -8,10 +8,12 @@ import org.junit.Test
 
 class AppUpdateManifestTest {
     @Test
-    fun onlyLocalDefaultVersionIsDevelopmentBuild() {
+    fun onlyPublishedCiVersionRangeEnablesStartupUpdates() {
         assertTrue(isDevelopmentVersionCode(1L))
-        assertFalse(isDevelopmentVersionCode(0L))
-        assertFalse(isDevelopmentVersionCode(2L))
+        assertTrue(isDevelopmentVersionCode(0L))
+        assertTrue(isDevelopmentVersionCode(2L))
+        assertTrue(isDevelopmentVersionCode(19_999_999L))
+        assertFalse(isDevelopmentVersionCode(20_000_000L))
         assertFalse(isDevelopmentVersionCode(20_000_117L))
     }
 
