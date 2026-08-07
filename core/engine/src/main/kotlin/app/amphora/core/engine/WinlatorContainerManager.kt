@@ -157,8 +157,9 @@ constructor(
         ensurePinnedBox64Version(container, box64Version)
         ensureRealDxwrapper(container, dxwrapper)
         ensureWinComponents(container, wincomponents)
-        // One-shot: incomplete upstream DXVK profile.json omitted d3d8/d3d10*;
+        // One-shot: incomplete fork DXVK profile.json omitted on-disk d3d8/d3d10*;
         // clear the preparer gate so applyContent re-runs with trust augment.
+        // (Self-built 3.0.2 does not ship d3d10/d3d10_1; those are Wine front-ends.)
         ensureDxvkTrustAugmentReapply(container)
     }
 
@@ -355,8 +356,9 @@ constructor(
 
     /**
      * Force one DXVK re-apply after [ContentsManager] started augmenting
-     * trust-listed DLLs missing from incomplete upstream `profile.json`
-     * (notably `d3d8.dll` / `d3d10.dll` / `d3d10_1.dll` on Dxvk-2.7.1-gplasync).
+     * trust-listed DLLs missing from incomplete fork `profile.json`
+     * (notably `d3d8.dll` on Dxvk-2.7.1-gplasync; that fork also shipped
+     * `d3d10.dll` / `d3d10_1.dll`, which Amphora's 3.0.2 WCP does not).
      */
     private fun ensureDxvkTrustAugmentReapply(container: WnContainer) {
         if (container.getExtra(DXVK_TRUST_AUGMENT_EXTRA) == "1") return
