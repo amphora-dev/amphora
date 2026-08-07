@@ -2,6 +2,7 @@ package app.amphora.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.content.update.AppUpdateCheckResult
@@ -30,7 +31,12 @@ constructor(
     val state: StateFlow<StartupUpdateState> = _state.asStateFlow()
 
     init {
-        if (appUpdater.shouldCheckAtStartup()) checkAtStartup()
+        if (appUpdater.shouldCheckAtStartup()) {
+            Log.i(TAG, "Checking for app update at startup")
+            checkAtStartup()
+        } else {
+            Log.i(TAG, "Skipping startup update check for local development build")
+        }
     }
 
     fun dismiss() {
@@ -88,8 +94,10 @@ constructor(
     private fun checkAtStartup() {
         viewModelScope.launch {
             when (val result = appUpdater.check()) {
-                is AppUpdateCheckResult.UpdateAvailable ->
+                is AppUpdateCheckResult.UpdateAvailable -> {
+                    Log.i(TAG, "Startup update available: ${result.remote.versionName}")
                     _state.update { it.copy(available = result.remote) }
+                }
                 is AppUpdateCheckResult.UpToDate,
                 is AppUpdateCheckResult.Unavailable,
                 is AppUpdateCheckResult.Failed,
@@ -106,6 +114,10 @@ constructor(
                 message = message,
             )
         }
+    }
+
+    private companion object {
+        const val TAG = "StartupUpdate"
     }
 }
 

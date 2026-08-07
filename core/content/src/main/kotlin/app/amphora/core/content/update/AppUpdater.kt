@@ -2,8 +2,8 @@ package app.amphora.core.content.update
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.os.Build
 import android.provider.Settings
@@ -112,13 +112,12 @@ class AppUpdater(
     private fun packageInfo(path: String): PackageInfo? =
         context.packageManager.getPackageArchiveInfo(path, SIGNATURE_FLAGS)
 
-    private fun versionCode(info: PackageInfo): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            info.longVersionCode
-        } else {
-            @Suppress("DEPRECATION")
-            info.versionCode.toLong()
-        }
+    private fun versionCode(info: PackageInfo): Long = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        info.longVersionCode
+    } else {
+        @Suppress("DEPRECATION")
+        info.versionCode.toLong()
+    }
 
     @Suppress("DEPRECATION")
     private fun signingDigests(info: PackageInfo): Set<String> {

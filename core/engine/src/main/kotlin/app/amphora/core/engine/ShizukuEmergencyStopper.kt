@@ -47,7 +47,9 @@ constructor(
 
     @Volatile private var remote: IPrivilegedCleanupService? = null
     private var stopPending = false
+
     @Volatile private var binding = false
+
     @Volatile private var remoteReady = CompletableDeferred<IPrivilegedCleanupService>()
     private val userServiceArgs =
         Shizuku.UserServiceArgs(ComponentName(context, PrivilegedCleanupService::class.java))

@@ -35,11 +35,7 @@ class PrivilegedCleanupService : IPrivilegedCleanupService.Stub() {
         }
     }
 
-    override fun installPackage(
-        apk: ParcelFileDescriptor,
-        apkSize: Long,
-        packageName: String,
-    ): String {
+    override fun installPackage(apk: ParcelFileDescriptor, apkSize: Long, packageName: String): String {
         require(PACKAGE_NAME.matches(packageName)) { "Invalid package name" }
         require(apkSize > 0L) { "APK size must be positive" }
         return try {
