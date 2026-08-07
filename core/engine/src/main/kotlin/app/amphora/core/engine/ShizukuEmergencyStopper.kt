@@ -5,15 +5,21 @@ import android.content.Context
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
 import android.util.Log
+import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.engine.privileged.IPrivilegedCleanupService
 import app.amphora.core.engine.privileged.PrivilegedCleanupService
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import rikka.shizuku.Shizuku
 
 enum class ShizukuCleanupStatus {
@@ -32,12 +38,19 @@ enum class ShizukuCleanupStatus {
 @Singleton
 class ShizukuEmergencyStopper
 @Inject
-constructor(@ApplicationContext private val context: Context) {
+constructor(
+    @ApplicationContext private val context: Context,
+    private val dispatchers: DispatcherProvider,
+) {
     private val _status = MutableStateFlow(readStatus())
     val status: StateFlow<ShizukuCleanupStatus> = _status.asStateFlow()
 
-    private var remote: IPrivilegedCleanupService? = null
+    @Volatile private var remote: IPrivilegedCleanupService? = null
     private var stopPending = false
+
+    @Volatile private var binding = false
+
+    @Volatile private var remoteReady = CompletableDeferred<IPrivilegedCleanupService>()
     private val userServiceArgs =
         Shizuku.UserServiceArgs(ComponentName(context, PrivilegedCleanupService::class.java))
             .processNameSuffix("cleanup")
@@ -58,11 +71,15 @@ constructor(@ApplicationContext private val context: Context) {
         object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
                 remote = IPrivilegedCleanupService.Stub.asInterface(service)
+                binding = false
+                remoteReady.complete(requireNotNull(remote))
                 if (stopPending) scheduleRemoteStop()
             }
 
             override fun onServiceDisconnected(name: ComponentName) {
                 remote = null
+                binding = false
+                remoteReady = CompletableDeferred()
             }
         }
 
@@ -109,13 +126,34 @@ constructor(@ApplicationContext private val context: Context) {
             scheduleRemoteStop()
             return true
         }
-        return try {
-            Shizuku.bindUserService(userServiceArgs, connection)
-            true
-        } catch (error: RuntimeException) {
-            stopPending = false
-            Log.e(TAG, "Unable to bind Shizuku cleanup service", error)
-            false
+        return bindService().also { if (!it) stopPending = false }
+    }
+
+    suspend fun installPackage(apk: File): ShizukuInstallResult = withContext(dispatchers.io) {
+        if (!apk.isFile || apk.length() <= 0L) {
+            return@withContext ShizukuInstallResult.Failed("Downloaded APK is missing")
+        }
+        if (readStatus() != ShizukuCleanupStatus.READY) {
+            refreshStatus()
+            return@withContext ShizukuInstallResult.Unavailable
+        }
+        if (!bindService()) return@withContext ShizukuInstallResult.Failed("Unable to bind Shizuku")
+        try {
+            val service = remote ?: withTimeout(SERVICE_BIND_TIMEOUT_MS) { remoteReady.await() }
+            val output =
+                ParcelFileDescriptor.open(apk, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                    service.installPackage(descriptor, apk.length(), context.packageName)
+                }
+            if (output.contains("status=0", ignoreCase = true) &&
+                output.contains("Success", ignoreCase = true)
+            ) {
+                ShizukuInstallResult.Started
+            } else {
+                ShizukuInstallResult.Failed(output)
+            }
+        } catch (error: Throwable) {
+            Log.e(TAG, "Shizuku package install failed", error)
+            ShizukuInstallResult.Failed(error.message ?: error.javaClass.simpleName)
         }
     }
 
@@ -126,6 +164,20 @@ constructor(@ApplicationContext private val context: Context) {
             service.scheduleForceStop(context.packageName, FORCE_STOP_DELAY_MS)
         } catch (error: Throwable) {
             Log.e(TAG, "Unable to schedule Shizuku emergency stop", error)
+        }
+    }
+
+    @Synchronized
+    private fun bindService(): Boolean {
+        if (remote != null || binding) return true
+        return try {
+            binding = true
+            Shizuku.bindUserService(userServiceArgs, connection)
+            true
+        } catch (error: RuntimeException) {
+            binding = false
+            Log.e(TAG, "Unable to bind Shizuku privileged service", error)
+            false
         }
     }
 
@@ -146,5 +198,14 @@ constructor(@ApplicationContext private val context: Context) {
         const val TAG = "ShizukuCleanup"
         const val PERMISSION_REQUEST_CODE = 0xA650
         const val FORCE_STOP_DELAY_MS = 750
+        const val SERVICE_BIND_TIMEOUT_MS = 5_000L
     }
+}
+
+sealed interface ShizukuInstallResult {
+    data object Started : ShizukuInstallResult
+
+    data object Unavailable : ShizukuInstallResult
+
+    data class Failed(val reason: String) : ShizukuInstallResult
 }

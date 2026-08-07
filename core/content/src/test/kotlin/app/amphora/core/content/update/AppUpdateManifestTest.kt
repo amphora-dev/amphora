@@ -8,6 +8,14 @@ import org.junit.Test
 
 class AppUpdateManifestTest {
     @Test
+    fun onlyLocalDefaultVersionIsDevelopmentBuild() {
+        assertTrue(isDevelopmentVersionCode(1L))
+        assertFalse(isDevelopmentVersionCode(0L))
+        assertFalse(isDevelopmentVersionCode(2L))
+        assertFalse(isDevelopmentVersionCode(20_000_117L))
+    }
+
+    @Test
     fun parsesRequiredFields() {
         val m = AppUpdateManifest.parse(SAMPLE)
         assertEquals(20000042, m.versionCode)
