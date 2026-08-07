@@ -65,6 +65,7 @@
             android:configChanges="orientation|screenSize|keyboardHidden|locale|layoutDirection|fontScale|uiMode"
             android:excludeFromRecents="true"
             android:exported="false"
+            android:launchMode="singleTask"
             android:process=":session" />
 
         <provider
