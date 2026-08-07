@@ -41,6 +41,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -204,7 +205,7 @@ constructor(
                 // launch() throws, so the ViewModel never receives this handle.
                 // Teardown must happen here or partially-started components and
                 // Wine children become unreachable.
-                handle.stop()
+                withContext(NonCancellable) { handle.stop() }
                 throw e
             }
             handle
