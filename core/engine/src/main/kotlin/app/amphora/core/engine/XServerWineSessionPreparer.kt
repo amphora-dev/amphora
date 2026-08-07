@@ -582,8 +582,8 @@ class XServerWineSessionPreparer @Inject constructor(
             Log.d(TAG, "Linking nglide wrapper from shared cache")
             DirectDrawWrapperCache.linkDlls(context, "nglide", windowsDir)
 
-            // DirectDraw wrappers are mutually exclusive and must never fall
-            // back to Wine's builtin ddraw/WineD3D path.
+            // DirectDraw wrappers are mutually exclusive. d7vk is a D3D proxy,
+            // so it additionally keeps Wine's real DirectDraw as ddraw_.dll.
             val syswow64Dir = File(rootDir, ImageFs.WINEPREFIX + "/drive_c/windows/syswow64")
             val system32Dir = File(rootDir, ImageFs.WINEPREFIX + "/drive_c/windows/system32")
             File(syswow64Dir, "ddraw_.dll").delete()
@@ -602,6 +602,15 @@ class XServerWineSessionPreparer @Inject constructor(
             val selectedDdraw = DirectDrawWrapperIds.normalize(ddrawrapper)
             check(selectedDdraw == ddrawrapper) {
                 "Unsupported DirectDraw wrapper '$ddrawrapper'; refusing WineD3D fallback"
+            }
+            if (selectedDdraw == DirectDrawWrapperIds.D7VK) {
+                // Upstream's recommended system-path deployment: d7vk loads the
+                // original Wine DirectDraw implementation through ddraw_.dll.
+                val builtin = File(syswow64Dir, "ddraw.dll")
+                val fallback = File(syswow64Dir, "ddraw_.dll")
+                check(builtin.isFile && builtin.renameTo(fallback) && fallback.isFile) {
+                    "Cannot preserve Wine DirectDraw as syswow64/ddraw_.dll for d7vk"
+                }
             }
             Log.i(TAG, "Extracting DirectDraw wrapper '$selectedDdraw'")
             val ddrawCache = DirectDrawWrapperCache.linkDlls(context, selectedDdraw, windowsDir)
@@ -1321,6 +1330,11 @@ class XServerWineSessionPreparer @Inject constructor(
         val selectedDdraw = DirectDrawWrapperIds.normalize(parts.getOrNull(2))
         if (!validLink(File(system32, "ddraw.dll")) ||
             !validLink(File(syswow64, "ddraw.dll"))
+        ) {
+            return true
+        }
+        if (selectedDdraw == DirectDrawWrapperIds.D7VK &&
+            !validLink(File(syswow64, "ddraw_.dll"))
         ) {
             return true
         }
