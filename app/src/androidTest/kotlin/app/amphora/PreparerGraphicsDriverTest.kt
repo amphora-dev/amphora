@@ -13,6 +13,8 @@ import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.id
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.XServerWineSessionPreparer
+import app.amphora.core.engine.model.DisplaySize
+import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.container.Container as WnContainer
@@ -240,6 +242,51 @@ class PreparerGraphicsDriverTest {
             env["WINE_D3D_CONFIG"]?.contains("renderer=gl") == true,
         )
         assertTrue("envVars unexpectedly empty", env.isNotEmpty())
+
+        // --- Phase 4a: launch-boundary config refresh regression -------------
+        // The production WinlatorContainerManager and preparer own different
+        // ContainerManager instances. Simulate getOrCreate rewriting .container
+        // between launches and verify the singleton preparer does not retain its
+        // previous graphicsDriverConfig snapshot.
+        fun persistDriverFromAnotherManager(driverId: String) {
+            val externalManager = ContainerManager(appCtx)
+            externalManager.loadContainers()
+            val externalContainer =
+                requireNotNull(externalManager.getContainerById(wnContainer.id)) {
+                    "external manager could not reload container ${wnContainer.id}"
+                }
+            val config =
+                GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
+                    externalContainer.getGraphicsDriverConfig(),
+                )
+            config["version"] = driverId
+            externalContainer.setGraphicsDriverConfig(
+                GraphicsDriverConfigUtils.toGraphicsDriverConfig(config),
+            )
+            externalContainer.saveData()
+        }
+
+        val launchSpec =
+            LaunchSpec(
+                exePath = "C:\\windows\\explorer.exe",
+                containerId = amphoraContainer.id,
+                displaySize = DisplaySize(1280, 720),
+            )
+        persistDriverFromAnotherManager(GraphicsDriverIds.SYSTEM)
+        preparer.setupWineSystemFiles(launchSpec, amphoraContainer)
+        preparer.extractGraphicsDriverFiles(amphoraContainer)
+        assertNull(
+            "second launch retained stale wrapper config instead of System",
+            preparer.envVars()["VK_ICD_FILENAMES"],
+        )
+
+        persistDriverFromAnotherManager(GraphicsDriverIds.WRAPPER)
+        preparer.setupWineSystemFiles(launchSpec, amphoraContainer)
+        preparer.extractGraphicsDriverFiles(amphoraContainer)
+        assertTrue(
+            "third launch retained stale System config instead of wrapper",
+            preparer.envVars()["VK_ICD_FILENAMES"]?.contains("wrapper_icd.aarch64.json") == true,
+        )
 
         // --- Phase 4b: downloaded wrapper.tzst extraction -------------------
         // extractGraphicsDriverFilesCore extracts graphics_driver/wrapper.tzst into
