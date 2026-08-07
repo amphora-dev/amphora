@@ -26,5 +26,9 @@ class DirectDrawWrapperIdsTest {
             DirectDrawWrapperIds.CNC_DDRAW,
             DirectDrawWrapperIds.normalize(DirectDrawWrapperIds.CNC_DDRAW),
         )
+        assertEquals(
+            DirectDrawWrapperIds.D7VK,
+            DirectDrawWrapperIds.normalize(DirectDrawWrapperIds.D7VK),
+        )
     }
 }

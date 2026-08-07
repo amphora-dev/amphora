@@ -151,9 +151,10 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                     title = "DirectDraw layer",
                     description =
                     "DxWrapper translates DirectDraw and Direct3D 1–7 to D3D9/DXVK. " +
+                        "d7vk translates Direct3D 3–7 directly to Vulkan. " +
                         "cnc-ddraw is tuned for classic software-rendered 2D games.",
                     impact =
-                    "Dependency: selected layer → D3D9 → DXVK\n" +
+                    "Dependency: DxWrapper/cnc-ddraw → D3D9 → DXVK; d7vk → Vulkan\n" +
                         "Scope: 32-bit DirectDraw titles only · next launch",
                     selected = state.directDrawWrapper,
                     values = DirectDrawSetting.entries,

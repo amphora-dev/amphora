@@ -380,9 +380,10 @@ enum class GraphicsDriverOption(val driverId: String, val label: String) {
     }
 }
 
-/** DirectDraw wrappers; both terminate at D3D9/DXVK rather than WineD3D. */
+/** DirectDraw wrappers; all bypass WineD3D for 32-bit games. */
 enum class DirectDrawWrapperOption(val id: String, val label: String) {
     DXWRAPPER(DirectDrawWrapperIds.DXWRAPPER_DD7TO9, "DxWrapper (Dd7to9)"),
+    D7VK(DirectDrawWrapperIds.D7VK, "d7vk (D3D3–7)"),
     CNC_DDRAW(DirectDrawWrapperIds.CNC_DDRAW, "cnc-ddraw (2D)"),
     ;
 

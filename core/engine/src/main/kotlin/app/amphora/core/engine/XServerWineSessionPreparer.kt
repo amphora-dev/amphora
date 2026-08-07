@@ -226,7 +226,7 @@ class XServerWineSessionPreparer @Inject constructor(
 
         ensureWinePrefixEssentialFilesCore()
 
-        // 只认分号格式：dxvk-…;vkd3d-…;dd7to9
+        // 只认分号格式：dxvk-…;vkd3d-…;<DirectDraw layer>
         var localDxwrapper = dxwrapper
         val selection = DxWrapperSelection.parse(localDxwrapper)
         if (selection == null) {
@@ -608,35 +608,43 @@ class XServerWineSessionPreparer @Inject constructor(
             check(File(syswow64Dir, "ddraw.dll").isFile) {
                 "DirectDraw wrapper '$selectedDdraw' did not install syswow64/ddraw.dll"
             }
-            if (selectedDdraw == DirectDrawWrapperIds.CNC_DDRAW) {
-                // Keep upstream's complete per-game preset database. Only its
-                // global auto renderer is changed to D3D9 in the vendored copy;
-                // auto would select OpenGL under Wine and re-enter Mesa Zink.
-                context.assets.open(CNC_DDRAW_CONFIG_ASSET).use { input ->
-                    File(syswow64Dir, "ddraw.ini").outputStream().use(input::copyTo)
-                }
-                for (relativePath in CNC_DDRAW_SHADER_ASSETS) {
-                    val destination = File(syswow64Dir, relativePath)
-                    val parent = requireNotNull(destination.parentFile)
-                    check(parent.mkdirs() || parent.isDirectory) {
-                        "Cannot create cnc-ddraw shader directory for $relativePath"
+            when (selectedDdraw) {
+                DirectDrawWrapperIds.CNC_DDRAW -> {
+                    // Keep upstream's complete per-game preset database. Only its
+                    // global auto renderer is changed to D3D9 in the vendored copy;
+                    // auto would select OpenGL under Wine and re-enter Mesa Zink.
+                    context.assets.open(CNC_DDRAW_CONFIG_ASSET).use { input ->
+                        File(syswow64Dir, "ddraw.ini").outputStream().use(input::copyTo)
                     }
-                    context.assets.open("cnc-ddraw/$relativePath").use { input ->
-                        destination.outputStream().use(input::copyTo)
+                    for (relativePath in CNC_DDRAW_SHADER_ASSETS) {
+                        val destination = File(syswow64Dir, relativePath)
+                        val parent = requireNotNull(destination.parentFile)
+                        check(parent.mkdirs() || parent.isDirectory) {
+                            "Cannot create cnc-ddraw shader directory for $relativePath"
+                        }
+                        context.assets.open("cnc-ddraw/$relativePath").use { input ->
+                            destination.outputStream().use(input::copyTo)
+                        }
+                    }
+                    envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
+                }
+
+                DirectDrawWrapperIds.DXWRAPPER_DD7TO9 -> {
+                    val cachedIni = File(ddrawCache, "syswow64/dxwrapper.ini")
+                    check(cachedIni.isFile && FileUtils.copy(cachedIni, File(syswow64Dir, "dxwrapper.ini"))) {
+                        "Cannot install container-private DxWrapper configuration"
+                    }
+                    check(
+                        File(syswow64Dir, "dxwrapper.dll").isFile &&
+                            File(syswow64Dir, "dxwrapper.ini").isFile,
+                    ) {
+                        "DxWrapper Dd7to9 install is incomplete"
                     }
                 }
-                envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
-            } else {
-                val cachedIni = File(ddrawCache, "syswow64/dxwrapper.ini")
-                check(cachedIni.isFile && FileUtils.copy(cachedIni, File(syswow64Dir, "dxwrapper.ini"))) {
-                    "Cannot install container-private DxWrapper configuration"
-                }
-                check(
-                    File(syswow64Dir, "dxwrapper.dll").isFile &&
-                        File(syswow64Dir, "dxwrapper.ini").isFile,
-                ) {
-                    "DxWrapper Dd7to9 install is incomplete"
-                }
+
+                // d7vk needs no sidecar configuration: its upstream release is
+                // a single 32-bit ddraw.dll that translates D3D3–7 to Vulkan.
+                DirectDrawWrapperIds.D7VK -> Unit
             }
             Log.d(TAG, "Finished extraction of DXVK wrapper files, version: $dxwrapper")
         } else if (dxwrapper.contains("wined3d")) {
