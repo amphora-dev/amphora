@@ -153,26 +153,21 @@ constructor(
                 GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
                     wnContainer.getGraphicsDriverConfig(),
                 )
-            // Container is the source of truth on supported Adreno devices:
-            // host composition must match the guest ICD for DRI3/AHB scanout.
             val configuredHostDriver =
                 GraphicsDriverIds.normalize(driverConfig["version"])
-            // Wrapper/Turnip are Adreno drivers. Virtual devices and other GPUs
-            // cannot create a host VulkanRenderer with them, leaving a live Wine
-            // session behind a blank surface. Their system Vulkan implementation
-            // is the only valid host compositor backend.
+            // WinNative's default wrapper is a Vulkan ICD, not an Android HAL:
+            // guest wrapper -> system Adreno, host compositor -> system Vulkan.
+            // Only downloaded Turnip packages have an HMI entry point suitable
+            // for host adrenotools loading, and those remain Adreno-only.
             val hostDriver =
-                if (configuredHostDriver == GraphicsDriverIds.SYSTEM ||
-                    !GPUInformation.isAdrenoGPU(context)
-                ) {
-                    GraphicsDriverIds.SYSTEM
-                } else {
-                    configuredHostDriver
-                }
-            if (hostDriver == GraphicsDriverIds.SYSTEM) {
+                GraphicsDriverIds.resolveHostDriver(
+                    configuredHostDriver,
+                    GPUInformation.isAdrenoGPU(context),
+                )
+            if (hostDriver != configuredHostDriver) {
                 Log.i(
                     "WineEngineImpl",
-                    "Non-Adreno host; using system Vulkan renderer instead of '$configuredHostDriver'",
+                    "Host Vulkan renderer resolved '$configuredHostDriver' -> '$hostDriver'",
                 )
             }
             _surface.value =

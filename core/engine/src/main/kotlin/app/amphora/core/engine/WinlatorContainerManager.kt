@@ -219,12 +219,10 @@ constructor(
                 // Delimited form: "<dxvkEntry>;<vkd3dEntry>;<ddrawrapper>" (XSDA L7970).
                 put("dxwrapper", dxwrapper)
                 // graphicsDriverConfig uses ";" delimiter (Container.DEFAULT_GRAPHICSDRIVERCONFIG).
-                // version=wrapper is the adrenotools driver id — the preparer extracts the bundled
-                // Turnip driver from graphics_driver/wrapper.tzst to filesDir/contents/adrenotools/wrapper/
-                // so the host VulkanRenderer (which calls adrenotools_open_libvulkan with this id)
-                // loads the same Turnip driver as the guest (VK_ICD_FILENAMES=wrapper_icd.aarch64.json).
-                // Without this, the host falls back to system Adreno and the guest uses Turnip —
-                // two disconnected Vulkan instances = black screen.
+                // version=wrapper selects the loader-facing wrapper ICD for the guest. The
+                // wrapper has no Android HAL HMI entry point and wraps system Adreno, so the
+                // host compositor resolves this id to System Vulkan. Explicit downloaded
+                // Turnip ids remain aligned between host and guest through adrenotools.
                 put(
                     "graphicsDriverConfig",
                     "vulkanVersion=1.3;version=wrapper;blacklistedExtensions=;maxDeviceMemory=0;presentMode=mailbox;syncFrame=0;disablePresentWait=1;resourceType=auto;bcnEmulation=auto;bcnEmulationType=compute;bcnEmulationCache=0;gpuName=Device",

@@ -189,7 +189,7 @@ WinNative 本地 checkout: `/Users/sky/co/github/WinNative` (remote `WinNative-E
 - [x] 显示 explorer desktop surface (不再隐藏桌面进程窗口)
 - [x] 触控改为相对移动 + tap-to-click
 - [x] 真实 DXVK WCP + 旧 `dxvk-1.0` 容器迁移
-- [x] host `VulkanRenderer` 与 guest 共用 adrenotools-wrapped Turnip
+- [x] host/guest Vulkan 后端对齐：默认 wrapper → system Adreno；显式 Turnip → 双端 adrenotools
 - [x] `GameSessionLaunchTest` / `XServerSurfaceViewInitTest` + content-aware connected 测试入口
 - [x] 文档: [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) as-built 架构真源
 

@@ -247,8 +247,8 @@ private fun GameSurface(surface: GameSessionSurface, modifier: Modifier = Modifi
         factory = { ctx ->
             XServerSurfaceView(ctx, xServer).also { view ->
                 val renderer = view.getRenderer()
-                // Host must match guest ICD: container graphicsDriverConfig `version=`
-                // (adrenotools id, typically "wrapper"). "System" = host Adreno ≠ Turnip.
+                // Host driver is pre-resolved by the engine: the wrapper ICD maps to
+                // system Vulkan, while an explicit Turnip package stays on adrenotools.
                 renderer.setGraphicsDriver(graphicsDriver)
                 renderer.setCursorVisible(true)
                 renderer.setNativeMode(true) // dri3

@@ -1033,7 +1033,15 @@ class XServerWineSessionPreparer @Inject constructor(
         var vulkanVersion = graphicsDriverConfig["vulkanVersion"]
         if (vulkanVersion == null) vulkanVersion = "1.3"
         try {
-            val fullVkVersion = GPUInformation.getVulkanVersion(adrenoToolsDriverId, context)
+            // The wrapper is an ICD around the platform driver, not an HMI-exporting
+            // Android HAL. Probe its underlying system driver just like the host
+            // compositor; only a real Turnip package goes through adrenotools here.
+            val probeDriver =
+                GraphicsDriverIds.resolveHostDriver(
+                    adrenoToolsDriverId,
+                    GPUInformation.isAdrenoGPU(context),
+                )
+            val fullVkVersion = GPUInformation.getVulkanVersion(probeDriver, context)
             if (fullVkVersion != null && fullVkVersion.contains(".")) {
                 val parts = fullVkVersion.split("\\.".toRegex())
                 if (parts.size >= 3) vulkanVersion = "$vulkanVersion.${parts[2]}"
