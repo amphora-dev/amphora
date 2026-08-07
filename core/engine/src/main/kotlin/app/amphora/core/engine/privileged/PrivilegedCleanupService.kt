@@ -1,7 +1,9 @@
 package app.amphora.core.engine.privileged
 
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import app.amphora.core.engine.SessionProcessCleaner
+import java.io.FileInputStream
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
@@ -33,14 +35,66 @@ class PrivilegedCleanupService : IPrivilegedCleanupService.Stub() {
         }
     }
 
+    override fun installPackage(
+        apk: ParcelFileDescriptor,
+        apkSize: Long,
+        packageName: String,
+    ): String {
+        require(PACKAGE_NAME.matches(packageName)) { "Invalid package name" }
+        require(apkSize > 0L) { "APK size must be positive" }
+        return try {
+            val process =
+                ProcessBuilder("pm", "install", "-r", "-S", apkSize.toString())
+                    .redirectErrorStream(true)
+                    .start()
+            FileInputStream(apk.fileDescriptor).use { input ->
+                process.outputStream.use { output -> input.copyTo(output) }
+            }
+            val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+            val status = process.waitFor()
+            val result = "status=$status ${output.ifEmpty { "<no output>" }}"
+            Log.i(TAG, "Shizuku package install: $result")
+            if (status == 0 && output.contains("Success", ignoreCase = true)) {
+                relaunchAfterInstall(packageName)
+            }
+            result
+        } catch (error: Throwable) {
+            Log.e(TAG, "Shizuku package install failed", error)
+            "error=${error.message ?: error.javaClass.simpleName}"
+        } finally {
+            apk.close()
+        }
+    }
+
     override fun destroy() {
         exitProcess(0)
+    }
+
+    private fun relaunchAfterInstall(packageName: String) {
+        thread(name = "AmphoraUpdateRelaunch", isDaemon = false) {
+            try {
+                Thread.sleep(RELAUNCH_DELAY_MS)
+                ProcessBuilder(
+                    "monkey",
+                    "-p",
+                    packageName,
+                    "-c",
+                    "android.intent.category.LAUNCHER",
+                    "1",
+                ).start().waitFor()
+            } catch (error: Throwable) {
+                Log.e(TAG, "Unable to relaunch updated app", error)
+            } finally {
+                exitProcess(0)
+            }
+        }
     }
 
     private companion object {
         const val TAG = "PrivilegedCleanup"
         const val MIN_DELAY_MS = 250
         const val MAX_DELAY_MS = 5_000
+        const val RELAUNCH_DELAY_MS = 1_000L
         val PACKAGE_NAME = Regex("[A-Za-z][A-Za-z0-9_.]*")
     }
 }
