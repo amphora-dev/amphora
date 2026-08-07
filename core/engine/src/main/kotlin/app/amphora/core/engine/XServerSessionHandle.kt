@@ -37,6 +37,7 @@ internal class XServerSessionHandle(
     private val xServer: XServer,
     private val dispatchers: DispatcherProvider,
     private val processCleaner: SessionProcessCleaner = DefaultSessionProcessCleaner,
+    private val onStopped: () -> Unit = {},
 ) : SessionHandle {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(SessionState.CREATED)
@@ -111,6 +112,7 @@ internal class XServerSessionHandle(
         } catch (e: Exception) {
             // ignore
         }
+        onStopped()
         _state.value = terminalState
         // Release anyone awaiting readiness so coroutines don't hang on a failed/stopped session.
         readiness.complete(Unit)

@@ -212,6 +212,50 @@ public class XServerSurfaceView extends TextureView implements TextureView.Surfa
         }
     }
 
+    /**
+     * Quiesces this view and waits for its render thread to run the synchronous native
+     * renderer teardown. Call from a worker thread, never the Android main thread.
+     *
+     * <p>The dedicated session process is the final isolation boundary, but normal exits
+     * still close Vulkan cleanly so driver caches and kernel objects are not abandoned.
+     */
+    public boolean closeAndJoin(long timeoutMs) {
+        final Thread thread;
+        synchronized (renderLock) {
+            paused = true;
+            surfaceReady = false;
+            width = 0;
+            height = 0;
+            running = false;
+            renderLock.notifyAll();
+            if (renderThread != null) {
+                retiringRenderThread = renderThread;
+                renderThread = null;
+            }
+            thread = retiringRenderThread;
+        }
+
+        renderer.detachSurface();
+        if (thread != null && thread != Thread.currentThread() && thread.isAlive()) {
+            try {
+                thread.join(Math.max(1L, timeoutMs));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        if (thread != null && thread.isAlive()) return false;
+
+        // No render thread means no onSurfaceDestroyed callback will arrive. destroy() is
+        // idempotent, so this also safely confirms an already-completed teardown.
+        renderer.destroy();
+        synchronized (renderLock) {
+            if (retiringRenderThread == thread) retiringRenderThread = null;
+            eventQueue.clear();
+        }
+        return true;
+    }
+
     private void renderLoop() {
         renderer.onSurfaceCreated();
         if (width > 0 && height > 0) renderer.onSurfaceChanged(width, height);
