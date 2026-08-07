@@ -1,0 +1,78 @@
+name: ReDroid ARM64
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful CI run ID whose APK artifact should be tested
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: redroid-arm64
+  cancel-in-progress: false
+
+jobs:
+  android-15:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, linux, arm64, redroid, android15]
+    timeout-minutes: 30
+    env:
+      ANDROID_SERIAL: 127.0.0.1:5555
+      REDROID_CONTAINER: redroid15
+    steps:
+      - name: Resolve source CI run
+        id: source
+        shell: bash
+        env:
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          MANUAL_RUN_ID: ${{ inputs.ci_run_id }}
+        run: |
+          run_id="${WORKFLOW_RUN_ID:-$MANUAL_RUN_ID}"
+          test -n "$run_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tested revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Download CI APKs
+        uses: actions/download-artifact@v8
+        with:
+          pattern: app-debug*.apk
+          path: ${{ runner.temp }}/amphora-apks
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.source.outputs.run_id }}
+
+      - name: Test Android 15 ARM64 and capture Wine
+        shell: bash
+        run: |
+          APK_DIR="$RUNNER_TEMP/amphora-apks"
+          EVIDENCE_DIR="$RUNNER_TEMP/redroid-evidence"
+          bash scripts/redroid-ci.sh \
+            "$APK_DIR/app-debug.apk" \
+            "$APK_DIR/app-debug-androidTest.apk" \
+            "$EVIDENCE_DIR"
+
+      - name: Upload ReDroid evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redroid-arm64-${{ github.run_id }}
+          path: ${{ runner.temp }}/redroid-evidence
+          if-no-files-found: warn
+          retention-days: 14
