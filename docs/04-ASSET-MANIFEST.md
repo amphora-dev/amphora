@@ -428,12 +428,12 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 ## 2. 图形驱动 / DX 包装层 / 组件 (SHA-256)
 
-> 全部来自 WinNative `app/src/main/assets/` (本地直存, 非 LFS)。Turnip = `graphics_driver/wrapper.tzst` (Mesa Vulkan ICD 包装器, `extractGraphicsDriverFiles` 的提取目标)。box64 二进制运行时 `.wcp` 下载 (见 §5), 这里只锁 `.box64rc` 配置。
+> 全部来自 WinNative `app/src/main/assets/` (本地直存, 非 LFS)。`graphics_driver/wrapper.tzst` 是包装系统驱动的 Vulkan ICD；完整 Turnip 是单独下载的 WN-Turnip 包。box64 二进制运行时 `.wcp` 下载 (见 §5), 这里只锁 `.box64rc` 配置。
 
-### 2.1 graphics_driver/ (Turnip / VirGL / Zink / extra)
+### 2.1 graphics_driver/ (Wrapper / VirGL / Zink / extra)
 | 资产 | SHA-256 |
 |---|---|
-| `wrapper.tzst` (Turnip/Mesa Vulkan ICD, **MVP 单驱动**) | `2651fbe6372af36c7d269664416b4f62d959125122ad3b8f79a787788e510fd8` |
+| `wrapper.tzst` (系统 Vulkan 包装 ICD + adrenotools hooks，**默认**) | `2651fbe6372af36c7d269664416b4f62d959125122ad3b8f79a787788e510fd8` |
 | `wrapper-leegao.tzst` | `3eabf6fc53f3b738eb80e7f80e3b28f761a8cebaa62b7e6c1f05e0e1228a969d` |
 | `extra_libs.tzst` (vkBasalt + Mesa 库) | `e27859423f4f151ef48bb2f076043cda45fd46de1df5eea2ceed30bcf0ebd38a` |
 | `zink_dlls.tzst` | `efe27f0de6a55bfb6c2e9eab79b6baaae64b35af81ce49c097de6b720f258cbb` |
@@ -548,7 +548,7 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | | `Box64-0.4.3` / `0.3.9` / `0.3.8` / `0.3.7` | `.../releases/download/Stable-Box64/...wcp` |
 | **DXVK** | `Dxvk-3.0.2-gplasync` (**amphora MVP 默认**) / `2.4.1-pre-reg` / `a6xx-*` / Sarek | `.../releases/download/Stable-Dxvk/...wcp` |
 | **VKD3D** | `Vkd3d-3.0.1-S6_9` (**amphora MVP 默认**, profile `verName=3.0.1-sm69`) / nightly | `.../releases/download/Stable-VKD3D/...wcp` |
-| Turnip / WineD3d | -- (不在 contents.json, 仍打包在 assets `graphics_driver/`/`dxwrapper/`) | -- |
+| Wrapper / WineD3d | -- (不在 contents.json, 仍打包在 assets `graphics_driver/`/`dxwrapper/`) | -- |
 
 > WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 仅作 DXVK &lt; 2.4 的 d3d8 补丁 (`extractD8VKIfNeeded`); amphora MVP 默认装 manifest 固定的 DXVK（d3d8/9/10core/11/dxgi）+ VKD3D（d3d12/d3d12core），经 `ContentSource.resolve(DXVK|VKD3D)` + `ContentsManager.applyContent`. 容器 `dxwrapper` 形如 `dxvk-…;vkd3d-…;dd7to9`。
 
@@ -561,7 +561,7 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | **VKD3D** | `Vkd3d-3.0.1-S6_9.wcp` | profile `verName=3.0.1-sm69` → `vkd3d-3.0.1-sm69-0` | D3D12 → Vulkan（替换 Wine stub `d3d12.dll`） |
 | **Proton** | `Proton-11.0-amphora-x86_64.wcp`（`amphora-dev/proton-wine`）| `Proton-11.0-amphora-x86_64-1` | 自建 Wine/Proton + prefixPack |
 | **Box64** | `Box64-0.4.3-c08554e3f.wcp` | `Box64-0.4.3-c08554e3f-0` | x86_64 → ARM64 用户态翻译 |
-| **Turnip** | `graphics_driver/wrapper.tzst` | ARCHIVE `version=1` | Adreno Mesa Turnip + adrenotools wrapper ICD |
+| **Wrapper** | `graphics_driver/wrapper.tzst` | ARCHIVE `version=1` | Guest Vulkan ICD（包装系统 Adreno）+ adrenotools hooks |
 
 容器默认 `dxwrapper`：`dxvk-…;vkd3d-…;dd7to9`；第三段可由 UI 在 `dd7to9` 与 `cnc-ddraw` 之间切换。
 

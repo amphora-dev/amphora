@@ -38,4 +38,18 @@ object GraphicsDriverIds {
         id == TURNIP_BALANCED -> TURNIP_BALANCED
         else -> WRAPPER
     }
+
+    /**
+     * Resolves the Vulkan backend used by the Android host compositor.
+     *
+     * The bundled wrapper is a loader-facing ICD (`vk_icdGetInstanceProcAddr`), not an
+     * Android HAL (`HMI`). Its guest path wraps the platform Adreno driver, so the host must
+     * open the platform loader directly. Downloaded Turnip packages are Android HALs and can
+     * be loaded through adrenotools, but only on Adreno devices.
+     */
+    fun resolveHostDriver(id: String?, isAdreno: Boolean): String = when (normalize(id)) {
+        TURNIP_BALANCED -> if (isAdreno) TURNIP_BALANCED else SYSTEM
+        WRAPPER, SYSTEM -> SYSTEM
+        else -> SYSTEM
+    }
 }
