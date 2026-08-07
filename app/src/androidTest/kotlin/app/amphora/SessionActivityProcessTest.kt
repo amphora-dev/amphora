@@ -1,5 +1,6 @@
 package app.amphora
 
+import android.content.pm.ActivityInfo
 import android.content.ComponentName
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -22,5 +23,6 @@ class SessionActivityProcessTest {
 
         assertEquals("${context.packageName}:session", info.processName)
         assertFalse(info.exported)
+        assertEquals(ActivityInfo.LAUNCH_SINGLE_TASK, info.launchMode)
     }
 }

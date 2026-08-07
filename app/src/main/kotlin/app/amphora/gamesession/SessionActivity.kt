@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.Process
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -43,6 +44,13 @@ class SessionActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // A session owns process-global Vulkan state. Keep the current generation instead
+        // of creating a second ViewModel/renderer when the launcher is tapped repeatedly.
+        Log.w(TAG, "Ignoring launch request while a Wine session is already active")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (isChangingConfigurations || !processExitScheduled.compareAndSet(false, true)) return
@@ -66,6 +74,7 @@ class SessionActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val TAG = "SessionActivity"
         private const val EXTRA_EXE_PATH = "exePath"
         private const val EXTRA_WIDTH = "width"
         private const val EXTRA_HEIGHT = "height"
