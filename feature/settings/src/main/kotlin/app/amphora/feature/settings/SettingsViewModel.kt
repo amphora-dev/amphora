@@ -22,6 +22,8 @@ import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.GraphicsDiag
 import app.amphora.core.engine.GraphicsDriverIds
+import app.amphora.core.engine.ShizukuCleanupStatus
+import app.amphora.core.engine.ShizukuEmergencyStopper
 import app.amphora.core.engine.TurnipDriverProvisioner
 import app.amphora.core.engine.WindowsComponentPreferences
 import app.amphora.core.rootfs.RootfsInstaller
@@ -51,6 +53,7 @@ constructor(
     private val assetInstaller: ContentAssetInstaller,
     private val contentReconciler: ContentReconciler,
     private val turnipProvisioner: TurnipDriverProvisioner,
+    private val shizukuEmergencyStopper: ShizukuEmergencyStopper,
     private val appUpdater: AppUpdater,
 ) : ViewModel() {
     private val prefs =
@@ -120,17 +123,39 @@ constructor(
                 },
                 customEnv = initialCustomEnv,
                 rejectedEnvNames = AdvancedRuntimePreferences.rejectedCustomEnvNames(initialCustomEnv),
+                shizukuCleanupStatus = shizukuEmergencyStopper.status.value,
             ),
         )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
         refreshComponents()
+        viewModelScope.launch {
+            shizukuEmergencyStopper.status.collect { status ->
+                _uiState.update { it.copy(shizukuCleanupStatus = status) }
+            }
+        }
     }
 
     fun selectResolution(value: DisplayResolution) {
         prefs.edit { putString(PREF_RESOLUTION, value.name) }
         _uiState.update { it.copy(resolution = value) }
+    }
+
+    fun requestShizukuPermission() {
+        if (!shizukuEmergencyStopper.requestPermission()) {
+            _uiState.update {
+                it.copy(error = "Shizuku is not running. Start it before requesting access.")
+            }
+        }
+    }
+
+    fun emergencyForceStop() {
+        if (!shizukuEmergencyStopper.forceStopSelf()) {
+            _uiState.update {
+                it.copy(error = "Shizuku permission is required for emergency force-stop.")
+            }
+        }
     }
 
     fun selectGraphicsDriver(value: GraphicsDriverSetting) {
@@ -495,6 +520,7 @@ data class SettingsUiState(
     val cacheActionMessage: String? = null,
     val customEnv: String = "",
     val rejectedEnvNames: List<String> = emptyList(),
+    val shizukuCleanupStatus: ShizukuCleanupStatus = ShizukuCleanupStatus.UNAVAILABLE,
     val applyingDriver: Boolean = false,
     val refreshing: Boolean = false,
     val manifestReady: Boolean = false,
