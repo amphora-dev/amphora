@@ -70,10 +70,13 @@ constructor(@ApplicationContext private val context: Context) {
         Shizuku.addBinderReceivedListenerSticky(binderReceivedListener)
         Shizuku.addBinderDeadListener(binderDeadListener)
         Shizuku.addRequestPermissionResultListener(permissionResultListener)
+        Log.i(TAG, "Shizuku cleanup status: ${_status.value}")
     }
 
     fun refreshStatus() {
-        _status.value = readStatus()
+        val updated = readStatus()
+        if (_status.value != updated) Log.i(TAG, "Shizuku cleanup status: ${_status.value} -> $updated")
+        _status.value = updated
     }
 
     fun requestPermission(): Boolean {
