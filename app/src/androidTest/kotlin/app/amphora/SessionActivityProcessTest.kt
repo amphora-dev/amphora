@@ -1,7 +1,7 @@
 package app.amphora
 
-import android.content.pm.ActivityInfo
 import android.content.ComponentName
+import android.content.pm.ActivityInfo
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.amphora.gamesession.SessionActivity
