@@ -8,9 +8,10 @@ on:
   workflow_dispatch:
     inputs:
       ci_run_id:
-        description: Successful CI run ID whose APK artifact should be tested
-        required: true
+        description: Optional CI run ID to test. Leave empty to use the latest successful main CI run.
+        required: false
         type: string
+        default: ""
 
 permissions:
   actions: read
@@ -35,17 +36,50 @@ jobs:
         id: source
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           MANUAL_RUN_ID: ${{ inputs.ci_run_id }}
+          REPO: ${{ github.repository }}
         run: |
-          run_id="${WORKFLOW_RUN_ID:-$MANUAL_RUN_ID}"
+          set -euo pipefail
+
+          api() {
+            curl -fsS \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/$1"
+          }
+
+          if [ -n "${WORKFLOW_RUN_ID:-}" ]; then
+            run_id="$WORKFLOW_RUN_ID"
+            head_sha="${WORKFLOW_HEAD_SHA:-}"
+          elif [ -n "${MANUAL_RUN_ID:-}" ]; then
+            run_id="$MANUAL_RUN_ID"
+            head_sha=""
+          else
+            # Manual "Run workflow" with empty input → latest green main CI.
+            run_id="$(api 'actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1' \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["workflow_runs"][0]["id"])')"
+            echo "Using latest successful main CI run: ${run_id}"
+          fi
+
           test -n "$run_id"
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+          if [ -z "${head_sha:-}" ]; then
+            head_sha="$(api "actions/runs/${run_id}" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])')"
+          fi
+          test -n "$head_sha"
+
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${head_sha}" >> "$GITHUB_OUTPUT"
+          echo "Resolved CI run ${run_id} @ ${head_sha}"
 
       - name: Checkout tested revision
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ steps.source.outputs.head_sha }}
           persist-credentials: false
 
       - name: Download CI APKs
