@@ -93,14 +93,12 @@ public class SysVSharedMemory {
 
   private static int createSharedMemory(String name, int size) {
     try {
-      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
-        SharedMemory sharedMemory = SharedMemory.create(name, size);
-        try {
-          Method method = sharedMemory.getClass().getMethod("getFd");
-          Object ret = method.invoke(sharedMemory);
-          if (ret != null) return (int) ret;
-        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
-        }
+      SharedMemory sharedMemory = SharedMemory.create(name, size);
+      try {
+        Method method = sharedMemory.getClass().getMethod("getFd");
+        Object ret = method.invoke(sharedMemory);
+        if (ret != null) return (int) ret;
+      } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
       }
     } catch (ErrnoException e) {
     }

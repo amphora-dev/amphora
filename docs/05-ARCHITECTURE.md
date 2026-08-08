@@ -142,7 +142,7 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 | 产物 | 内容 |
 |---|---|
 | `libwinlator.so` | X/Vulkan/AHB/压缩解压/socket/shmem/进程回收；adrenotools 静态链入；zstd+xz FetchContent |
-| ABI | **仅 arm64-v8a**；minSdk 26；NDK r28 |
+| ABI | **仅 arm64-v8a**；minSdk 28；NDK r28 |
 
 `libfakeinput.so` 不再构建（MVP 输入走 X inject）；源码已从树内移除，手柄路径回归时从 WinNative 再引入。
 
@@ -154,7 +154,7 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 | 项 | 值 / 原因 |
 |---|---|
-| compileSdk / minSdk | 37 / 26 |
+| compileSdk / minSdk | 37 / 28 |
 | **targetSdk** | **28**（非 36）：`filesDir` 执行 box64/Wine；targetSdk≥29 会触发 SELinux `execute_no_trans` |
 | AGP / Gradle / Kotlin / KSP | 9.2.1 / 9.4.1 / 2.3.21 / 2.3.9 |
 | Hilt / Compose BOM | 2.59.2 / 2026.06.01 |

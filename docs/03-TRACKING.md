@@ -63,7 +63,7 @@
 |---|---|
 | AGP / Gradle / Kotlin / KSP | 9.2.1 / 9.4.1 / 2.3.21 / 2.3.9 |
 | Hilt / Compose BOM | 2.59.2 / 2026.06.01 |
-| compileSdk / targetSdk / minSdk / NDK | 37 / **28** / 26 / r28 (28.2.13676358) - targetSdk 28 因 `filesDir` 执行 box64/Wine (SELinux) |
+| compileSdk / targetSdk / minSdk / NDK | 37 / **28** / 28 / r28 (28.2.13676358) - targetSdk 28 因 `filesDir` 执行 box64/Wine (SELinux) |
 | 包名 / 模块数 | `app.amphora` / 8 模块 + build-logic（已删空壳 `core/ui`） |
 | 架构文档 | [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) |
 

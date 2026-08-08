@@ -3,7 +3,6 @@ package app.amphora.core.content.update
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
@@ -71,12 +70,7 @@ class AppUpdater(
     fun installedVersionCode(): Long {
         val info =
             context.packageManager.getPackageInfo(context.packageName, 0)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            info.longVersionCode
-        } else {
-            @Suppress("DEPRECATION")
-            info.versionCode.toLong()
-        }
+        return info.longVersionCode
     }
 
     fun installedVersionName(): String = try {
