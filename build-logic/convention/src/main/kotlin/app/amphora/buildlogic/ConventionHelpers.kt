@@ -16,7 +16,7 @@ internal const val SDK_COMPILE = 37
 // first moving box64 to nativeLibraryDir (app_lib_data_file, exec-allowed) or a
 // memfd exec launcher. See WineEngineImpl.launch / GuestProgramLauncherComponent.
 internal const val SDK_TARGET = 28
-internal const val SDK_MIN = 26
+internal const val SDK_MIN = 28
 internal const val NDK_VERSION = "28.2.13676358"
 internal const val CMAKE_VERSION = "3.31.5"
 

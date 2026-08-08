@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.Signature
-import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
@@ -94,12 +93,7 @@ class AppUpdater(
     fun installedVersionCode(): Long {
         val info =
             context.packageManager.getPackageInfo(context.packageName, 0)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            info.longVersionCode
-        } else {
-            @Suppress("DEPRECATION")
-            info.versionCode.toLong()
-        }
+        return info.longVersionCode
     }
 
     fun installedVersionName(): String = try {
@@ -112,21 +106,10 @@ class AppUpdater(
     private fun packageInfo(path: String): PackageInfo? =
         context.packageManager.getPackageArchiveInfo(path, SIGNATURE_FLAGS)
 
-    private fun versionCode(info: PackageInfo): Long = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        info.longVersionCode
-    } else {
-        @Suppress("DEPRECATION")
-        info.versionCode.toLong()
-    }
+    private fun versionCode(info: PackageInfo): Long = info.longVersionCode
 
-    @Suppress("DEPRECATION")
     private fun signingDigests(info: PackageInfo): Set<String> {
-        val signatures: Array<Signature> =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                info.signingInfo?.apkContentsSigners ?: emptyArray()
-            } else {
-                info.signatures ?: emptyArray()
-            }
+        val signatures: Array<Signature> = info.signingInfo?.apkContentsSigners ?: emptyArray()
         return signatures.mapTo(linkedSetOf()) { signature ->
             MessageDigest
                 .getInstance("SHA-256")
@@ -139,13 +122,7 @@ class AppUpdater(
         const val UPDATE_CACHE_DIR = "apk-updates"
         const val APK_RELATIVE_PATH = "amphora-update.apk"
         const val APK_MIME = "application/vnd.android.package-archive"
-        val SIGNATURE_FLAGS =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                PackageManager.GET_SIGNING_CERTIFICATES
-            } else {
-                @Suppress("DEPRECATION")
-                PackageManager.GET_SIGNATURES
-            }
+        const val SIGNATURE_FLAGS = PackageManager.GET_SIGNING_CERTIFICATES
     }
 }
 
