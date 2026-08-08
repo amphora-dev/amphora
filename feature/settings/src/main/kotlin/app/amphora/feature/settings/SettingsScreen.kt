@@ -63,6 +63,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.engine.ShizukuCleanupStatus
+import app.amphora.core.engine.WineLocaleOption
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -145,8 +146,19 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
 
             SettingSection(
                 title = "Compatibility",
-                subtitle = "Translation used by older Windows games",
+                subtitle = "Regional and translation behavior for older Windows games",
             ) {
+                ChoiceSetting(
+                    title = "Language for non-Unicode programs",
+                    description =
+                    "Selects Wine's ANSI codepage for legacy applications. Automatic follows " +
+                        "the Android device language; Japanese applications commonly require Japanese.",
+                    impact = "Scope: legacy ANSI text only · applies on next launch",
+                    selected = state.wineLocale,
+                    values = WineLocaleOption.entries,
+                    label = { it.label },
+                    onSelect = viewModel::selectWineLocale,
+                )
                 ChoiceSetting(
                     title = "DirectDraw layer",
                     description =

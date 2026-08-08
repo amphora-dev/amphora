@@ -25,6 +25,8 @@ import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.ShizukuCleanupStatus
 import app.amphora.core.engine.ShizukuEmergencyStopper
 import app.amphora.core.engine.TurnipDriverProvisioner
+import app.amphora.core.engine.WineLocaleOption
+import app.amphora.core.engine.WineLocalePreferences
 import app.amphora.core.engine.WindowsComponentPreferences
 import app.amphora.core.rootfs.RootfsInstaller
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
@@ -76,6 +78,7 @@ constructor(
                 DirectDrawSetting.fromId(
                     prefs.getString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, null),
                 ),
+                wineLocale = WineLocalePreferences.selected(context),
                 box64Mode =
                 Box64Mode.fromId(
                     prefs.getString(AdvancedRuntimePreferences.KEY_BOX64_PRESET, null),
@@ -181,6 +184,11 @@ constructor(
     fun selectDirectDraw(value: DirectDrawSetting) {
         prefs.edit { putString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, value.id) }
         _uiState.update { it.copy(directDrawWrapper = value) }
+    }
+
+    fun selectWineLocale(value: WineLocaleOption) {
+        WineLocalePreferences.set(context, value)
+        _uiState.update { it.copy(wineLocale = value) }
     }
 
     fun selectBox64Mode(value: Box64Mode) {
@@ -501,6 +509,7 @@ data class SettingsUiState(
     val resolution: DisplayResolution = DisplayResolution.DEFAULT,
     val graphicsDriver: GraphicsDriverSetting = GraphicsDriverSetting.WRAPPER,
     val directDrawWrapper: DirectDrawSetting = DirectDrawSetting.DXWRAPPER,
+    val wineLocale: WineLocaleOption = WineLocaleOption.AUTO,
     val box64Mode: Box64Mode = Box64Mode.PERFORMANCE,
     val dxvkAsync: Boolean = false,
     val frameLimit: FrameLimit = FrameLimit.OFF,

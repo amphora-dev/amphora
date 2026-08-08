@@ -35,7 +35,6 @@ import com.winlator.cmod.runtime.system.GPUInformation
 import com.winlator.cmod.runtime.system.ProcessHelper
 import com.winlator.cmod.runtime.wine.EnvVars
 import com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
-import com.winlator.cmod.runtime.wine.LocaleEnv
 import com.winlator.cmod.runtime.wine.WineInfo
 import com.winlator.cmod.shared.io.FileUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -280,7 +279,7 @@ constructor(
      */
     private fun buildLaunchEnvVars(spec: LaunchSpec, container: WinNativeContainer): EnvVars {
         val envVars = EnvVars()
-        envVars.put("LC_ALL", LocaleEnv.normalize(LocaleEnv.deriveFromDevice()))
+        envVars.put("LC_ALL", WineLocalePreferences.resolve(context))
         envVars.put("WINEPREFIX", imageFs.wineprefix)
         envVars.put("WINEDEBUG", "-all")
         // Container Zink/Turnip defaults (before preparer so WRAPPER_*/DXVK_* win).
