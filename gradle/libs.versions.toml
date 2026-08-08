@@ -20,6 +20,7 @@ turbine = "1.2.1"
 spotless = "8.0.0"
 ktlint = "1.7.1"
 orgJson = "20240303"
+shizuku = "13.1.5"
 
 # Ported com.winlator.cmod runtime kernel deps (RFC §7 - Java reused as-is).
 # Versions matched to WinNative's catalog so the reused Java compiles unmodified.
@@ -82,6 +83,8 @@ mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "moc
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 # org.json ships with Android at runtime; JVM unit tests need the standalone jar.
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
+shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 
 # Ported com.winlator.cmod runtime kernel deps (RFC §7).
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }

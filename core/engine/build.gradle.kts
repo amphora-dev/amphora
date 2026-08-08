@@ -5,6 +5,9 @@ plugins {
 
 android {
     namespace = "app.amphora.core.engine"
+    buildFeatures {
+        aidl = true
+    }
 }
 
 dependencies {
@@ -22,4 +25,6 @@ dependencies {
     implementation(libs.commons.compress)
     implementation(libs.tukaani.xz)
     implementation(variantOf(libs.zstd.jni) { artifactType("aar") })
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
 }

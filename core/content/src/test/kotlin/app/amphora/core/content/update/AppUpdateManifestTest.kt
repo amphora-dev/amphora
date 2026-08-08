@@ -8,6 +8,16 @@ import org.junit.Test
 
 class AppUpdateManifestTest {
     @Test
+    fun onlyPublishedCiVersionRangeEnablesStartupUpdates() {
+        assertTrue(isDevelopmentVersionCode(1L))
+        assertTrue(isDevelopmentVersionCode(0L))
+        assertTrue(isDevelopmentVersionCode(2L))
+        assertTrue(isDevelopmentVersionCode(19_999_999L))
+        assertFalse(isDevelopmentVersionCode(20_000_000L))
+        assertFalse(isDevelopmentVersionCode(20_000_117L))
+    }
+
+    @Test
     fun parsesRequiredFields() {
         val m = AppUpdateManifest.parse(SAMPLE)
         assertEquals(20000042, m.versionCode)

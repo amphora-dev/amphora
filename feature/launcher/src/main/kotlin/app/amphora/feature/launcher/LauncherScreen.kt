@@ -578,7 +578,8 @@ private fun DirectDrawWrapperSelector(
     Column(modifier = Modifier.fillMaxWidth()) {
         Text("DirectDraw compatibility", style = MaterialTheme.typography.labelLarge)
         Text(
-            "DxWrapper covers DirectDraw/D3D1–7. cnc-ddraw targets software-rendered 2D games.",
+            "DxWrapper covers DirectDraw/D3D1–7 through DXVK. d7vk translates D3D3–7 " +
+                "directly to Vulkan. cnc-ddraw targets software-rendered 2D games.",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(top = 4.dp),
         )
