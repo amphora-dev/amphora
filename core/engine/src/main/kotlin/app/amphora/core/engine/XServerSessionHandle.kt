@@ -95,17 +95,18 @@ internal class XServerSessionHandle(
             _state.value = SessionState.STOPPING
         }
         try {
-            // Match WinNative's safe order: drain Wine clients while X/ALSA/SHM endpoints
-            // still exist, then tear down the infrastructure they were using.
-            processCleaner.terminateAndWait(PROCESS_EXIT_TIMEOUT_MS)
-        } catch (e: Exception) {
-            // The dedicated :session process performs a final defensive sweep before exit.
-        }
-        try {
+            // Stop the launcher and socket-backed X/ALSA/SHM components before the broad
+            // process sweep. In particular, the SHM epoll thread must not process DELETE
+            // requests concurrently with wineserver teardown.
             environment.stopEnvironmentComponents()
         } catch (e: Exception) {
             // stopEnvironmentComponents already swallows per-component failures; this is
             // a belt-and-braces guard so a teardown exception never escapes stop().
+        }
+        try {
+            processCleaner.terminateAndWait(PROCESS_EXIT_TIMEOUT_MS)
+        } catch (e: Exception) {
+            // The dedicated :session process performs a final defensive sweep before exit.
         }
         try {
             xServer.stop()

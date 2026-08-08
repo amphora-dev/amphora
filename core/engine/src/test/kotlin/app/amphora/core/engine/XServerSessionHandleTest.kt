@@ -37,8 +37,8 @@ class XServerSessionHandleTest {
         verify(exactly = 1) { processCleaner.terminateAndWait(2_000L) }
         verify(exactly = 1) { xServer.stop() }
         verifyOrder {
-            processCleaner.terminateAndWait(2_000L)
             environment.stopEnvironmentComponents()
+            processCleaner.terminateAndWait(2_000L)
             xServer.stop()
         }
         assertEquals(SessionState.STOPPED, handle.state.value)
@@ -65,8 +65,8 @@ class XServerSessionHandleTest {
         }
 
         verifyOrder {
-            processCleaner.terminateAndWait(2_000L)
             environment.stopEnvironmentComponents()
+            processCleaner.terminateAndWait(2_000L)
             xServer.stop()
         }
     }
