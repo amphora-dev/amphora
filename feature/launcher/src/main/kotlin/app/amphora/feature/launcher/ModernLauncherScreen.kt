@@ -84,10 +84,11 @@ fun ModernLauncherScreen(
     val openExplorer = {
         onOpenExplorer(state.resolution.width, state.resolution.height)
     }
-    val launchSelected = {
+    val launchSelected: () -> Unit = {
         state.stagedExePath?.let {
             onLaunch(it, state.resolution.width, state.resolution.height)
         }
+        Unit
     }
 
     Scaffold(
