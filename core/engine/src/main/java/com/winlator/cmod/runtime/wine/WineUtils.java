@@ -2,6 +2,8 @@ package com.winlator.cmod.runtime.wine;
 
 import android.content.Context;
 import android.os.Environment;
+import android.system.ErrnoException;
+import android.system.Os;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import com.winlator.cmod.runtime.container.Container;
@@ -708,8 +710,242 @@ public abstract class WineUtils {
       setWindowMetrics(registryEditor);
     }
 
+    applyLocaleToPrefix(systemRegFile, userRegFile);
+    linkFontsToFontconfig(rootDir);
+
     // Copy critical DLLs from wine installation to container
     copyWineDllsToContainer(rootDir, wineInfo);
+  }
+
+  /**
+   * Wine's {@code init_locale} calls {@code setlocale(LC_ALL, "")} which on
+   * Bionic always returns {@code "C.UTF-8"} regardless of {@code LC_ALL} or
+   * {@code LANG}. Wine cannot derive a Windows locale from that string, falls
+   * back to en-US, and leaves {@code ACP=1252} / {@code OEMCP=437} — so CJK text
+   * renders as {@code ?}. Patch the registry directly so Wine uses the codepage
+   * matching the device locale. The prefix template ships en-US defaults; we
+   * overwrite them here. Wine reads these values at runtime without clobbering
+   * them, so the registry is the right layer for this fix.
+   */
+  private static void applyLocaleToPrefix(File systemRegFile, File userRegFile) {
+    Locale locale = Locale.getDefault();
+    String lang = locale.getLanguage();
+    String country = locale.getCountry();
+    if (country == null || country.isEmpty()) country = LocaleEnv.defaultCountryFor(lang);
+    if (lang == null || lang.isEmpty() || country == null || country.isEmpty()) return;
+
+    String acp = codePageFor(lang, country);
+    String oemcp = acp;
+    String lcid = windowsLangIdFor(lang, country);
+    if (acp == null || lcid == null) return;
+
+    Log.i("WineUtils", "applyLocaleToPrefix: lang=" + lang + " country=" + country
+        + " ACP=" + acp + " LCID=" + lcid);
+
+    try (WineRegistryEditor reg = new WineRegistryEditor(systemRegFile)) {
+      reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Codepage", "ACP", acp);
+      reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Codepage", "OEMCP", oemcp);
+      reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Codepage", "ACP", acp);
+      reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Codepage", "OEMCP", oemcp);
+      reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Language", "Default", lcid);
+      reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Language", "InstallLanguage", lcid);
+      reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Language", "Default", lcid);
+      reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Language", "InstallLanguage", lcid);
+    }
+
+    try (WineRegistryEditor reg = new WineRegistryEditor(userRegFile)) {
+      String sLanguage = windowsSlangFor(lang, country);
+      if (sLanguage != null) {
+        reg.setStringValue("Control Panel\\International", "sLanguage", sLanguage);
+      }
+      reg.setStringValue("Control Panel\\International", "sCountry", countryNameFor(lang, country));
+      reg.setStringValue("Control Panel\\International", "iCountry", iCountryFor(lang, country));
+      reg.setStringValue("Control Panel\\International", "Locale", lcid);
+    }
+  }
+
+  /** Map a language/country pair to its Windows ANSI code page (ACP). */
+  private static String codePageFor(String lang, String country) {
+    switch (lang) {
+      case "zh":
+        return ("TW".equals(country) || "HK".equals(country) || "MO".equals(country))
+            ? "950" : "936";
+      case "ja": return "932";
+      case "ko": return "949";
+      case "ru": case "uk": case "bg": return "1251";
+      case "el": return "1253";
+      case "tr": return "1254";
+      case "he": return "1255";
+      case "ar": return "1256";
+      case "th": return "874";
+      case "vi": return "1258";
+      case "cs": case "hu": case "pl": case "ro": case "hr": case "sk": case "sl": return "1250";
+      default: return "1252";
+    }
+  }
+
+  /** Map a language/country pair to its Windows language ID (hex, zero-padded to 4). */
+  private static String windowsLangIdFor(String lang, String country) {
+    switch (lang) {
+      case "zh":
+        return ("TW".equals(country) || "HK".equals(country) || "MO".equals(country))
+            ? "0404" : "0804";
+      case "en": return "0409";
+      case "ja": return "0411";
+      case "ko": return "0412";
+      case "de": return "0407";
+      case "fr": return "040C";
+      case "es": return "040A";
+      case "it": return "0410";
+      case "ru": return "0419";
+      case "pt": return "0416";
+      case "nl": return "0413";
+      case "sv": return "041D";
+      case "da": return "0406";
+      case "fi": return "040B";
+      case "no": return "0414";
+      case "pl": return "0415";
+      case "tr": return "041F";
+      case "ar": return "0401";
+      case "he": return "040D";
+      case "th": return "041E";
+      case "vi": return "042A";
+      case "cs": return "0405";
+      case "el": return "0408";
+      case "uk": return "0422";
+      default: return null;
+    }
+  }
+
+  /** Map to the 3-letter Windows sLanguage (e.g. ENU, CHS, CHT, JPN, KOR). */
+  private static String windowsSlangFor(String lang, String country) {
+    switch (lang) {
+      case "zh":
+        return ("TW".equals(country) || "HK".equals(country) || "MO".equals(country))
+            ? "CHT" : "CHS";
+      case "en": return "ENU";
+      case "ja": return "JPN";
+      case "ko": return "KOR";
+      case "de": return "DEU";
+      case "fr": return "FRA";
+      case "es": return "ESP";
+      case "it": return "ITA";
+      case "ru": return "RUS";
+      case "pt": return "PTB";
+      case "nl": return "NLD";
+      case "sv": return "SVE";
+      case "da": return "DAN";
+      case "fi": return "FIN";
+      case "no": return "NOR";
+      case "pl": return "PLK";
+      case "tr": return "TRK";
+      case "ar": return "ARA";
+      case "he": return "HEB";
+      case "th": return "THA";
+      case "vi": return "VIT";
+      case "cs": return "CSY";
+      case "el": return "ELL";
+      case "uk": return "UKR";
+      default: return null;
+    }
+  }
+
+  /** Human-readable country name for the Control Panel sCountry field. */
+  private static String countryNameFor(String lang, String country) {
+    switch (country) {
+      case "CN": return "China";
+      case "TW": return "Taiwan";
+      case "HK": return "Hong Kong S.A.R.";
+      case "JP": return "Japan";
+      case "KR": return "Korea";
+      case "US": return "United States";
+      case "DE": return "Germany";
+      case "FR": return "France";
+      case "ES": return "Spain";
+      case "IT": return "Italy";
+      case "RU": return "Russia";
+      case "BR": return "Brazil";
+      case "GB": return "United Kingdom";
+      default: return country;
+    }
+  }
+
+  /** International dialing code for the Control Panel iCountry field. */
+  private static String iCountryFor(String lang, String country) {
+    switch (country) {
+      case "CN": return "86";
+      case "TW": return "886";
+      case "HK": return "852";
+      case "JP": return "81";
+      case "KR": return "82";
+      case "US": return "1";
+      case "DE": return "49";
+      case "FR": return "33";
+      case "ES": return "34";
+      case "IT": return "39";
+      case "RU": return "7";
+      case "BR": return "55";
+      case "GB": return "44";
+      default: return "1";
+    }
+  }
+
+  /**
+   * The self-built imagefs ships an empty {@code usr/share/fonts/}. fontconfig's
+   * {@code fonts.conf} only lists that directory (and {@code ~/.fonts}), so Wine's
+   * freetype backend cannot find the CJK fonts that live in the prefix's
+   * {@code drive_c/windows/Fonts/}. When an app requests a font name that has no
+   * direct file match in the prefix, fontconfig falls back to Latin-only fonts,
+   * and CJK glyphs render as {@code ?}. Symlink every prefix font into the
+   * fontconfig scan path and rebuild the cache.
+   */
+  private static void linkFontsToFontconfig(File rootDir) {
+    File fontsDir = new File(rootDir, "usr/share/fonts");
+    File prefixFontsDir = new File(rootDir,
+        ImageFs.WINEPREFIX + "/drive_c/windows/Fonts");
+    if (!prefixFontsDir.isDirectory()) return;
+
+    fontsDir.mkdirs();
+    boolean added = false;
+    File[] fontFiles = prefixFontsDir.listFiles();
+    if (fontFiles != null) {
+      for (File fontFile : fontFiles) {
+        String name = fontFile.getName().toLowerCase(Locale.ROOT);
+        if (!name.endsWith(".ttf") && !name.endsWith(".ttc")
+            && !name.endsWith(".otf") && !name.endsWith(".fon")) {
+          continue;
+        }
+        File link = new File(fontsDir, fontFile.getName());
+        if (!link.exists()) {
+          try {
+            Os.symlink(fontFile.getAbsolutePath(), link.getAbsolutePath());
+            added = true;
+          } catch (ErrnoException e) {
+            Log.w("WineUtils", "linkFontsToFontconfig: symlink failed for "
+                + fontFile.getName() + ": " + e.getMessage());
+          }
+        }
+      }
+    }
+
+    if (added) {
+      File fcCache = new File(rootDir, "usr/bin/fc-cache");
+      if (fcCache.exists()) {
+        try {
+          ProcessBuilder pb = new ProcessBuilder(
+              fcCache.getAbsolutePath(), "-f",
+              new File(rootDir, "usr/share/fonts").getAbsolutePath());
+          pb.environment().put("LD_LIBRARY_PATH", rootDir.getAbsolutePath() + "/usr/lib");
+          pb.environment().put("FONTCONFIG_PATH", rootDir.getAbsolutePath() + "/usr/etc/fonts");
+          pb.environment().put("HOME", rootDir.getAbsolutePath() + ImageFs.HOME_PATH);
+          pb.redirectErrorStream(true);
+          pb.redirectOutput(new File("/dev/null"));
+          pb.start().waitFor();
+        } catch (Exception e) {
+          Log.w("WineUtils", "linkFontsToFontconfig: fc-cache failed: " + e.getMessage());
+        }
+      }
+    }
   }
 
   private static void copyWineDllsToContainer(File rootDir, WineInfo wineInfo) {
