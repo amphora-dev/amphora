@@ -37,7 +37,7 @@ public final class LocaleEnv {
         return value + ".UTF-8";
     }
 
-    private static String defaultCountryFor(String lang) {
+    public static String defaultCountryFor(String lang) {
         if (lang == null) return null;
         switch (lang) {
             case "en": return "US";
