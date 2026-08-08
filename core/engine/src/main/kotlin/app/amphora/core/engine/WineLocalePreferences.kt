@@ -4,11 +4,7 @@ import android.content.Context
 import androidx.core.content.edit
 import com.winlator.cmod.runtime.wine.LocaleEnv
 
-enum class WineLocaleOption(
-    val preferenceValue: String,
-    val locale: String?,
-    val label: String,
-) {
+enum class WineLocaleOption(val preferenceValue: String, val locale: String?, val label: String) {
     AUTO("auto", null, "Automatic (device language)"),
     JAPANESE("ja", "ja_JP.UTF-8", "Japanese"),
     SIMPLIFIED_CHINESE("zh-cn", "zh_CN.UTF-8", "Simplified Chinese"),
@@ -27,12 +23,11 @@ enum class WineLocaleOption(
 object WineLocalePreferences {
     const val KEY = "wine_locale"
 
-    fun selected(context: Context): WineLocaleOption =
-        WineLocaleOption.fromPreference(
-            context
-                .getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
-                .getString(KEY, null),
-        )
+    fun selected(context: Context): WineLocaleOption = WineLocaleOption.fromPreference(
+        context
+            .getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY, null),
+    )
 
     fun set(context: Context, option: WineLocaleOption) {
         context
@@ -46,6 +41,5 @@ object WineLocalePreferences {
             }
     }
 
-    fun resolve(context: Context): String =
-        selected(context).resolve(LocaleEnv.normalize(LocaleEnv.deriveFromDevice()))
+    fun resolve(context: Context): String = selected(context).resolve(LocaleEnv.normalize(LocaleEnv.deriveFromDevice()))
 }
