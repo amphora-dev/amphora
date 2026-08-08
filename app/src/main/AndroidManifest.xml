@@ -58,6 +58,16 @@
             </intent-filter>
         </activity>
 
+        <!-- One Wine/Vulkan generation per process. The session process is deliberately
+             not isolated: Wine, imagefs and content packages live under this app UID. -->
+        <activity
+            android:name=".gamesession.SessionActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|locale|layoutDirection|fontScale|uiMode"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":session" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

@@ -1,7 +1,6 @@
 package app.amphora.ui.theme
 
 import android.app.Activity
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -12,24 +11,42 @@ import androidx.core.view.WindowCompat
 
 private val DarkColors =
     darkColorScheme(
-        primary = AmphoraPrimary,
-        onPrimary = AmphoraOnPrimary,
-        secondary = AmphoraSecondary,
-        tertiary = AmphoraTertiary,
-        background = AmphoraBackground,
-        surface = AmphoraSurface,
+        primary = AmphoraDarkPrimary,
+        onPrimary = AmphoraDarkOnPrimary,
+        primaryContainer = AmphoraDarkPrimaryContainer,
+        onPrimaryContainer = AmphoraDarkOnPrimaryContainer,
+        secondary = AmphoraDarkSecondary,
+        onSecondary = AmphoraDarkOnSecondary,
+        secondaryContainer = AmphoraDarkSecondaryContainer,
+        onSecondaryContainer = AmphoraDarkOnSecondaryContainer,
+        background = AmphoraDarkBackground,
+        onBackground = AmphoraDarkOnBackground,
+        surface = AmphoraDarkSurface,
+        onSurface = AmphoraDarkOnSurface,
+        surfaceVariant = AmphoraDarkSurfaceVariant,
+        onSurfaceVariant = AmphoraDarkOnSurfaceVariant,
     )
 
 private val LightColors =
     lightColorScheme(
-        primary = AmphoraPrimary,
-        onPrimary = AmphoraOnPrimary,
-        secondary = AmphoraSecondary,
-        tertiary = AmphoraTertiary,
+        primary = AmphoraLightPrimary,
+        onPrimary = AmphoraLightOnPrimary,
+        primaryContainer = AmphoraLightPrimaryContainer,
+        onPrimaryContainer = AmphoraLightOnPrimaryContainer,
+        secondary = AmphoraLightSecondary,
+        onSecondary = AmphoraLightOnSecondary,
+        secondaryContainer = AmphoraLightSecondaryContainer,
+        onSecondaryContainer = AmphoraLightOnSecondaryContainer,
+        background = AmphoraLightBackground,
+        onBackground = AmphoraLightOnBackground,
+        surface = AmphoraLightSurface,
+        onSurface = AmphoraLightOnSurface,
+        surfaceVariant = AmphoraLightSurfaceVariant,
+        onSurfaceVariant = AmphoraLightOnSurfaceVariant,
     )
 
 @Composable
-fun AmphoraTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun AmphoraTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
     val colorScheme = if (darkTheme) DarkColors else LightColors
     val view = LocalView.current
     if (!view.isInEditMode) {

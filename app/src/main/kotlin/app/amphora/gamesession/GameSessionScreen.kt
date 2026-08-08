@@ -3,7 +3,8 @@ package app.amphora.gamesession
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.net.Uri
+import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -21,7 +22,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,14 +36,9 @@ import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.navigation.NavGraphBuilder
-import androidx.navigation.NavType
-import androidx.navigation.compose.composable
-import androidx.navigation.navArgument
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.model.SessionState
@@ -49,43 +47,8 @@ import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView
 import com.winlator.cmod.runtime.display.xserver.XServer
 import kotlin.math.roundToInt
-
-const val GAME_SESSION_ROUTE = "game_session"
-
-private const val GAME_SESSION_ROUTE_WITH_ARGS =
-    "$GAME_SESSION_ROUTE?exePath={exePath}&width={width}&height={height}&graphicsDiag={graphicsDiag}"
-
-/** Builds the navigation URL for the game-session route (exe path URL-encoded). */
-fun gameSessionRoute(exePath: String, width: Int = 1280, height: Int = 720, graphicsDiag: Boolean = false): String =
-    "$GAME_SESSION_ROUTE?exePath=${Uri.encode(exePath)}&width=$width&height=$height" +
-        "&graphicsDiag=$graphicsDiag"
-
-fun NavGraphBuilder.gameSessionScreen(onExit: () -> Unit) {
-    composable(
-        route = GAME_SESSION_ROUTE_WITH_ARGS,
-        arguments =
-        listOf(
-            navArgument("exePath") {
-                type = NavType.StringType
-                defaultValue = ""
-            },
-            navArgument("width") {
-                type = NavType.IntType
-                defaultValue = 1280
-            },
-            navArgument("height") {
-                type = NavType.IntType
-                defaultValue = 720
-            },
-            navArgument("graphicsDiag") {
-                type = NavType.BoolType
-                defaultValue = false
-            },
-        ),
-    ) {
-        GameSessionScreen(viewModel = hiltViewModel(), onExit = onExit)
-    }
-}
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The Wine game-session screen (RFC §8 / D9): the Compose rewrite of WinNative's 10,995-line
@@ -104,6 +67,15 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     val sessionState by viewModel.sessionState.collectAsState()
     val launchError by viewModel.launchError.collectAsState()
     val provisionProgress by viewModel.provisionProgress.collectAsState()
+    var rendererView by remember { mutableStateOf<XServerSurfaceView?>(null) }
+
+    BackHandler {
+        when (sessionState) {
+            SessionState.STARTING, SessionState.RUNNING, SessionState.PAUSED -> viewModel.stop()
+            SessionState.STOPPING -> Unit
+            else -> onExit()
+        }
+    }
 
     // Game content owns the whole physical display. System bars remain
     // transiently reachable with an edge swipe and are restored on exit.
@@ -121,21 +93,36 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
-    // Auto-exit when the guest process terminates normally (SessionHandle.markStopped).
+    // STOPPED is emitted only after Wine and XEnvironment teardown completes.
     LaunchedEffect(sessionState) {
-        if (sessionState == SessionState.STOPPED) onExit()
+        if (sessionState == SessionState.STOPPED) {
+            val closed =
+                withContext(Dispatchers.IO) {
+                    rendererView?.closeAndJoin(RENDERER_CLOSE_TIMEOUT_MS) ?: true
+                }
+            if (!closed) {
+                Log.w(TAG, "Renderer teardown timed out; session process exit will reclaim it")
+            }
+            onExit()
+        }
     }
 
     // Tie the session pause/resume to the host lifecycle (XEnvironment.onPause/onResume +
     // ProcessHelper.resumeAllWineProcesses - the render-thread pause is handled by the
     // SurfaceView's own SurfaceHolder lifecycle).
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, rendererView) {
         val observer =
             LifecycleEventObserver { _, event ->
                 when (event) {
-                    Lifecycle.Event.ON_RESUME -> viewModel.resume()
-                    Lifecycle.Event.ON_PAUSE -> viewModel.pause()
+                    Lifecycle.Event.ON_RESUME -> {
+                        rendererView?.onResume()
+                        viewModel.resume()
+                    }
+                    Lifecycle.Event.ON_PAUSE -> {
+                        rendererView?.onPause()
+                        viewModel.pause()
+                    }
                     else -> {}
                 }
             }
@@ -143,12 +130,23 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val running = sessionState in setOf(SessionState.STARTING, SessionState.RUNNING, SessionState.PAUSED)
+    val running =
+        sessionState in
+            setOf(
+                SessionState.STARTING,
+                SessionState.RUNNING,
+                SessionState.PAUSED,
+                SessionState.STOPPING,
+            )
 
     Box(modifier = Modifier.fillMaxSize()) {
         val sessionSurface = surface
         if (sessionSurface != null) {
-            GameSurface(surface = sessionSurface, modifier = Modifier.fillMaxSize())
+            GameSurface(
+                surface = sessionSurface,
+                onViewReady = { rendererView = it },
+                modifier = Modifier.fillMaxSize(),
+            )
             TouchpadOverlay(xServer = sessionSurface.xServer, modifier = Modifier.fillMaxSize())
             if (viewModel.hostPerformanceHudEnabled) {
                 HostPerformanceOverlay(xServer = sessionSurface.xServer)
@@ -165,8 +163,9 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         // or exits immediately when not running.
         Button(
             onClick = { if (running) viewModel.stop() else onExit() },
+            enabled = sessionState != SessionState.STOPPING,
             modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
-        ) { Text("Exit") }
+        ) { Text(if (sessionState == SessionState.STOPPING) "Closing…" else "Exit") }
     }
 }
 
@@ -239,7 +238,11 @@ private fun frameTimeLabel(fps: Float): String = if (fps > 0.1f) "%.1f ms".forma
 
 /** The Vulkan render surface (XSDA `setupUI`, L6914). Wires the renderer back to the XServer. */
 @Composable
-private fun GameSurface(surface: GameSessionSurface, modifier: Modifier = Modifier) {
+private fun GameSurface(
+    surface: GameSessionSurface,
+    onViewReady: (XServerSurfaceView) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val xServer = surface.xServer
     val graphicsDriver = surface.graphicsDriver
     val presentMode = surface.presentMode
@@ -260,6 +263,7 @@ private fun GameSurface(surface: GameSessionSurface, modifier: Modifier = Modifi
                 // WinHandler, which is null in the MVP). The touch overlay still moves the
                 // cursor by delta via injectPointerMoveDelta (relative cursor feel).
                 xServer.setRenderer(renderer)
+                onViewReady(view)
             }
         },
         modifier = modifier,
@@ -269,6 +273,7 @@ private fun GameSurface(surface: GameSessionSurface, modifier: Modifier = Modifi
             renderer.setGraphicsDriver(graphicsDriver)
             renderer.setPresentMode(VulkanRenderer.parsePresentMode(presentMode))
         },
+        onRelease = { view -> view.onPause() },
     )
 }
 
@@ -360,3 +365,6 @@ private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_000 -> "%.1f KB".format(bytes / 1_000.0)
     else -> "$bytes B"
 }
+
+private const val TAG = "GameSessionScreen"
+private const val RENDERER_CLOSE_TIMEOUT_MS = 5_000L

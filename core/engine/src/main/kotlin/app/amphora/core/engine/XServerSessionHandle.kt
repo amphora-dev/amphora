@@ -7,9 +7,12 @@ import com.winlator.cmod.runtime.display.environment.XEnvironment
 import com.winlator.cmod.runtime.display.xserver.XServer
 import com.winlator.cmod.runtime.system.ProcessHelper
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -34,12 +37,14 @@ internal class XServerSessionHandle(
     private val xServer: XServer,
     private val dispatchers: DispatcherProvider,
     private val processCleaner: SessionProcessCleaner = DefaultSessionProcessCleaner,
+    private val onStopped: () -> Unit = {},
 ) : SessionHandle {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(SessionState.CREATED)
     override val state: StateFlow<SessionState> = _state.asStateFlow()
 
     private val readiness = CompletableDeferred<Unit>()
+    private val cleanupScope = CoroutineScope(SupervisorJob() + dispatchers.io)
     private var teardownDone = false
 
     /** Called by [WineEngineImpl] just before `startEnvironmentComponents()`. */
@@ -59,15 +64,9 @@ internal class XServerSessionHandle(
         readiness.completeExceptionally(cause)
     }
 
-    /**
-     * Called from `GuestProgramLauncherComponent`'s termination callback when the guest
-     * process exits on its own (game closed). Signals the UI to tear down; the actual
-     * component teardown happens in [stop] (called by the VM on dispose / state change).
-     * Does NOT run teardown so [stop] remains free to do it exactly once.
-     */
-    fun markStopped() {
-        _state.value = SessionState.STOPPED
-        readiness.complete(Unit)
+    /** Guest exit requests teardown; STOPPED is published only after the full barrier. */
+    fun requestStop() {
+        cleanupScope.launch { stop() }
     }
 
     override suspend fun awaitReady() = readiness.await()
@@ -92,6 +91,16 @@ internal class XServerSessionHandle(
         teardownDone = true
         val terminalState =
             if (_state.value == SessionState.FAILED) SessionState.FAILED else SessionState.STOPPED
+        if (terminalState != SessionState.FAILED) {
+            _state.value = SessionState.STOPPING
+        }
+        try {
+            // Match WinNative's safe order: drain Wine clients while X/ALSA/SHM endpoints
+            // still exist, then tear down the infrastructure they were using.
+            processCleaner.terminateAndWait(PROCESS_EXIT_TIMEOUT_MS)
+        } catch (e: Exception) {
+            // The dedicated :session process performs a final defensive sweep before exit.
+        }
         try {
             environment.stopEnvironmentComponents()
         } catch (e: Exception) {
@@ -99,16 +108,11 @@ internal class XServerSessionHandle(
             // a belt-and-braces guard so a teardown exception never escapes stop().
         }
         try {
-            processCleaner.terminateAndWait(PROCESS_EXIT_TIMEOUT_MS)
-        } catch (e: Exception) {
-            // Best-effort at this boundary. A subsequent launch runs the same
-            // bounded cleanup before creating any new guest processes.
-        }
-        try {
             xServer.stop()
         } catch (e: Exception) {
             // ignore
         }
+        onStopped()
         _state.value = terminalState
         // Release anyone awaiting readiness so coroutines don't hang on a failed/stopped session.
         readiness.complete(Unit)

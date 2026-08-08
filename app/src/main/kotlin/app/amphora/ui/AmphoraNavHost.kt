@@ -2,65 +2,36 @@ package app.amphora.ui
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
+import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.feature.launcher.navigation.LAUNCHER_ROUTE
 import app.amphora.feature.launcher.navigation.launcherScreen
 import app.amphora.feature.settings.navigation.SETTINGS_ROUTE
 import app.amphora.feature.settings.navigation.settingsScreen
-import app.amphora.gamesession.gameSessionRoute
-import app.amphora.gamesession.gameSessionScreen
-
-/**
- * Flip to `true` for the "open app → Wine session" iteration loop (bypasses SAF).
- * Normal builds leave this `false` and start at [LAUNCHER_ROUTE]; the launcher still
- * exposes a **Debug: Wine smoke test** button that uses the same staging helper.
- */
-private const val DEBUG_AUTO_LAUNCH_WINE = false
-private const val DEBUG_AUTO_WIDTH = 1280
-private const val DEBUG_AUTO_HEIGHT = 720
+import app.amphora.gamesession.SessionActivity
 
 @Composable
-fun AmphoraNavHost(navController: NavHostController, startRouteOverride: String? = null) {
+fun AmphoraNavHost(navController: NavHostController) {
     val context = LocalContext.current
-    val startRoute =
-        remember(startRouteOverride) {
-            startRouteOverride ?: if (DEBUG_AUTO_LAUNCH_WINE) {
-                gameSessionRoute(
-                    stageDebugWineExe(context),
-                    DEBUG_AUTO_WIDTH,
-                    DEBUG_AUTO_HEIGHT,
-                )
-            } else {
-                LAUNCHER_ROUTE
-            }
-        }
-    NavHost(navController = navController, startDestination = startRoute) {
+    NavHost(navController = navController, startDestination = LAUNCHER_ROUTE) {
         launcherScreen(
             onLaunch = { exePath, width, height ->
-                navController.navigate(gameSessionRoute(exePath, width, height))
+                SessionActivity.launch(context, exePath, width, height)
+            },
+            onOpenExplorer = { width, height ->
+                SessionActivity.launch(
+                    context = context,
+                    exePath = "",
+                    width = width,
+                    height = height,
+                    target = LaunchTarget.EXPLORER,
+                )
             },
             onOpenSettings = { navController.navigate(SETTINGS_ROUTE) },
-            onDebugLaunchWine = { width, height ->
-                navController.navigate(
-                    gameSessionRoute(stageDebugWineExe(context), width, height),
-                )
-            },
-            onDebugLaunchWineDiag = { width, height ->
-                navController.navigate(
-                    gameSessionRoute(
-                        stageDebugWineExe(context),
-                        width,
-                        height,
-                        graphicsDiag = true,
-                    ),
-                )
-            },
         )
         settingsScreen(onBack = { navController.popBackStack() })
-        gameSessionScreen(onExit = { navController.popBackStack() })
     }
 }
 

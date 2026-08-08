@@ -12,6 +12,7 @@ import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.engine.model.AudioSink
 import app.amphora.core.engine.model.InputSink
 import app.amphora.core.engine.model.LaunchSpec
+import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.core.engine.model.SessionHandle
 import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
@@ -188,12 +189,25 @@ constructor(
             // 7. XEnvironment + service components (GPLC added separately so the handle can wire its
             //    termination callback first).
             val environment = buildEnvironment(xServer, envVars)
-            val handle = XServerSessionHandle(environment, xServer, dispatchers)
+            lateinit var handle: XServerSessionHandle
+            handle =
+                XServerSessionHandle(
+                    environment,
+                    xServer,
+                    dispatchers,
+                    onStopped = {
+                        if (currentHandle === handle) {
+                            _surface.value = null
+                            currentXServer = null
+                            currentHandle = null
+                        }
+                    },
+                )
             currentHandle = handle
             // 8. Guest launcher: `box64 wine explorer /desktop=WxH "<exe>"` (D9: Amphora passes
             //    exe + env only; it never rewrites getWineStartCommand).
             val launcher = buildGuestLauncher(wnContainer, wineInfo, spec, envVars)
-            launcher.setTerminationCallback { handle.markStopped() }
+            launcher.setTerminationCallback { handle.requestStop() }
             environment.addComponent(launcher)
             // 9. Start (GPLC starts last and execs the guest process).
             handle.markStarting()
@@ -343,19 +357,18 @@ constructor(
         val launcher = GuestProgramLauncherComponent(contentsManager, wineProfile)
         launcher.setContainer(container)
         launcher.setWineInfo(wineInfo)
-        // Stage the picked exe into the container's C: drive (drive_c) and launch it as a
-        // Windows path. The launcher staged the SAF-picked file at spec.exePath
-        // (app-private filesDir/exe/<name>); Wine's drive letters only map drive_c (C:),
-        // the rootfs (Z:), and Downloads/ExternalStorage (D:/F:) -- the staged path is
-        // under none of them, so it must be copied into drive_c. This mirrors WinNative's
-        // `ensureDriveCGameSymlink` (WineUtils): Wine `explorer /desktop=...` expects a
-        // Windows path, and C: (-> drive_c) is always mapped by createDosdevicesSymlinks.
-        val wineExePath = stageExeIntoPrefix(container, spec.exePath)
-        // `wine explorer /desktop=shell,<WxH> "<exe>"` - the guest executable (XSDA L6500).
-        // Quotes around the path are required for spaces; ProcessHelper.splitCommand strips
-        // the delimiters so Wine sees C:\foo.exe, not "C:\foo.exe".
         val screenInfo = "${spec.displaySize.width}x${spec.displaySize.height}"
-        val guestExecutable = "wine explorer /desktop=shell,$screenInfo \"$wineExePath\""
+        val guestExecutable =
+            when (spec.target) {
+                LaunchTarget.EXPLORER -> buildWineExplorerCommand(screenInfo)
+                LaunchTarget.PROGRAM -> {
+                    // Stage the picked exe into the container's C: drive (drive_c) and
+                    // launch it as a Windows path. Wine's drive letters do not map the
+                    // app-private SAF staging directory, while C: is always available.
+                    val wineExePath = stageExeIntoPrefix(container, spec.exePath)
+                    buildWineProgramCommand(screenInfo, wineExePath)
+                }
+            }
         Log.i("WineEngineImpl", "guestExecutable=$guestExecutable")
         launcher.setGuestExecutable(guestExecutable)
         launcher.setEnvVars(envVars)
@@ -388,3 +401,8 @@ constructor(
         const val IMAGEFS_VERSION = ImageFsInstaller.LATEST_VERSION.toString()
     }
 }
+
+internal fun buildWineExplorerCommand(screenInfo: String): String = "wine explorer /desktop=shell,$screenInfo"
+
+internal fun buildWineProgramCommand(screenInfo: String, wineExePath: String): String =
+    "wine explorer /desktop=shell,$screenInfo \"$wineExePath\""
