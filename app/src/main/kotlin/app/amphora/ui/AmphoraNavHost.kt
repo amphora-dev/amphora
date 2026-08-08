@@ -5,11 +5,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
+import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.feature.launcher.navigation.LAUNCHER_ROUTE
 import app.amphora.feature.launcher.navigation.launcherScreen
 import app.amphora.feature.settings.navigation.SETTINGS_ROUTE
 import app.amphora.feature.settings.navigation.settingsScreen
-import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.gamesession.SessionActivity
 
 @Composable
