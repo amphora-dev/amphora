@@ -1,11 +1,7 @@
 package com.winlator.cmod.sharedmemory;
 
-import android.os.SharedMemory;
-import android.system.ErrnoException;
 import android.util.SparseArray;
 import com.winlator.cmod.runtime.display.connector.XConnectorEpoll;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 
 public class SysVSharedMemory {
@@ -33,7 +29,7 @@ public class SysVSharedMemory {
     synchronized (shmemories) {
       int index = shmemories.size();
       int fd = ashmemCreateRegion(index, size);
-      if (fd < 0) fd = createSharedMemory("sysvshm-" + index, (int) size);
+      if (fd < 0) fd = createMemoryFd("sysvshm-" + index, (int) size);
       if (fd < 0) return -1;
 
       SHMemory shmemory = new SHMemory();
@@ -89,22 +85,6 @@ public class SysVSharedMemory {
         }
       }
     }
-  }
-
-  private static int createSharedMemory(String name, int size) {
-    try {
-      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
-        SharedMemory sharedMemory = SharedMemory.create(name, size);
-        try {
-          Method method = sharedMemory.getClass().getMethod("getFd");
-          Object ret = method.invoke(sharedMemory);
-          if (ret != null) return (int) ret;
-        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
-        }
-      }
-    } catch (ErrnoException e) {
-    }
-    return -1;
   }
 
   public static native int createMemoryFd(String name, int size);

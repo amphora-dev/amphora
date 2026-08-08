@@ -1,4 +1,5 @@
 #include <android/log.h>
+#include <android/sharedmem.h>
 #include <fcntl.h>
 #include <jni.h>
 #include <pthread.h>
@@ -9,7 +10,6 @@
 #include <sys/ipc.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
-#include <sys/syscall.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -40,14 +40,6 @@ static int ashmemCreateRegion(const char *name, int64_t size) {
 error:
   close(fd);
   return -1;
-}
-
-static int memfd_create(const char *name, unsigned int flags) {
-#ifdef __NR_memfd_create
-  return syscall(__NR_memfd_create, name, flags);
-#else
-  return -1;
-#endif
 }
 
 JNIEXPORT jint JNICALL
@@ -81,17 +73,8 @@ Java_com_winlator_cmod_sharedmemory_SysVSharedMemory_createMemoryFd(
     JNIEnv *env, jclass obj, jstring name, jint size) {
   const char *namePtr = (*env)->GetStringUTFChars(env, name, 0);
 
-  int fd = memfd_create(namePtr, MFD_ALLOW_SEALING);
+  int fd = ASharedMemory_create(namePtr, size);
   (*env)->ReleaseStringUTFChars(env, name, namePtr);
-
-  if (fd < 0)
-    return -1;
-
-  int res = ftruncate(fd, size);
-  if (res < 0) {
-    close(fd);
-    return -1;
-  }
 
   return fd;
 }
