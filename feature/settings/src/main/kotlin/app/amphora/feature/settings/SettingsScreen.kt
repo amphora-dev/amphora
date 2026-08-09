@@ -803,11 +803,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         color =
-                            if (state.rejectedEnvNames.isEmpty()) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.error
-                            },
+                        if (state.rejectedEnvNames.isEmpty()) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
                     )
                 },
             )
@@ -1076,9 +1076,9 @@ private fun SessionCleanupSection(state: SettingsUiState, viewModel: SettingsVie
             },
             enabled = state.shizukuCleanupStatus != ShizukuCleanupStatus.UNAVAILABLE,
             modifier =
-                Modifier.alpha(
-                    if (state.shizukuCleanupStatus == ShizukuCleanupStatus.UNAVAILABLE) 0f else 1f,
-                ),
+            Modifier.alpha(
+                if (state.shizukuCleanupStatus == ShizukuCleanupStatus.UNAVAILABLE) 0f else 1f,
+            ),
         ) {
             Text(
                 if (state.shizukuCleanupStatus == ShizukuCleanupStatus.READY) {
@@ -1300,10 +1300,10 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
         Text(
             state.availableUpdate?.notes.orEmpty(),
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(20.dp)
-                    .alpha(if (state.availableUpdate?.notes == null) 0f else 1f),
+            Modifier
+                .fillMaxWidth()
+                .height(20.dp)
+                .alpha(if (state.availableUpdate?.notes == null) 0f else 1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodySmall,
@@ -1312,10 +1312,10 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
         Text(
             state.updateMessage.orEmpty(),
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(36.dp)
-                    .alpha(if (state.updateMessage == null) 0f else 1f),
+            Modifier
+                .fillMaxWidth()
+                .height(36.dp)
+                .alpha(if (state.updateMessage == null) 0f else 1f),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodySmall,
@@ -1323,9 +1323,9 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
         )
         LinearProgressIndicator(
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .alpha(if (state.updateBusy) 1f else 0f),
+            Modifier
+                .fillMaxWidth()
+                .alpha(if (state.updateBusy) 1f else 0f),
         )
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1412,10 +1412,10 @@ private fun StorageSection() {
         }
         Row(
             modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .alpha(if (granted) 0f else 1f),
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .alpha(if (granted) 0f else 1f),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             TextButton(
