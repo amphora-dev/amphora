@@ -98,8 +98,8 @@ EOF
   echo "content_manifest pushed"
 fi
 
-# Best-effort jsDelivr purge (CDN may still lag briefly)
-curl -fsS "https://purge.jsdelivr.net/gh/amphora-dev/content_manifest@latest/content_manifest.json" \
+# Best-effort jsDelivr main-branch purge (CDN may still lag briefly)
+curl -fsS "https://purge.jsdelivr.net/gh/amphora-dev/content_manifest@main/content_manifest.json" \
   >/tmp/jsdelivr-purge.json || true
 echo "jsDelivr purge attempted (see /tmp/jsdelivr-purge.json)"
 
