@@ -58,6 +58,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -482,9 +483,10 @@ private fun WindowsComponentChoice(
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.titleSmall,
             )
-            if (!useNative) {
-                ModifiedResetAction { onChange(true) }
-            }
+            ModifiedResetAction(
+                modified = !useNative,
+                onReset = { onChange(true) },
+            )
         }
         Text(
             component.description,
@@ -744,9 +746,10 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleSmall,
                 )
-                if (state.customEnv.isNotBlank()) {
-                    ModifiedResetAction { viewModel.setCustomEnv("") }
-                }
+                ModifiedResetAction(
+                    modified = state.customEnv.isNotBlank(),
+                    onReset = { viewModel.setCustomEnv("") },
+                )
             }
             Text(
                 "One KEY=VALUE per line. Engine-owned paths, sockets, loader variables and " +
@@ -875,7 +878,10 @@ private fun <T> ChoiceSetting(
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
         )
-        if (selected != defaultValue) ModifiedResetAction(onReset)
+        ModifiedResetAction(
+            modified = selected != defaultValue,
+            onReset = onReset,
+        )
     }
     Text(
         description,
@@ -910,9 +916,11 @@ private fun <T> ChoiceSetting(
 }
 
 @Composable
-private fun ModifiedResetAction(onReset: () -> Unit) {
+private fun ModifiedResetAction(modified: Boolean, onReset: () -> Unit) {
     TextButton(
         onClick = onReset,
+        enabled = modified,
+        modifier = Modifier.alpha(if (modified) 1f else 0f),
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
     ) {
         Box(
