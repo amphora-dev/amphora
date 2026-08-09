@@ -16,8 +16,12 @@ fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-./gradlew :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=app.amphora.PrefixPackGeneratorTest
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+adb "${adb_args[@]}" install -r -d app/build/outputs/apk/debug/app-debug.apk
+adb "${adb_args[@]}" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb "${adb_args[@]}" shell am instrument -w -r \
+  -e class app.amphora.PrefixPackGeneratorTest \
+  app.amphora.test/app.amphora.HiltTestRunner
 
 adb "${adb_args[@]}" exec-out run-as app.amphora \
   tar -cf - -C files/prefix-generator .wine prefix-generation.json > "$tmp/device.tar"
