@@ -6,6 +6,8 @@ import android.content.ContextWrapper
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -218,6 +221,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = false,
+        scrimColor = Color.Transparent,
         drawerContent = {
             RuntimeSessionDrawer(
                 sessionState = sessionState,
@@ -267,6 +271,20 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                     sessionState = sessionState,
                     launchError = launchError,
                     provisionProgress = provisionProgress,
+                )
+            }
+            if (drawerState.currentValue == DrawerValue.Open || drawerState.targetValue == DrawerValue.Open) {
+                Box(
+                    modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .zIndex(4f)
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                        .pointerInput(Unit) {
+                            detectTapGestures {
+                                drawerScope.launch { drawerState.close() }
+                            }
+                        },
                 )
             }
         }
