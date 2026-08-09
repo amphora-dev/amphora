@@ -112,21 +112,31 @@ object StorageUsageScanner {
         0
     }
 
+    /**
+     * The guest home is reached through a symlink (`home/xuser -> ./xuser-1`), so the
+     * scan root is resolved first — otherwise every entry below it looks like a link.
+     * Links found during the walk are still skipped: the prefix symlinks Windows DLLs
+     * back into the component store, and following them would bill the same bytes twice.
+     */
     private fun sizeOf(file: File): Long {
-        if (!file.exists()) return 0
-        if (file.isFile) return file.length()
-        // Symlinks inside the prefix point back into the component store; following
-        // them would count the same bytes under several entries.
-        return file
+        val root =
+            try {
+                file.canonicalFile
+            } catch (_: java.io.IOException) {
+                file.absoluteFile
+            }
+        if (!root.exists()) return 0
+        if (root.isFile) return root.length()
+        return root
             .walkTopDown()
-            .onEnter { !isSymlink(it) }
+            .onEnter { it == root || !isSymlink(it) }
             .filter { it.isFile && !isSymlink(it) }
             .sumOf(File::length)
     }
 
     private fun isSymlink(file: File): Boolean = try {
-        file.canonicalFile != file.absoluteFile
-    } catch (_: java.io.IOException) {
+        java.nio.file.Files.isSymbolicLink(file.toPath())
+    } catch (_: RuntimeException) {
         false
     }
 
