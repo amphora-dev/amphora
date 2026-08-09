@@ -124,8 +124,7 @@ object StorageUsageScanner {
                     container
                         .listFiles()
                         .orEmpty()
-                        .filter { it.name != ".wine" && it.name != ".cache" && !isSymlink(it) }
-                        .filter { it.isDirectory }
+                        .filter { it.isDirectory && !isSymlink(it) && isOldPrefix(it.name) }
                         .map {
                             StorageEntry(
                                 label = it.name,
@@ -226,12 +225,16 @@ object StorageUsageScanner {
     private fun isRemovable(target: File, homeDir: File, activeHome: File): Boolean {
         if (!target.isDirectory) return false
         if (target == activeHome || target == homeDir) return false
-        // Either a sibling container of the active one, or a stale folder inside it;
-        // the live prefix and shader cache are never eligible.
+        // Either a sibling container of the active one, or a superseded prefix inside
+        // it. The live prefix, the shader cache and the container's own runtime data
+        // (`.config`, `.local`, …) are never eligible.
         val parent = target.parentFile ?: return false
         if (parent == homeDir) return true
-        return parent == activeHome && target.name != ".wine" && target.name != ".cache"
+        return parent == activeHome && isOldPrefix(target.name)
     }
+
+    /** A renamed prefix such as `.wine.broken-backup`, never the live `.wine`. */
+    private fun isOldPrefix(name: String): Boolean = name.startsWith(".wine") && name != ".wine"
 
     private fun freeBytes(context: Context): Long = try {
         val stat = StatFs(context.filesDir.absolutePath)
