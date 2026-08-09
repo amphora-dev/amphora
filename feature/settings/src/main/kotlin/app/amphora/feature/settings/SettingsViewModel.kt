@@ -141,6 +141,29 @@ constructor(
         }
     }
 
+    fun deleteUnusedGuestData(paths: List<String>) {
+        if (paths.isEmpty() || _uiState.value.deletingStorage) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(deletingStorage = true, storageMessage = null) }
+            val freed =
+                withContext(dispatchers.io) {
+                    StorageUsageScanner.deleteUnusedGuestData(context, paths)
+                }
+            _uiState.update {
+                it.copy(
+                    deletingStorage = false,
+                    storageMessage =
+                    if (freed > 0) {
+                        "Freed ${formatStorageSize(freed)}."
+                    } else {
+                        "Nothing was removed."
+                    },
+                )
+            }
+            refreshStorageUsage()
+        }
+    }
+
     fun refreshStorageUsage() {
         if (_uiState.value.storageScanning) return
         viewModelScope.launch {
@@ -596,6 +619,8 @@ data class SettingsUiState(
     val cacheActionMessage: String? = null,
     val storageUsage: StorageUsage? = null,
     val storageScanning: Boolean = false,
+    val deletingStorage: Boolean = false,
+    val storageMessage: String? = null,
     val customEnv: String = "",
     val rejectedEnvNames: List<String> = emptyList(),
     val shizukuCleanupStatus: ShizukuCleanupStatus = ShizukuCleanupStatus.UNAVAILABLE,

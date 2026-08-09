@@ -302,7 +302,11 @@ private fun SettingsCategoryContent(
             }
             SettingsCategory.SYSTEM -> {
                 SettingsOverview(state)
-                StorageUsageSection(state = state, onRefresh = viewModel::refreshStorageUsage)
+                StorageUsageSection(
+                    state = state,
+                    onRefresh = viewModel::refreshStorageUsage,
+                    onDeleteUnused = viewModel::deleteUnusedGuestData,
+                )
                 AppUpdateSection(state = state, viewModel = viewModel)
                 SessionCleanupSection(state = state, viewModel = viewModel)
                 ComponentSection(state = state, onRefresh = viewModel::refreshComponents)
@@ -1321,8 +1325,13 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
 }
 
 @Composable
-private fun StorageUsageSection(state: SettingsUiState, onRefresh: () -> Unit) {
+private fun StorageUsageSection(
+    state: SettingsUiState,
+    onRefresh: () -> Unit,
+    onDeleteUnused: (List<String>) -> Unit,
+) {
     val usage = state.storageUsage
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
     SettingSection(
         title = "Storage usage",
         subtitle = "What Amphora keeps in app-private storage",
@@ -1372,15 +1381,82 @@ private fun StorageUsageSection(state: SettingsUiState, onRefresh: () -> Unit) {
                 )
             }
         }
+        state.storageMessage?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         HorizontalDivider()
         usage.entries.forEach { entry ->
-            StorageUsageRow(entry = entry, totalBytes = usage.totalBytes)
+            val removable = entry.children.mapNotNull(StorageEntry::removablePath)
+            StorageUsageRow(
+                entry = entry,
+                totalBytes = usage.totalBytes,
+                action =
+                if (removable.isEmpty()) {
+                    null
+                } else {
+                    {
+                        TextButton(
+                            onClick = { confirmDelete = true },
+                            enabled = !state.deletingStorage,
+                        ) {
+                            Text(
+                                if (state.deletingStorage) "Deleting…" else "Delete",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                },
+            )
         }
+    }
+
+    if (confirmDelete && usage != null) {
+        val removable =
+            usage.entries
+                .flatMap(StorageEntry::children)
+                .filter { it.removablePath != null }
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete unused data?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "This permanently removes containers and prefix backups that are no " +
+                            "longer in use. The active Windows prefix and installed components " +
+                            "are kept.",
+                    )
+                    removable.forEach {
+                        Text(
+                            "${it.label} · ${formatStorageSize(it.bytes)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDeleteUnused(removable.mapNotNull(StorageEntry::removablePath))
+                    },
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 
 @Composable
-private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long) {
+private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long, action: (@Composable () -> Unit)? = null) {
     var expanded by rememberSaveable(entry.label) { mutableStateOf(false) }
     val expandable = entry.children.isNotEmpty()
     Column(
@@ -1453,6 +1529,7 @@ private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long) {
                 }
             }
         }
+        action?.invoke()
     }
 }
 

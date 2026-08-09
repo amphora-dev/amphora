@@ -15,6 +15,8 @@ data class StorageEntry(
     val detail: String,
     val bytes: Long,
     val children: List<StorageEntry> = emptyList(),
+    /** Set only for entries the user is allowed to delete from this screen. */
+    val removablePath: String? = null,
 )
 
 data class StorageUsage(
@@ -115,6 +117,7 @@ object StorageUsageScanner {
                             label = container.name,
                             detail = "Inactive container",
                             bytes = sizeOf(container),
+                            removablePath = container.absolutePath,
                         ),
                     )
                 } else {
@@ -128,6 +131,7 @@ object StorageUsageScanner {
                                 label = it.name,
                                 detail = "Prefix backup",
                                 bytes = sizeOf(it),
+                                removablePath = it.absolutePath,
                             )
                         }
                 }
@@ -197,6 +201,37 @@ object StorageUsageScanner {
     }
 
     private fun pathKind(file: File): String = if (file.isDirectory) "Folder" else "File"
+
+    /**
+     * Deletes leftover guest data and returns the bytes freed.
+     *
+     * The caller passes paths measured earlier, so every one is re-validated here:
+     * a container can become the active one between the scan and the tap, and only
+     * directories directly under the guest home are ever eligible.
+     */
+    fun deleteUnusedGuestData(context: Context, paths: List<String>): Long {
+        val rootDir = resolve(ImageFs.find(context).rootDir)
+        val homeDir = resolve(File(rootDir, "home"))
+        val activeHome = resolve(File(rootDir, "home/${ImageFs.USER}"))
+        var freed = 0L
+        paths.forEach { path ->
+            val target = resolve(File(path))
+            if (!isRemovable(target, homeDir, activeHome)) return@forEach
+            val size = sizeOf(target)
+            if (target.deleteRecursively()) freed += size
+        }
+        return freed
+    }
+
+    private fun isRemovable(target: File, homeDir: File, activeHome: File): Boolean {
+        if (!target.isDirectory) return false
+        if (target == activeHome || target == homeDir) return false
+        // Either a sibling container of the active one, or a stale folder inside it;
+        // the live prefix and shader cache are never eligible.
+        val parent = target.parentFile ?: return false
+        if (parent == homeDir) return true
+        return parent == activeHome && target.name != ".wine" && target.name != ".cache"
+    }
 
     private fun freeBytes(context: Context): Long = try {
         val stat = StatFs(context.filesDir.absolutePath)
