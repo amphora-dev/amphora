@@ -13,7 +13,7 @@ import androidx.core.content.edit
 object WindowsComponentPreferences {
     const val KEY_WINCOMPONENTS = "windows_components"
     const val DEFAULT_SELECTION =
-        "direct3d=1,directsound=1,directmusic=1,directshow=1,directplay=1,xaudio=1,dinput8=1,vcrun2010=1"
+        "direct3d=1,directsound=0,directmusic=0,directshow=0,directplay=0,xaudio=0,dinput8=1,vcrun2010=1"
 
     val componentIds =
         listOf(
@@ -33,6 +33,11 @@ object WindowsComponentPreferences {
     )
 
     fun selections(context: Context): Map<String, Boolean> = parse(serialized(context)).mapValues { it.value == "1" }
+
+    fun defaultUsesNative(componentId: String): Boolean {
+        require(componentId in componentIds) { "Unknown Windows component: $componentId" }
+        return parse(DEFAULT_SELECTION).getValue(componentId) == "1"
+    }
 
     fun setNative(context: Context, componentId: String, useNative: Boolean) {
         require(componentId in componentIds) { "Unknown Windows component: $componentId" }

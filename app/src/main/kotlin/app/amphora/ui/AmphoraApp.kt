@@ -3,9 +3,11 @@ package app.amphora.ui
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
@@ -15,6 +17,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import app.amphora.ui.theme.AmphoraTheme
@@ -46,38 +50,48 @@ private fun StartupUpdatePrompt(viewModel: StartupUpdateViewModel = hiltViewMode
         onDismissRequest = viewModel::dismiss,
         title = { Text("Update available") },
         text = {
-            Column {
+            Column(modifier = Modifier.animateContentSize()) {
                 Text("${update.versionName} (${update.versionCode}) · ${update.channel}")
-                update.notes?.let { Text(it) }
-                state.message?.let { Text(it) }
-                if (state.busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                update.notes?.let {
+                    Text(it, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+                state.message?.let {
+                    Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (state.busy) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
             }
         },
         confirmButton = {
-            when {
-                state.busy -> Unit
-                state.pendingSystemApk != null ->
-                    TextButton(
-                        onClick = {
-                            val currentActivity = activity ?: return@TextButton
-                            if (viewModel.needsSystemInstallPermission()) {
-                                installPermissionLauncher.launch(viewModel.installPermissionIntent())
-                            } else {
-                                viewModel.launchSystemInstaller(currentActivity)
-                            }
-                        },
-                    ) {
-                        Text("Open system installer")
+            TextButton(
+                onClick = {
+                    if (state.pendingSystemApk != null) {
+                        val currentActivity = activity ?: return@TextButton
+                        if (viewModel.needsSystemInstallPermission()) {
+                            installPermissionLauncher.launch(viewModel.installPermissionIntent())
+                        } else {
+                            viewModel.launchSystemInstaller(currentActivity)
+                        }
+                    } else {
+                        viewModel.installUpdate()
                     }
-                else ->
-                    TextButton(onClick = viewModel::installUpdate) {
-                        Text("Install update")
-                    }
+                },
+                enabled = !state.busy,
+                modifier = Modifier.width(176.dp),
+            ) {
+                Text(
+                    when {
+                        state.busy -> "Preparing…"
+                        state.pendingSystemApk != null -> "Open system installer"
+                        else -> "Install update"
+                    },
+                )
             }
         },
         dismissButton = {
-            if (!state.busy) {
-                TextButton(onClick = viewModel::dismiss) { Text("Later") }
+            TextButton(onClick = viewModel::dismiss, enabled = !state.busy) {
+                Text("Later")
             }
         },
     )

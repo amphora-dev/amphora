@@ -11,19 +11,24 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,8 +47,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,10 +59,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -63,12 +72,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.engine.ShizukuCleanupStatus
+import app.amphora.core.engine.WindowsComponentPreferences
 import app.amphora.core.engine.WineLocaleOption
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
+    var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.COMMON) }
+    var showResetConfirmation by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -83,127 +95,322 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                     }
                 },
                 navigationIcon = {
-                    TextButton(onClick = onBack) { Text("Back") }
+                    TextButton(onClick = onBack) { Text("← Back") }
+                },
+                actions = {
+                    TextButton(onClick = { showResetConfirmation = true }) {
+                        Text("Reset defaults")
+                    }
                 },
             )
         },
     ) { padding ->
-        Column(
+        BoxWithConstraints(
             modifier =
             Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .padding(padding),
         ) {
-            SettingsOverview(state)
-
-            SettingSection(
-                title = "Display",
-                subtitle = "Virtual desktop size",
-            ) {
-                ChoiceSetting(
-                    title = "Resolution",
-                    description =
-                    "Controls the Wine desktop size. Lower values reduce GPU work; higher values " +
-                        "provide more space and sharper UI.",
-                    impact = "Affects every game · applies on next launch",
-                    selected = state.resolution,
-                    values = DisplayResolution.entries,
-                    label = { it.label },
-                    onSelect = viewModel::selectResolution,
-                )
-            }
-
-            SettingSection(
-                title = "Graphics",
-                subtitle = "Native Vulkan backend used by DXVK, VKD3D and Zink",
-            ) {
-                ChoiceSetting(
-                    title = "GPU driver",
-                    description =
-                    "System driver uses the device's Adreno Vulkan implementation. Turnip uses " +
-                        "Mesa Freedreno and is downloaded when first selected.",
-                    impact =
-                    "Dependency: Vulkan wrapper → selected driver\n" +
-                        "Scope: Direct3D 9–12, OpenGL/Zink · next launch",
-                    selected = state.graphicsDriver,
-                    values = GraphicsDriverSetting.entries,
-                    label = { it.label },
-                    enabled = !state.applyingDriver,
-                    onSelect = viewModel::selectGraphicsDriver,
-                )
-                if (state.applyingDriver) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text(
-                        "Installing Turnip and verifying its package…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (maxWidth >= 840.dp) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    SettingsCategoryPane(
+                        selected = selectedCategory,
+                        onSelect = { selectedCategory = it },
+                        modifier =
+                        Modifier
+                            .width(240.dp)
+                            .fillMaxHeight(),
+                    )
+                    VerticalDivider()
+                    SettingsCategoryContent(
+                        category = selectedCategory,
+                        state = state,
+                        viewModel = viewModel,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            } else {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    SettingsCategoryTabs(
+                        selected = selectedCategory,
+                        onSelect = { selectedCategory = it },
+                    )
+                    SettingsCategoryContent(
+                        category = selectedCategory,
+                        state = state,
+                        viewModel = viewModel,
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
-
-            SettingSection(
-                title = "Compatibility",
-                subtitle = "Regional and translation behavior for older Windows games",
-            ) {
-                ChoiceSetting(
-                    title = "Language for non-Unicode programs",
-                    description =
-                    "Selects Wine's ANSI codepage for legacy applications. Automatic follows " +
-                        "the Android device language; Japanese applications commonly require Japanese.",
-                    impact = "Scope: legacy ANSI text only · applies on next launch",
-                    selected = state.wineLocale,
-                    values = WineLocaleOption.entries,
-                    label = { it.label },
-                    onSelect = viewModel::selectWineLocale,
-                )
-                ChoiceSetting(
-                    title = "DirectDraw layer",
-                    description =
-                    "DxWrapper translates DirectDraw and Direct3D 1–7 to D3D9/DXVK. " +
-                        "d7vk translates Direct3D 3–7 directly to Vulkan. " +
-                        "cnc-ddraw is tuned for classic software-rendered 2D games.",
-                    impact =
-                    "Dependency: DxWrapper/cnc-ddraw → D3D9 → DXVK; d7vk → Vulkan\n" +
-                        "Scope: 32-bit DirectDraw titles only · next launch",
-                    selected = state.directDrawWrapper,
-                    values = DirectDrawSetting.entries,
-                    label = { it.label },
-                    onSelect = viewModel::selectDirectDraw,
-                )
-            }
-
-            WindowsComponentsSection(state = state, viewModel = viewModel)
-
-            AdvancedRuntimeSection(state = state, viewModel = viewModel)
-
-            AppUpdateSection(state = state, viewModel = viewModel)
-
-            StorageSection()
-
-            SessionCleanupSection(state = state, viewModel = viewModel)
-
-            ComponentSection(state = state, onRefresh = viewModel::refreshComponents)
-
-            state.error?.let {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = it,
-                        modifier = Modifier.padding(14.dp),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-            Spacer(Modifier.height(12.dp))
         }
     }
+    if (showResetConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirmation = false },
+            title = { Text("Restore recommended defaults?") },
+            text = {
+                Text(
+                    "This resets display, graphics, compatibility, Windows components, and " +
+                        "advanced runtime settings. Installed programs and runtime files are not removed.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.resetPreferences()
+                        showResetConfirmation = false
+                    },
+                ) {
+                    Text("Reset")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirmation = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+private enum class SettingsCategory(val label: String, val description: String) {
+    COMMON("Common", "Display, graphics, language, and storage"),
+    ADVANCED("Advanced", "Windows components and runtime tuning"),
+    SYSTEM("System", "Components, updates, cleanup, and diagnostics"),
+}
+
+@Composable
+private fun SettingsCategoryPane(
+    selected: SettingsCategory,
+    onSelect: (SettingsCategory) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier =
+        modifier
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "CATEGORIES",
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SettingsCategory.entries.forEach { category ->
+            val active = category == selected
+            Surface(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(category) },
+                color =
+                if (active) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    Color.Transparent
+                },
+                contentColor =
+                if (active) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        category.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        category.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color =
+                        if (active) {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsCategoryTabs(selected: SettingsCategory, onSelect: (SettingsCategory) -> Unit) {
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SettingsCategory.entries.forEach { category ->
+            FilterChip(
+                selected = category == selected,
+                onClick = { onSelect(category) },
+                label = { Text(category.label) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsCategoryContent(
+    category: SettingsCategory,
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val scrollState = rememberScrollState()
+    LaunchedEffect(category) {
+        scrollState.scrollTo(0)
+    }
+    Column(
+        modifier =
+        modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Text(
+            category.label,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            category.description,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        when (category) {
+            SettingsCategory.COMMON -> CommonSettings(state = state, viewModel = viewModel)
+            SettingsCategory.ADVANCED -> {
+                WindowsComponentsSection(state = state, viewModel = viewModel)
+                AdvancedRuntimeSection(state = state, viewModel = viewModel)
+            }
+            SettingsCategory.SYSTEM -> {
+                SettingsOverview(state)
+                StorageUsageSection(
+                    state = state,
+                    onRefresh = viewModel::refreshStorageUsage,
+                    onDeleteUnused = viewModel::deleteUnusedGuestData,
+                )
+                AppUpdateSection(state = state, viewModel = viewModel)
+                SessionCleanupSection(state = state, viewModel = viewModel)
+                ComponentSection(state = state, onRefresh = viewModel::refreshComponents)
+            }
+        }
+        state.error?.let {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = it,
+                    modifier = Modifier.padding(14.dp),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel) {
+    SettingSection(
+        title = "Display",
+        subtitle = "Virtual desktop size",
+    ) {
+        ChoiceSetting(
+            title = "Resolution",
+            description =
+            "Controls the Wine desktop size. Lower values reduce GPU work; higher values " +
+                "provide more space and sharper UI.",
+            impact = "Global default · applies on next launch",
+            selected = state.resolution,
+            defaultValue = DisplayResolution.DEFAULT,
+            values = DisplayResolution.entries,
+            label = { it.label },
+            onSelect = viewModel::selectResolution,
+            onReset = { viewModel.selectResolution(DisplayResolution.DEFAULT) },
+        )
+    }
+    SettingSection(
+        title = "Graphics",
+        subtitle = "Native Vulkan backend used by DXVK, VKD3D and Zink",
+    ) {
+        ChoiceSetting(
+            title = "GPU driver",
+            description =
+            "System driver uses the device's Adreno Vulkan implementation. Turnip uses " +
+                "Mesa Freedreno and is downloaded when first selected.",
+            impact = "Global default · Direct3D 9–12 and OpenGL/Zink · next launch",
+            selected = state.graphicsDriver,
+            defaultValue = GraphicsDriverSetting.WRAPPER,
+            values = GraphicsDriverSetting.entries,
+            label = { it.label },
+            enabled = !state.applyingDriver,
+            onSelect = viewModel::selectGraphicsDriver,
+            onReset = { viewModel.selectGraphicsDriver(GraphicsDriverSetting.WRAPPER) },
+        )
+        if (state.applyingDriver) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                "Installing Turnip and verifying its package…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    SettingSection(
+        title = "Compatibility",
+        subtitle = "Regional and translation behavior for older Windows games",
+    ) {
+        ChoiceSetting(
+            title = "Language for non-Unicode programs",
+            description =
+            "Selects Wine's ANSI codepage for legacy applications. Automatic follows " +
+                "the Android device language.",
+            impact = "Global default · legacy ANSI text only · next launch",
+            selected = state.wineLocale,
+            defaultValue = WineLocaleOption.AUTO,
+            values = WineLocaleOption.entries,
+            label = { it.label },
+            onSelect = viewModel::selectWineLocale,
+            onReset = { viewModel.selectWineLocale(WineLocaleOption.AUTO) },
+        )
+        ChoiceSetting(
+            title = "DirectDraw layer",
+            description =
+            "DxWrapper translates DirectDraw and Direct3D 1–7 to D3D9/DXVK. " +
+                "d7vk translates Direct3D 3–7 directly to Vulkan. " +
+                "cnc-ddraw is tuned for classic software-rendered 2D games.",
+            impact = "Global default · 32-bit DirectDraw titles · next launch",
+            selected = state.directDrawWrapper,
+            defaultValue = DirectDrawSetting.DXWRAPPER,
+            values = DirectDrawSetting.entries,
+            label = { it.label },
+            onSelect = viewModel::selectDirectDraw,
+            onReset = { viewModel.selectDirectDraw(DirectDrawSetting.DXWRAPPER) },
+        )
+    }
+    StorageSection()
 }
 
 @Composable
@@ -251,7 +458,10 @@ private fun WindowsComponentsSection(state: SettingsUiState, viewModel: Settings
             WindowsComponentSetting.entries.forEachIndexed { index, component ->
                 WindowsComponentChoice(
                     component = component,
-                    useNative = state.windowsComponents[component] ?: true,
+                    useNative =
+                    state.windowsComponents[component]
+                        ?: WindowsComponentPreferences.defaultUsesNative(component.id),
+                    defaultUseNative = WindowsComponentPreferences.defaultUsesNative(component.id),
                     onChange = { useNative ->
                         viewModel.setWindowsComponentNative(component, useNative)
                     },
@@ -259,8 +469,8 @@ private fun WindowsComponentsSection(state: SettingsUiState, viewModel: Settings
                 if (index != WindowsComponentSetting.entries.lastIndex) HorizontalDivider()
             }
             Text(
-                "Compatibility archives are verified during runtime provisioning. Native links " +
-                    "them into the prefix; switching back restores Proton's DLLs and overrides.",
+                "Compatibility archives are verified during runtime provisioning. Native extracts " +
+                    "private DLLs into the prefix; builtin links the matching Proton DLLs.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -272,10 +482,24 @@ private fun WindowsComponentsSection(state: SettingsUiState, viewModel: Settings
 private fun WindowsComponentChoice(
     component: WindowsComponentSetting,
     useNative: Boolean,
+    defaultUseNative: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(component.label, style = MaterialTheme.typography.titleSmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                component.label,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            ModifiedResetAction(
+                modified = useNative != defaultUseNative,
+                onReset = { onChange(defaultUseNative) },
+            )
+        }
         Text(
             component.description,
             style = MaterialTheme.typography.bodySmall,
@@ -345,9 +569,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "aggressive dynamic recompilation for difficult games.",
                 impact = "Scope: x86_64 Wine and all Windows processes · next launch",
                 selected = state.box64Mode,
+                defaultValue = Box64Mode.PERFORMANCE,
                 values = Box64Mode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectBox64Mode,
+                onReset = { viewModel.selectBox64Mode(Box64Mode.PERFORMANCE) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -357,9 +583,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "rendering glitches in some games.",
                 impact = "Scope: Direct3D through DXVK · next launch",
                 selected = state.dxvkAsync,
+                defaultValue = false,
                 values = listOf(false, true),
                 label = { if (it) "Enabled" else "Disabled" },
                 onSelect = viewModel::setDxvkAsync,
+                onReset = { viewModel.setDxvkAsync(false) },
             )
             ChoiceSetting(
                 title = "Frame limit",
@@ -368,9 +596,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "not affect WineD3D or software renderers.",
                 impact = "Environment: DXVK_FRAME_RATE · DXVK only",
                 selected = state.frameLimit,
+                defaultValue = FrameLimit.OFF,
                 values = FrameLimit.entries,
                 label = { it.label },
                 onSelect = viewModel::selectFrameLimit,
+                onReset = { viewModel.selectFrameLimit(FrameLimit.OFF) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -380,9 +610,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "forcing a higher level cannot add missing GPU driver features.",
                 impact = "Environment: VKD3D_FEATURE_LEVEL · Direct3D 12 only",
                 selected = state.vkd3dFeatureLevel,
+                defaultValue = Vkd3dFeatureLevel.AUTO,
                 values = Vkd3dFeatureLevel.entries,
                 label = { it.label },
                 onSelect = viewModel::selectVkd3dFeatureLevel,
+                onReset = { viewModel.selectVkd3dFeatureLevel(Vkd3dFeatureLevel.AUTO) },
             )
             ChoiceSetting(
                 title = "Direct3D 12 shader model",
@@ -391,9 +623,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "by the driver may prevent a game from starting.",
                 impact = "Environment: VKD3D_SHADER_MODEL · Direct3D 12 only",
                 selected = state.vkd3dShaderModel,
+                defaultValue = Vkd3dShaderModel.AUTO,
                 values = Vkd3dShaderModel.entries,
                 label = { it.label },
                 onSelect = viewModel::selectVkd3dShaderModel,
+                onReset = { viewModel.selectVkd3dShaderModel(Vkd3dShaderModel.AUTO) },
             )
             ChoiceSetting(
                 title = "DirectX Raytracing",
@@ -402,9 +636,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "checks; DXR 1.2 is experimental and requires opacity micromap support.",
                 impact = "Environment: VKD3D_CONFIG · Direct3D 12 only",
                 selected = state.vkd3dDxr,
+                defaultValue = Vkd3dDxrMode.AUTO,
                 values = Vkd3dDxrMode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectVkd3dDxr,
+                onReset = { viewModel.selectVkd3dDxr(Vkd3dDxrMode.AUTO) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -414,9 +650,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "VSync is conservative; Immediate may tear.",
                 impact = "Dependency: wrapper → Vulkan WSI · all Vulkan renderers",
                 selected = state.presentMode,
+                defaultValue = PresentMode.AUTO,
                 values = PresentMode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectPresentMode,
+                onReset = { viewModel.selectPresentMode(PresentMode.AUTO) },
             )
             ChoiceSetting(
                 title = "BC texture handling",
@@ -425,9 +663,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "support. Full emulation improves compatibility at a performance cost.",
                 impact = "Scope: Vulkan wrapper texture formats · next launch",
                 selected = state.bcnMode,
+                defaultValue = BcnMode.DEFAULT,
                 values = BcnMode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectBcnMode,
+                onReset = { viewModel.selectBcnMode(BcnMode.DEFAULT) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -437,9 +677,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "It works with DXVK, VKD3D/DX12, OpenGL/Zink and software rendering.",
                 impact = "Android overlay · all graphics APIs · next launch",
                 selected = state.hostPerformanceHud,
+                defaultValue = false,
                 values = listOf(false, true),
                 label = { if (it) "Visible" else "Hidden" },
                 onSelect = viewModel::setHostPerformanceHud,
+                onReset = { viewModel.setHostPerformanceHud(false) },
             )
             ChoiceSetting(
                 title = "DXVK in-game HUD",
@@ -448,41 +690,60 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "This is display-only and does not enable verbose log files.",
                 impact = "Environment: DXVK_HUD · Direct3D 8–11 only",
                 selected = state.dxvkHud,
+                defaultValue = false,
                 values = listOf(false, true),
                 label = { if (it) "Visible" else "Hidden" },
                 onSelect = viewModel::setDxvkHud,
+                onReset = { viewModel.setDxvkHud(false) },
             )
             ChoiceSetting(
                 title = "Mesa shader cache",
                 description =
                 "Reuses compiled shaders to reduce stutter on later launches. Disable only " +
                     "when investigating corrupt-cache rendering problems.",
-                impact = "Scope: Turnip and Zink · stored in private app storage",
+                impact =
+                state.storageUsage?.let {
+                    "Scope: Turnip and Zink · ${formatStorageSize(it.shaderCacheBytes)} cached"
+                } ?: "Scope: Turnip and Zink · stored in private app storage",
                 selected = state.shaderCache,
+                defaultValue = true,
                 values = listOf(true, false),
                 label = { if (it) "Enabled" else "Disabled" },
                 onSelect = viewModel::setShaderCache,
+                onReset = { viewModel.setShaderCache(true) },
             )
-            if (state.shaderCache) {
-                ChoiceSetting(
-                    title = "Shader cache limit",
-                    description = "Maximum disk space Mesa may use for cached shaders.",
-                    impact = "Environment: MESA_SHADER_CACHE_MAX_SIZE",
-                    selected = state.shaderCacheSize,
-                    values = ShaderCacheSize.entries,
-                    label = { it.label },
-                    onSelect = viewModel::selectShaderCacheSize,
-                )
-            }
-            TextButton(
-                onClick = viewModel::clearShaderCache,
-                enabled = !state.clearingShaderCache,
+            ChoiceSetting(
+                title = "Shader cache limit",
+                description = "Maximum disk space Mesa may use for cached shaders.",
+                impact = "Environment: MESA_SHADER_CACHE_MAX_SIZE",
+                selected = state.shaderCacheSize,
+                defaultValue = ShaderCacheSize.MB512,
+                values = ShaderCacheSize.entries,
+                label = { it.label },
+                enabled = state.shaderCache,
+                onSelect = viewModel::selectShaderCacheSize,
+                onReset = { viewModel.selectShaderCacheSize(ShaderCacheSize.MB512) },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(if (state.clearingShaderCache) "Clearing cache…" else "Clear shader caches")
-            }
-            state.cacheActionMessage?.let {
+                TextButton(
+                    onClick = viewModel::clearShaderCache,
+                    enabled = !state.clearingShaderCache,
+                ) {
+                    Text("Clear shader caches")
+                }
                 Text(
-                    it,
+                    if (state.clearingShaderCache) {
+                        "Clearing…"
+                    } else {
+                        state.cacheActionMessage.orEmpty()
+                    },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -495,11 +756,26 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "performance.",
                 impact = "Environment: WINEDEBUG · written to the session log",
                 selected = state.wineLog,
+                defaultValue = WineLogMode.OFF,
                 values = WineLogMode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectWineLog,
+                onReset = { viewModel.selectWineLog(WineLogMode.OFF) },
             )
-            Text("Custom environment", style = MaterialTheme.typography.titleSmall)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Custom environment",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                ModifiedResetAction(
+                    modified = state.customEnv.isNotBlank(),
+                    onReset = { viewModel.setCustomEnv("") },
+                )
+            }
             Text(
                 "One KEY=VALUE per line. Engine-owned paths, sockets, loader variables and " +
                     "the Vulkan ICD cannot be overridden.",
@@ -514,15 +790,22 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                 label = { Text("Environment overrides") },
                 placeholder = { Text("MESA_SHADER_CACHE_MAX_SIZE=2G") },
                 supportingText = {
-                    if (state.rejectedEnvNames.isEmpty()) {
-                        Text("Blank lines and lines beginning with # are ignored.")
-                    } else {
-                        Text(
+                    Text(
+                        if (state.rejectedEnvNames.isEmpty()) {
+                            "Blank lines and lines beginning with # are ignored."
+                        } else {
                             "Ignored protected or invalid names: " +
-                                state.rejectedEnvNames.distinct().joinToString(),
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
+                                state.rejectedEnvNames.distinct().joinToString()
+                        },
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color =
+                        if (state.rejectedEnvNames.isEmpty()) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
                 },
             )
         }
@@ -594,7 +877,10 @@ private fun SettingSection(title: String, subtitle: String, content: @Composable
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
+                modifier =
+                Modifier
+                    .animateContentSize()
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 content()
@@ -609,12 +895,29 @@ private fun <T> ChoiceSetting(
     description: String,
     impact: String,
     selected: T,
+    defaultValue: T,
     values: List<T>,
     label: (T) -> String,
     enabled: Boolean = true,
     onSelect: (T) -> Unit,
+    onReset: () -> Unit,
 ) {
-    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        ModifiedResetAction(
+            modified = selected != defaultValue,
+            onReset = onReset,
+        )
+    }
     Text(
         description,
         style = MaterialTheme.typography.bodyMedium,
@@ -644,6 +947,24 @@ private fun <T> ChoiceSetting(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun ModifiedResetAction(modified: Boolean, onReset: () -> Unit) {
+    TextButton(
+        onClick = onReset,
+        enabled = modified,
+        modifier = Modifier.alpha(if (modified) 1f else 0f),
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .background(MaterialTheme.colorScheme.primary, CircleShape),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text("Modified · Reset", style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -722,16 +1043,24 @@ private fun SessionCleanupSection(state: SettingsUiState, viewModel: SettingsVie
             },
             style = MaterialTheme.typography.labelMedium,
         )
-        when (state.shizukuCleanupStatus) {
-            ShizukuCleanupStatus.UNAVAILABLE -> Unit
-            ShizukuCleanupStatus.PERMISSION_REQUIRED ->
-                TextButton(onClick = viewModel::requestShizukuPermission) {
-                    Text("Grant Shizuku access")
-                }
-            ShizukuCleanupStatus.READY ->
-                TextButton(onClick = { confirmEmergencyStop = true }) {
-                    Text("Emergency force-stop Amphora")
-                }
+        if (state.shizukuCleanupStatus != ShizukuCleanupStatus.UNAVAILABLE) {
+            TextButton(
+                onClick = {
+                    if (state.shizukuCleanupStatus == ShizukuCleanupStatus.READY) {
+                        confirmEmergencyStop = true
+                    } else {
+                        viewModel.requestShizukuPermission()
+                    }
+                },
+            ) {
+                Text(
+                    if (state.shizukuCleanupStatus == ShizukuCleanupStatus.READY) {
+                        "Emergency force-stop Amphora"
+                    } else {
+                        "Grant Shizuku access"
+                    },
+                )
+            }
         }
     }
 
@@ -936,22 +1265,26 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
             "Installed: ${state.installedVersionName} (${state.installedVersionCode})",
             style = MaterialTheme.typography.bodyMedium,
         )
-        state.availableUpdate?.let { update ->
+        Text(
+            state.availableUpdate?.let {
+                "Available: ${it.versionName} (${it.versionCode}) · ${it.channel}"
+            } ?: "Available: check for the latest published build",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        state.availableUpdate?.notes?.let { notes ->
             Text(
-                "Available: ${update.versionName} (${update.versionCode}) · ${update.channel}",
-                style = MaterialTheme.typography.bodyMedium,
+                notes,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            update.notes?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
-        state.updateMessage?.let {
+        state.updateMessage?.let { message ->
             Text(
-                it,
+                message,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -969,7 +1302,8 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
             ) {
                 Text("Check")
             }
-            if (state.availableUpdate != null && !state.installReady) {
+            val downloadVisible = state.availableUpdate != null && !state.installReady
+            if (downloadVisible) {
                 TextButton(
                     onClick = viewModel::downloadAndPrepareInstall,
                     enabled = !state.updateBusy,
@@ -992,6 +1326,215 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StorageUsageSection(
+    state: SettingsUiState,
+    onRefresh: () -> Unit,
+    onDeleteUnused: (List<String>) -> Unit,
+) {
+    val usage = state.storageUsage
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    SettingSection(
+        title = "Storage usage",
+        subtitle = "What Amphora keeps in app-private storage",
+    ) {
+        if (usage == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                "Measuring installed components…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@SettingSection
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    formatStorageSize(usage.totalBytes),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "${formatStorageSize(usage.freeBytes)} free on this device",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onRefresh, enabled = !state.storageScanning) {
+                Text(if (state.storageScanning) "Measuring…" else "Recalculate")
+            }
+        }
+        if (usage.reclaimableBytes > 0) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "${formatStorageSize(usage.reclaimableBytes)} is caches and leftovers " +
+                        "from earlier runs.",
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        state.storageMessage?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        HorizontalDivider()
+        usage.entries.forEach { entry ->
+            val removable = entry.children.mapNotNull(StorageEntry::removablePath)
+            StorageUsageRow(
+                entry = entry,
+                totalBytes = usage.totalBytes,
+                action =
+                if (removable.isEmpty()) {
+                    null
+                } else {
+                    {
+                        TextButton(
+                            onClick = { confirmDelete = true },
+                            enabled = !state.deletingStorage,
+                        ) {
+                            Text(
+                                if (state.deletingStorage) "Deleting…" else "Delete",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                },
+            )
+        }
+    }
+
+    if (confirmDelete && usage != null) {
+        val removable =
+            usage.entries
+                .flatMap(StorageEntry::children)
+                .filter { it.removablePath != null }
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete unused data?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "This permanently removes containers and prefix backups that are no " +
+                            "longer in use. The active Windows prefix and installed components " +
+                            "are kept.",
+                    )
+                    removable.forEach {
+                        Text(
+                            "${it.label} · ${formatStorageSize(it.bytes)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDeleteUnused(removable.mapNotNull(StorageEntry::removablePath))
+                    },
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long, action: (@Composable () -> Unit)? = null) {
+    var expanded by rememberSaveable(entry.label) { mutableStateOf(false) }
+    val expandable = entry.children.isNotEmpty()
+    Column(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .then(if (expandable) Modifier.clickable { expanded = !expanded } else Modifier)
+            .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                entry.label,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                formatStorageSize(entry.bytes),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                entry.detail,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (expandable) {
+                Text(
+                    if (expanded) "Hide" else "Details",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        LinearProgressIndicator(
+            progress = {
+                if (totalBytes <= 0) 0f else (entry.bytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (expanded) {
+            entry.children.forEach { child ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        child.label,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        formatStorageSize(child.bytes),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        action?.invoke()
     }
 }
 
@@ -1043,19 +1586,29 @@ private fun StorageSection() {
             }
         }
         if (!granted) {
-            TextButton(
-                onClick = {
-                    requestLegacy.launch(
-                        arrayOf(
-                            Manifest.permission.READ_EXTERNAL_STORAGE,
-                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                        ),
-                    )
-                },
-            ) { Text("Grant storage access") }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                TextButton(onClick = { openSettings.launch(allFilesAccessIntent(context)) }) {
-                    Text("Open all-files access settings")
+            Row(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(
+                    onClick = {
+                        requestLegacy.launch(
+                            arrayOf(
+                                Manifest.permission.READ_EXTERNAL_STORAGE,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                            ),
+                        )
+                    },
+                ) {
+                    Text("Grant storage access")
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    TextButton(onClick = { openSettings.launch(allFilesAccessIntent(context)) }) {
+                        Text("Open all-files access settings")
+                    }
                 }
             }
         }

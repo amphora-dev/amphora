@@ -122,7 +122,8 @@ constructor(
                 ),
                 windowsComponents =
                 WindowsComponentSetting.entries.associateWith { component ->
-                    initialWindowsComponents[component.id] ?: true
+                    initialWindowsComponents[component.id]
+                        ?: WindowsComponentPreferences.defaultUsesNative(component.id)
                 },
                 customEnv = initialCustomEnv,
                 rejectedEnvNames = AdvancedRuntimePreferences.rejectedCustomEnvNames(initialCustomEnv),
@@ -133,10 +134,43 @@ constructor(
 
     init {
         refreshComponents()
+        refreshStorageUsage()
         viewModelScope.launch {
             shizukuEmergencyStopper.status.collect { status ->
                 _uiState.update { it.copy(shizukuCleanupStatus = status) }
             }
+        }
+    }
+
+    fun deleteUnusedGuestData(paths: List<String>) {
+        if (paths.isEmpty() || _uiState.value.deletingStorage) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(deletingStorage = true, storageMessage = null) }
+            val freed =
+                withContext(dispatchers.io) {
+                    StorageUsageScanner.deleteUnusedGuestData(context, paths)
+                }
+            _uiState.update {
+                it.copy(
+                    deletingStorage = false,
+                    storageMessage =
+                    if (freed > 0) {
+                        "Freed ${formatStorageSize(freed)}."
+                    } else {
+                        "Nothing was removed."
+                    },
+                )
+            }
+            refreshStorageUsage()
+        }
+    }
+
+    fun refreshStorageUsage() {
+        if (_uiState.value.storageScanning) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(storageScanning = true) }
+            val usage = withContext(dispatchers.io) { StorageUsageScanner.scan(context) }
+            _uiState.update { it.copy(storageScanning = false, storageUsage = usage) }
         }
     }
 
@@ -189,6 +223,59 @@ constructor(
     fun selectWineLocale(value: WineLocaleOption) {
         WineLocalePreferences.set(context, value)
         _uiState.update { it.copy(wineLocale = value) }
+    }
+
+    fun resetPreferences() {
+        prefs.edit {
+            remove(PREF_RESOLUTION)
+            remove(GraphicsDriverIds.PREFS_KEY_DRIVER_ID)
+            remove(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID)
+            remove(WineLocalePreferences.KEY)
+            remove(WindowsComponentPreferences.KEY_WINCOMPONENTS)
+            remove(AdvancedRuntimePreferences.KEY_BOX64_PRESET)
+            remove(AdvancedRuntimePreferences.KEY_DXVK_ASYNC)
+            remove(AdvancedRuntimePreferences.KEY_FRAME_RATE)
+            remove(AdvancedRuntimePreferences.KEY_PRESENT_MODE)
+            remove(AdvancedRuntimePreferences.KEY_BCN_MODE)
+            remove(AdvancedRuntimePreferences.KEY_WINE_DEBUG)
+            remove(AdvancedRuntimePreferences.KEY_HOST_PERF_HUD)
+            remove(AdvancedRuntimePreferences.KEY_DXVK_HUD)
+            remove(AdvancedRuntimePreferences.KEY_SHADER_CACHE)
+            remove(AdvancedRuntimePreferences.KEY_SHADER_CACHE_SIZE)
+            remove(AdvancedRuntimePreferences.KEY_VKD3D_FEATURE_LEVEL)
+            remove(AdvancedRuntimePreferences.KEY_VKD3D_SHADER_MODEL)
+            remove(AdvancedRuntimePreferences.KEY_VKD3D_DXR)
+            remove(AdvancedRuntimePreferences.KEY_CUSTOM_ENV)
+        }
+        _uiState.update {
+            it.copy(
+                resolution = DisplayResolution.DEFAULT,
+                graphicsDriver = GraphicsDriverSetting.WRAPPER,
+                directDrawWrapper = DirectDrawSetting.DXWRAPPER,
+                wineLocale = WineLocaleOption.AUTO,
+                box64Mode = Box64Mode.PERFORMANCE,
+                dxvkAsync = false,
+                frameLimit = FrameLimit.OFF,
+                presentMode = PresentMode.AUTO,
+                bcnMode = BcnMode.DEFAULT,
+                wineLog = WineLogMode.OFF,
+                hostPerformanceHud = false,
+                dxvkHud = false,
+                shaderCache = true,
+                shaderCacheSize = ShaderCacheSize.MB512,
+                vkd3dFeatureLevel = Vkd3dFeatureLevel.AUTO,
+                vkd3dShaderModel = Vkd3dShaderModel.AUTO,
+                vkd3dDxr = Vkd3dDxrMode.AUTO,
+                windowsComponents =
+                WindowsComponentSetting.entries.associateWith {
+                    WindowsComponentPreferences.defaultUsesNative(it.id)
+                },
+                customEnv = "",
+                rejectedEnvNames = emptyList(),
+                cacheActionMessage = "Settings restored to recommended defaults.",
+                error = null,
+            )
+        }
     }
 
     fun selectBox64Mode(value: Box64Mode) {
@@ -267,13 +354,20 @@ constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(clearingShaderCache = true, cacheActionMessage = null) }
             try {
+                val freed = _uiState.value.storageUsage?.shaderCacheBytes ?: 0
                 withContext(dispatchers.io) { GraphicsDiag.clearStateCache(context) }
                 _uiState.update {
                     it.copy(
                         clearingShaderCache = false,
-                        cacheActionMessage = "Shader and DXVK state caches cleared.",
+                        cacheActionMessage =
+                        if (freed > 0) {
+                            "Cleared ${formatStorageSize(freed)} of cached shaders."
+                        } else {
+                            "Shader and DXVK state caches cleared."
+                        },
                     )
                 }
+                refreshStorageUsage()
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 _uiState.update {
@@ -527,6 +621,10 @@ data class SettingsUiState(
         WindowsComponentSetting.entries.associateWith { true },
     val clearingShaderCache: Boolean = false,
     val cacheActionMessage: String? = null,
+    val storageUsage: StorageUsage? = null,
+    val storageScanning: Boolean = false,
+    val deletingStorage: Boolean = false,
+    val storageMessage: String? = null,
     val customEnv: String = "",
     val rejectedEnvNames: List<String> = emptyList(),
     val shizukuCleanupStatus: ShizukuCleanupStatus = ShizukuCleanupStatus.UNAVAILABLE,

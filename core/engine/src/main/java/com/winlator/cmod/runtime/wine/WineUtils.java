@@ -733,16 +733,27 @@ public abstract class WineUtils {
       File src32 = new File(wineSysWoW64Dir, dlname);
       File dst32 = new File(win64 ? containerSysWoW64Dir : containerSystem32Dir, dlname);
       if (src32.exists()) {
-        FileUtils.copy(src32, dst32);
+        copyWineDllIfChanged(src32, dst32);
       }
       if (win64) {
         File src64 = new File(wineSystem32Dir, dlname);
         File dst64 = new File(containerSystem32Dir, dlname);
         if (src64.exists()) {
-          FileUtils.copy(src64, dst64);
+          copyWineDllIfChanged(src64, dst64);
         }
       }
     }
+  }
+
+  private static void copyWineDllIfChanged(File source, File target) {
+    if (target.exists() && FileUtils.contentEquals(source, target)) return;
+    // Prefix finalization may have bound the previous Proton file here. Copying
+    // through that link would try to truncate the immutable shared source.
+    if (FileUtils.isSymlink(target) && !target.delete()) {
+      Log.e("WineUtils", "Cannot replace shared Wine DLL link: " + target);
+      return;
+    }
+    FileUtils.copy(source, target);
   }
 
   public static void seedVcRedistRegistryIfDllsPresent(File containerRootDir, boolean isArm64EC) {
