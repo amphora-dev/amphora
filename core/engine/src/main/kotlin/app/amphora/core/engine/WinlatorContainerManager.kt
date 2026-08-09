@@ -116,6 +116,7 @@ constructor(
             dxwrapper = dxwrapper,
             wincomponents = wincomponents,
         )
+        ensureWineBuiltinLinks(wnContainer, wineVersion)
         // Optional adrenotools driver (wrapper default, Turnip when selected).
         ensureAdrenotoolsDriver(wnContainer)
         // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
@@ -355,6 +356,24 @@ constructor(
     }
 
     /**
+     * One-time-per-Proton-pin migration of copied Wine builtin PE files to
+     * immutable shared links. Differing/native files and non-Proton links are
+     * intentionally preserved by [WnContainerManager.linkWineBuiltinFiles].
+     */
+    private fun ensureWineBuiltinLinks(container: WnContainer, wineVersion: String) {
+        if (container.getExtra(WINE_BUILTIN_LINKS_EXTRA) == wineVersion) return
+        if (!wnContainerManager.linkWineBuiltinFiles(container, wineVersion, contentsManager)) {
+            android.util.Log.w(
+                "WinlatorContainerManager",
+                "Wine builtin linking incomplete for $wineVersion; will retry next launch",
+            )
+            return
+        }
+        container.putExtra(WINE_BUILTIN_LINKS_EXTRA, wineVersion)
+        container.saveData()
+    }
+
+    /**
      * Force one DXVK re-apply after [ContentsManager] started augmenting
      * trust-listed DLLs missing from incomplete fork `profile.json`
      * (notably `d3d8.dll` on Dxvk-2.7.1-gplasync; that fork also shipped
@@ -412,5 +431,7 @@ constructor(
     private companion object {
         /** Marks that the DXVK trust-file augment re-apply has been scheduled once. */
         private const val DXVK_TRUST_AUGMENT_EXTRA = "dxvkTrustAugment"
+        /** Installed Proton/Wine entry whose builtin PE files were linked. */
+        private const val WINE_BUILTIN_LINKS_EXTRA = "wineBuiltinLinks"
     }
 }

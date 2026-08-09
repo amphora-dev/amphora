@@ -7,6 +7,7 @@ import android.util.Log;
 import app.amphora.core.engine.AppliedMarks;
 import com.winlator.cmod.runtime.content.ContentProfile;
 import com.winlator.cmod.runtime.content.ContentsManager;
+import com.winlator.cmod.runtime.content.SharedDllLinker;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
 import com.winlator.cmod.runtime.wine.WineInfo;
 import com.winlator.cmod.runtime.wine.WineUtils;
@@ -260,7 +261,7 @@ public class ContainerManager {
           + container.getFEXCoreVersion() + "' box64Version='" + container.getBox64Version() + "'");
 
       if (!extractContainerPatternFile(
-          container, container.getWineVersion(), contentsManager, containerDir, null)) {
+          container, container.getWineVersion(), contentsManager, containerDir, null, true)) {
         Log.e(
             "ContainerManager",
             "createContainer: extractContainerPatternFile FAILED for wineVersion="
@@ -331,14 +332,17 @@ public class ContainerManager {
     return null;
   }
 
-  private void extractCommonDlls(
+  private boolean extractCommonDlls(
       WineInfo wineInfo,
       String srcName,
       String dstName,
       File containerDir,
-      OnExtractFileListener onExtractFileListener)
+      OnExtractFileListener onExtractFileListener,
+      boolean linkWineBuiltins)
       throws JSONException {
     File srcDir = new File(wineInfo.path + "/lib/wine/" + srcName);
+    File contentsRoot = ContentsManager.getContentDir(context);
+    boolean allBound = true;
 
     File[] srcfiles = srcDir.listFiles(file -> file.isFile());
 
@@ -351,12 +355,32 @@ public class ContainerManager {
           file = new File(wineInfo.path + "/lib/wine/" + "i386-windows/iexplore.exe");
         if (dllName.equals("tabtip.exe") || dllName.equals("icu.dll")) continue;
         File dstFile = new File(containerDir, ".wine/drive_c/windows/" + dstName + "/" + dllName);
-        if (dstFile.exists()) continue;
         if (onExtractFileListener != null) {
           dstFile = onExtractFileListener.onExtractFile(dstFile, 0);
           if (dstFile == null) continue;
         }
-        FileUtils.copy(file, dstFile);
+
+        if (!linkWineBuiltins) {
+          if (!dstFile.exists() && !FileUtils.copy(file, dstFile)) allBound = false;
+          continue;
+        }
+
+        if (FileUtils.isSymlink(dstFile)) {
+          // Keep per-container overrides (DXVK/VKD3D/DirectDraw). Only a link
+          // previously owned by Proton may be rebound when the Proton pin moves.
+          if (!isWineBuiltinLink(dstFile)) continue;
+        } else if (dstFile.exists() && !FileUtils.contentEquals(file, dstFile)) {
+          // A native WinComponent or installer-private replacement is intentionally
+          // different from Proton and must remain private to this prefix.
+          continue;
+        }
+
+        if (!SharedDllLinker.link(contentsRoot, file, dstFile)) {
+          allBound = false;
+          // A missing target is required for a usable prefix; preserve the old copy
+          // behavior as a correctness fallback when linking is unavailable.
+          if (!dstFile.exists()) FileUtils.copy(file, dstFile);
+        }
       }
     }
 
@@ -364,6 +388,51 @@ public class ContainerManager {
       File dstDir = new File(containerDir, ".wine/drive_c/windows/" + dstName);
       assertArm64PEMachine(dstDir, "xinput1_4.dll");
       assertArm64PEMachine(dstDir, "dinput8.dll");
+    }
+    return allBound;
+  }
+
+  private boolean isWineBuiltinLink(File target) {
+    if (!FileUtils.isSymlink(target)) return false;
+    String link = FileUtils.readSymlink(target);
+    if (link == null) return false;
+    String normalized = link.replace('\\', '/');
+    return normalized.contains("/contents/Proton/") || normalized.contains("/contents/Wine/");
+  }
+
+  /**
+   * Replaces byte-identical Wine builtin copies in a final prefix with links to
+   * the immutable installed Proton/Wine component.
+   *
+   * <p>Call only after the prefix has reached its permanent container path.
+   * Relative links created in the repair staging directory would break after
+   * that tree is copied into {@code imagefs/home/xuser-*}.
+   */
+  public boolean linkWineBuiltinFiles(
+      Container container, String wineVersion, ContentsManager contentsManager) {
+    File containerDir = container != null ? container.getRootDir() : null;
+    if (containerDir == null || !containerDir.isDirectory()) return false;
+    WineInfo wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion);
+    if (wineInfo == null || wineInfo.path == null || wineInfo.path.isEmpty()) return false;
+
+    try {
+      boolean system32;
+      if (wineInfo.isArm64EC()) {
+        system32 =
+            extractCommonDlls(
+                wineInfo, "aarch64-windows", "system32", containerDir, null, true);
+      } else {
+        system32 =
+            extractCommonDlls(
+                wineInfo, "x86_64-windows", "system32", containerDir, null, true);
+      }
+      boolean syswow64 =
+          extractCommonDlls(
+              wineInfo, "i386-windows", "syswow64", containerDir, null, true);
+      return system32 && syswow64;
+    } catch (JSONException e) {
+      Log.e("ContainerManager", "Cannot bind Wine builtin files", e);
+      return false;
     }
   }
 
@@ -399,6 +468,22 @@ public class ContainerManager {
       ContentsManager contentsManager,
       File containerDir,
       OnExtractFileListener onExtractFileListener) {
+    return extractContainerPatternFile(
+        container,
+        wineVersion,
+        contentsManager,
+        containerDir,
+        onExtractFileListener,
+        false);
+  }
+
+  private boolean extractContainerPatternFile(
+      Container container,
+      String wineVersion,
+      ContentsManager contentsManager,
+      File containerDir,
+      OnExtractFileListener onExtractFileListener,
+      boolean linkWineBuiltins) {
     Log.d(
         "ContainerManager",
         "extractContainerPatternFile: wineVersion="
@@ -541,13 +626,24 @@ public class ContainerManager {
               "aarch64-windows",
               "system32",
               containerDir,
-              onExtractFileListener); // arm64ec only
+              onExtractFileListener,
+              linkWineBuiltins); // arm64ec only
         else
           extractCommonDlls(
-              wineInfo, "x86_64-windows", "system32", containerDir, onExtractFileListener);
+              wineInfo,
+              "x86_64-windows",
+              "system32",
+              containerDir,
+              onExtractFileListener,
+              linkWineBuiltins);
 
         extractCommonDlls(
-            wineInfo, "i386-windows", "syswow64", containerDir, onExtractFileListener);
+            wineInfo,
+            "i386-windows",
+            "syswow64",
+            containerDir,
+            onExtractFileListener,
+            linkWineBuiltins);
       } catch (JSONException e) {
         Log.e("ContainerManager", "extractContainerPatternFile: extractCommonDlls failed", e);
         // Don't fail the whole extraction just because of common DLLs — container is still usable
@@ -631,6 +727,14 @@ public class ContainerManager {
           }
         }
         return false;
+      }
+
+      if (!linkWineBuiltinFiles(container, wineVersion, contentsManager)) {
+        // Linking is a storage optimization. The repaired regular-file prefix is
+        // complete and remains the safe fallback if an individual bind fails.
+        Log.w(
+            "ContainerManager",
+            "repairContainerWinePrefix: Wine builtin linking incomplete; keeping copies");
       }
 
       // Best-effort: carry in-prefix save data over to the repaired prefix so saves survive without manual recovery.
