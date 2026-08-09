@@ -55,6 +55,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     private val injectThread =
         HandlerThread("TouchpadXInject").also { it.start() }
     private val injectHandler = Handler(injectThread.looper)
+    private var inputReleased = false
     private val moveLock = Any()
     private var pendingDx = 0
     private var pendingDy = 0
@@ -114,6 +115,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
 
     /** Flush coalesced motion, then run [block] on the inject thread (ordered vs moves). */
     private fun runInject(block: () -> Unit) {
+        if (inputReleased) return
         injectHandler.post {
             drainPendingMove()
             block()
@@ -218,9 +220,16 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     }
 
     override fun onDetachedFromWindow() {
+        releaseInput()
         super.onDetachedFromWindow()
+    }
+
+    fun releaseInput() {
+        if (inputReleased) return
         longPressHandler.removeCallbacks(longPressRunnable)
         injectHandler.removeCallbacksAndMessages(null)
+        resetInputState()
+        inputReleased = true
         injectThread.quitSafely()
     }
 

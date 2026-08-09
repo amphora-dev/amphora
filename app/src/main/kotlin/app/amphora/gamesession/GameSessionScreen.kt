@@ -623,7 +623,7 @@ private fun TouchpadOverlay(
         modifier = modifier,
         onRelease = { pad ->
             pad.setFourFingersTapCallback(null)
-            pad.resetInputState()
+            pad.releaseInput()
         },
     )
 }
