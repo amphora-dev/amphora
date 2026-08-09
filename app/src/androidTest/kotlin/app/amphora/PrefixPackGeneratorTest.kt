@@ -255,6 +255,7 @@ class PrefixPackGeneratorTest {
                         when {
                             line.startsWith("\"MachineGuid\"=") ->
                                 "\"MachineGuid\"=\"$FIXED_MACHINE_GUID\""
+                            line.startsWith("#time=") -> "#time=0"
                             line.startsWith("[") && line.contains("] ") ->
                                 line.substringBeforeLast("] ") + "] 0"
                             else -> line.replace(outputRoot.absolutePath, "/data/data/app.amphora-prefix")
