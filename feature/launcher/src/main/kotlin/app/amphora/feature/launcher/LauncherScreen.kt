@@ -49,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -330,7 +331,10 @@ internal fun StorageAccessBlock() {
                 )
             },
             enabled = !granted,
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .alpha(if (granted) 0f else 1f),
         ) {
             Text(if (granted) "Storage access granted" else "Grant storage access")
         }

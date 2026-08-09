@@ -238,7 +238,7 @@ private fun LauncherTopBar(
             TextButton(
                 onClick = onAddProgram,
                 enabled = !state.staging,
-                modifier = Modifier.width(if (compact) 56.dp else 112.dp),
+                modifier = Modifier.width(if (compact) 56.dp else 140.dp),
             ) {
                 Text(if (compact) "Add" else "+ Add program")
             }
