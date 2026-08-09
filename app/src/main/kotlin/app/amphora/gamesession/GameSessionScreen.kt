@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,6 +55,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -375,7 +377,9 @@ private fun RuntimeSessionDrawer(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                TextButton(onClick = onClose) { Text("Hide controls") }
+                TextButton(onClick = onClose) {
+                    Text("Hide controls", maxLines = 2, textAlign = TextAlign.Center)
+                }
             }
 
             Row(
@@ -389,20 +393,27 @@ private fun RuntimeSessionDrawer(
                         sessionState in setOf(SessionState.RUNNING, SessionState.PAUSED),
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(if (sessionState == SessionState.PAUSED) "Resume" else "Pause")
+                    Text(
+                        if (sessionState == SessionState.PAUSED) "Resume" else "Pause",
+                        maxLines = 2,
+                        textAlign = TextAlign.Center,
+                    )
                 }
                 OutlinedButton(
                     onClick = onExit,
                     enabled = sessionState != SessionState.STOPPING,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("Exit Windows")
+                    Text("Exit Windows", maxLines = 2, textAlign = TextAlign.Center)
                 }
             }
 
             RuntimeDrawerSection(title = "Input") {
                 Text("Touch mode", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     FilterChip(
                         selected = inputMode == TouchpadView.MODE_TRACKPAD,
                         onClick = { onInputModeChange(TouchpadView.MODE_TRACKPAD) },
