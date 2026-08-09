@@ -431,6 +431,7 @@ constructor(
     private companion object {
         /** Marks that the DXVK trust-file augment re-apply has been scheduled once. */
         private const val DXVK_TRUST_AUGMENT_EXTRA = "dxvkTrustAugment"
+
         /** Installed Proton/Wine entry whose builtin PE files were linked. */
         private const val WINE_BUILTIN_LINKS_EXTRA = "wineBuiltinLinks"
     }
