@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-out="${1:-$root/build/prefix-pack/prefixPack-x86_64-11.txz}"
+out="${1:-$root/build/prefix-pack/prefixPack-11.0-d12a5634a-x86_64-1.txz}"
 adb_host="${AMPHORA_ADB_HOST:-}"
 adb_port="${AMPHORA_ADB_PORT:-5037}"
 adb_serial="${AMPHORA_ADB_SERIAL:-}"
