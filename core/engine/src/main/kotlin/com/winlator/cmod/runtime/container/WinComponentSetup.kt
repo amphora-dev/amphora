@@ -2,6 +2,7 @@ package com.winlator.cmod.runtime.container
 
 import android.content.Context
 import android.util.Log
+import app.amphora.core.content.RuntimeAssetProvisioner
 import com.winlator.cmod.runtime.content.SharedDllLinker
 import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.wine.WineInfo
@@ -102,6 +103,17 @@ object WinComponentSetup {
         windowsDir: File,
         onExtractFileListener: OnExtractFileListener?,
     ) {
+        val archive =
+            File(
+                RuntimeAssetProvisioner.runtimeAssetsDir(context),
+                "wincomponents/$identifier.tzst",
+            )
+        if (!archive.isFile) {
+            // Some toggles are registry-only. dinput8 intentionally has no
+            // package: "native" means prefer a game/prefix PE, then Wine builtin.
+            Log.d(TAG, "Native WinComponent '$identifier' has no archive; applying override only")
+            return
+        }
         // Builtin mode binds Proton DLLs into the prefix with symlinks. The native
         // extractor deliberately opens regular entries with O_NOFOLLOW, so remove
         // only this component's known links before extracting private replacements.
@@ -116,8 +128,7 @@ object WinComponentSetup {
         check(
             TarCompressorUtils.extract(
                 TarCompressorUtils.Type.ZSTD,
-                context,
-                "wincomponents/$identifier.tzst",
+                archive,
                 windowsDir,
                 onExtractFileListener,
             ),
