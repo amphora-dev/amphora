@@ -116,7 +116,7 @@ constructor(
             dxwrapper = dxwrapper,
             wincomponents = wincomponents,
         )
-        ensureWineBuiltinLinks(wnContainer, wineVersion)
+        ensureWineBuiltinLinks(wnContainer, wineVersion, newlyCreated = existing == null)
         // Optional adrenotools driver (wrapper default, Turnip when selected).
         ensureAdrenotoolsDriver(wnContainer)
         // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
@@ -356,16 +356,29 @@ constructor(
     }
 
     /**
-     * One-time-per-Proton-pin migration of copied Wine builtin PE files to
-     * immutable shared links. Differing/native files and non-Proton links are
-     * intentionally preserved by [WnContainerManager.linkWineBuiltinFiles].
+     * Records the shared-builtin layout created with a prefix and only rebinds
+     * it when the Proton pin later changes.
+     *
+     * An unmarked prefix predates this development-stage layout. We deliberately
+     * do not scan/migrate it: developers can recreate that container, while new
+     * prefixes are linked directly by ContainerManager.createContainer.
      */
-    private fun ensureWineBuiltinLinks(container: WnContainer, wineVersion: String) {
-        if (container.getExtra(WINE_BUILTIN_LINKS_EXTRA) == wineVersion) return
+    private fun ensureWineBuiltinLinks(
+        container: WnContainer,
+        wineVersion: String,
+        newlyCreated: Boolean,
+    ) {
+        val linkedVersion = container.getExtra(WINE_BUILTIN_LINKS_EXTRA).orEmpty()
+        if (linkedVersion == wineVersion) return
+        if (linkedVersion.isEmpty() && !newlyCreated) {
+            container.putExtra(WINE_BUILTIN_LINKS_EXTRA, wineVersion)
+            container.saveData()
+            return
+        }
         if (!wnContainerManager.linkWineBuiltinFiles(container, wineVersion, contentsManager)) {
             android.util.Log.w(
                 "WinlatorContainerManager",
-                "Wine builtin linking incomplete for $wineVersion; will retry next launch",
+                "Wine builtin rebind incomplete for $linkedVersion -> $wineVersion; will retry next launch",
             )
             return
         }
