@@ -855,6 +855,9 @@ private fun SettingsOverview(state: SettingsUiState) {
                                 "${state.unhealthyAssets} files need attention"
                         else -> "All required components match the published versions"
                     },
+                    minLines = 2,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

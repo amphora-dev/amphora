@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -27,9 +29,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
@@ -164,7 +168,11 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         Button(
             onClick = { if (running) viewModel.stop() else onExit() },
             enabled = sessionState != SessionState.STOPPING,
-            modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
+            modifier =
+            Modifier
+                .padding(12.dp)
+                .width(96.dp)
+                .align(Alignment.TopStart),
         ) { Text(if (sessionState == SessionState.STOPPING) "Closing…" else "Exit") }
     }
 }
@@ -305,57 +313,83 @@ private fun SessionPlaceholder(
     launchError: String?,
     provisionProgress: ProvisionProgress?,
 ) {
+    val title =
+        when {
+            launchError != null -> "Session failed"
+            provisionProgress != null -> "Updating content…"
+            sessionState == SessionState.STARTING -> "Starting session…"
+            else -> "Initializing…"
+        }
+    val detail =
+        when {
+            launchError != null -> launchError
+            provisionProgress != null ->
+                listOfNotNull(
+                    provisionProgress.stage,
+                    provisionProgress.detail.takeIf { it.isNotBlank() },
+                ).joinToString(" · ")
+            else -> ""
+        }
+    val showProgress = launchError == null && provisionProgress != null
+    val bytesLabel =
+        provisionProgress
+            ?.let { progress ->
+                progress.totalBytes?.let { total ->
+                    "${formatBytes(progress.bytesDownloaded)} / ${formatBytes(total)}"
+                }
+            }.orEmpty()
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        when {
-            launchError != null -> {
-                Text("Session failed", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    launchError,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-            provisionProgress != null -> {
-                Text("Updating content…", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    listOfNotNull(
-                        provisionProgress.stage,
-                        provisionProgress.detail.takeIf { it.isNotBlank() },
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                val fraction = provisionProgress.fraction
-                if (fraction != null) {
-                    LinearProgressIndicator(
-                        progress = { fraction },
-                        modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp),
-                    )
-                    provisionProgress.totalBytes?.let { total ->
-                        Text(
-                            "${formatBytes(provisionProgress.bytesDownloaded)} / ${formatBytes(total)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(top = 8.dp),
+        Column(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(176.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                detail,
+                modifier = Modifier.height(40.dp),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Box(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(20.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (showProgress) {
+                    val fraction = provisionProgress?.fraction
+                    if (fraction != null) {
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth(),
                         )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
-                } else {
-                    LinearProgressIndicator(
-                        modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp),
-                    )
                 }
             }
-            sessionState == SessionState.STARTING -> Text("Starting session…")
-            else -> Text("Initializing…")
+            Text(
+                bytesLabel,
+                modifier =
+                Modifier
+                    .height(20.dp)
+                    .alpha(
+                        if (showProgress && provisionProgress?.totalBytes != null) 1f else 0f,
+                    ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
 }

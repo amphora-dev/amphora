@@ -458,7 +458,7 @@ private fun DetailPane(
         state.recentPrograms.firstOrNull {
             !desktopSelected && it.path == state.stagedExePath
         }
-    LazyColumn(
+    Box(
         modifier =
         modifier.background(
             Brush.linearGradient(
@@ -468,62 +468,70 @@ private fun DetailPane(
                 ),
             ),
         ),
-        contentPadding = PaddingValues(24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        if (onBack != null) {
-            item {
-                TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
-                    Text("← Programs")
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(24.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            if (onBack != null) {
+                item {
+                    TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
+                        Text("← Programs")
+                    }
                 }
             }
-        }
-        state.provisionProgress?.let { progress ->
             item {
-                NoticeSurface {
-                    Text(
-                        "Preparing Windows environment",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
+                if (desktopSelected) {
+                    DesktopDetail(
+                        state = state,
+                        runtimeReady = runtimeReady,
+                        onOpenExplorer = onOpenExplorer,
+                        onOpenSettings = onOpenSettings,
                     )
-                    ProvisionProgressBlock(progress)
+                } else if (selectedProgram != null) {
+                    ProgramDetail(
+                        program = selectedProgram,
+                        state = state,
+                        runtimeReady = runtimeReady,
+                        onLaunch = onLaunchProgram,
+                        onOpenSettings = onOpenSettings,
+                    )
+                } else {
+                    MissingProgramDetail(onAddProgram)
                 }
             }
-        }
-        state.stageError?.let { message ->
             item {
-                ErrorNotice(message = message, onRefresh = onRefresh)
+                RuntimeSummary(
+                    state = state,
+                    ready = runtimeReady,
+                    onRefresh = onRefresh,
+                )
+            }
+            item {
+                StorageAccessBlock()
             }
         }
-        item {
-            if (desktopSelected) {
-                DesktopDetail(
-                    state = state,
-                    runtimeReady = runtimeReady,
-                    onOpenExplorer = onOpenExplorer,
-                    onOpenSettings = onOpenSettings,
-                )
-            } else if (selectedProgram != null) {
-                ProgramDetail(
-                    program = selectedProgram,
-                    state = state,
-                    runtimeReady = runtimeReady,
-                    onLaunch = onLaunchProgram,
-                    onOpenSettings = onOpenSettings,
-                )
-            } else {
-                MissingProgramDetail(onAddProgram)
+        Box(
+            modifier =
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(24.dp),
+        ) {
+            when {
+                state.stageError != null ->
+                    ErrorNotice(message = state.stageError, onRefresh = onRefresh)
+                state.provisionProgress != null ->
+                    NoticeSurface {
+                        Text(
+                            "Preparing Windows environment",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        ProvisionProgressBlock(state.provisionProgress)
+                    }
             }
-        }
-        item {
-            RuntimeSummary(
-                state = state,
-                ready = runtimeReady,
-                onRefresh = onRefresh,
-            )
-        }
-        item {
-            StorageAccessBlock()
         }
     }
 }

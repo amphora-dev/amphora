@@ -306,16 +306,19 @@ internal fun StorageAccessBlock() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    if (granted) return
-
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            "Storage access not granted — inside Wine, D: (Downloads) and " +
-                "F: (internal storage) list folders but no files.",
+            if (granted) {
+                "Storage access granted — Wine can read files on D: (Downloads) and F: (internal storage)."
+            } else {
+                "Storage access not granted — inside Wine, D: (Downloads) and " +
+                    "F: (internal storage) list folders but no files."
+            },
             style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
         )
         Button(
             onClick = {
@@ -326,11 +329,14 @@ internal fun StorageAccessBlock() {
                     ),
                 )
             },
+            enabled = !granted,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Grant storage access") }
+        ) {
+            Text(if (granted) "Storage access granted" else "Grant storage access")
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             TextButton(onClick = { openSettings.launch(allFilesAccessIntent(context)) }) {
-                Text("Use all-files access instead")
+                Text(if (granted) "Manage all-files access" else "Use all-files access instead")
             }
         }
     }
