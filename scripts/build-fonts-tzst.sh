@@ -32,7 +32,12 @@ FACES=(
   SourceHanSansJP-Bold.otf
 )
 
-command -v zstd >/dev/null || { echo "error: zstd required" >&2; exit 1; }
+ZSTD_BIN="${ZSTD_BIN:-$(command -v zstd 2>/dev/null || true)}"
+if [[ -z "$ZSTD_BIN" ]] && command -v brew >/dev/null 2>&1; then
+  candidate="$(brew --prefix zstd 2>/dev/null || true)/bin/zstd"
+  [[ -x "$candidate" ]] && ZSTD_BIN="$candidate"
+fi
+[[ -x "$ZSTD_BIN" ]] || { echo "error: zstd required (set ZSTD_BIN if keg-only)" >&2; exit 1; }
 
 resolve_face() {
   local name="$1"
@@ -79,7 +84,7 @@ rm -f "$OUT_DIR/fonts.tzst"
   # shellcheck disable=SC2046
   COPYFILE_DISABLE=1 tar --no-mac-metadata -cf - * 2>/dev/null \
     || COPYFILE_DISABLE=1 tar -cf - *
-) | zstd -19 -T0 -o "$OUT_DIR/fonts.tzst"
+) | "$ZSTD_BIN" -19 -T0 -o "$OUT_DIR/fonts.tzst"
 
 rm -rf "$WORKDIR"
 
