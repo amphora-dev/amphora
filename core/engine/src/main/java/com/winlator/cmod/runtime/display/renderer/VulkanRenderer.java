@@ -48,6 +48,8 @@ public class VulkanRenderer
     private long nativeHandle = 0;
     private boolean supportProbed = false;
     private boolean loggedAhbSceneUse = false;
+    private final AtomicBoolean guestFramePending = new AtomicBoolean(false);
+    private final AtomicBoolean firstGuestFrameReported = new AtomicBoolean(false);
     // Must be set before attachSurface — nativeCreate reads it once at instance creation.
     private volatile String graphicsDriverName = null;
 
@@ -306,6 +308,9 @@ public class VulkanRenderer
     public void onDrawFrame() {
         if (nativeHandle == 0) return;
         buildAndSubmitFrame();
+        if (guestFramePending.get() && firstGuestFrameReported.compareAndSet(false, true)) {
+            xServerView.notifyFirstGuestFrameRendered();
+        }
     }
 
     // ----- Scene assembly ----------------------------------------------------
@@ -611,6 +616,7 @@ public class VulkanRenderer
     public void onFramePresented(Window window, WindowManager.FrameSource source, int serial) {
         // DRI3_BUFFER fires at pixmap allocation, not a visible change; the real present already wakes us. Skip it.
         if (source == WindowManager.FrameSource.DRI3_BUFFER) return;
+        guestFramePending.set(true);
         requestRenderCoalesced();
     }
 
