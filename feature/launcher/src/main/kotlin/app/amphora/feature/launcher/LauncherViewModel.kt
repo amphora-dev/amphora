@@ -117,6 +117,7 @@ constructor(
 
     init {
         prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
+        loadPrograms()
         refreshContentInfo()
     }
 
@@ -164,13 +165,36 @@ constructor(
             _uiState.update { it.copy(staging = true, stageError = null) }
             try {
                 val stagedPath = stageExe(uri)
-                _uiState.update { it.copy(stagedExePath = stagedPath, staging = false) }
+                val programs = withContext(dispatchers.io) { scanPrograms() }
+                _uiState.update {
+                    it.copy(
+                        stagedExePath = stagedPath,
+                        recentPrograms = programs,
+                        staging = false,
+                    )
+                }
             } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 _uiState.update {
                     it.copy(staging = false, stageError = e.message ?: e.javaClass.simpleName)
                 }
             }
+        }
+    }
+
+    fun selectProgram(path: String) {
+        if (_uiState.value.recentPrograms.none { it.path == path }) return
+        _uiState.update { it.copy(stagedExePath = path) }
+    }
+
+    fun markProgramLaunched() {
+        val path = _uiState.value.stagedExePath ?: return
+        viewModelScope.launch {
+            val programs = withContext(dispatchers.io) {
+                File(path).setLastModified(System.currentTimeMillis())
+                scanPrograms()
+            }
+            _uiState.update { it.copy(recentPrograms = programs) }
         }
     }
 
@@ -302,8 +326,27 @@ constructor(
         context.contentResolver.openInputStream(uri)?.use { input ->
             java.io.FileOutputStream(dest).use { output -> input.copyTo(output) }
         } ?: throw IOException("Cannot open picked file: $uri")
+        dest.setLastModified(System.currentTimeMillis())
         dest.absolutePath
     }
+
+    private fun loadPrograms() {
+        viewModelScope.launch {
+            val programs = withContext(dispatchers.io) { scanPrograms() }
+            _uiState.update { it.copy(recentPrograms = programs) }
+        }
+    }
+
+    private fun scanPrograms(): List<RecentProgram> =
+        GuestFiles
+            .exeDir(context)
+            .listFiles()
+            .orEmpty()
+            .asSequence()
+            .filter { it.isFile && it.extension.equals("exe", ignoreCase = true) }
+            .sortedByDescending(File::lastModified)
+            .map { RecentProgram(path = it.absolutePath, name = it.name, lastUsedAt = it.lastModified()) }
+            .toList()
 
     private fun queryDisplayName(uri: Uri): String? {
         context.contentResolver
@@ -353,6 +396,7 @@ data class RuntimeAssetStatus(
 data class LauncherUiState(
     val appVersion: String = "",
     val stagedExePath: String? = null,
+    val recentPrograms: List<RecentProgram> = emptyList(),
     val staging: Boolean = false,
     val stageError: String? = null,
     val resolution: Resolution = Resolution.DEFAULT,
@@ -365,6 +409,12 @@ data class LauncherUiState(
     val runtimeAssets: List<RuntimeAssetStatus> = emptyList(),
     val imagefsResidue: Boolean = false,
     val provisionProgress: ProvisionProgress? = null,
+)
+
+data class RecentProgram(
+    val path: String,
+    val name: String,
+    val lastUsedAt: Long,
 )
 
 /** Adrenotools backend selectable from the launcher (persisted). */
