@@ -337,16 +337,15 @@ constructor(
         }
     }
 
-    private fun scanPrograms(): List<RecentProgram> =
-        GuestFiles
-            .exeDir(context)
-            .listFiles()
-            .orEmpty()
-            .asSequence()
-            .filter { it.isFile && it.extension.equals("exe", ignoreCase = true) }
-            .sortedByDescending(File::lastModified)
-            .map { RecentProgram(path = it.absolutePath, name = it.name, lastUsedAt = it.lastModified()) }
-            .toList()
+    private fun scanPrograms(): List<RecentProgram> = GuestFiles
+        .exeDir(context)
+        .listFiles()
+        .orEmpty()
+        .asSequence()
+        .filter { it.isFile && it.extension.equals("exe", ignoreCase = true) }
+        .sortedByDescending(File::lastModified)
+        .map { RecentProgram(path = it.absolutePath, name = it.name, lastUsedAt = it.lastModified()) }
+        .toList()
 
     private fun queryDisplayName(uri: Uri): String? {
         context.contentResolver
@@ -411,11 +410,7 @@ data class LauncherUiState(
     val provisionProgress: ProvisionProgress? = null,
 )
 
-data class RecentProgram(
-    val path: String,
-    val name: String,
-    val lastUsedAt: Long,
-)
+data class RecentProgram(val path: String, val name: String, val lastUsedAt: Long)
 
 /** Adrenotools backend selectable from the launcher (persisted). */
 enum class GraphicsDriverOption(val driverId: String, val label: String) {

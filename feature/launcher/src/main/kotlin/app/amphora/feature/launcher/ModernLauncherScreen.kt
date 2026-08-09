@@ -339,13 +339,7 @@ private fun ProgramListPane(
 }
 
 @Composable
-private fun ProgramRow(
-    title: String,
-    subtitle: String,
-    monogram: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
+private fun ProgramRow(title: String, subtitle: String, monogram: String, selected: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(14.dp)
     Row(
         modifier =
@@ -831,23 +825,21 @@ private fun AmphoraMark(modifier: Modifier = Modifier) {
     }
 }
 
-private fun LauncherUiState.runtimeReady(): Boolean =
-    catalogStatus is ContentCatalog.Status.Ready &&
-        !contentBusy &&
-        !staging &&
-        !driverBusy &&
-        components.none { it.pinned == null || it.installed == null || !it.matchesPin } &&
-        runtimeAssets.none { !it.healthy } &&
-        !imagefsResidue
+private fun LauncherUiState.runtimeReady(): Boolean = catalogStatus is ContentCatalog.Status.Ready &&
+    !contentBusy &&
+    !staging &&
+    !driverBusy &&
+    components.none { it.pinned == null || it.installed == null || !it.matchesPin } &&
+    runtimeAssets.none { !it.healthy } &&
+    !imagefsResidue
 
-private fun relativeTime(timestamp: Long): String =
-    if (timestamp <= 0L) {
-        "Recently added"
-    } else {
-        DateUtils
-            .getRelativeTimeSpanString(
-                timestamp,
-                System.currentTimeMillis(),
-                DateUtils.MINUTE_IN_MILLIS,
-            ).toString()
-    }
+private fun relativeTime(timestamp: Long): String = if (timestamp <= 0L) {
+    "Recently added"
+} else {
+    DateUtils
+        .getRelativeTimeSpanString(
+            timestamp,
+            System.currentTimeMillis(),
+            DateUtils.MINUTE_IN_MILLIS,
+        ).toString()
+}
