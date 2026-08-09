@@ -72,6 +72,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.engine.ShizukuCleanupStatus
+import app.amphora.core.engine.WindowsComponentPreferences
 import app.amphora.core.engine.WineLocaleOption
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -457,7 +458,10 @@ private fun WindowsComponentsSection(state: SettingsUiState, viewModel: Settings
             WindowsComponentSetting.entries.forEachIndexed { index, component ->
                 WindowsComponentChoice(
                     component = component,
-                    useNative = state.windowsComponents[component] ?: true,
+                    useNative =
+                    state.windowsComponents[component]
+                        ?: WindowsComponentPreferences.defaultUsesNative(component.id),
+                    defaultUseNative = WindowsComponentPreferences.defaultUsesNative(component.id),
                     onChange = { useNative ->
                         viewModel.setWindowsComponentNative(component, useNative)
                     },
@@ -465,8 +469,8 @@ private fun WindowsComponentsSection(state: SettingsUiState, viewModel: Settings
                 if (index != WindowsComponentSetting.entries.lastIndex) HorizontalDivider()
             }
             Text(
-                "Compatibility archives are verified during runtime provisioning. Native links " +
-                    "them into the prefix; switching back restores Proton's DLLs and overrides.",
+                "Compatibility archives are verified during runtime provisioning. Native extracts " +
+                    "private DLLs into the prefix; builtin links the matching Proton DLLs.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -478,6 +482,7 @@ private fun WindowsComponentsSection(state: SettingsUiState, viewModel: Settings
 private fun WindowsComponentChoice(
     component: WindowsComponentSetting,
     useNative: Boolean,
+    defaultUseNative: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -491,8 +496,8 @@ private fun WindowsComponentChoice(
                 style = MaterialTheme.typography.titleSmall,
             )
             ModifiedResetAction(
-                modified = !useNative,
-                onReset = { onChange(true) },
+                modified = useNative != defaultUseNative,
+                onReset = { onChange(defaultUseNative) },
             )
         }
         Text(

@@ -122,7 +122,8 @@ constructor(
                 ),
                 windowsComponents =
                 WindowsComponentSetting.entries.associateWith { component ->
-                    initialWindowsComponents[component.id] ?: true
+                    initialWindowsComponents[component.id]
+                        ?: WindowsComponentPreferences.defaultUsesNative(component.id)
                 },
                 customEnv = initialCustomEnv,
                 rejectedEnvNames = AdvancedRuntimePreferences.rejectedCustomEnvNames(initialCustomEnv),
@@ -265,7 +266,10 @@ constructor(
                 vkd3dFeatureLevel = Vkd3dFeatureLevel.AUTO,
                 vkd3dShaderModel = Vkd3dShaderModel.AUTO,
                 vkd3dDxr = Vkd3dDxrMode.AUTO,
-                windowsComponents = WindowsComponentSetting.entries.associateWith { true },
+                windowsComponents =
+                WindowsComponentSetting.entries.associateWith {
+                    WindowsComponentPreferences.defaultUsesNative(it.id)
+                },
                 customEnv = "",
                 rejectedEnvNames = emptyList(),
                 cacheActionMessage = "Settings restored to recommended defaults.",
