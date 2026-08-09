@@ -1,15 +1,9 @@
 package app.amphora.feature.launcher
 
 import android.Manifest
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Environment
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -54,12 +48,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ProvisionProgress
+import app.amphora.core.engine.GuestStorageAccess
 import java.io.File
 
 /**
@@ -275,24 +269,22 @@ fun LauncherScreen(
  * entry is filtered out. In-guest that reads as "D: has folders and nothing
  * else", which looks like a Wine bug and is not one.
  *
- * targetSdk 28 keeps legacy external storage, so the runtime READ/WRITE pair is
- * enough to lift the filter; all-files access is the fallback for when the user
- * denies that dialog (Android stops offering it after two refusals). Upstream
- * WinNative asks the same two ways from its setup wizard.
+ * Android 11+ requires all-files access for these real filesystem links. A SAF
+ * document-tree grant cannot be used because Wine cannot resolve content URIs.
  */
 @Composable
 internal fun StorageAccessBlock() {
     val context = LocalContext.current
-    var granted by remember { mutableStateOf(hasExternalStorageAccess(context)) }
+    var granted by remember { mutableStateOf(GuestStorageAccess.isGranted(context)) }
 
     val requestLegacy =
         rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions(),
-        ) { granted = hasExternalStorageAccess(context) }
+        ) { granted = GuestStorageAccess.isGranted(context) }
     val openSettings =
         rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult(),
-        ) { granted = hasExternalStorageAccess(context) }
+        ) { granted = GuestStorageAccess.isGranted(context) }
 
     // All-files access is toggled in Settings and can also be revoked from
     // outside the app, so re-read it whenever the launcher is resumed.
@@ -300,55 +292,76 @@ internal fun StorageAccessBlock() {
     DisposableEffect(lifecycleOwner) {
         val observer =
             LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_RESUME) granted = hasExternalStorageAccess(context)
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    granted = GuestStorageAccess.isGranted(context)
+                }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    if (granted) return
-
-    Column(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        colors =
+        CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
     ) {
-        Text(
-            "Storage access not granted — inside Wine, D: (Downloads) and " +
-                "F: (internal storage) list folders but no files.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Button(
-            onClick = {
-                requestLegacy.launch(
-                    arrayOf(
-                        Manifest.permission.READ_EXTERNAL_STORAGE,
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                    ),
-                )
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Grant storage access") }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            TextButton(onClick = { openSettings.launch(allFilesAccessIntent(context)) }) {
-                Text("Use all-files access instead")
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Android files", style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (granted) {
+                    "Available to Wine as D: (Downloads) and F: (internal storage)."
+                } else {
+                    "Access is required before Wine can browse files on D: and F:."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (granted) {
+                    OutlinedButton(
+                        onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Manage Android file access")
+                    }
+                } else {
+                    Button(
+                        onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Allow Android file access")
+                    }
+                }
+            } else if (!granted) {
+                Button(
+                    onClick = {
+                        requestLegacy.launch(
+                            arrayOf(
+                                Manifest.permission.READ_EXTERNAL_STORAGE,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                            ),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Allow Android file access")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Manage Android file access")
+                }
             }
         }
     }
 }
-
-private fun hasExternalStorageAccess(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-        return true
-    }
-    return context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
-        PackageManager.PERMISSION_GRANTED
-}
-
-@RequiresApi(Build.VERSION_CODES.R)
-private fun allFilesAccessIntent(context: Context): Intent = Intent(
-    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-    "package:${context.packageName}".toUri(),
-)
 
 @Composable
 internal fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {

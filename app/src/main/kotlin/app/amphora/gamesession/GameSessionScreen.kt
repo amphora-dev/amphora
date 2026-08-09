@@ -6,7 +6,6 @@ import android.content.ContextWrapper
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -443,17 +442,24 @@ private fun RuntimeSessionDrawer(
 
             RuntimeDrawerSection(title = "Display") {
                 Text("Frame limit", style = MaterialTheme.typography.labelLarge)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    FPS_LIMITS.forEach { limit ->
-                        FilterChip(
-                            selected = fpsLimit == limit,
-                            onClick = { onFpsLimitChange(limit) },
-                            enabled = controlsEnabled,
-                            label = { Text(if (limit == 0) "Off" else "$limit") },
-                        )
+                    FPS_LIMITS.chunked(3).forEach { rowLimits ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            rowLimits.forEach { limit ->
+                                FilterChip(
+                                    selected = fpsLimit == limit,
+                                    onClick = { onFpsLimitChange(limit) },
+                                    enabled = controlsEnabled,
+                                    label = { Text(if (limit == 0) "Off" else "$limit") },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
                     }
                 }
                 RuntimeToggleRow(
@@ -562,6 +568,7 @@ private fun RuntimeToggleRow(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -585,7 +592,7 @@ private fun tapGestureDescription(inputMode: Int, enabled: Boolean): String = wh
         "Touching the screen positions the cursor and holds left click"
     inputMode == TouchpadView.MODE_TOUCHSCREEN ->
         "Touch positions the cursor only; use a mouse or controller to click"
-    enabled -> "One-finger tap clicks; two-finger tap right-clicks"
+    enabled -> "One-finger tap: left click\nTwo-finger tap: right click"
     else -> "Touch moves the pointer only; use a mouse or controller to click"
 }
 
