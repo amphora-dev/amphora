@@ -16,14 +16,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -69,6 +73,8 @@ import app.amphora.core.engine.WineLocaleOption
 @Composable
 fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
+    var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.COMMON) }
+    var showResetConfirmation by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -83,127 +89,308 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                     }
                 },
                 navigationIcon = {
-                    TextButton(onClick = onBack) { Text("Back") }
+                    TextButton(onClick = onBack) { Text("← Back") }
+                },
+                actions = {
+                    TextButton(onClick = { showResetConfirmation = true }) {
+                        Text("Reset defaults")
+                    }
                 },
             )
         },
     ) { padding ->
-        Column(
+        BoxWithConstraints(
             modifier =
             Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .padding(padding),
         ) {
-            SettingsOverview(state)
-
-            SettingSection(
-                title = "Display",
-                subtitle = "Virtual desktop size",
-            ) {
-                ChoiceSetting(
-                    title = "Resolution",
-                    description =
-                    "Controls the Wine desktop size. Lower values reduce GPU work; higher values " +
-                        "provide more space and sharper UI.",
-                    impact = "Affects every game · applies on next launch",
-                    selected = state.resolution,
-                    values = DisplayResolution.entries,
-                    label = { it.label },
-                    onSelect = viewModel::selectResolution,
-                )
-            }
-
-            SettingSection(
-                title = "Graphics",
-                subtitle = "Native Vulkan backend used by DXVK, VKD3D and Zink",
-            ) {
-                ChoiceSetting(
-                    title = "GPU driver",
-                    description =
-                    "System driver uses the device's Adreno Vulkan implementation. Turnip uses " +
-                        "Mesa Freedreno and is downloaded when first selected.",
-                    impact =
-                    "Dependency: Vulkan wrapper → selected driver\n" +
-                        "Scope: Direct3D 9–12, OpenGL/Zink · next launch",
-                    selected = state.graphicsDriver,
-                    values = GraphicsDriverSetting.entries,
-                    label = { it.label },
-                    enabled = !state.applyingDriver,
-                    onSelect = viewModel::selectGraphicsDriver,
-                )
-                if (state.applyingDriver) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text(
-                        "Installing Turnip and verifying its package…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (maxWidth >= 840.dp) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    SettingsCategoryPane(
+                        selected = selectedCategory,
+                        onSelect = { selectedCategory = it },
+                        modifier =
+                        Modifier
+                            .width(240.dp)
+                            .fillMaxHeight(),
+                    )
+                    VerticalDivider()
+                    SettingsCategoryContent(
+                        category = selectedCategory,
+                        state = state,
+                        viewModel = viewModel,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            } else {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    SettingsCategoryTabs(
+                        selected = selectedCategory,
+                        onSelect = { selectedCategory = it },
+                    )
+                    SettingsCategoryContent(
+                        category = selectedCategory,
+                        state = state,
+                        viewModel = viewModel,
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
-
-            SettingSection(
-                title = "Compatibility",
-                subtitle = "Regional and translation behavior for older Windows games",
-            ) {
-                ChoiceSetting(
-                    title = "Language for non-Unicode programs",
-                    description =
-                    "Selects Wine's ANSI codepage for legacy applications. Automatic follows " +
-                        "the Android device language; Japanese applications commonly require Japanese.",
-                    impact = "Scope: legacy ANSI text only · applies on next launch",
-                    selected = state.wineLocale,
-                    values = WineLocaleOption.entries,
-                    label = { it.label },
-                    onSelect = viewModel::selectWineLocale,
-                )
-                ChoiceSetting(
-                    title = "DirectDraw layer",
-                    description =
-                    "DxWrapper translates DirectDraw and Direct3D 1–7 to D3D9/DXVK. " +
-                        "d7vk translates Direct3D 3–7 directly to Vulkan. " +
-                        "cnc-ddraw is tuned for classic software-rendered 2D games.",
-                    impact =
-                    "Dependency: DxWrapper/cnc-ddraw → D3D9 → DXVK; d7vk → Vulkan\n" +
-                        "Scope: 32-bit DirectDraw titles only · next launch",
-                    selected = state.directDrawWrapper,
-                    values = DirectDrawSetting.entries,
-                    label = { it.label },
-                    onSelect = viewModel::selectDirectDraw,
-                )
-            }
-
-            WindowsComponentsSection(state = state, viewModel = viewModel)
-
-            AdvancedRuntimeSection(state = state, viewModel = viewModel)
-
-            AppUpdateSection(state = state, viewModel = viewModel)
-
-            StorageSection()
-
-            SessionCleanupSection(state = state, viewModel = viewModel)
-
-            ComponentSection(state = state, onRefresh = viewModel::refreshComponents)
-
-            state.error?.let {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = it,
-                        modifier = Modifier.padding(14.dp),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-            Spacer(Modifier.height(12.dp))
         }
     }
+    if (showResetConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirmation = false },
+            title = { Text("Restore recommended defaults?") },
+            text = {
+                Text(
+                    "This resets display, graphics, compatibility, Windows components, and " +
+                        "advanced runtime settings. Installed programs and runtime files are not removed.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.resetPreferences()
+                        showResetConfirmation = false
+                    },
+                ) {
+                    Text("Reset")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirmation = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+private enum class SettingsCategory(val label: String, val description: String) {
+    COMMON("Common", "Display, graphics, language, and storage"),
+    ADVANCED("Advanced", "Windows components and runtime tuning"),
+    SYSTEM("System", "Components, updates, cleanup, and diagnostics"),
+}
+
+@Composable
+private fun SettingsCategoryPane(
+    selected: SettingsCategory,
+    onSelect: (SettingsCategory) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier =
+        modifier
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "CATEGORIES",
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SettingsCategory.entries.forEach { category ->
+            val active = category == selected
+            Surface(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(category) },
+                color =
+                if (active) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    Color.Transparent
+                },
+                contentColor =
+                if (active) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        category.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        category.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color =
+                        if (active) {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsCategoryTabs(
+    selected: SettingsCategory,
+    onSelect: (SettingsCategory) -> Unit,
+) {
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SettingsCategory.entries.forEach { category ->
+            FilterChip(
+                selected = category == selected,
+                onClick = { onSelect(category) },
+                label = { Text(category.label) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsCategoryContent(
+    category: SettingsCategory,
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier =
+        modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Text(
+            category.label,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            category.description,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        when (category) {
+            SettingsCategory.COMMON -> CommonSettings(state = state, viewModel = viewModel)
+            SettingsCategory.ADVANCED -> {
+                WindowsComponentsSection(state = state, viewModel = viewModel)
+                AdvancedRuntimeSection(state = state, viewModel = viewModel)
+            }
+            SettingsCategory.SYSTEM -> {
+                SettingsOverview(state)
+                AppUpdateSection(state = state, viewModel = viewModel)
+                SessionCleanupSection(state = state, viewModel = viewModel)
+                ComponentSection(state = state, onRefresh = viewModel::refreshComponents)
+            }
+        }
+        state.error?.let {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = it,
+                    modifier = Modifier.padding(14.dp),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel) {
+    SettingSection(
+        title = "Display",
+        subtitle = "Virtual desktop size",
+    ) {
+        ChoiceSetting(
+            title = "Resolution",
+            description =
+            "Controls the Wine desktop size. Lower values reduce GPU work; higher values " +
+                "provide more space and sharper UI.",
+            impact = "Global default · applies on next launch",
+            selected = state.resolution,
+            values = DisplayResolution.entries,
+            label = { it.label },
+            onSelect = viewModel::selectResolution,
+        )
+    }
+    SettingSection(
+        title = "Graphics",
+        subtitle = "Native Vulkan backend used by DXVK, VKD3D and Zink",
+    ) {
+        ChoiceSetting(
+            title = "GPU driver",
+            description =
+            "System driver uses the device's Adreno Vulkan implementation. Turnip uses " +
+                "Mesa Freedreno and is downloaded when first selected.",
+            impact = "Global default · Direct3D 9–12 and OpenGL/Zink · next launch",
+            selected = state.graphicsDriver,
+            values = GraphicsDriverSetting.entries,
+            label = { it.label },
+            enabled = !state.applyingDriver,
+            onSelect = viewModel::selectGraphicsDriver,
+        )
+        if (state.applyingDriver) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                "Installing Turnip and verifying its package…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    SettingSection(
+        title = "Compatibility",
+        subtitle = "Regional and translation behavior for older Windows games",
+    ) {
+        ChoiceSetting(
+            title = "Language for non-Unicode programs",
+            description =
+            "Selects Wine's ANSI codepage for legacy applications. Automatic follows " +
+                "the Android device language.",
+            impact = "Global default · legacy ANSI text only · next launch",
+            selected = state.wineLocale,
+            values = WineLocaleOption.entries,
+            label = { it.label },
+            onSelect = viewModel::selectWineLocale,
+        )
+        ChoiceSetting(
+            title = "DirectDraw layer",
+            description =
+            "DxWrapper translates DirectDraw and Direct3D 1–7 to D3D9/DXVK. " +
+                "d7vk translates Direct3D 3–7 directly to Vulkan. " +
+                "cnc-ddraw is tuned for classic software-rendered 2D games.",
+            impact = "Global default · 32-bit DirectDraw titles · next launch",
+            selected = state.directDrawWrapper,
+            values = DirectDrawSetting.entries,
+            label = { it.label },
+            onSelect = viewModel::selectDirectDraw,
+        )
+    }
+    StorageSection()
 }
 
 @Composable

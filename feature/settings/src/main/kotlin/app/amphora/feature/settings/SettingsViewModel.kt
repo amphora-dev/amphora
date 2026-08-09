@@ -191,6 +191,56 @@ constructor(
         _uiState.update { it.copy(wineLocale = value) }
     }
 
+    fun resetPreferences() {
+        prefs.edit {
+            remove(PREF_RESOLUTION)
+            remove(GraphicsDriverIds.PREFS_KEY_DRIVER_ID)
+            remove(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID)
+            remove(WineLocalePreferences.KEY)
+            remove(WindowsComponentPreferences.KEY_WINCOMPONENTS)
+            remove(AdvancedRuntimePreferences.KEY_BOX64_PRESET)
+            remove(AdvancedRuntimePreferences.KEY_DXVK_ASYNC)
+            remove(AdvancedRuntimePreferences.KEY_FRAME_RATE)
+            remove(AdvancedRuntimePreferences.KEY_PRESENT_MODE)
+            remove(AdvancedRuntimePreferences.KEY_BCN_MODE)
+            remove(AdvancedRuntimePreferences.KEY_WINE_DEBUG)
+            remove(AdvancedRuntimePreferences.KEY_HOST_PERF_HUD)
+            remove(AdvancedRuntimePreferences.KEY_DXVK_HUD)
+            remove(AdvancedRuntimePreferences.KEY_SHADER_CACHE)
+            remove(AdvancedRuntimePreferences.KEY_SHADER_CACHE_SIZE)
+            remove(AdvancedRuntimePreferences.KEY_VKD3D_FEATURE_LEVEL)
+            remove(AdvancedRuntimePreferences.KEY_VKD3D_SHADER_MODEL)
+            remove(AdvancedRuntimePreferences.KEY_VKD3D_DXR)
+            remove(AdvancedRuntimePreferences.KEY_CUSTOM_ENV)
+        }
+        _uiState.update {
+            it.copy(
+                resolution = DisplayResolution.DEFAULT,
+                graphicsDriver = GraphicsDriverSetting.WRAPPER,
+                directDrawWrapper = DirectDrawSetting.DXWRAPPER,
+                wineLocale = WineLocaleOption.AUTO,
+                box64Mode = Box64Mode.PERFORMANCE,
+                dxvkAsync = false,
+                frameLimit = FrameLimit.OFF,
+                presentMode = PresentMode.AUTO,
+                bcnMode = BcnMode.DEFAULT,
+                wineLog = WineLogMode.OFF,
+                hostPerformanceHud = false,
+                dxvkHud = false,
+                shaderCache = true,
+                shaderCacheSize = ShaderCacheSize.MB512,
+                vkd3dFeatureLevel = Vkd3dFeatureLevel.AUTO,
+                vkd3dShaderModel = Vkd3dShaderModel.AUTO,
+                vkd3dDxr = Vkd3dDxrMode.AUTO,
+                windowsComponents = WindowsComponentSetting.entries.associateWith { true },
+                customEnv = "",
+                rejectedEnvNames = emptyList(),
+                cacheActionMessage = "Settings restored to recommended defaults.",
+                error = null,
+            )
+        }
+    }
+
     fun selectBox64Mode(value: Box64Mode) {
         prefs.edit { putString(AdvancedRuntimePreferences.KEY_BOX64_PRESET, value.id) }
         _uiState.update { it.copy(box64Mode = value) }
