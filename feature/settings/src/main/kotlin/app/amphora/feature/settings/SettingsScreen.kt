@@ -11,6 +11,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -362,10 +363,14 @@ private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel)
             onSelect = viewModel::selectGraphicsDriver,
             onReset = { viewModel.selectGraphicsDriver(GraphicsDriverSetting.WRAPPER) },
         )
-        StableProgressStatus(
-            visible = state.applyingDriver,
-            message = "Installing Turnip and verifying its package…",
-        )
+        if (state.applyingDriver) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                "Installing Turnip and verifying its package…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
     SettingSection(
         title = "Compatibility",
@@ -707,10 +712,8 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                 onReset = { viewModel.selectShaderCacheSize(ShaderCacheSize.MB512) },
             )
             Row(
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(
@@ -719,36 +722,18 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                 ) {
                     Text("Clear shader caches")
                 }
-                Column(
-                    modifier =
-                    Modifier
-                        .weight(1f)
-                        .alpha(
-                            if (state.clearingShaderCache || state.cacheActionMessage != null) {
-                                1f
-                            } else {
-                                0f
-                            },
-                        ),
-                ) {
-                    LinearProgressIndicator(
-                        modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .alpha(if (state.clearingShaderCache) 1f else 0f),
-                    )
-                    Text(
-                        if (state.clearingShaderCache) {
-                            "Clearing…"
-                        } else {
-                            state.cacheActionMessage.orEmpty()
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                Text(
+                    if (state.clearingShaderCache) {
+                        "Clearing…"
+                    } else {
+                        state.cacheActionMessage.orEmpty()
+                    },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
             HorizontalDivider()
             ChoiceSetting(
@@ -799,7 +784,6 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                             "Ignored protected or invalid names: " +
                                 state.rejectedEnvNames.distinct().joinToString()
                         },
-                        modifier = Modifier.height(36.dp),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         color =
@@ -855,9 +839,6 @@ private fun SettingsOverview(state: SettingsUiState) {
                                 "${state.unhealthyAssets} files need attention"
                         else -> "All required components match the published versions"
                     },
-                    minLines = 2,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -883,7 +864,10 @@ private fun SettingSection(title: String, subtitle: String, content: @Composable
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
+                modifier =
+                Modifier
+                    .animateContentSize()
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 content()
@@ -972,26 +956,6 @@ private fun ModifiedResetAction(modified: Boolean, onReset: () -> Unit) {
 }
 
 @Composable
-private fun StableProgressStatus(visible: Boolean, message: String) {
-    Column(
-        modifier =
-        Modifier
-            .fillMaxWidth()
-            .height(28.dp)
-            .alpha(if (visible) 1f else 0f),
-    ) {
-        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        Text(
-            message,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
 private fun ComponentSection(state: SettingsUiState, onRefresh: () -> Unit) {
     var showAssets by rememberSaveable { mutableStateOf(false) }
     SettingSection(
@@ -1000,12 +964,9 @@ private fun ComponentSection(state: SettingsUiState, onRefresh: () -> Unit) {
     ) {
         DependencyChain()
         HorizontalDivider()
-        LinearProgressIndicator(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .alpha(if (state.refreshing && state.components.isEmpty()) 1f else 0f),
-        )
+        if (state.refreshing && state.components.isEmpty()) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
         state.components.forEach { component ->
             ComponentRow(component)
         }
@@ -1069,27 +1030,24 @@ private fun SessionCleanupSection(state: SettingsUiState, viewModel: SettingsVie
             },
             style = MaterialTheme.typography.labelMedium,
         )
-        TextButton(
-            onClick = {
-                when (state.shizukuCleanupStatus) {
-                    ShizukuCleanupStatus.PERMISSION_REQUIRED -> viewModel.requestShizukuPermission()
-                    ShizukuCleanupStatus.READY -> confirmEmergencyStop = true
-                    ShizukuCleanupStatus.UNAVAILABLE -> Unit
-                }
-            },
-            enabled = state.shizukuCleanupStatus != ShizukuCleanupStatus.UNAVAILABLE,
-            modifier =
-            Modifier.alpha(
-                if (state.shizukuCleanupStatus == ShizukuCleanupStatus.UNAVAILABLE) 0f else 1f,
-            ),
-        ) {
-            Text(
-                if (state.shizukuCleanupStatus == ShizukuCleanupStatus.READY) {
-                    "Emergency force-stop Amphora"
-                } else {
-                    "Grant Shizuku access"
+        if (state.shizukuCleanupStatus != ShizukuCleanupStatus.UNAVAILABLE) {
+            TextButton(
+                onClick = {
+                    if (state.shizukuCleanupStatus == ShizukuCleanupStatus.READY) {
+                        confirmEmergencyStop = true
+                    } else {
+                        viewModel.requestShizukuPermission()
+                    }
                 },
-            )
+            ) {
+                Text(
+                    if (state.shizukuCleanupStatus == ShizukuCleanupStatus.READY) {
+                        "Emergency force-stop Amphora"
+                    } else {
+                        "Grant Shizuku access"
+                    },
+                )
+            }
         }
     }
 
@@ -1300,36 +1258,27 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
             } ?: "Available: check for the latest published build",
             style = MaterialTheme.typography.bodyMedium,
         )
-        Text(
-            state.availableUpdate?.notes.orEmpty(),
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(20.dp)
-                .alpha(if (state.availableUpdate?.notes == null) 0f else 1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            state.updateMessage.orEmpty(),
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(36.dp)
-                .alpha(if (state.updateMessage == null) 0f else 1f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        LinearProgressIndicator(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .alpha(if (state.updateBusy) 1f else 0f),
-        )
+        state.availableUpdate?.notes?.let { notes ->
+            Text(
+                notes,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        state.updateMessage?.let { message ->
+            Text(
+                message,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (state.updateBusy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -1341,26 +1290,27 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
                 Text("Check")
             }
             val downloadVisible = state.availableUpdate != null && !state.installReady
-            TextButton(
-                onClick = viewModel::downloadAndPrepareInstall,
-                enabled = downloadVisible && !state.updateBusy,
-                modifier = Modifier.alpha(if (downloadVisible) 1f else 0f),
-            ) {
-                Text("Download")
+            if (downloadVisible) {
+                TextButton(
+                    onClick = viewModel::downloadAndPrepareInstall,
+                    enabled = !state.updateBusy,
+                ) {
+                    Text("Download")
+                }
             }
-            val installVisible = state.installReady && state.pendingApk != null
-            TextButton(
-                onClick = {
-                    if (viewModel.needsInstallPermission()) {
-                        unknownSourcesLauncher.launch(viewModel.installPermissionSettingsIntent())
-                    } else {
-                        activity?.let(viewModel::installPendingUpdate)
-                    }
-                },
-                enabled = installVisible && !state.updateBusy,
-                modifier = Modifier.alpha(if (installVisible) 1f else 0f),
-            ) {
-                Text("Install")
+            if (state.installReady && state.pendingApk != null) {
+                TextButton(
+                    onClick = {
+                        if (viewModel.needsInstallPermission()) {
+                            unknownSourcesLauncher.launch(viewModel.installPermissionSettingsIntent())
+                        } else {
+                            activity?.let(viewModel::installPendingUpdate)
+                        }
+                    },
+                    enabled = !state.updateBusy,
+                ) {
+                    Text("Install")
+                }
             }
         }
     }
@@ -1413,33 +1363,30 @@ private fun StorageSection() {
                 )
             }
         }
-        Row(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .alpha(if (granted) 0f else 1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            TextButton(
-                onClick = {
-                    requestLegacy.launch(
-                        arrayOf(
-                            Manifest.permission.READ_EXTERNAL_STORAGE,
-                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                        ),
-                    )
-                },
-                enabled = !granted,
+        if (!granted) {
+            Row(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Grant storage access")
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 TextButton(
-                    onClick = { openSettings.launch(allFilesAccessIntent(context)) },
-                    enabled = !granted,
+                    onClick = {
+                        requestLegacy.launch(
+                            arrayOf(
+                                Manifest.permission.READ_EXTERNAL_STORAGE,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                            ),
+                        )
+                    },
                 ) {
-                    Text("Open all-files access settings")
+                    Text("Grant storage access")
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    TextButton(onClick = { openSettings.launch(allFilesAccessIntent(context)) }) {
+                        Text("Open all-files access settings")
+                    }
                 }
             }
         }

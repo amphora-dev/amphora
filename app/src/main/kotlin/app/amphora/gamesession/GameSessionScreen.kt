@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -333,10 +334,9 @@ private fun SessionPlaceholder(
     val showProgress = launchError == null && provisionProgress != null
     val bytesLabel =
         provisionProgress
-            ?.let { progress ->
-                progress.totalBytes?.let { total ->
-                    "${formatBytes(progress.bytesDownloaded)} / ${formatBytes(total)}"
-                }
+            ?.totalBytes
+            ?.let { total ->
+                "${formatBytes(provisionProgress.bytesDownloaded)} / ${formatBytes(total)}"
             }.orEmpty()
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
@@ -347,49 +347,33 @@ private fun SessionPlaceholder(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .height(176.dp),
+                .animateContentSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(
-                detail,
-                modifier = Modifier.height(40.dp),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Box(
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(20.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (showProgress) {
-                    val fraction = provisionProgress?.fraction
-                    if (fraction != null) {
-                        LinearProgressIndicator(
-                            progress = { fraction },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (showProgress && provisionProgress != null) {
+                val fraction = provisionProgress.fraction
+                if (fraction != null) {
+                    LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+                if (bytesLabel.isNotBlank()) {
+                    Text(bytesLabel, style = MaterialTheme.typography.labelSmall)
                 }
             }
-            Text(
-                bytesLabel,
-                modifier =
-                Modifier
-                    .height(20.dp)
-                    .alpha(
-                        if (showProgress && provisionProgress?.totalBytes != null) 1f else 0f,
-                    ),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.labelSmall,
-            )
         }
     }
 }

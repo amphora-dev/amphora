@@ -49,7 +49,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -307,19 +306,16 @@ internal fun StorageAccessBlock() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    if (granted) return
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            if (granted) {
-                "Storage access granted — Wine can read files on D: (Downloads) and F: (internal storage)."
-            } else {
-                "Storage access not granted — inside Wine, D: (Downloads) and " +
-                    "F: (internal storage) list folders but no files."
-            },
+            "Storage access not granted — inside Wine, D: (Downloads) and " +
+                "F: (internal storage) list folders but no files.",
             style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
         )
         Button(
             onClick = {
@@ -330,17 +326,11 @@ internal fun StorageAccessBlock() {
                     ),
                 )
             },
-            enabled = !granted,
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .alpha(if (granted) 0f else 1f),
-        ) {
-            Text(if (granted) "Storage access granted" else "Grant storage access")
-        }
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Grant storage access") }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             TextButton(onClick = { openSettings.launch(allFilesAccessIntent(context)) }) {
-                Text(if (granted) "Manage all-files access" else "Use all-files access instead")
+                Text("Use all-files access instead")
             }
         }
     }

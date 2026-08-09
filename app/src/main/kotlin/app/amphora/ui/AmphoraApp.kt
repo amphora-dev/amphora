@@ -3,10 +3,10 @@ package app.amphora.ui
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
@@ -17,7 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -51,29 +50,17 @@ private fun StartupUpdatePrompt(viewModel: StartupUpdateViewModel = hiltViewMode
         onDismissRequest = viewModel::dismiss,
         title = { Text("Update available") },
         text = {
-            Column {
+            Column(modifier = Modifier.animateContentSize()) {
                 Text("${update.versionName} (${update.versionCode}) · ${update.channel}")
-                Text(
-                    update.notes.orEmpty(),
-                    modifier = Modifier.height(40.dp),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    state.message.orEmpty(),
-                    modifier =
-                    Modifier
-                        .height(20.dp)
-                        .alpha(if (state.message == null) 0f else 1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                LinearProgressIndicator(
-                    modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .alpha(if (state.busy) 1f else 0f),
-                )
+                update.notes?.let {
+                    Text(it, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+                state.message?.let {
+                    Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (state.busy) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
             }
         },
         confirmButton = {
@@ -103,11 +90,7 @@ private fun StartupUpdatePrompt(viewModel: StartupUpdateViewModel = hiltViewMode
             }
         },
         dismissButton = {
-            TextButton(
-                onClick = viewModel::dismiss,
-                enabled = !state.busy,
-                modifier = Modifier.alpha(if (state.busy) 0f else 1f),
-            ) {
+            TextButton(onClick = viewModel::dismiss, enabled = !state.busy) {
                 Text("Later")
             }
         },
