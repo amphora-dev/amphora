@@ -52,7 +52,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -196,7 +197,10 @@ private fun LauncherTopBar(
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val compact = LocalConfiguration.current.screenWidthDp < 600
+    val compact =
+        with(LocalDensity.current) {
+            LocalWindowInfo.current.containerSize.width.toDp() < 600.dp
+        }
     TopAppBar(
         colors =
         TopAppBarDefaults.topAppBarColors(
