@@ -214,7 +214,7 @@ class XServerWineSessionPreparer @Inject constructor(
         val appVersion = appVersionCode(context)
         val imgVersion = imageFs.getVersion().toString()
         val imageState =
-            "$imgVersion|assets=${runtimeFingerprint(listOf(CONTAINER_PATTERN_ASSET))}"
+            "$imgVersion|assets=${runtimeFingerprint(listOf(SharedContainerFonts.ASSET_PATH))}"
         var containerDataChanged = false
 
         // 唯一方式：想要(容器) ≠ 装过(AppliedMarks) → 去做 → 更新标记
@@ -468,64 +468,18 @@ class XServerWineSessionPreparer @Inject constructor(
 
     // --- ensureWinePrefixEssentialFiles (XSDA L7164) -------------------------
 
+    /**
+     * Amphora no longer vendors Winlator's `container_pattern_common.tzst`
+     * (fonts / icons / winhandler / wfm / cnc-ddraw tooling). The Wine prefix
+     * comes from Proton `prefixPack.txz`; the only shared overlay we still
+     * install is the CJK font pack ([SharedContainerFonts]: contents/ + symlink
+     * + FontSubstitutes / Wine Replacements registry).
+     */
     private fun ensureWinePrefixEssentialFilesCore() {
         val c = wnContainer ?: return
-        val containerWindowsDir = File(c.getRootDir(), ".wine/drive_c/windows")
-        val essentialFiles = arrayOf("winhandler.exe", "wfm.exe")
-
-        val status = StringBuilder("ensureWinePrefixEssentialFiles:")
-        var anyMissing = false
-        for (filename in essentialFiles) {
-            val exists = File(containerWindowsDir, filename).exists()
-            status.append(" ").append(filename).append("=").append(exists)
-            if (!exists) anyMissing = true
-        }
-        Log.d(TAG, status.toString())
-
-        if (!anyMissing) return
-
-        val homeDir = File(imageFs.getRootDir(), "home")
-        val homeDirs = homeDir.listFiles()
-        var sourceWindowsDir: File? = null
-        if (homeDirs != null) {
-            Log.d(TAG, "Searching ${homeDirs.size} dirs in home/ for essential files")
-            for (dir in homeDirs) {
-                if (!dir.isDirectory) continue
-                if (dir.name == ImageFs.USER) continue
-                if (dir.absolutePath == c.getRootDir().absolutePath) continue
-                val candidate = File(dir, ".wine/drive_c/windows")
-                if (File(candidate, "winhandler.exe").exists()) {
-                    sourceWindowsDir = candidate
-                    Log.d(TAG, "Found essential files source: ${dir.name}")
-                    break
-                }
-            }
-        }
-
-        if (sourceWindowsDir != null) {
-            for (filename in essentialFiles) {
-                val dest = File(containerWindowsDir, filename)
-                if (!dest.exists()) {
-                    val source = File(sourceWindowsDir, filename)
-                    if (source.exists()) {
-                        Log.d(TAG, "Copying $filename from ${sourceWindowsDir.parent}")
-                        FileUtils.copy(source, dest)
-                    }
-                }
-            }
-        } else {
-            Log.w(TAG, "No source container found, extracting from container_pattern_common.tzst")
-            containerWindowsDir.mkdirs()
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD,
-                context,
-                "container_pattern_common.tzst",
-                imageFs.getRootDir(),
-            )
-            for (filename in essentialFiles) {
-                Log.d(TAG, "$filename exists after extraction: ${File(containerWindowsDir, filename).exists()}")
-            }
-        }
+        File(c.getRootDir(), ".wine/drive_c/windows").mkdirs()
+        val fontsOk = SharedContainerFonts.ensureInstalled(context, c.getRootDir())
+        Log.d(TAG, "ensureWinePrefixEssentialFiles: sharedFonts=$fontsOk")
     }
 
     // --- extractDXWrapperFiles (XSDA L7970) + helpers -------------------------
@@ -963,10 +917,9 @@ class XServerWineSessionPreparer @Inject constructor(
             Log.i(TAG, "Applying $WRAPPER_ASSET to imagefs")
             applyRuntimeArchive(WRAPPER_ASSET, rootDir)
         }
-        if (firstTimeBoot || AppliedAssetPin.needsApply(rootDir, runtimeAsset(LAYERS_ASSET), LAYERS_ASSET)) {
-            Log.i(TAG, "Applying $LAYERS_ASSET to imagefs")
-            applyRuntimeArchive(LAYERS_ASSET, rootDir)
-            // extra_libs.tzst is gone: its only live payload was Mesa libGL, which the
+        // layers.tzst (Khronos validation) is debug-only and is not extracted by default.
+        // Host VulkanRenderer enables validation only when explicitly requested.
+        // extra_libs.tzst is gone: its only live payload was Mesa libGL, which the
             // self-built imagefs now ships (imagefs packages/graphics/mesa-gl.sh). The
             // rest (Turnip, vkBasalt, bcn_layer) has no consumer — the default Vulkan
             // path is the wrapper ICD and full Turnip is the optional WN-Turnip zip.
@@ -987,7 +940,6 @@ class XServerWineSessionPreparer @Inject constructor(
             } catch (e: IOException) { /* ignored */ }
         } else if (leegaoMarker.exists()) {
             applyRuntimeArchive(WRAPPER_ASSET, rootDir)
-            applyRuntimeArchive(LAYERS_ASSET, rootDir)
             leegaoMarker.delete()
         }
 
@@ -1133,17 +1085,9 @@ class XServerWineSessionPreparer @Inject constructor(
 
     /** applyGeneralPatches (XSDA L10793). */
     private fun applyGeneralPatches(c: Container) {
-        val rootDir = imageFs.getRootDir()
-        check(
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD,
-                context,
-                CONTAINER_PATTERN_ASSET,
-                rootDir,
-            ),
-        ) {
-            "Cannot apply runtime asset: $CONTAINER_PATTERN_ASSET"
-        }
+        // No container_pattern overlay — prefix is Proton prefixPack; CJK fonts are
+        // a shared contents/ pin linked into windows/Fonts (plus registry substitutes).
+        SharedContainerFonts.ensureInstalled(context, c.getRootDir())
         // MVP is ALSA-only; pulseaudio.tzst extract omitted (nobody consumed filesDir/pulseaudio).
         WineUtils.applySystemTweaks(context, wineInfo)
     }
@@ -1396,8 +1340,6 @@ class XServerWineSessionPreparer @Inject constructor(
         private const val TAG = "WineSessionPreparer"
         private const val D8VK_ASSET_PATH = "dxwrapper/d8vk-1.0.tzst"
         private const val WRAPPER_ASSET = "graphics_driver/wrapper.tzst"
-        private const val LAYERS_ASSET = "layers.tzst"
-        private const val CONTAINER_PATTERN_ASSET = "container_pattern_common.tzst"
         private val WINCOMPONENT_RUNTIME_ASSETS =
             listOf(
                 "wincomponents/wincomponents.json",

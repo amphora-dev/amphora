@@ -145,12 +145,12 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 | 6 | **`Box64-*.wcp`** | x86_64 翻译 | ~2.8 MB | WCP → imagefs | ✅ |
 | 7 | **`Dxvk-*.wcp`** | D3D8–11 → Vulkan | ~6.7 MB | 容器 `system32`/`syswow64` | ✅ |
 | 8 | **`Vkd3d-*.wcp`** | D3D12 → Vulkan | ~3.4 MB | 同上 | ✅ |
-| 9 | **`container_pattern.tzst`**（瘦身） | prefix 骨架（**无字体、无内嵌 ddraw**） | **≲ 2 MB** | 每容器一份 | ✅ |
-| 10 | **`fonts.tzst`**（新建，共享） | **一份** CJK：`SourceHanSansCN-Regular.otf`（或等价单文件） | **~6–9 MB** | 共享目录，容器 Fonts **符号链接/拷一次** | ✅ |
+| 9 | ~~`container_pattern_common.tzst`~~ | Winlator prefix 模板（字体/图标/winhandler/ddraw 工具） | ~42 MB | — | ❌ **已废止**（2026-08）：prefix 只靠 Proton `prefixPack` |
+| 10 | **`fonts.tzst`**（共享） | Adobe Source Han Sans **CN+JP** Regular/Bold（2.005R subset） | **~20 MB** | `contents/FONTS/<sha>/` 四脸；中文别名→CN、日文→JP；粗体→Bold；FontSubstitutes / Wine Replacements | ✅ |
 | 11 | **`wincomponents/*.tzst`** | 微软 redist（保持 tzst，**不**改 WCP） | 目录合计 ~38 MB；按 `FALLBACK` 选装 | 容器 DLL | ✅ 按需提取，机制不变 |
 | 12 | **`WN-Turnip-*.zip`** | 可选完整 Turnip | ~2.7 MB zip / ~15 MB `.so` | `contents/adrenotools/<id>/` | ⚪ 可选 |
 | 13 | **`ddrawrapper/{cnc-ddraw,dd7to9,nglide}.tzst`** | DirectDraw/Glide；`cnc-ddraw` 与 `dd7to9` **互斥单选**，默认 DxWrapper Dd7to9 | 各 0.2–3 MB | 容器 `syswow64` | ⚪ 可选 |
-| 14 | **`layers.tzst`** | Vulkan validation | ~4.4 MB | imagefs | ⚪ **仅调试包** |
+| 14 | ~~`layers.tzst`~~ | Vulkan validation | ~4.4 MB | — | ❌ **默认不装**（host 调试层可选；guest 不 extract） |
 | 14b | **`mesa-gl-override.tzst`**（可选） | 排查 OpenGL/DX7 时替换 `libGL`，**不进发布默认集** | ~5 MB | imagefs `usr/lib` 覆盖 | ⚪ 仅调试 |
 | 15 | **FFmpeg 附加包**（可选） | `winedmo` 硬依赖；默认媒体走 GStreamer | 视自建拆包 | imagefs 叠加或并入 imagefs 变体 | ⚪ 可选（默认可不含） |
 
@@ -160,7 +160,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 |---|---|---|
 | rootfs | 官方 `imagefs.tzst` **199.8 MB**（解压 ~877 MB） | 自建 **~27.5 MB**（解压 ~187 MB） |
 | 图形叠加 | `extra_libs`+`layers`+旧 wrapper ≈ **29 MB**（历史） | `wrapper` ~0.7 MB（含 hooks；Mesa GL 已并入 imagefs） |
-| 容器模板 | `container_pattern_common` **41.6 MB**（字体堆 + 内嵌 cnc-ddraw） | pattern ≲2 + **单字体** ~8 ≈ **~10 MB** |
+| 容器模板/字体 | `container_pattern_common` **41.6 MB**（字体堆 + 内嵌 cnc-ddraw） | 无 pattern；共享 **CN+JP Regular/Bold** `fonts.tzst` ≈ **20 MB** |
 | 运行时+DX | Proton+Box64+DXVK+VKD3D ≈ **181 MB** | **同左**（暂不自砍 Proton） |
 | **默认合计（量级）** | **≳ 450 MB** 资产面 | **~230–240 MB**（再去掉可选 FFmpeg/Turnip/ddraw/layers） |
 
@@ -176,7 +176,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 | `layers.tzst`（默认） | validation 仅调试 |
 | `wrapper.tzst` 内的 4 hook | ✅ 唯一来源（guest+host）；APK 不再打包第二份 |
 | `wrapper-leegao` / `virgl-*` / `zink-*` / `pulseaudio.tzst` | Amphora MVP 不用（Pulse/FEX 保留扩展位） |
-| pattern 内多字体（日文装饰体等）+ 内嵌 `cnc-ddraw` | 默认 DxWrapper Dd7to9；字体共享单文件 |
+| pattern 内多字体（日文装饰体等）+ 内嵌 `cnc-ddraw` | 默认 DxWrapper Dd7to9；字体改为共享 CN+JP Regular/Bold 四脸包 |
 | `d8vk-1.0.tzst` | 默认 DXVK ≥ 3.x 已带 d3d8 |
 | wincomponents → WCP | 无版本轮换需求，改格式零收益；**维持 tzst** |
 

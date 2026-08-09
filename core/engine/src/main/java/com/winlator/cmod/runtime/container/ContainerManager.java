@@ -103,7 +103,8 @@ public class ContainerManager {
     } catch (Exception e) {
     }
 
-    // Replace the real "xuser" dir with a symlink to the active container, migrating winhandler.exe/wfm.exe first (not in container pattern archives). Runs once — after that xuser is already a symlink.
+    // Replace the real "xuser" dir with a symlink to the active container. Best-effort
+    // migrate of legacy winhandler/wfm if present (Amphora no longer installs them).
     if (file.exists() && !FileUtils.isSymlink(file)) {
       Log.w(
           "ContainerManager",
@@ -601,21 +602,15 @@ public class ContainerManager {
       }
     }
 
-    // Step 3: If we still don't have a container pattern, use the common one as last resort
+    // Amphora no longer ships container_pattern_common.tzst (Winlator template with
+    // fonts / icons / winhandler / embedded ddraw tools). The only supported prefix
+    // source is the installed Proton profile's prefixPack (step 2 above).
     if (!result) {
-      Log.d(
+      Log.e(
           "ContainerManager",
-          "extractContainerPatternFile: all pattern sources failed, trying container_pattern_common.tzst as last resort");
-      result =
-          TarCompressorUtils.extract(
-              TarCompressorUtils.Type.ZSTD,
-              context,
-              "container_pattern_common.tzst",
-              containerDir,
-              onExtractFileListener);
-      Log.d(
-          "ContainerManager",
-          "extractContainerPatternFile: common pattern extraction result=" + result);
+          "extractContainerPatternFile: all pattern sources failed for wineVersion="
+              + wineVersion
+              + " (expected Proton prefixPack.txz under the installed profile)");
     }
 
     if (result) {

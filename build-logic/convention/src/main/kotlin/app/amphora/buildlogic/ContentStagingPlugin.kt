@@ -175,7 +175,7 @@ abstract class StageBundledContentTask : DefaultTask() {
                     }
             }
         // Kernel-direct .tzst (imagefs.tzst + preparer wincomponents/* / ddrawrapper/* /
-        // container_pattern_common.tzst ...) read straight from context.assets must all
+        // fonts.tzst / wincomponents/* / ddrawrapper/* ...) read via runtime-assets must all
         // be present too, or the task is stale and must re-run stageKernelDirectAssets().
         val winnative = winnativeDir.orNull?.asFile
         val kernelStaged =
@@ -225,8 +225,8 @@ abstract class StageBundledContentTask : DefaultTask() {
         }
 
         // Kernel-direct runtime archives: ImageFsRootfsInstaller (imagefs.tzst) +
-        // XServerWineSessionPreparer / WinComponentSetup (container_pattern_common.tzst,
-        // wincomponents/*, ddrawrapper/*, ...) read these .tzst straight from context.assets,
+        // XServerWineSessionPreparer / WinComponentSetup (fonts.tzst,
+        // wincomponents/*, ddrawrapper/*, ...) read these via RuntimeAssetProvisioner,
         // bypassing ContentSource/manifest. Stage them from the WinNative checkout too.
         stageKernelDirectAssets(winnativeAssets, stagedDir)
     }
