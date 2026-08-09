@@ -7,13 +7,15 @@ import com.winlator.cmod.runtime.content.ContentsManager
  * Single place to resolve **installed** WCP identity for runtime selection.
  *
  * Layers (do not conflate):
- * - **sha256** — download integrity of the `.wcp` / archive (manifest).
- * - **manifest `version`** — ContentsManager entry name (`Type-verName-verCode`);
- *   the pin that reconcile keeps on disk.
- * - **container fields** — cached copy of that pin for launch (`box64Version`,
+ * - **sha256** — authoritative content identity, verified at download and in
+ *   the installed directory by `InstalledContentPin`.
+ * - **manifest `version`** — compatibility/display name used by ContentsManager
+ *   (`Type-verName-verCode`) to locate that SHA-validated install.
+ * - **container fields** — cached copy of the compatibility name for launch (`box64Version`,
  *   `wineVersion`, `dxwrapper`). Must be rewritten when the install moves.
  *
- * Hash never selects a binary at launch; entry / `verName-verCode` does.
+ * This resolver only maps compatibility names to profiles. Installation and
+ * derived-state gates separately reject or refresh a mismatched SHA.
  */
 object ContentPinResolver {
     /**
