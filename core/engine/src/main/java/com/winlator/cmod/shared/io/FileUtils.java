@@ -504,11 +504,17 @@ public abstract class FileUtils {
 
     try (InputStream inStream1 = new BufferedInputStream(new FileInputStream(origin));
         InputStream inStream2 = new BufferedInputStream(new FileInputStream(target))) {
-      int data;
-      while ((data = inStream1.read()) != -1) {
-        if (data != inStream2.read()) return false;
+      byte[] buffer1 = new byte[64 * 1024];
+      byte[] buffer2 = new byte[64 * 1024];
+      while (true) {
+        int read1 = inStream1.read(buffer1);
+        int read2 = inStream2.read(buffer2);
+        if (read1 != read2) return false;
+        if (read1 == -1) return true;
+        for (int i = 0; i < read1; i++) {
+          if (buffer1[i] != buffer2[i]) return false;
+        }
       }
-      return true;
     } catch (IOException e) {
       return false;
     }
