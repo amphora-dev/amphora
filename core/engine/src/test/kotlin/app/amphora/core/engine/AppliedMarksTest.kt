@@ -8,7 +8,7 @@ import org.junit.Test
 
 class AppliedMarksTest {
     @Test
-    fun prefixOwnedIncludesAudioAndClearsLegacyNames() {
+    fun prefixOwnedIncludesOnlyPrefixDerivedState() {
         val keys = AppliedMarks.prefixOwnedKeys
         assertTrue(keys.contains("appliedAudio"))
         assertTrue(keys.contains("appliedDxwrapper"))

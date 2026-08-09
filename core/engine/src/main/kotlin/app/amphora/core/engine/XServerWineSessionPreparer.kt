@@ -8,7 +8,6 @@ import androidx.core.content.pm.PackageInfoCompat
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.content.AppliedAssetPin
-import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.engine.model.LaunchSpec
 import com.winlator.cmod.runtime.container.Container
@@ -216,7 +215,7 @@ class XServerWineSessionPreparer @Inject constructor(
         val imgVersion = imageFs.getVersion().toString()
         val imageState =
             "$imgVersion|assets=${runtimeFingerprint(listOf(CONTAINER_PATTERN_ASSET))}"
-        var containerDataChanged = AppliedMarks.scrubObsoleteExtras(c)
+        var containerDataChanged = false
 
         // 唯一方式：想要(容器) ≠ 装过(AppliedMarks) → 去做 → 更新标记
         if (AppliedMarks.needsAppImagePatch(c, appVersion, imageState)) {
@@ -1244,8 +1243,8 @@ class XServerWineSessionPreparer @Inject constructor(
      * by `metadata/startmenu.json`.
      *
      * RuntimeAssetProvisioner downloads and verifies the source files before
-     * preparation. A digest sidecar prevents rewriting ~4.7 MB on every launch
-     * while still replacing same-sized binaries when the manifest pin changes.
+     * preparation. The shared applied-asset marker prevents rewriting ~4.7 MB
+     * on every launch while still replacing binaries when the source SHA moves.
      */
     private fun stageGraphicsTestExes(container: Container) {
         val destinationDir = File(
@@ -1260,25 +1259,23 @@ class XServerWineSessionPreparer @Inject constructor(
         val runtimeRoot = RuntimeAssetProvisioner.runtimeAssetsDir(context)
         for (assetPath in GRAPHICS_TEST_ASSETS) {
             val source = File(runtimeRoot, assetPath)
-            val sourceMarker = AssetDigest.markerFor(source)
-            if (!source.isFile || !sourceMarker.isFile) {
+            if (!source.isFile || AppliedAssetPin.sourceSha(source) == null) {
                 Log.e(TAG, "Verified graphics test asset is missing: $assetPath")
                 continue
             }
 
             val destination = File(destinationDir, FileUtils.getName(assetPath))
-            val destinationMarker = AssetDigest.markerFor(destination)
-            val digest = sourceMarker.readText().trim()
             if (destination.isFile &&
                 destination.length() == source.length() &&
-                destinationMarker.isFile &&
-                destinationMarker.readText().trim().equals(digest, ignoreCase = true)
+                !AppliedAssetPin.needsApply(container.getRootDir(), source, assetPath)
             ) {
                 continue
             }
 
             if (FileUtils.copy(source, destination)) {
-                destinationMarker.writeText(digest)
+                AppliedAssetPin.markApplied(container.getRootDir(), source, assetPath)
+                // Remove the pre-unification destination-side marker, if present.
+                File(destination.absolutePath + ".sha256").delete()
                 Log.i(TAG, "Staged ${destination.name} (${destination.length()} bytes)")
             } else {
                 Log.e(TAG, "Failed to stage graphics test asset: $assetPath")

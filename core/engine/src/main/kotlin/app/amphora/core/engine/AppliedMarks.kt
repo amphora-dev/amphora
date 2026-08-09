@@ -38,15 +38,6 @@ object AppliedMarks {
             PREFIX_NEEDS_UPDATE,
         )
 
-    /** 旧散落键，启动时删掉。 */
-    val obsoleteExtraKeys: List<String> =
-        listOf(
-            "appVersion", "imgVersion", "dxwrapper", "wincomponents",
-            "startupSelection", "box64Version", "audioDriver",
-            "desktopTheme", "mono_installed", "mono_version", "graphicsDriver",
-            "fexcoreVersion", "fexcoreMode",
-        )
-
     // --- app / imagefs ---
 
     fun needsAppImagePatch(container: Container, appVersion: String, imgVersion: String): Boolean =
@@ -182,25 +173,10 @@ object AppliedMarks {
         container.putExtra(PREFIX_NEEDS_UPDATE, null)
     }
 
-    @JvmStatic
-    fun scrubObsoleteExtras(container: Container): Boolean {
-        var changed = false
-        for (key in obsoleteExtraKeys) {
-            if (container.hasExtra(key)) {
-                container.putExtra(key, null)
-                changed = true
-            }
-        }
-        return changed
-    }
-
     /** 前缀重建后：属于前缀的装过标记全部作废。 */
     @JvmStatic
     fun clearOwnedByPrefix(container: Container) {
         for (key in prefixOwnedKeys) {
-            container.putExtra(key, null)
-        }
-        for (key in obsoleteExtraKeys) {
             container.putExtra(key, null)
         }
     }
