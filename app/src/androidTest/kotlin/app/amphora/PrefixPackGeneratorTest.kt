@@ -4,12 +4,12 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.amphora.core.content.ContentCatalog
-import app.amphora.core.content.ContentPinResolver
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.id
 import app.amphora.core.engine.Box64Runtime
+import app.amphora.core.engine.ContentPinResolver
 import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
