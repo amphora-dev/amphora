@@ -1,8 +1,10 @@
 package app.amphora
 
 import android.content.Context
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.RuntimeAssetProvisioner
@@ -15,6 +17,7 @@ import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import com.winlator.cmod.runtime.container.Container
 import com.winlator.cmod.runtime.container.ContainerManager
+import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.display.connector.UnixSocketConfig
 import com.winlator.cmod.runtime.display.environment.ImageFs
@@ -30,6 +33,7 @@ import com.winlator.cmod.shared.io.FileUtils
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import java.io.File
+import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -90,15 +94,29 @@ class PrefixPackGeneratorTest {
             ),
         )
         runtimeAssets.ensureAvailable()
-        contentSource.resolve(ContentComponent.WINE.id)
         contentSource.resolve(ContentComponent.BOX64.id)
 
-        val contents = ContentsManager(context).apply { syncContents() }
-        val wineEntry = manifest.entry(ContentComponent.WINE)!!
+        val contents = ContentsManager(context)
+        val overridePath =
+            InstrumentationRegistry.getArguments().getString(WCP_ARGUMENT).orEmpty()
+        val overrideFile = overridePath.takeIf { it.isNotBlank() }?.let(::File)
+        val wineProfile =
+            if (overrideFile != null) {
+                require(overrideFile.isFile) { "injected Proton WCP is missing: $overrideFile" }
+                installLocalWcp(contents, overrideFile)
+            } else {
+                val wineEntry = manifest.entry(ContentComponent.WINE)!!
+                contentSource.resolve(ContentComponent.WINE.id)
+                contents.syncContents()
+                requireNotNull(contents.getProfileByEntryName(wineEntry.version))
+            }
+        contents.syncContents()
+        val wineVersion = ContentsManager.getEntryName(wineProfile)
+        val winePackageSha =
+            overrideFile?.let(::sha256) ?: manifest.entry(ContentComponent.WINE)!!.sha256
         val boxEntry = manifest.entry(ContentComponent.BOX64)!!
-        val wineProfile = requireNotNull(contents.getProfileByEntryName(wineEntry.version))
         val boxProfile = requireNotNull(contents.getProfileByEntryName(boxEntry.version))
-        val wineInfo = WineInfo.fromIdentifier(context, contents, wineEntry.version)
+        val wineInfo = WineInfo.fromIdentifier(context, contents, wineVersion)
         imageFs.setWinePath(wineInfo.path)
 
         val outputRoot = File(context.filesDir, OUTPUT_DIRECTORY)
@@ -108,7 +126,7 @@ class PrefixPackGeneratorTest {
         val container =
             Container(GENERATOR_CONTAINER_ID).apply {
                 rootDir = outputRoot
-                wineVersion = wineEntry.version
+                this.wineVersion = wineVersion
                 emulator = "box64"
                 emulator64 = "box64"
                 box64Version =
@@ -123,7 +141,7 @@ class PrefixPackGeneratorTest {
             "cannot seed Proton builtins required by wineboot",
             ContainerManager(context).linkWineBuiltinFiles(
                 container,
-                wineEntry.version,
+                wineVersion,
                 contents,
             ),
         )
@@ -154,8 +172,8 @@ class PrefixPackGeneratorTest {
         val prefix = File(outputRoot, ".wine")
         val summary =
             JSONObject().apply {
-                put("wineVersion", wineEntry.version)
-                put("winePackageSha256", wineEntry.sha256)
+                put("wineVersion", wineVersion)
+                put("winePackageSha256", winePackageSha)
                 put("files", countRegularFiles(prefix))
                 put("bytes", sizeWithoutFollowingLinks(prefix))
                 put("machineGuid", FIXED_MACHINE_GUID)
@@ -163,6 +181,59 @@ class PrefixPackGeneratorTest {
         File(outputRoot, "prefix-generation.json").writeText(summary.toString(2))
         println("PREFIX_PACK_SOURCE=${prefix.absolutePath}")
         println("PREFIX_PACK_SUMMARY=$summary")
+    }
+
+    private fun installLocalWcp(contents: ContentsManager, file: File): ContentProfile {
+        var profile: ContentProfile? = null
+        var failure: String? = null
+        contents.extraContentFile(
+            Uri.fromFile(file),
+            object : ContentsManager.OnInstallFinishedCallback {
+                override fun onFailed(
+                    reason: ContentsManager.InstallFailedReason,
+                    error: Exception?,
+                ) {
+                    failure = "$reason${error?.let { ": ${it.message}" }.orEmpty()}"
+                }
+
+                override fun onSucceed(value: ContentProfile) {
+                    profile = value
+                }
+            },
+        )
+        check(failure == null) { "cannot inspect injected Proton WCP: $failure" }
+        val parsed = requireNotNull(profile) { "injected Proton WCP has no profile" }
+        val installDir = ContentsManager.getInstallDir(context, parsed)
+        if (!installDir.isDirectory) {
+            contents.finishInstallContent(
+                parsed,
+                object : ContentsManager.OnInstallFinishedCallback {
+                    override fun onFailed(
+                        reason: ContentsManager.InstallFailedReason,
+                        error: Exception?,
+                    ) {
+                        failure = "$reason${error?.let { ": ${it.message}" }.orEmpty()}"
+                    }
+
+                    override fun onSucceed(value: ContentProfile) = Unit
+                },
+            )
+        }
+        check(failure == null) { "cannot install injected Proton WCP: $failure" }
+        return parsed
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun runGuestCommand(
@@ -315,5 +386,6 @@ class PrefixPackGeneratorTest {
         const val GENERATOR_CONTAINER_ID = 9999
         const val COMMAND_TIMEOUT_SECONDS = 180L
         const val FIXED_MACHINE_GUID = "00000000-0000-4000-8000-000000000001"
+        const val WCP_ARGUMENT = "prefix_generator_wcp_path"
     }
 }
