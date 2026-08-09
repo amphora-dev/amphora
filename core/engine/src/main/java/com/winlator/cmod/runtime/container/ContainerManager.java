@@ -651,9 +651,33 @@ public class ContainerManager {
             "ContainerManager",
             "extractContainerPatternFile: continuing despite extractCommonDlls failure");
       }
+      if (!syncWinePrefixUpdateTimestamp(wineInfo, containerDir)) result = false;
     }
 
     return result;
+  }
+
+  /**
+   * Wineboot compares this marker with share/wine/wine.inf's mtime. A generic
+   * schema PrefixPack cannot carry the right value for every installed Proton
+   * package, so bind it when the prefix is materialized instead.
+   */
+  private boolean syncWinePrefixUpdateTimestamp(WineInfo wineInfo, File containerDir) {
+    File wineInf = new File(wineInfo.path, "share/wine/wine.inf");
+    File marker = new File(containerDir, ".wine/.update-timestamp");
+    if (!wineInf.isFile() || !marker.getParentFile().isDirectory()) {
+      Log.e(
+          "ContainerManager",
+          "Cannot resolve Wine update timestamp source/target: " + wineInf + " -> " + marker);
+      return false;
+    }
+    long timestampSeconds = wineInf.lastModified() / 1000L;
+    if (!FileUtils.writeString(marker, timestampSeconds + "\n")) {
+      Log.e("ContainerManager", "Cannot write Wine update timestamp: " + marker);
+      return false;
+    }
+    marker.setLastModified(wineInf.lastModified());
+    return true;
   }
 
   public boolean repairContainerWinePrefix(
