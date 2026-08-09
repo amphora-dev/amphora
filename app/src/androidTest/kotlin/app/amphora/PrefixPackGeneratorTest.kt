@@ -219,6 +219,8 @@ class PrefixPackGeneratorTest {
     private fun sanitizePrefix(outputRoot: File, wineInfo: WineInfo) {
         val prefix = File(outputRoot, ".wine")
         deleteTreeWithoutFollowingLinks(File(prefix, ".update-timestamp"))
+        deleteTreeWithoutFollowingLinks(File(prefix, ".wineserver"))
+        deleteTreeWithoutFollowingLinks(File(prefix, "drive_d"))
         listOf(
             File(prefix, "drive_c/windows/temp"),
             File(prefix, "drive_c/users/xuser/AppData/Local/Temp"),
