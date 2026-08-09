@@ -54,7 +54,7 @@ GitHub Actions CI (`.github/workflows/ci.yml`): `continuous-test` on every push
 On `main`, the same job also publishes the debug APK to the rolling Release tag
 `apk` and pins `app_update.json` in
 [`amphora-dev/content_manifest`](https://github.com/amphora-dev/content_manifest)
-(jsDelivr `@latest`). Settings → **App update** checks that pin.
+(GitHub Contents API, raw GitHub fallback). Settings → **App update** checks that pin.
 Device instrumented coverage stays on Tailscale ADB - see
 [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) §6.
 

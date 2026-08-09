@@ -26,16 +26,16 @@ object ContentManifestLoader {
      */
     const val DEFAULT_REMOTE_URL: String = BuildConfig.CONTENT_MANIFEST_URL
 
-    /**
-     * Branch-/latest-tracking mirrors for [DEFAULT_REMOTE_URL]. Prefer jsDelivr
-     * `@latest` (semver tags that CI purges on every pin bump). Never embed a
-     * commit SHA. GitHub Contents API is last — unauthenticated rate limits.
-     */
+    /** Main-tracking GitHub sources; Contents API first, raw media fallback. */
     val BRANCH_TRACKING_MIRRORS: List<String> =
         listOf(
-            "https://cdn.jsdelivr.net/gh/amphora-dev/content_manifest@latest/content_manifest.json",
-            "https://raw.githubusercontent.com/amphora-dev/content_manifest/main/content_manifest.json",
             "https://api.github.com/repos/amphora-dev/content_manifest/contents/content_manifest.json?ref=main",
+            "https://raw.githubusercontent.com/amphora-dev/content_manifest/main/content_manifest.json",
+        )
+    private val APP_UPDATE_MIRRORS: List<String> =
+        listOf(
+            "https://api.github.com/repos/amphora-dev/content_manifest/contents/app_update.json?ref=main",
+            "https://raw.githubusercontent.com/amphora-dev/content_manifest/main/app_update.json",
         )
 
     /**
@@ -96,7 +96,13 @@ object ContentManifestLoader {
     fun candidateUrls(remoteUrl: String): List<String> {
         val seen = linkedSetOf<String>()
         seen += remoteUrl
-        for (mirror in BRANCH_TRACKING_MIRRORS) {
+        val mirrors =
+            if (URI(remoteUrl).path.endsWith("/app_update.json")) {
+                APP_UPDATE_MIRRORS
+            } else {
+                BRANCH_TRACKING_MIRRORS
+            }
+        for (mirror in mirrors) {
             seen += mirror
         }
         return seen.toList()

@@ -191,7 +191,8 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
 5. **ddraw** 默认 DxWrapper Dd7to9；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份。两套资产均仅含 PE32 `syswow64/ddraw.dll`：32-bit 优先 native wrapper；x86_64 无 native DLL，按 `ddraw=n,b` 回退 Proton builtin ddraw/WineD3D→Zink。
 6. **字体** 全局一份；多容器不重复打进 pattern。
-7. **发布面**：默认 pin / 产物走公开 GitHub Release（`amphora-dev/*`）+ `content_manifest`（jsDelivr `@latest`）；不塞进默认 APK。
+7. **发布面**：默认 pin / 产物走公开 GitHub Release（`amphora-dev/*`）+
+   `content_manifest`（GitHub Contents API，raw 回退）；不塞进默认 APK。
 
 ### 图形栈的依赖归属（实测）
 
@@ -376,7 +377,7 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 | **`WinNative-Emu/WinNative`**（raw / LFS）| `container_pattern` / `wincomponents` / `ddrawrapper` / meta json 等 | runtimeAssets | 见 pin | 各落地根 | 🟡 仍有 pin；可逐步自有化 |
 | 同上 | ~~官方 `imagefs.tzst` / `wrapper.tzst` / `extra_libs.tzst`~~ | — | — | — | ⛔ 已由 amphora-dev 自建或废止 |
 | **`WinNative-Emu/Drivers`** | `WN-Turnip-*.zip` | 可选驱动 | 2.7 MB | `contents/adrenotools/<id>/` | ⚪ 可选 |
-| **`amphora-assets`（cnb）** | 历史镜像设想 | — | — | — | ⛔ **不再阻塞**（生产 = GitHub Release + `content_manifest` / jsDelivr）|
+| **`amphora-assets`（cnb）** | 历史镜像设想 | — | — | — | ⛔ **不再阻塞**（生产 = GitHub Release + `content_manifest` / GitHub API）|
 | **`aio-graphics-test`**（cnb）| 图形自测 PE | 测试 | 小 | 容器 `drive_c` | ✅ |
 
 ### 按落地根（覆盖域视角）
@@ -610,7 +611,7 @@ DX9·OpenGL 路径已在后续修复中关闭（见 [`03-TRACKING.md`](03-TRACKI
 **D4 native download stub（有意保留）**: `native_content_io.cpp` 的
 `nativeDownloadFile` / `nativeFetchContentLength` 仍返回失败——**设备下载不走 JNI**。
 生产路径是 Kotlin `RemoteContentSource` + `VerifiedAssetDownloader`（可续传 + SHA），
-按 jsDelivr / GitHub 上的 `content_manifest.json` pin 拉取 `.wcp` / ARCHIVE / ROOTFS。
+按 GitHub API / raw 上的 `content_manifest.json` pin 拉取 `.wcp` / ARCHIVE / ROOTFS。
 不要把 native stub 理解成「设备不能下载」。
 - **preparer 真验可行路径** (绕过 stub): host `curl` 下载 `.wcp` -> `adb push` -> `ContentsManager.extraContentFile(Uri, callback)` 本地装 (走 `nativeExtractArchive`, 非 download) -> `createContainer` (抽 Wine prefix) -> 跑 preparer.
 - **v0.3**: 恢复 curl body 解除 stub -> 设备直接下载.

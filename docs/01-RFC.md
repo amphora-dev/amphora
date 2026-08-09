@@ -224,7 +224,8 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 - 原 MVP 决议「不做下载、捆绑固定二进制」已被运行时路径取代。
 - **现状**：设备经 `RemoteContentSource` + `VerifiedAssetDownloader` 拉取
   [`amphora-dev/content_manifest`](https://github.com/amphora-dev/content_manifest)
- （jsDelivr `@latest`）中的 SHA pin；native `nativeDownloadFile` 仍为 stub（仅保留符号）。
+  （GitHub Contents API，raw GitHub 回退）中的 SHA pin；native
+  `nativeDownloadFile` 仍为 stub（仅保留符号）。
 - 自建通道：`amphora-dev/proton-wine`（Proton 11）、`amphora-dev/imagefs`（rootfs / Box64 / wrapper）。
   部分 runtime 资产与 DXVK 仍可来自 WinNative / nicholasx417 上游 pin。
 
