@@ -189,10 +189,7 @@ class PrefixPackGeneratorTest {
         contents.extraContentFile(
             Uri.fromFile(file),
             object : ContentsManager.OnInstallFinishedCallback {
-                override fun onFailed(
-                    reason: ContentsManager.InstallFailedReason,
-                    error: Exception?,
-                ) {
+                override fun onFailed(reason: ContentsManager.InstallFailedReason, error: Exception?) {
                     failure = "$reason${error?.let { ": ${it.message}" }.orEmpty()}"
                 }
 
@@ -208,10 +205,7 @@ class PrefixPackGeneratorTest {
             contents.finishInstallContent(
                 parsed,
                 object : ContentsManager.OnInstallFinishedCallback {
-                    override fun onFailed(
-                        reason: ContentsManager.InstallFailedReason,
-                        error: Exception?,
-                    ) {
+                    override fun onFailed(reason: ContentsManager.InstallFailedReason, error: Exception?) {
                         failure = "$reason${error?.let { ": ${it.message}" }.orEmpty()}"
                     }
 
