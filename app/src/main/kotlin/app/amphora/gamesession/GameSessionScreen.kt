@@ -107,6 +107,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
     var firstGuestFrameRendered by remember { mutableStateOf(false) }
     var exitRequested by rememberSaveable { mutableStateOf(false) }
+    var manuallyPaused by rememberSaveable { mutableStateOf(false) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
 
@@ -159,17 +160,17 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     // ProcessHelper.resumeAllWineProcesses - the render-thread pause is handled by the
     // SurfaceView's own SurfaceHolder lifecycle).
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, rendererView) {
+    DisposableEffect(lifecycleOwner, rendererView, manuallyPaused) {
         val observer =
             LifecycleEventObserver { _, event ->
                 when (event) {
                     Lifecycle.Event.ON_RESUME -> {
                         rendererView?.onResume()
-                        viewModel.resume()
+                        if (!manuallyPaused) viewModel.resume()
                     }
                     Lifecycle.Event.ON_PAUSE -> {
                         rendererView?.onPause()
-                        viewModel.pause()
+                        if (!manuallyPaused) viewModel.pause()
                     }
                     else -> {}
                 }
@@ -214,13 +215,6 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
             setMouseEnabled(sessionState != SessionState.PAUSED)
         }
     }
-    LaunchedEffect(sessionState, rendererView) {
-        when (sessionState) {
-            SessionState.PAUSED -> rendererView?.onPause()
-            SessionState.RUNNING -> rendererView?.onResume()
-            else -> Unit
-        }
-    }
     LaunchedEffect(fpsLimit, rendererView) {
         rendererView?.renderer?.setFpsLimit(fpsLimit)
     }
@@ -258,7 +252,13 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                     performanceHudVisible = performanceHudVisible,
                     onPerformanceHudVisibleChange = { performanceHudVisible = it },
                     onPauseToggle = {
-                        if (sessionState == SessionState.PAUSED) viewModel.resume() else viewModel.pause()
+                        if (sessionState == SessionState.PAUSED) {
+                            manuallyPaused = false
+                            viewModel.resume()
+                        } else {
+                            manuallyPaused = true
+                            viewModel.pause()
+                        }
                     },
                     onClose = { drawerScope.launch { drawerState.close() } },
                     onExit = { showExitConfirmation = true },
