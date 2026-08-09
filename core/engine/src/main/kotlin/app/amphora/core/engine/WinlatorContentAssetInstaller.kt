@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import app.amphora.core.content.ContentAssetInstaller
+import app.amphora.core.content.InstalledContentPin
 import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.content.model.id
 import com.winlator.cmod.runtime.content.ContentProfile
@@ -27,9 +28,10 @@ import kotlinx.coroutines.CompletableDeferred
  *   `ContentsManager.extraContentFile` + `finishInstallContent`, installing under
  *   `filesDir/contents/<type>/<verName>-<verCode>/`.
  *
- * Pin bumps that change `version` / `verName-verCode` used to leave sibling
- * directories orphaned. [reconcileToPin] deletes those siblings once the current
- * pin is installed — update replaces, not accumulates.
+ * The manifest SHA, not the display version, is the authoritative installed
+ * identity. Every successful extraction records [InstalledContentPin] inside
+ * the install directory. A same-version package with a new SHA is replaced
+ * atomically; [reconcileToPin] then removes superseded sibling versions.
  */
 @Singleton
 class WinlatorContentAssetInstaller
@@ -45,14 +47,14 @@ constructor(@ApplicationContext private val context: Context) :
     }
 
     override fun isInstalled(entry: ManifestEntry): Boolean = when (entry.kind) {
-        ManifestEntry.Kind.ARCHIVE ->
-            resolvedPath(entry).isDirectory &&
-                (resolvedPath(entry).list()?.isNotEmpty() == true)
-        ManifestEntry.Kind.WCP -> resolvedPath(entry).isDirectory
+        ManifestEntry.Kind.ARCHIVE,
+        ManifestEntry.Kind.WCP,
+        -> InstalledContentPin.matches(resolvedPath(entry), entry.sha256)
         ManifestEntry.Kind.ROOTFS -> false
     }
 
     override suspend fun install(entry: ManifestEntry, archiveFile: File): File {
+        if (isInstalled(entry)) return resolvedPath(entry)
         val installed =
             when (entry.kind) {
                 ManifestEntry.Kind.ARCHIVE -> installArchive(entry, archiveFile)
@@ -77,15 +79,27 @@ constructor(@ApplicationContext private val context: Context) :
 
     private fun installArchive(entry: ManifestEntry, archiveFile: File): File {
         val dest = resolvedPath(entry)
-        if (dest.isDirectory) return dest
-        dest.mkdirs()
+        val parent = requireNotNull(dest.parentFile)
+        val staging = File(parent, "${dest.name}.staging")
+        val backup = File(parent, "${dest.name}.backup")
+        recoverReplacement(dest, staging, backup)
+        FileUtils.delete(staging)
+        check(staging.mkdirs()) { "Cannot create ARCHIVE staging directory: $staging" }
         val type =
             when (entry.compression) {
                 ManifestEntry.Compression.ZSTD -> TarCompressorUtils.Type.ZSTD
                 ManifestEntry.Compression.XZ -> TarCompressorUtils.Type.XZ
             }
-        val ok = TarCompressorUtils.extract(type, archiveFile, dest)
-        check(ok) { "Archive extract failed for ${entry.component.id.value} (${entry.assetPath})" }
+        val ok = TarCompressorUtils.extract(type, archiveFile, staging)
+        if (!ok) {
+            FileUtils.delete(staging)
+            error("Archive extract failed for ${entry.component.id.value} (${entry.assetPath})")
+        }
+        InstalledContentPin.write(
+            staging,
+            requireNotNull(entry.sha256) { "ARCHIVE pin is missing for ${entry.assetPath}" },
+        )
+        publishReplacement(dest, staging, backup)
         return dest
     }
 
@@ -110,9 +124,67 @@ constructor(@ApplicationContext private val context: Context) :
     // --- WCP -----------------------------------------------------------------
 
     private suspend fun installWcp(entry: ManifestEntry, archiveFile: File): File {
+        val expectedProfile = requireNotNull(profileFor(entry)) {
+            "WCP entry ${entry.component.id.value} is missing its content profile"
+        }
+        val dest = ContentsManager.getInstallDir(context, expectedProfile)
+        val parent = requireNotNull(dest.parentFile)
+        val backup = File(parent, "${dest.name}.backup")
+        recoverReplacement(dest, staging = null, backup = backup)
+
+        if (dest.exists()) {
+            FileUtils.delete(backup)
+            check(dest.renameTo(backup)) { "Cannot back up stale WCP install: $dest" }
+        }
+
         val cm = ContentsManager(context)
-        val profile = awaitExtraContentInstall(cm, archiveFile)
-        return ContentsManager.getInstallDir(context, profile)
+        return try {
+            val profile = awaitExtraContentInstall(cm, archiveFile, expectedProfile)
+            val installed = ContentsManager.getInstallDir(context, profile)
+            check(installed.canonicalFile == dest.canonicalFile && installed.isDirectory) {
+                "WCP installed to unexpected directory: $installed"
+            }
+            InstalledContentPin.write(
+                installed,
+                requireNotNull(entry.sha256) { "WCP pin is missing for ${entry.assetPath}" },
+            )
+            FileUtils.delete(backup)
+            installed
+        } catch (failure: Throwable) {
+            FileUtils.delete(dest)
+            if (backup.exists()) {
+                check(backup.renameTo(dest)) { "Cannot restore previous WCP install: $backup" }
+            }
+            throw failure
+        }
+    }
+
+    private fun sameProfile(expected: ContentProfile, actual: ContentProfile): Boolean =
+        expected.type == actual.type &&
+            expected.verName == actual.verName &&
+            expected.verCode == actual.verCode
+
+    private fun recoverReplacement(dest: File, staging: File?, backup: File) {
+        staging?.let { FileUtils.delete(it) }
+        if (!backup.exists()) return
+        if (dest.exists()) {
+            FileUtils.delete(backup)
+        } else {
+            check(backup.renameTo(dest)) { "Cannot restore interrupted content install: $backup" }
+        }
+    }
+
+    private fun publishReplacement(dest: File, staging: File, backup: File) {
+        FileUtils.delete(backup)
+        if (dest.exists()) {
+            check(dest.renameTo(backup)) { "Cannot back up stale content install: $dest" }
+        }
+        if (!staging.renameTo(dest)) {
+            if (backup.exists()) check(backup.renameTo(dest)) { "Cannot roll back content install: $backup" }
+            FileUtils.delete(staging)
+            error("Cannot publish content install: $staging -> $dest")
+        }
+        FileUtils.delete(backup)
     }
 
     private fun pruneWcpSiblings(entry: ManifestEntry): Int {
@@ -163,12 +235,26 @@ constructor(@ApplicationContext private val context: Context) :
      * `profile.json`; `finishInstallContent` moves it to the install dir.
      * `ERROR_EXIST` (already installed) is treated as success.
      */
-    private suspend fun awaitExtraContentInstall(cm: ContentsManager, wcp: File): ContentProfile {
+    private suspend fun awaitExtraContentInstall(
+        cm: ContentsManager,
+        wcp: File,
+        expectedProfile: ContentProfile,
+    ): ContentProfile {
         val result = CompletableDeferred<ContentProfile>()
         cm.extraContentFile(
             Uri.fromFile(wcp),
             object : ContentsManager.OnInstallFinishedCallback {
                 override fun onSucceed(profile: ContentProfile) {
+                    if (!sameProfile(expectedProfile, profile)) {
+                        result.completeExceptionally(
+                            IllegalArgumentException(
+                                "WCP profile does not match manifest: " +
+                                    "expected=${ContentsManager.getEntryName(expectedProfile)} " +
+                                    "actual=${ContentsManager.getEntryName(profile)}",
+                            ),
+                        )
+                        return
+                    }
                     cm.finishInstallContent(
                         profile,
                         object : ContentsManager.OnInstallFinishedCallback {

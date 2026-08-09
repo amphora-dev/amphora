@@ -3,9 +3,12 @@ package app.amphora.core.engine
 import android.content.Context
 import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.InstalledContentPin
 import app.amphora.core.content.VerifiedAssetDownloader
 import com.winlator.cmod.runtime.content.AdrenotoolsManager
+import com.winlator.cmod.shared.io.FileUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -36,11 +39,6 @@ constructor(
 
     suspend fun ensureInstalled(): File = withContext(dispatchers.io) {
         val driverId = GraphicsDriverIds.TURNIP_BALANCED
-        if (adrenotools.isInstalled(driverId)) {
-            Log.i(TAG, "Turnip adrenotools driver already installed: $driverId")
-            return@withContext adrenotools.getDriverDir(driverId)
-        }
-
         val pin =
             catalog
                 .require()
@@ -50,6 +48,11 @@ constructor(
                     "content manifest has no runtimeAssets entry for " +
                         GraphicsDriverIds.TURNIP_ZIP_RELATIVE,
                 )
+        val driverDir = adrenotools.getDriverDir(driverId)
+        if (adrenotools.isInstalled(driverId) && InstalledContentPin.matches(driverDir, pin.sha256)) {
+            Log.i(TAG, "Turnip adrenotools driver already installed: $driverId (${pin.sha256})")
+            return@withContext driverDir
+        }
         val cacheRoot = File(context.cacheDir, "amphora-downloads")
         val zip =
             downloader.acquire(
@@ -61,15 +64,24 @@ constructor(
                 label = "Turnip ${GraphicsDriverIds.TURNIP_BALANCED}",
             )
         Log.i(TAG, "Installing Turnip from ${zip.absolutePath}")
+        FileUtils.delete(driverDir)
         adrenotools.installFromZip(zip, driverId)
-        adrenotools.getDriverDir(driverId)
+        check(adrenotools.isInstalled(driverId)) { "Turnip install is incomplete: $driverDir" }
+        InstalledContentPin.write(driverDir, pin.sha256)
+        driverDir
     }
 
     /** Unzip a local zip (tests / offline cache) without re-downloading. */
     fun installFromLocalZip(zip: File): File {
         require(zip.isFile) { "Turnip zip missing: $zip" }
+        val driverDir = adrenotools.getDriverDir(GraphicsDriverIds.TURNIP_BALANCED)
+        FileUtils.delete(driverDir)
         adrenotools.installFromZip(zip, GraphicsDriverIds.TURNIP_BALANCED)
-        return adrenotools.getDriverDir(GraphicsDriverIds.TURNIP_BALANCED)
+        check(adrenotools.isInstalled(GraphicsDriverIds.TURNIP_BALANCED)) {
+            "Turnip install is incomplete: $driverDir"
+        }
+        InstalledContentPin.write(driverDir, AssetDigest.of(zip))
+        return driverDir
     }
 
     companion object {

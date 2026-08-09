@@ -7,6 +7,7 @@ import androidx.annotation.VisibleForTesting
 import androidx.core.content.pm.PackageInfoCompat
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
+import app.amphora.core.content.AppliedAssetPin
 import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.engine.model.LaunchSpec
@@ -213,13 +214,15 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val appVersion = appVersionCode(context)
         val imgVersion = imageFs.getVersion().toString()
+        val imageState =
+            "$imgVersion|assets=${runtimeFingerprint(listOf(CONTAINER_PATTERN_ASSET))}"
         var containerDataChanged = AppliedMarks.scrubObsoleteExtras(c)
 
         // 唯一方式：想要(容器) ≠ 装过(AppliedMarks) → 去做 → 更新标记
-        if (AppliedMarks.needsAppImagePatch(c, appVersion, imgVersion)) {
-            Log.d(TAG, "版本变更，打通用补丁 (app=$appVersion img=$imgVersion)")
+        if (AppliedMarks.needsAppImagePatch(c, appVersion, imageState)) {
+            Log.d(TAG, "版本或内容变更，打通用补丁 (app=$appVersion image=$imageState)")
             applyGeneralPatches(c)
-            AppliedMarks.markAppImagePatched(c, appVersion, imgVersion)
+            AppliedMarks.markAppImagePatched(c, appVersion, imageState)
             firstTimeBoot = true
             containerDataChanged = true
         }
@@ -240,24 +243,32 @@ class XServerWineSessionPreparer @Inject constructor(
         }
 
         val wincomponents = c.getWinComponents()
-        if (AppliedMarks.needsWincomponents(c, wincomponents) || firstTimeBoot) {
+        val appliedWincomponents = AppliedMarks.wincomponents(c)
+        val previousWincomponents = appliedWincomponents.substringBefore("|assets=")
+        val wincomponentsKey =
+            "$wincomponents|assets=${runtimeFingerprint(WINCOMPONENT_RUNTIME_ASSETS)}"
+        val wincomponentAssetsChanged =
+            appliedWincomponents.isNotEmpty() &&
+                previousWincomponents == wincomponents &&
+                appliedWincomponents != wincomponentsKey
+        if (AppliedMarks.needsWincomponents(c, wincomponentsKey) || firstTimeBoot) {
             WinComponentSetup.applyWinComponents(
                 context,
                 imageFs,
                 wineInfo,
                 c,
                 wincomponents,
-                AppliedMarks.wincomponents(c).ifEmpty { Container.FALLBACK_WINCOMPONENTS },
-                firstTimeBoot,
+                previousWincomponents.ifEmpty { Container.FALLBACK_WINCOMPONENTS },
+                firstTimeBoot || wincomponentAssetsChanged,
                 null,
             )
-            AppliedMarks.markWincomponents(c, wincomponents)
+            AppliedMarks.markWincomponents(c, wincomponentsKey)
             containerDataChanged = true
         }
 
         val wineArchKey = if (wineVersion.contains("arm64ec")) "arm64ec" else "x86_64"
         val dxwrapperGateKey =
-            selection?.gateKey(wineArchKey) ?: "$localDxwrapper|arch=$wineArchKey"
+            selection?.let { dxwrapperGateKey(it, wineArchKey) } ?: "$localDxwrapper|arch=$wineArchKey"
         val forceWrapperApply = sharedGraphicsLinksNeedRefresh(localDxwrapper)
         if (selection != null &&
             (AppliedMarks.needsDxwrapper(c, dxwrapperGateKey) || firstTimeBoot || forceWrapperApply)
@@ -280,7 +291,8 @@ class XServerWineSessionPreparer @Inject constructor(
                 val resolvedSelection = DxWrapperSelection.parse(localDxwrapper)
                 AppliedMarks.markDxwrapper(
                     c,
-                    resolvedSelection?.gateKey(wineArchKey) ?: "$localDxwrapper|arch=$wineArchKey",
+                    resolvedSelection?.let { dxwrapperGateKey(it, wineArchKey) }
+                        ?: "$localDxwrapper|arch=$wineArchKey",
                 )
                 containerDataChanged = true
             }
@@ -743,10 +755,8 @@ class XServerWineSessionPreparer @Inject constructor(
         val metaFile = File(adrenotoolsDir, "meta.json")
         val dstDriver = File(adrenotoolsDir, resolvedLibraryName)
         val srcDriver = File(imageFs.getLibDir(), resolvedLibraryName)
-        val imagePin = readWrapperPinMarker(imageFs.getRootDir())
-        val adrenotoolsPinMarker = File(adrenotoolsDir, WRAPPER_PIN_MARKER)
-        val adrenotoolsPin = adrenotoolsPinMarker.takeIf { it.isFile }?.readText()?.trim()
-        val pinMismatch = imagePin != null && !imagePin.equals(adrenotoolsPin, ignoreCase = true)
+        val wrapperSource = runtimeAsset(WRAPPER_ASSET)
+        val pinMismatch = AppliedAssetPin.needsApply(adrenotoolsDir, wrapperSource, WRAPPER_ASSET)
         val sizeMismatch =
             srcDriver.exists() && dstDriver.exists() && srcDriver.length() != dstDriver.length()
         // Require both meta + .so — a lone meta.json from a partial install would
@@ -767,8 +777,7 @@ class XServerWineSessionPreparer @Inject constructor(
                     "installAdrenotoolsDriverIfNeeded: driver .so not found at " +
                         "$srcDriver — re-extracting wrapper.tzst",
                 )
-                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, imageFs.getRootDir())
-                writeWrapperPinMarker(imageFs.getRootDir())
+                applyRuntimeArchive(WRAPPER_ASSET, imageFs.getRootDir())
             }
             if (srcDriver.exists()) {
                 if (FileUtils.copy(srcDriver, dstDriver)) {
@@ -790,10 +799,7 @@ class XServerWineSessionPreparer @Inject constructor(
             } else {
                 Log.e(TAG, "installAdrenotoolsDriverIfNeeded: failed to write $metaFile")
             }
-            val pin = readWrapperPinMarker(imageFs.getRootDir())
-            if (pin != null) {
-                adrenotoolsPinMarker.writeText(pin.lowercase())
-            }
+            AppliedAssetPin.markApplied(adrenotoolsDir, wrapperSource, WRAPPER_ASSET)
         } else {
             Log.d(TAG, "Adrenotools driver already installed: $driverId ($resolvedLibraryName)")
         }
@@ -804,34 +810,25 @@ class XServerWineSessionPreparer @Inject constructor(
         seedAdrenotoolsRuntimeDeps(adrenotoolsDir)
     }
 
-    /**
-     * True when [WRAPPER_ASSET] in runtime-assets has a SHA that does not match
-     * the sidecar written next to imagefs `libvulkan_wrapper.so`.
-     */
     private fun wrapperImagefsNeedsRefresh(rootDir: File): Boolean {
         val so = File(rootDir, "usr/lib/libvulkan_wrapper.so")
-        if (!so.isFile) return true
-        val pin = runtimeWrapperPin() ?: return false
-        val current = readWrapperPinMarker(rootDir) ?: return true
-        return !pin.equals(current, ignoreCase = true)
+        return !so.isFile || AppliedAssetPin.needsApply(rootDir, runtimeAsset(WRAPPER_ASSET), WRAPPER_ASSET)
     }
 
-    private fun runtimeWrapperPin(): String? = AssetDigest.pinnedSha(
-        File(RuntimeAssetProvisioner.runtimeAssetsDir(context), WRAPPER_ASSET),
-    )
+    private fun runtimeAsset(relativePath: String): File =
+        File(RuntimeAssetProvisioner.runtimeAssetsDir(context), relativePath)
 
-    private fun readWrapperPinMarker(rootDir: File): String? {
-        val marker = File(rootDir, "usr/lib/$WRAPPER_PIN_MARKER")
-        if (!marker.isFile) return null
-        return marker.readText().trim().takeIf { it.length == 64 }
-    }
+    private fun runtimeFingerprint(relativePaths: Iterable<String>): String =
+        AppliedAssetPin.fingerprint(RuntimeAssetProvisioner.runtimeAssetsDir(context), relativePaths)
 
-    private fun writeWrapperPinMarker(rootDir: File) {
-        val pin = runtimeWrapperPin() ?: return
-        val marker = File(rootDir, "usr/lib/$WRAPPER_PIN_MARKER")
-        marker.parentFile?.mkdirs()
-        marker.writeText(pin.lowercase())
-        Log.i(TAG, "Recorded wrapper pin $pin at ${marker.path}")
+    private fun dxwrapperGateKey(selection: DxWrapperSelection, arch: String): String =
+        "${selection.gateKey(arch)}|assets=${runtimeFingerprint(DDRAW_RUNTIME_ASSETS)}"
+
+    private fun applyRuntimeArchive(relativePath: String, targetRoot: File) {
+        check(TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, relativePath, targetRoot)) {
+            "Cannot apply runtime asset: $relativePath"
+        }
+        AppliedAssetPin.markApplied(targetRoot, runtimeAsset(relativePath), relativePath)
     }
 
     /**
@@ -963,23 +960,18 @@ class XServerWineSessionPreparer @Inject constructor(
         // DRI frontend it would really turn kopper off, and kopper is exactly how zink
         // presents through DRI3 + Present.
 
-        val wrapperPinChanged = wrapperImagefsNeedsRefresh(rootDir)
-        if (firstTimeBoot) {
-            Log.d(TAG, "First time container boot, re-extracting libs")
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, rootDir)
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "layers.tzst", rootDir)
+        if (firstTimeBoot || wrapperImagefsNeedsRefresh(rootDir)) {
+            Log.i(TAG, "Applying $WRAPPER_ASSET to imagefs")
+            applyRuntimeArchive(WRAPPER_ASSET, rootDir)
+        }
+        if (firstTimeBoot || AppliedAssetPin.needsApply(rootDir, runtimeAsset(LAYERS_ASSET), LAYERS_ASSET)) {
+            Log.i(TAG, "Applying $LAYERS_ASSET to imagefs")
+            applyRuntimeArchive(LAYERS_ASSET, rootDir)
             // extra_libs.tzst is gone: its only live payload was Mesa libGL, which the
             // self-built imagefs now ships (imagefs packages/graphics/mesa-gl.sh). The
             // rest (Turnip, vkBasalt, bcn_layer) has no consumer — the default Vulkan
             // path is the wrapper ICD and full Turnip is the optional WN-Turnip zip.
             // D5: arm64ec zink_dlls branch stripped (wineInfo.isArm64EC() always false for x86_64).
-            writeWrapperPinMarker(rootDir)
-        } else if (wrapperPinChanged) {
-            // runtimeAssets pin can move without firstTimeBoot (content_manifest bump).
-            // Without this, devices keep a stale imagefs/usr/lib/libvulkan_wrapper.so.
-            Log.i(TAG, "wrapper.tzst pin changed; re-extracting into imagefs")
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, rootDir)
-            writeWrapperPinMarker(rootDir)
         }
 
         val wantLeegao = "wrapper-leegao" == graphicsDriver
@@ -995,9 +987,8 @@ class XServerWineSessionPreparer @Inject constructor(
                 leegaoMarker.createNewFile()
             } catch (e: IOException) { /* ignored */ }
         } else if (leegaoMarker.exists()) {
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, WRAPPER_ASSET, rootDir)
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "layers.tzst", rootDir)
-            writeWrapperPinMarker(rootDir)
+            applyRuntimeArchive(WRAPPER_ASSET, rootDir)
+            applyRuntimeArchive(LAYERS_ASSET, rootDir)
             leegaoMarker.delete()
         }
 
@@ -1144,7 +1135,16 @@ class XServerWineSessionPreparer @Inject constructor(
     /** applyGeneralPatches (XSDA L10793). */
     private fun applyGeneralPatches(c: Container) {
         val rootDir = imageFs.getRootDir()
-        TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, "container_pattern_common.tzst", rootDir)
+        check(
+            TarCompressorUtils.extract(
+                TarCompressorUtils.Type.ZSTD,
+                context,
+                CONTAINER_PATTERN_ASSET,
+                rootDir,
+            ),
+        ) {
+            "Cannot apply runtime asset: $CONTAINER_PATTERN_ASSET"
+        }
         // MVP is ALSA-only; pulseaudio.tzst extract omitted (nobody consumed filesDir/pulseaudio).
         WineUtils.applySystemTweaks(context, wineInfo)
     }
@@ -1399,9 +1399,26 @@ class XServerWineSessionPreparer @Inject constructor(
         private const val TAG = "WineSessionPreparer"
         private const val D8VK_ASSET_PATH = "dxwrapper/d8vk-1.0.tzst"
         private const val WRAPPER_ASSET = "graphics_driver/wrapper.tzst"
-
-        /** Sidecar under imagefs/usr/lib recording the runtime-assets wrapper pin. */
-        private const val WRAPPER_PIN_MARKER = "libvulkan_wrapper.so.wrapper.sha256"
+        private const val LAYERS_ASSET = "layers.tzst"
+        private const val CONTAINER_PATTERN_ASSET = "container_pattern_common.tzst"
+        private val WINCOMPONENT_RUNTIME_ASSETS =
+            listOf(
+                "wincomponents/wincomponents.json",
+                "wincomponents/direct3d.tzst",
+                "wincomponents/directsound.tzst",
+                "wincomponents/directmusic.tzst",
+                "wincomponents/directshow.tzst",
+                "wincomponents/directplay.tzst",
+                "wincomponents/xaudio.tzst",
+                "wincomponents/vcrun2010.tzst",
+            )
+        private val DDRAW_RUNTIME_ASSETS =
+            listOf(
+                "ddrawrapper/nglide.tzst",
+                "ddrawrapper/dd7to9.tzst",
+                "ddrawrapper/cnc-ddraw.tzst",
+                "ddrawrapper/d7vk.zip",
+            )
 
         /** Written by the imagefs mesa-gl package when the megadriver links zink. */
         private const val LIBGL_ZINK_MARKER = "usr/lib/.libgl-zink"

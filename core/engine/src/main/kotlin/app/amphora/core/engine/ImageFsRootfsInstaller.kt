@@ -3,6 +3,7 @@ package app.amphora.core.engine
 import android.content.Context
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.InstalledContentPin
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.content.ProvisionProgressBus
 import app.amphora.core.content.VerifiedAssetDownloader
@@ -79,7 +80,11 @@ constructor(
                 spec.imagefsVersion.toIntOrNull() ?: 0,
             )
 
-        if (desired > 0 && imageFs.isValid && imageFs.getVersion() >= desired) {
+        if (desired > 0 &&
+            imageFs.isValid &&
+            imageFs.getVersion() >= desired &&
+            InstalledContentPin.matches(rootDir, entry.sha256)
+        ) {
             return@withContext true // already up to date
         }
 
@@ -108,7 +113,13 @@ constructor(
                 ManifestEntry.Compression.XZ -> TarCompressorUtils.Type.XZ
                 ManifestEntry.Compression.ZSTD -> TarCompressorUtils.Type.ZSTD
             }
-        installAtomically(rootDir, archive, desired, type)
+        installAtomically(
+            rootDir,
+            archive,
+            desired,
+            requireNotNull(entry.sha256) { "rootfs SHA-256 is missing" },
+            type,
+        )
     }
 
     override suspend fun currentVersion(): String? = withContext(dispatchers.io) {
@@ -117,7 +128,13 @@ constructor(
         if (!imageFs.isValid) null else imageFs.getVersion().toString()
     }
 
-    private fun installAtomically(rootDir: File, archive: File, desired: Int, type: TarCompressorUtils.Type): Boolean {
+    private fun installAtomically(
+        rootDir: File,
+        archive: File,
+        desired: Int,
+        sha256: String,
+        type: TarCompressorUtils.Type,
+    ): Boolean {
         val staging = File(rootDir.parentFile, "${rootDir.name}.staging")
         val backup = File(rootDir.parentFile, "${rootDir.name}.backup")
         recoverInterruptedInstall(rootDir, staging, backup)
@@ -130,6 +147,7 @@ constructor(
         }
         val stagedImageFs = ImageFs.find(staging)
         stagedImageFs.createImgVersionFile(desired)
+        InstalledContentPin.write(staging, sha256)
         if (!stagedImageFs.isValid) {
             FileUtils.delete(staging)
             return false

@@ -1,6 +1,7 @@
 package app.amphora.core.engine
 
 import android.util.Log
+import app.amphora.core.content.InstalledContentPin
 import com.winlator.cmod.runtime.container.Container
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
@@ -38,11 +39,6 @@ object Box64Runtime {
             }
         }
 
-        if (!missing && !AppliedMarks.needsBox64(container, version)) {
-            ensureExecutable(box64File)
-            return false
-        }
-
         if (version.isEmpty()) {
             Log.w(TAG, "未选择 Box64 版本，跳过安装")
             return false
@@ -66,10 +62,20 @@ object Box64Runtime {
             Log.w(TAG, "Box64 内容未安装: version=$version")
             return false
         }
+        val installDir =
+            File(
+                File(requireNotNull(rootDir.parentFile), "contents/${profile.type}"),
+                "${profile.verName}-${profile.verCode}",
+            )
+        val contentState = "$version|sha=${InstalledContentPin.read(installDir) ?: "missing"}"
+        if (!missing && !AppliedMarks.needsBox64(container, contentState)) {
+            ensureExecutable(box64File)
+            return false
+        }
 
         Log.i(TAG, "安装 Box64: version=$version")
         contentsManager.applyContent(profile)
-        AppliedMarks.markBox64(container, version)
+        AppliedMarks.markBox64(container, contentState)
         ensureExecutable(File(rootDir, "usr/bin/box64"))
         return true
     }

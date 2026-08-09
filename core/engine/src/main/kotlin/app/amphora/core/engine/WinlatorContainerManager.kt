@@ -112,9 +112,11 @@ constructor(
         syncRuntimePins(
             container = wnContainer,
             wineVersion = wineVersion,
+            wineSha256 = manifest.entry(ContentComponent.WINE)?.sha256.orEmpty(),
             box64Version = box64Version,
             dxwrapper = dxwrapper,
             wincomponents = wincomponents,
+            newlyCreated = existing == null,
         )
         // Optional adrenotools driver (wrapper default, Turnip when selected).
         ensureAdrenotoolsDriver(wnContainer)
@@ -149,11 +151,13 @@ constructor(
     private fun syncRuntimePins(
         container: WnContainer,
         wineVersion: String,
+        wineSha256: String,
         box64Version: String,
         dxwrapper: String,
         wincomponents: String,
+        newlyCreated: Boolean,
     ) {
-        ensurePinnedWineVersion(container, wineVersion)
+        ensurePinnedWineVersion(container, wineVersion, wineSha256, newlyCreated)
         ensurePinnedBox64Version(container, box64Version)
         ensureRealDxwrapper(container, dxwrapper)
         ensureWinComponents(container, wincomponents)
@@ -292,17 +296,28 @@ constructor(
      * `wineprefixNeedsUpdate` (`repairContainerWinePrefix` carries saves) and
      * clears the dxwrapper gate so DXVK/VKD3D DLLs land in the fresh prefix.
      */
-    private fun ensurePinnedWineVersion(container: WnContainer, desired: String) {
+    private fun ensurePinnedWineVersion(
+        container: WnContainer,
+        desired: String,
+        sha256: String,
+        newlyCreated: Boolean,
+    ) {
         val current = container.getWineVersion() ?: ""
-        if (current == desired) return
+        val desiredContent = "$desired|sha=$sha256"
+        val versionChanged = current != desired
+        val contentChanged = AppliedMarks.needsWineContent(container, desiredContent)
+        if (!versionChanged && !contentChanged) return
 
         android.util.Log.i(
             "WinlatorContainerManager",
-            "Migrating container wineVersion '$current' -> '$desired'",
+            "Refreshing container Wine '$current' -> '$desired' (contentChanged=$contentChanged)",
         )
-        container.setWineVersion(desired)
-        AppliedMarks.markPrefixNeedsUpdate(container)
-        AppliedMarks.invalidateDxwrapper(container)
+        if (versionChanged) container.setWineVersion(desired)
+        AppliedMarks.markWineContent(container, desiredContent)
+        if (!newlyCreated) {
+            AppliedMarks.markPrefixNeedsUpdate(container)
+            AppliedMarks.invalidateDxwrapper(container)
+        }
         container.saveData()
     }
 
@@ -313,12 +328,11 @@ constructor(
     private fun ensurePinnedBox64Version(container: WnContainer, desired: String) {
         if (desired.isEmpty()) return
         val current = container.getBox64Version() ?: ""
-        val applied = AppliedMarks.box64(container)
-        if (current == desired && applied == desired) return
+        if (current == desired) return
 
         android.util.Log.i(
             "WinlatorContainerManager",
-            "Migrating container box64Version '$current' (applied='$applied') -> '$desired'",
+            "Migrating container box64Version '$current' -> '$desired'",
         )
         container.setBox64Version(desired)
         AppliedMarks.invalidateBox64(container)

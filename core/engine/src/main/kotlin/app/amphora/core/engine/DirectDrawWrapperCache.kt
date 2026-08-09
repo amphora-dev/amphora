@@ -3,6 +3,7 @@ package app.amphora.core.engine
 import android.content.Context
 import android.util.Log
 import app.amphora.core.content.AssetDigest
+import app.amphora.core.content.InstalledContentPin
 import app.amphora.core.content.RuntimeAssetProvisioner
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.content.SharedDllLinker
@@ -36,9 +37,8 @@ internal object DirectDrawWrapperCache {
         val contentsRoot = ContentsManager.getContentDir(context)
         val typeRoot = File(contentsRoot, "DDRAW")
         val cacheDir = File(typeRoot, "$assetId-$sha")
-        val marker = File(cacheDir, ".installed.sha256")
 
-        if (!cacheIsValid(cacheDir, marker, sha)) {
+        if (!cacheIsValid(cacheDir, sha)) {
             FileUtils.delete(cacheDir)
             check(typeRoot.mkdirs() || typeRoot.isDirectory) {
                 "Cannot create DirectDraw cache root: $typeRoot"
@@ -56,7 +56,7 @@ internal object DirectDrawWrapperCache {
             check(cachePayloadIsSafe(staging)) {
                 "DirectDraw asset contains no safe DLL payload: $archive"
             }
-            markerFor(staging).writeText(sha)
+            InstalledContentPin.write(staging, sha)
             if (!cacheDir.exists()) {
                 check(staging.renameTo(cacheDir)) {
                     "Cannot publish DirectDraw cache: $staging -> $cacheDir"
@@ -123,10 +123,8 @@ internal object DirectDrawWrapperCache {
         }
     }
 
-    private fun cacheIsValid(cacheDir: File, marker: File, sha: String): Boolean =
-        marker.isFile && marker.readText().trim() == sha && cachePayloadIsSafe(cacheDir)
-
-    private fun markerFor(directory: File): File = File(directory, ".installed.sha256")
+    private fun cacheIsValid(cacheDir: File, sha: String): Boolean =
+        InstalledContentPin.matches(cacheDir, sha) && cachePayloadIsSafe(cacheDir)
 
     private fun cachePayloadIsSafe(directory: File): Boolean {
         val root = directory.toPath()

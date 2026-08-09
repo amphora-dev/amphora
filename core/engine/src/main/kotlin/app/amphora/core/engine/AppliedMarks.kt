@@ -24,6 +24,7 @@ object AppliedMarks {
     private const val DRIVES = "appliedDrives"
     private const val WINEBUS = "appliedWinebus"
     private const val BOX64 = "appliedBox64"
+    private const val WINE_CONTENT = "appliedWineContent"
     private const val FEX = "appliedFex"
     private const val FEX_MODE = "appliedFexMode"
     private const val PREFIX_NEEDS_UPDATE = "wineprefixNeedsUpdate"
@@ -136,6 +137,17 @@ object AppliedMarks {
 
     fun invalidateBox64(container: Container) {
         container.putExtra(BOX64, null)
+    }
+
+    // --- Proton/Wine package used to materialize the prefix ---
+
+    fun wineContent(container: Container): String = container.getExtra(WINE_CONTENT)
+
+    fun needsWineContent(container: Container, desired: String): Boolean =
+        wineContent(container) != desired
+
+    fun markWineContent(container: Container, desired: String) {
+        container.putExtra(WINE_CONTENT, desired)
     }
 
     // --- FEX ---
