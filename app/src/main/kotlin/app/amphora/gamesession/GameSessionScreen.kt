@@ -304,7 +304,7 @@ private fun RuntimeSessionDrawer(
     onExit: () -> Unit,
 ) {
     ModalDrawerSheet(
-        modifier = Modifier.fillMaxWidth(0.88f).widthIn(max = 360.dp),
+        modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(),
     ) {
         Column(
             modifier =
