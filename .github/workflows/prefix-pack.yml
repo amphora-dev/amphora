@@ -1,0 +1,90 @@
+name: Generate PrefixPack
+
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful CI run whose APKs should generate the PrefixPack
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: prefix-pack-arm64
+  cancel-in-progress: false
+
+jobs:
+  generate-x86_64:
+    runs-on: [self-hosted, linux, arm64, redroid, android15]
+    timeout-minutes: 30
+    env:
+      ANDROID_SERIAL: 127.0.0.1:5555
+      PREFIX_PACK_REPEAT: "2"
+    steps:
+      - name: Resolve source CI run
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_RUN_ID: ${{ inputs.ci_run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          api() {
+            curl -fsS \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/$1"
+          }
+
+          run_id="${MANUAL_RUN_ID:-}"
+          if [ -z "$run_id" ]; then
+            run_id="$(api 'actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1' \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["workflow_runs"][0]["id"])')"
+          fi
+          head_sha="$(api "actions/runs/${run_id}" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["head_sha"])')"
+          test -n "$run_id"
+          test -n "$head_sha"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tested revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Download CI APKs
+        uses: actions/download-artifact@v8
+        with:
+          pattern: app-debug*.apk
+          path: ${{ runner.temp }}/amphora-apks
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.source.outputs.run_id }}
+
+      - name: Generate deterministic x86_64 PrefixPack
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/package-prefix-pack-from-apks.sh \
+            "$RUNNER_TEMP/amphora-apks/app-debug.apk" \
+            "$RUNNER_TEMP/amphora-apks/app-debug-androidTest.apk" \
+            "$RUNNER_TEMP/prefix-pack/prefixPack-x86_64-11.txz"
+
+      - name: Upload PrefixPack
+        uses: actions/upload-artifact@v4
+        with:
+          name: prefixPack-x86_64-11-${{ steps.source.outputs.head_sha }}
+          path: |
+            ${{ runner.temp }}/prefix-pack/prefixPack-x86_64-11.txz
+            ${{ runner.temp }}/prefix-pack/prefixPack-x86_64-11.txz.sha256
+            ${{ runner.temp }}/prefix-pack/prefixPack-x86_64-11.txz.json
+          if-no-files-found: error
+          retention-days: 30
