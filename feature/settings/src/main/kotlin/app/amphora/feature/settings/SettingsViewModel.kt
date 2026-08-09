@@ -133,10 +133,20 @@ constructor(
 
     init {
         refreshComponents()
+        refreshStorageUsage()
         viewModelScope.launch {
             shizukuEmergencyStopper.status.collect { status ->
                 _uiState.update { it.copy(shizukuCleanupStatus = status) }
             }
+        }
+    }
+
+    fun refreshStorageUsage() {
+        if (_uiState.value.storageScanning) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(storageScanning = true) }
+            val usage = withContext(dispatchers.io) { StorageUsageScanner.scan(context) }
+            _uiState.update { it.copy(storageScanning = false, storageUsage = usage) }
         }
     }
 
@@ -317,13 +327,20 @@ constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(clearingShaderCache = true, cacheActionMessage = null) }
             try {
+                val freed = _uiState.value.storageUsage?.shaderCacheBytes ?: 0
                 withContext(dispatchers.io) { GraphicsDiag.clearStateCache(context) }
                 _uiState.update {
                     it.copy(
                         clearingShaderCache = false,
-                        cacheActionMessage = "Shader and DXVK state caches cleared.",
+                        cacheActionMessage =
+                        if (freed > 0) {
+                            "Cleared ${formatStorageSize(freed)} of cached shaders."
+                        } else {
+                            "Shader and DXVK state caches cleared."
+                        },
                     )
                 }
+                refreshStorageUsage()
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 _uiState.update {
@@ -577,6 +594,8 @@ data class SettingsUiState(
         WindowsComponentSetting.entries.associateWith { true },
     val clearingShaderCache: Boolean = false,
     val cacheActionMessage: String? = null,
+    val storageUsage: StorageUsage? = null,
+    val storageScanning: Boolean = false,
     val customEnv: String = "",
     val rejectedEnvNames: List<String> = emptyList(),
     val shizukuCleanupStatus: ShizukuCleanupStatus = ShizukuCleanupStatus.UNAVAILABLE,

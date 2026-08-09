@@ -302,6 +302,7 @@ private fun SettingsCategoryContent(
             }
             SettingsCategory.SYSTEM -> {
                 SettingsOverview(state)
+                StorageUsageSection(state = state, onRefresh = viewModel::refreshStorageUsage)
                 AppUpdateSection(state = state, viewModel = viewModel)
                 SessionCleanupSection(state = state, viewModel = viewModel)
                 ComponentSection(state = state, onRefresh = viewModel::refreshComponents)
@@ -691,7 +692,10 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                 description =
                 "Reuses compiled shaders to reduce stutter on later launches. Disable only " +
                     "when investigating corrupt-cache rendering problems.",
-                impact = "Scope: Turnip and Zink · stored in private app storage",
+                impact =
+                state.storageUsage?.let {
+                    "Scope: Turnip and Zink · ${formatStorageSize(it.shaderCacheBytes)} cached"
+                } ?: "Scope: Turnip and Zink · stored in private app storage",
                 selected = state.shaderCache,
                 defaultValue = true,
                 values = listOf(true, false),
@@ -1313,6 +1317,87 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StorageUsageSection(state: SettingsUiState, onRefresh: () -> Unit) {
+    val usage = state.storageUsage
+    SettingSection(
+        title = "Storage usage",
+        subtitle = "What Amphora keeps in app-private storage",
+    ) {
+        if (usage == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                "Measuring installed components…",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@SettingSection
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    formatStorageSize(usage.totalBytes),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "${formatStorageSize(usage.freeBytes)} free on this device",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onRefresh, enabled = !state.storageScanning) {
+                Text(if (state.storageScanning) "Measuring…" else "Recalculate")
+            }
+        }
+        HorizontalDivider()
+        usage.entries.forEach { entry ->
+            StorageUsageRow(entry = entry, totalBytes = usage.totalBytes)
+        }
+    }
+}
+
+@Composable
+private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                entry.label,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                formatStorageSize(entry.bytes),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Text(
+            entry.detail,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        LinearProgressIndicator(
+            progress = {
+                if (totalBytes <= 0) 0f else (entry.bytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
