@@ -5,9 +5,9 @@ import org.junit.Test
 
 class WineLaunchCommandTest {
     @Test
-    fun explorerLaunchOpensWineDesktopWithoutStagingAnExecutable() {
+    fun explorerLaunchOpensFileManagerInsideWineDesktop() {
         assertEquals(
-            "wine explorer /desktop=shell,1280x720",
+            "wine explorer /desktop=shell,1280x720 explorer.exe",
             buildWineExplorerCommand("1280x720"),
         )
     }
