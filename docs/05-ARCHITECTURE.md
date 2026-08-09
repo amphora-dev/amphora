@@ -77,19 +77,19 @@ Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停�
 
 ---
 
-## 3.1 内容身份：hash vs pin vs 容器字段
+## 3.1 内容身份：SHA 是唯一内容真相
 
-三层不要混用：
-
-| 层 | 字段 | 职责 |
+| 层 | 字段 / 标记 | 职责 |
 |---|---|---|
-| **Hash** | manifest `sha256` | 下载完整性；`.wcp` / archive 字节是否可信 |
-| **Pin** | manifest `version`（=`Type-verName-verCode`） | 磁盘上保留哪一份；`reconcileToPin` 删 sibling |
-| **容器缓存** | `.container` 的 `wineVersion` / `box64Version` / `dxwrapper` | 启动时 ContentsManager 查找用的名字 |
+| **下载文件** | manifest `sha256` + 相邻 `<asset>.sha256` | 校验并缓存精确字节 |
+| **安装目录** | `.amphora-source.sha256` | WCP、ARCHIVE、rootfs、Turnip 是否就是当前内容 |
+| **派生副本** | `.amphora-applied/<asset>.sha256` 或 `AppliedMarks` 中含 SHA 的 fingerprint | 判断解压、复制、Prefix 应用是否需要重做 |
+| **兼容名称** | `version` / `Type-verName-verCode` | ContentsManager 查找、路径和 UI 展示；不负责判断内容是否更新 |
+| **容器选择** | `.container` 的 `wineVersion` / `box64Version` / `dxwrapper` | 记录用户/清单选择的兼容名称 |
 
-启动**从不**按 hash 选二进制；按 entry / `verName-verCode` 选。  
-`WinlatorContainerManager.syncRuntimePins` 在每次 `getOrCreate` 把容器字段收敛到**当前已装 pin**（清单优先，否则 newest installed）。  
-`ContentPinResolver` 是唯一解析入口；DXVK/VKD3D 在 wipe DLL **之前**先 resolve，避免 prune 后空 prefix。
+同一个 `verName-verCode` 的 SHA 改变时也必须替换安装；不要求人为增加 `versionCode`。安装先保留旧目录，成功发布新目录并写 SHA 后再删除备份。
+runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagefs、Prefix、驱动目录的内容，都必须把来源 SHA 纳入 applied 状态。Proton SHA 改变会刷新 Prefix，Box64、WinComponents、wrapper/layers、DirectDraw 和 Turnip 同理。
+`reconcileToPin` 只负责删除其他兼容版本的 sibling；`ContentPinResolver` 仍是名称解析入口。
 
 ---
 

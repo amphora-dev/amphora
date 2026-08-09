@@ -7,13 +7,13 @@ package app.amphora.core.content.model
  * @property component The logical [ContentComponent] this entry resolves.
  * @property assetPath Path inside the APK `assets/` dir (e.g.
  *   `graphics_driver/wrapper.tzst` or `Proton-10.0-4-x86_64.wcp`).
- * @property sha256 Download integrity of the asset file (SHA-256). Verifies the
- *   bytes of the `.wcp` / archive — it does **not** select which install launch
- *   uses (see [version] and container pin sync in `docs/05-ARCHITECTURE.md` §3.1).
- * @property version Version string; encoded into the resolved path so a manifest
- *   bump provisions a fresh copy. For [Kind.WCP] this is the ContentsManager
- *   entry name (`type-verName-verCode`) and **must** match the embedded
- *   `profile.json`. Sibling installs of the same type are removed by
+ * @property sha256 SHA-256 content identity. It verifies the downloaded bytes
+ *   and is recorded in every installed directory, so changing it replaces a
+ *   same-version install and refreshes derived runtime state.
+ * @property version Display/compatibility version encoded into the resolved
+ *   path. For [Kind.WCP] this is the ContentsManager entry name
+ *   (`type-verName-verCode`) and **must** match the embedded `profile.json`.
+ *   Sibling versions of the same type are removed by
  *   [app.amphora.core.content.ContentAssetInstaller.reconcileToPin] once the
  *   new pin is present (update replaces; stale dirs are not left orphaned).
  * @property kind How the asset is provisioned (see [Kind]).

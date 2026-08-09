@@ -23,7 +23,10 @@ interface ContentAssetInstaller {
      */
     fun resolvedPath(entry: ManifestEntry): File
 
-    /** True if [entry] is already installed at [resolvedPath] (cache hit). */
+    /**
+     * True only when [resolvedPath] exists and its recorded source SHA matches
+     * [entry]. A matching version/path with different bytes is not a cache hit.
+     */
     fun isInstalled(entry: ManifestEntry): Boolean
 
     /**
