@@ -235,16 +235,17 @@ private fun LauncherTopBar(
                 compact = compact,
                 onClick = onRefresh,
             )
-            TextButton(onClick = onAddProgram, enabled = !state.staging) {
-                Text(
-                    when {
-                        state.staging -> "Adding…"
-                        compact -> "Add"
-                        else -> "+ Add program"
-                    },
-                )
+            TextButton(
+                onClick = onAddProgram,
+                enabled = !state.staging,
+                modifier = Modifier.width(if (compact) 56.dp else 112.dp),
+            ) {
+                Text(if (compact) "Add" else "+ Add program")
             }
-            TextButton(onClick = onOpenSettings) {
+            TextButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.width(88.dp),
+            ) {
                 Text("Settings")
             }
             Spacer(Modifier.width(8.dp))
@@ -260,7 +261,11 @@ private fun RuntimeStatusButton(ready: Boolean, busy: Boolean, compact: Boolean,
             ready -> Color(0xFF58D6A5)
             else -> MaterialTheme.colorScheme.error
         }
-    TextButton(onClick = onClick, enabled = !busy) {
+    TextButton(
+        onClick = onClick,
+        enabled = !busy,
+        modifier = Modifier.width(if (compact) 84.dp else 176.dp),
+    ) {
         Box(
             Modifier
                 .size(8.dp)

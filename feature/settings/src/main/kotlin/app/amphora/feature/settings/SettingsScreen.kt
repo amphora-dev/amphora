@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -361,14 +362,10 @@ private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel)
             onSelect = viewModel::selectGraphicsDriver,
             onReset = { viewModel.selectGraphicsDriver(GraphicsDriverSetting.WRAPPER) },
         )
-        if (state.applyingDriver) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Text(
-                "Installing Turnip and verifying its package…",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        StableProgressStatus(
+            visible = state.applyingDriver,
+            message = "Installing Turnip and verifying its package…",
+        )
     }
     SettingSection(
         title = "Compatibility",
@@ -697,31 +694,61 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                 onSelect = viewModel::setShaderCache,
                 onReset = { viewModel.setShaderCache(true) },
             )
-            if (state.shaderCache) {
-                ChoiceSetting(
-                    title = "Shader cache limit",
-                    description = "Maximum disk space Mesa may use for cached shaders.",
-                    impact = "Environment: MESA_SHADER_CACHE_MAX_SIZE",
-                    selected = state.shaderCacheSize,
-                    defaultValue = ShaderCacheSize.MB512,
-                    values = ShaderCacheSize.entries,
-                    label = { it.label },
-                    onSelect = viewModel::selectShaderCacheSize,
-                    onReset = { viewModel.selectShaderCacheSize(ShaderCacheSize.MB512) },
-                )
-            }
-            TextButton(
-                onClick = viewModel::clearShaderCache,
-                enabled = !state.clearingShaderCache,
+            ChoiceSetting(
+                title = "Shader cache limit",
+                description = "Maximum disk space Mesa may use for cached shaders.",
+                impact = "Environment: MESA_SHADER_CACHE_MAX_SIZE",
+                selected = state.shaderCacheSize,
+                defaultValue = ShaderCacheSize.MB512,
+                values = ShaderCacheSize.entries,
+                label = { it.label },
+                enabled = state.shaderCache,
+                onSelect = viewModel::selectShaderCacheSize,
+                onReset = { viewModel.selectShaderCacheSize(ShaderCacheSize.MB512) },
+            )
+            Row(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(if (state.clearingShaderCache) "Clearing cache…" else "Clear shader caches")
-            }
-            state.cacheActionMessage?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                TextButton(
+                    onClick = viewModel::clearShaderCache,
+                    enabled = !state.clearingShaderCache,
+                ) {
+                    Text("Clear shader caches")
+                }
+                Column(
+                    modifier =
+                    Modifier
+                        .weight(1f)
+                        .alpha(
+                            if (state.clearingShaderCache || state.cacheActionMessage != null) {
+                                1f
+                            } else {
+                                0f
+                            },
+                        ),
+                ) {
+                    LinearProgressIndicator(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .alpha(if (state.clearingShaderCache) 1f else 0f),
+                    )
+                    Text(
+                        if (state.clearingShaderCache) {
+                            "Clearing…"
+                        } else {
+                            state.cacheActionMessage.orEmpty()
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
             HorizontalDivider()
             ChoiceSetting(
@@ -765,15 +792,23 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                 label = { Text("Environment overrides") },
                 placeholder = { Text("MESA_SHADER_CACHE_MAX_SIZE=2G") },
                 supportingText = {
-                    if (state.rejectedEnvNames.isEmpty()) {
-                        Text("Blank lines and lines beginning with # are ignored.")
-                    } else {
-                        Text(
+                    Text(
+                        if (state.rejectedEnvNames.isEmpty()) {
+                            "Blank lines and lines beginning with # are ignored."
+                        } else {
                             "Ignored protected or invalid names: " +
-                                state.rejectedEnvNames.distinct().joinToString(),
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
+                                state.rejectedEnvNames.distinct().joinToString()
+                        },
+                        modifier = Modifier.height(36.dp),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color =
+                            if (state.rejectedEnvNames.isEmpty()) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                    )
                 },
             )
         }
@@ -934,6 +969,26 @@ private fun ModifiedResetAction(modified: Boolean, onReset: () -> Unit) {
 }
 
 @Composable
+private fun StableProgressStatus(visible: Boolean, message: String) {
+    Column(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .alpha(if (visible) 1f else 0f),
+    ) {
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        Text(
+            message,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun ComponentSection(state: SettingsUiState, onRefresh: () -> Unit) {
     var showAssets by rememberSaveable { mutableStateOf(false) }
     SettingSection(
@@ -942,9 +997,12 @@ private fun ComponentSection(state: SettingsUiState, onRefresh: () -> Unit) {
     ) {
         DependencyChain()
         HorizontalDivider()
-        if (state.refreshing && state.components.isEmpty()) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
+        LinearProgressIndicator(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .alpha(if (state.refreshing && state.components.isEmpty()) 1f else 0f),
+        )
         state.components.forEach { component ->
             ComponentRow(component)
         }
@@ -1008,16 +1066,27 @@ private fun SessionCleanupSection(state: SettingsUiState, viewModel: SettingsVie
             },
             style = MaterialTheme.typography.labelMedium,
         )
-        when (state.shizukuCleanupStatus) {
-            ShizukuCleanupStatus.UNAVAILABLE -> Unit
-            ShizukuCleanupStatus.PERMISSION_REQUIRED ->
-                TextButton(onClick = viewModel::requestShizukuPermission) {
-                    Text("Grant Shizuku access")
+        TextButton(
+            onClick = {
+                when (state.shizukuCleanupStatus) {
+                    ShizukuCleanupStatus.PERMISSION_REQUIRED -> viewModel.requestShizukuPermission()
+                    ShizukuCleanupStatus.READY -> confirmEmergencyStop = true
+                    ShizukuCleanupStatus.UNAVAILABLE -> Unit
                 }
-            ShizukuCleanupStatus.READY ->
-                TextButton(onClick = { confirmEmergencyStop = true }) {
-                    Text("Emergency force-stop Amphora")
-                }
+            },
+            enabled = state.shizukuCleanupStatus != ShizukuCleanupStatus.UNAVAILABLE,
+            modifier =
+                Modifier.alpha(
+                    if (state.shizukuCleanupStatus == ShizukuCleanupStatus.UNAVAILABLE) 0f else 1f,
+                ),
+        ) {
+            Text(
+                if (state.shizukuCleanupStatus == ShizukuCleanupStatus.READY) {
+                    "Emergency force-stop Amphora"
+                } else {
+                    "Grant Shizuku access"
+                },
+            )
         }
     }
 
@@ -1222,29 +1291,42 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
             "Installed: ${state.installedVersionName} (${state.installedVersionCode})",
             style = MaterialTheme.typography.bodyMedium,
         )
-        state.availableUpdate?.let { update ->
-            Text(
-                "Available: ${update.versionName} (${update.versionCode}) · ${update.channel}",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            update.notes?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        state.updateMessage?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (state.updateBusy) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
+        Text(
+            state.availableUpdate?.let {
+                "Available: ${it.versionName} (${it.versionCode}) · ${it.channel}"
+            } ?: "Available: check for the latest published build",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            state.availableUpdate?.notes.orEmpty(),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(20.dp)
+                    .alpha(if (state.availableUpdate?.notes == null) 0f else 1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            state.updateMessage.orEmpty(),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .alpha(if (state.updateMessage == null) 0f else 1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        LinearProgressIndicator(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .alpha(if (state.updateBusy) 1f else 0f),
+        )
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -1255,27 +1337,27 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
             ) {
                 Text("Check")
             }
-            if (state.availableUpdate != null && !state.installReady) {
-                TextButton(
-                    onClick = viewModel::downloadAndPrepareInstall,
-                    enabled = !state.updateBusy,
-                ) {
-                    Text("Download")
-                }
+            val downloadVisible = state.availableUpdate != null && !state.installReady
+            TextButton(
+                onClick = viewModel::downloadAndPrepareInstall,
+                enabled = downloadVisible && !state.updateBusy,
+                modifier = Modifier.alpha(if (downloadVisible) 1f else 0f),
+            ) {
+                Text("Download")
             }
-            if (state.installReady && state.pendingApk != null) {
-                TextButton(
-                    onClick = {
-                        if (viewModel.needsInstallPermission()) {
-                            unknownSourcesLauncher.launch(viewModel.installPermissionSettingsIntent())
-                        } else {
-                            activity?.let(viewModel::installPendingUpdate)
-                        }
-                    },
-                    enabled = !state.updateBusy,
-                ) {
-                    Text("Install")
-                }
+            val installVisible = state.installReady && state.pendingApk != null
+            TextButton(
+                onClick = {
+                    if (viewModel.needsInstallPermission()) {
+                        unknownSourcesLauncher.launch(viewModel.installPermissionSettingsIntent())
+                    } else {
+                        activity?.let(viewModel::installPendingUpdate)
+                    }
+                },
+                enabled = installVisible && !state.updateBusy,
+                modifier = Modifier.alpha(if (installVisible) 1f else 0f),
+            ) {
+                Text("Install")
             }
         }
     }
@@ -1328,7 +1410,14 @@ private fun StorageSection() {
                 )
             }
         }
-        if (!granted) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .alpha(if (granted) 0f else 1f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             TextButton(
                 onClick = {
                     requestLegacy.launch(
@@ -1338,9 +1427,15 @@ private fun StorageSection() {
                         ),
                     )
                 },
-            ) { Text("Grant storage access") }
+                enabled = !granted,
+            ) {
+                Text("Grant storage access")
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                TextButton(onClick = { openSettings.launch(allFilesAccessIntent(context)) }) {
+                TextButton(
+                    onClick = { openSettings.launch(allFilesAccessIntent(context)) },
+                    enabled = !granted,
+                ) {
                     Text("Open all-files access settings")
                 }
             }
