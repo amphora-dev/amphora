@@ -14,6 +14,7 @@ import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import com.winlator.cmod.runtime.container.Container
+import com.winlator.cmod.runtime.container.ContainerManager
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.display.connector.UnixSocketConfig
 import com.winlator.cmod.runtime.display.environment.ImageFs
@@ -116,6 +117,16 @@ class PrefixPackGeneratorTest {
                     )
             }
         Box64Runtime.ensureApplied(container, imageFs, contents)
+        File(outputRoot, ".wine/drive_c/windows/system32").mkdirs()
+        File(outputRoot, ".wine/drive_c/windows/syswow64").mkdirs()
+        assertTrue(
+            "cannot seed Proton builtins required by wineboot",
+            ContainerManager(context).linkWineBuiltinFiles(
+                container,
+                wineEntry.version,
+                contents,
+            ),
+        )
 
         runGuestCommand(
             imageFs = imageFs,
