@@ -12,7 +12,7 @@ class ContentManifestLoaderTest {
         assertTrue(url.startsWith("https://"))
         assertTrue(url.contains("amphora-dev/content_manifest"))
         assertTrue(url.endsWith("content_manifest.json") || url.contains("content_manifest.json?"))
-        // Prefer jsDelivr @latest (semver tags CI purges). Never embed a commit SHA.
+        // Track main through GitHub; never embed a commit SHA.
         assertTrue(
             "default manifest URL must track latest/main, got $url",
             url.contains("@latest/") ||
@@ -30,14 +30,22 @@ class ContentManifestLoaderTest {
     @Test
     fun candidateUrlsPreferPrimaryThenFreshnessAwareMirrors() {
         val primary =
-            "https://cdn.jsdelivr.net/gh/amphora-dev/content_manifest@latest/content_manifest.json"
+            "https://api.github.com/repos/amphora-dev/content_manifest/contents/content_manifest.json?ref=main"
         val candidates = ContentManifestLoader.candidateUrls(primary)
         assertEquals(primary, candidates.first())
         assertTrue(candidates.any { it.contains("raw.githubusercontent.com") && it.contains("/main/") })
-        assertTrue(candidates.any { it.contains("api.github.com") && it.contains("ref=main") })
-        // API is last (rate-limited).
-        assertTrue(candidates.last().contains("api.github.com"))
+        assertTrue(candidates.none { it.contains("jsdelivr") })
         assertTrue(candidates.none { Regex("""@[0-9a-f]{40}/""").containsMatchIn(it) })
+    }
+
+    @Test
+    fun appUpdateFallbacksNeverReturnContentManifest() {
+        val candidates =
+            ContentManifestLoader.candidateUrls(
+                "https://api.github.com/repos/amphora-dev/content_manifest/contents/app_update.json?ref=main",
+            )
+        assertTrue(candidates.all { it.contains("app_update.json") })
+        assertTrue(candidates.none { it.contains("jsdelivr") })
     }
 
     @Test

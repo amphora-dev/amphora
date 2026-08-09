@@ -54,7 +54,7 @@
 - ✅ **AIO DX8/DX9 / OpenGL·DX7 黑屏** (2026-07-26 记档 → 后续已关闭): DX8 CreateDevice（IMMEDIATE→DEFAULT）+ DXVK d3d8/d3d10 trust-augment；OpenGL/DX7 靠容器 env 合并 + 不再误钉 `GALLIUM_DRIVER=zink` / `LIBGL_KOPPER_DISABLE`。真机路径已可用；文档不再当开放项。
 - ✅ **adrenotools hooks 收敛为单份** (2026-08-05): guest / host 都用 `wrapper.tzst` → `imagefs/usr/lib`（CI pin `8483dfd`）。APK **不建** SHARED hooks（只静链 `adrenotools`；hooks 由 imagefs wrapper CI 产出）；host `vulkan.c` 读 `ImageFs.getLibDir()`。
 - 🗑 **删除空壳 `:core:ui`** (2026-08-05)。
-- ✅ **资产供应链已切自建主通道** (2026-08): 默认 wine = `amphora-dev/proton-wine` **Proton-11.0-amphora**；rootfs / Box64 / wrapper = `amphora-dev/imagefs`；pin 面 = `content_manifest`（jsDelivr `@latest`）。`amphora-assets` Private **不再阻塞**。部分 wincomponents / pattern / DXVK 仍可 pin 上游。
+- ✅ **资产供应链已切自建主通道** (2026-08): 默认 wine = `amphora-dev/proton-wine` **Proton-11.0-amphora**；rootfs / Box64 / wrapper = `amphora-dev/imagefs`；pin 面 = `content_manifest`（GitHub Contents API，raw 回退）。`amphora-assets` Private **不再阻塞**。部分 wincomponents / pattern / DXVK 仍可 pin 上游。
 - ✅ **`extra_libs.tzst` 已废止 / Mesa GL 自建并入 imagefs** (2026-08-01)。
 - 🩹 **Wine 全白窗口 / libpng patchelf** (2026-08-01): 已在 imagefs 配方侧修（链接期 SONAME + LOAD 同余断言）；见 imagefs `ELF-PITFALLS.md`。
 - ⏭ 下一步: 键盘手柄 / Pulse·FEX 扩展；WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
