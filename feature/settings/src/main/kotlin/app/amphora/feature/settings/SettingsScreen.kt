@@ -2,15 +2,9 @@ package app.amphora.feature.settings
 
 import android.Manifest
 import android.app.Activity
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Environment
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,6 +36,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -66,11 +62,11 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import app.amphora.core.content.model.ContentComponent
+import app.amphora.core.engine.GuestStorageAccess
 import app.amphora.core.engine.ShizukuCleanupStatus
 import app.amphora.core.engine.WindowsComponentPreferences
 import app.amphora.core.engine.WineLocaleOption
@@ -923,9 +919,10 @@ private fun <T> ChoiceSetting(
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    Row(
+    FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         values.forEach { value ->
             FilterChip(
@@ -1541,20 +1538,22 @@ private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long, action: (@Com
 @Composable
 private fun StorageSection() {
     val context = LocalContext.current
-    var granted by remember { mutableStateOf(hasExternalStorageAccess(context)) }
+    var granted by remember { mutableStateOf(GuestStorageAccess.isGranted(context)) }
     val requestLegacy =
         rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions(),
-        ) { granted = hasExternalStorageAccess(context) }
+        ) { granted = GuestStorageAccess.isGranted(context) }
     val openSettings =
         rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult(),
-        ) { granted = hasExternalStorageAccess(context) }
+        ) { granted = GuestStorageAccess.isGranted(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer =
             LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_RESUME) granted = hasExternalStorageAccess(context)
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    granted = GuestStorageAccess.isGranted(context)
+                }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -1585,46 +1584,64 @@ private fun StorageSection() {
                 )
             }
         }
-        if (!granted) {
-            Row(
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+        HorizontalDivider()
+        Text("Guest drive mappings", style = MaterialTheme.typography.labelLarge)
+        GuestDriveMappingRow(letter = "D:", label = "Downloads")
+        GuestDriveMappingRow(letter = "F:", label = "Internal storage")
+        Text(
+            "Wine uses direct filesystem links, so selecting a folder through Android's " +
+                "document picker alone is not sufficient.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Text(
+                "Android may still hide other apps' Android/data and Android/obb folders. " +
+                    "Downloads, Documents, media, and other shared files remain available.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            OutlinedButton(
+                onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                TextButton(
-                    onClick = {
-                        requestLegacy.launch(
-                            arrayOf(
-                                Manifest.permission.READ_EXTERNAL_STORAGE,
-                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                            ),
-                        )
-                    },
-                ) {
-                    Text("Grant storage access")
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    TextButton(onClick = { openSettings.launch(allFilesAccessIntent(context)) }) {
-                        Text("Open all-files access settings")
-                    }
-                }
+                Text(if (granted) "Manage Android file access" else "Allow Android file access")
+            }
+        } else if (!granted) {
+            OutlinedButton(
+                onClick = {
+                    requestLegacy.launch(
+                        arrayOf(
+                            Manifest.permission.READ_EXTERNAL_STORAGE,
+                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        ),
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Allow Android file access")
+            }
+        } else {
+            OutlinedButton(
+                onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Manage Android file access")
             }
         }
     }
 }
 
-private fun hasExternalStorageAccess(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-        return true
+@Composable
+private fun GuestDriveMappingRow(letter: String, label: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(letter, style = MaterialTheme.typography.titleSmall)
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
     }
-    return context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
-        PackageManager.PERMISSION_GRANTED
 }
-
-@RequiresApi(Build.VERSION_CODES.R)
-private fun allFilesAccessIntent(context: Context): Intent = Intent(
-    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-    "package:${context.packageName}".toUri(),
-)

@@ -318,7 +318,11 @@ class XServerWineSessionPreparer @Inject constructor(
         stageGraphicsTestExes(c)
 
         val drivesDesired = c.getDrives() ?: ""
-        if (AppliedMarks.needsDrives(c, drivesDesired) || firstTimeBoot) {
+        val driveLinksMissing = !WineUtils.hasRequiredDosdevicesSymlinks(c)
+        if (AppliedMarks.needsDrives(c, drivesDesired) || driveLinksMissing || firstTimeBoot) {
+            if (driveLinksMissing && !firstTimeBoot) {
+                Log.w(TAG, "Wine drive links are incomplete; rebuilding dosdevices")
+            }
             WineUtils.createDosdevicesSymlinks(c, getActiveGameDirectoryPath(), isSteamShortcut())
             AppliedMarks.markDrives(c, c.getDrives() ?: drivesDesired)
             containerDataChanged = true

@@ -6,12 +6,12 @@ import android.content.ContextWrapper
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -105,11 +106,15 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         mutableStateOf(viewModel.hostPerformanceHudEnabled)
     }
     var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
+    var firstGuestFrameRendered by remember { mutableStateOf(false) }
+    var exitRequested by rememberSaveable { mutableStateOf(false) }
+    var manuallyPaused by rememberSaveable { mutableStateOf(false) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
 
     BackHandler {
         when {
+            exitRequested -> Unit
             drawerState.isOpen -> drawerScope.launch { drawerState.close() }
             sessionState in
                 setOf(
@@ -156,17 +161,17 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     // ProcessHelper.resumeAllWineProcesses - the render-thread pause is handled by the
     // SurfaceView's own SurfaceHolder lifecycle).
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, rendererView) {
+    DisposableEffect(lifecycleOwner, rendererView, manuallyPaused) {
         val observer =
             LifecycleEventObserver { _, event ->
                 when (event) {
                     Lifecycle.Event.ON_RESUME -> {
                         rendererView?.onResume()
-                        viewModel.resume()
+                        if (!manuallyPaused) viewModel.resume()
                     }
                     Lifecycle.Event.ON_PAUSE -> {
                         rendererView?.onPause()
-                        viewModel.pause()
+                        if (!manuallyPaused) viewModel.pause()
                     }
                     else -> {}
                 }
@@ -189,11 +194,26 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
             touchpadView?.resetInputState()
         }
     }
-    LaunchedEffect(inputMode, pointerSensitivity, tapToClick, touchpadView) {
+    LaunchedEffect(surface) {
+        firstGuestFrameRendered = false
+    }
+    LaunchedEffect(exitRequested) {
+        if (exitRequested) {
+            touchpadView?.apply {
+                resetInputState()
+                setMouseEnabled(false)
+            }
+            rendererView?.onPause()
+            drawerState.close()
+            viewModel.stop()
+        }
+    }
+    LaunchedEffect(inputMode, pointerSensitivity, tapToClick, sessionState, touchpadView) {
         touchpadView?.apply {
             setScreenTouchMode(inputMode)
             setSensitivity(pointerSensitivity)
             tapToClickEnabled = tapToClick
+            setMouseEnabled(sessionState != SessionState.PAUSED)
         }
     }
     LaunchedEffect(fpsLimit, rendererView) {
@@ -207,73 +227,104 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        gesturesEnabled = false,
-        drawerContent = {
-            RuntimeSessionDrawer(
-                sessionState = sessionState,
-                controlsEnabled = surface != null && sessionState != SessionState.STOPPING,
-                inputMode = inputMode,
-                onInputModeChange = { inputMode = it },
-                pointerSensitivity = pointerSensitivity,
-                onPointerSensitivityChange = { pointerSensitivity = it },
-                tapToClick = tapToClick,
-                onTapToClickChange = { tapToClick = it },
-                fpsLimit = fpsLimit,
-                onFpsLimitChange = { fpsLimit = it },
-                stretchToFill = stretchToFill,
-                onStretchToFillChange = { stretchToFill = it },
-                performanceHudVisible = performanceHudVisible,
-                onPerformanceHudVisibleChange = { performanceHudVisible = it },
-                onPauseToggle = {
-                    if (sessionState == SessionState.PAUSED) viewModel.resume() else viewModel.pause()
-                },
-                onClose = { drawerScope.launch { drawerState.close() } },
-                onExit = { showExitConfirmation = true },
-            )
-        },
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            val sessionSurface = surface
-            if (sessionSurface != null) {
-                GameSurface(
-                    surface = sessionSurface,
-                    onViewReady = { rendererView = it },
-                    modifier = Modifier.fillMaxSize(),
-                )
-                TouchpadOverlay(
-                    xServer = sessionSurface.xServer,
-                    onViewReady = { touchpadView = it },
-                    onOpenDrawer = { drawerScope.launch { drawerState.open() } },
-                    modifier = Modifier.fillMaxSize(),
-                )
-                if (performanceHudVisible) {
-                    HostPerformanceOverlay(xServer = sessionSurface.xServer)
-                }
-            } else {
-                SessionPlaceholder(
+    Box(modifier = Modifier.fillMaxSize()) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled =
+            drawerState.currentValue == DrawerValue.Open ||
+                drawerState.targetValue == DrawerValue.Open,
+            drawerContent = {
+                RuntimeSessionDrawer(
                     sessionState = sessionState,
-                    launchError = launchError,
-                    provisionProgress = provisionProgress,
+                    controlsEnabled =
+                    surface != null &&
+                        sessionState != SessionState.STOPPING &&
+                        !exitRequested,
+                    inputMode = inputMode,
+                    onInputModeChange = { inputMode = it },
+                    pointerSensitivity = pointerSensitivity,
+                    onPointerSensitivityChange = { pointerSensitivity = it },
+                    tapToClick = tapToClick,
+                    onTapToClickChange = { tapToClick = it },
+                    fpsLimit = fpsLimit,
+                    onFpsLimitChange = { fpsLimit = it },
+                    stretchToFill = stretchToFill,
+                    onStretchToFillChange = { stretchToFill = it },
+                    performanceHudVisible = performanceHudVisible,
+                    onPerformanceHudVisibleChange = { performanceHudVisible = it },
+                    onPauseToggle = {
+                        if (sessionState == SessionState.PAUSED) {
+                            manuallyPaused = false
+                            viewModel.resume()
+                        } else {
+                            manuallyPaused = true
+                            viewModel.pause()
+                        }
+                    },
+                    onClose = { drawerScope.launch { drawerState.close() } },
+                    onExit = { showExitConfirmation = true },
                 )
+            },
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                val sessionSurface = surface
+                if (sessionSurface != null) {
+                    GameSurface(
+                        surface = sessionSurface,
+                        onViewReady = { rendererView = it },
+                        onFirstGuestFrameRendered = { firstGuestFrameRendered = true },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    TouchpadOverlay(
+                        xServer = sessionSurface.xServer,
+                        onViewReady = { touchpadView = it },
+                        onOpenDrawer = { drawerScope.launch { drawerState.open() } },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    if (performanceHudVisible && firstGuestFrameRendered) {
+                        HostPerformanceOverlay(xServer = sessionSurface.xServer)
+                    }
+                    if (sessionState == SessionState.PAUSED && firstGuestFrameRendered) {
+                        PausedSessionOverlay()
+                    }
+                }
+                if (
+                    sessionSurface == null ||
+                    (
+                        !firstGuestFrameRendered &&
+                            sessionState !in setOf(SessionState.STOPPING, SessionState.STOPPED)
+                        )
+                ) {
+                    SessionPlaceholder(
+                        sessionState = sessionState,
+                        launchError = launchError,
+                        provisionProgress = provisionProgress,
+                        waitingForFirstFrame =
+                        sessionSurface != null &&
+                            sessionState == SessionState.RUNNING,
+                        modifier = Modifier.fillMaxSize().zIndex(4f),
+                    )
+                }
             }
+        }
+        if (exitRequested) {
+            SessionEndingOverlay(modifier = Modifier.fillMaxSize().zIndex(10f))
         }
     }
 
     if (showExitConfirmation) {
         AlertDialog(
             onDismissRequest = { showExitConfirmation = false },
-            title = { Text("End this session?") },
+            title = { Text("Exit Windows session?") },
             text = { Text("The Windows program and all processes in this session will be closed.") },
             confirmButton = {
                 Button(
                     onClick = {
                         showExitConfirmation = false
-                        if (running) viewModel.stop() else onExit()
+                        if (running) exitRequested = true else onExit()
                     },
                 ) {
-                    Text("End session")
+                    Text("Exit Windows")
                 }
             },
             dismissButton = {
@@ -326,7 +377,9 @@ private fun RuntimeSessionDrawer(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                TextButton(onClick = onClose) { Text("Close") }
+                TextButton(onClick = onClose) {
+                    Text("Hide controls", maxLines = 2, textAlign = TextAlign.Center)
+                }
             }
 
             Row(
@@ -340,20 +393,27 @@ private fun RuntimeSessionDrawer(
                         sessionState in setOf(SessionState.RUNNING, SessionState.PAUSED),
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(if (sessionState == SessionState.PAUSED) "Resume" else "Pause")
+                    Text(
+                        if (sessionState == SessionState.PAUSED) "Resume" else "Pause",
+                        maxLines = 2,
+                        textAlign = TextAlign.Center,
+                    )
                 }
                 OutlinedButton(
                     onClick = onExit,
                     enabled = sessionState != SessionState.STOPPING,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("End session")
+                    Text("Exit Windows", maxLines = 2, textAlign = TextAlign.Center)
                 }
             }
 
             RuntimeDrawerSection(title = "Input") {
                 Text("Touch mode", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     FilterChip(
                         selected = inputMode == TouchpadView.MODE_TRACKPAD,
                         onClick = { onInputModeChange(TouchpadView.MODE_TRACKPAD) },
@@ -378,8 +438,13 @@ private fun RuntimeSessionDrawer(
                     valueRange = 0.5f..2f,
                 )
                 RuntimeToggleRow(
-                    title = "Tap to click",
-                    subtitle = "One-finger tap sends a left click",
+                    title =
+                    if (inputMode == TouchpadView.MODE_TRACKPAD) {
+                        "Tap to click · ${if (tapToClick) "On" else "Off"}"
+                    } else {
+                        "Touch click · ${if (tapToClick) "On" else "Off"}"
+                    },
+                    subtitle = tapGestureDescription(inputMode, tapToClick),
                     checked = tapToClick,
                     enabled = controlsEnabled,
                     onCheckedChange = onTapToClickChange,
@@ -388,17 +453,24 @@ private fun RuntimeSessionDrawer(
 
             RuntimeDrawerSection(title = "Display") {
                 Text("Frame limit", style = MaterialTheme.typography.labelLarge)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    FPS_LIMITS.forEach { limit ->
-                        FilterChip(
-                            selected = fpsLimit == limit,
-                            onClick = { onFpsLimitChange(limit) },
-                            enabled = controlsEnabled,
-                            label = { Text(if (limit == 0) "Off" else "$limit") },
-                        )
+                    FPS_LIMITS.chunked(3).forEach { rowLimits ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            rowLimits.forEach { limit ->
+                                FilterChip(
+                                    selected = fpsLimit == limit,
+                                    onClick = { onFpsLimitChange(limit) },
+                                    enabled = controlsEnabled,
+                                    label = { Text(if (limit == 0) "Off" else "$limit") },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
                     }
                 }
                 RuntimeToggleRow(
@@ -423,6 +495,58 @@ private fun RuntimeSessionDrawer(
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(modifier = Modifier.height(4.dp))
+        }
+    }
+}
+
+@Composable
+private fun SessionEndingOverlay(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Column(
+                modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Ending session…", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Closing Windows processes and releasing runtime resources",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.PausedSessionOverlay() {
+    Surface(
+        modifier = Modifier.align(Alignment.Center).zIndex(3f),
+        color = Color.Black.copy(alpha = 0.82f),
+        contentColor = Color.White,
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 28.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Session paused", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Press Back to open session controls",
+                color = Color.White.copy(alpha = 0.72f),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
@@ -455,6 +579,7 @@ private fun RuntimeToggleRow(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -471,6 +596,15 @@ private fun RuntimeToggleRow(
             enabled = enabled,
         )
     }
+}
+
+private fun tapGestureDescription(inputMode: Int, enabled: Boolean): String = when {
+    inputMode == TouchpadView.MODE_TOUCHSCREEN && enabled ->
+        "Touching the screen positions the cursor and holds left click"
+    inputMode == TouchpadView.MODE_TOUCHSCREEN ->
+        "Touch positions the cursor only; use a mouse or controller to click"
+    enabled -> "One-finger tap: left click\nTwo-finger tap: right click"
+    else -> "Touch moves the pointer only; use a mouse or controller to click"
 }
 
 private fun runtimeStatusLabel(sessionState: SessionState?): String = when (sessionState) {
@@ -556,6 +690,7 @@ private fun frameTimeLabel(fps: Float): String = if (fps > 0.1f) "%.1f ms".forma
 private fun GameSurface(
     surface: GameSessionSurface,
     onViewReady: (XServerSurfaceView) -> Unit,
+    onFirstGuestFrameRendered: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val xServer = surface.xServer
@@ -578,6 +713,7 @@ private fun GameSurface(
                 // WinHandler, which is null in the MVP). The touch overlay still moves the
                 // cursor by delta via injectPointerMoveDelta (relative cursor feel).
                 xServer.setRenderer(renderer)
+                view.setOnFirstGuestFrameRenderedListener(onFirstGuestFrameRendered)
                 onViewReady(view)
             }
         },
@@ -587,8 +723,12 @@ private fun GameSurface(
             val renderer = view.getRenderer()
             renderer.setGraphicsDriver(graphicsDriver)
             renderer.setPresentMode(VulkanRenderer.parsePresentMode(presentMode))
+            view.setOnFirstGuestFrameRenderedListener(onFirstGuestFrameRendered)
         },
-        onRelease = { view -> view.onPause() },
+        onRelease = { view ->
+            view.setOnFirstGuestFrameRenderedListener(null)
+            view.onPause()
+        },
     )
 }
 
@@ -633,11 +773,14 @@ private fun SessionPlaceholder(
     sessionState: SessionState?,
     launchError: String?,
     provisionProgress: ProvisionProgress?,
+    waitingForFirstFrame: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val title =
         when {
             launchError != null -> "Session failed"
             provisionProgress != null -> "Updating content…"
+            waitingForFirstFrame -> "Starting Windows…"
             sessionState == SessionState.STARTING -> "Starting session…"
             else -> "Initializing…"
         }
@@ -649,49 +792,62 @@ private fun SessionPlaceholder(
                     provisionProgress.stage,
                     provisionProgress.detail.takeIf { it.isNotBlank() },
                 ).joinToString(" · ")
+            waitingForFirstFrame -> "Waiting for the first application frame"
             else -> ""
         }
-    val showProgress = launchError == null && provisionProgress != null
+    val showProgress =
+        launchError == null &&
+            (
+                provisionProgress != null ||
+                    waitingForFirstFrame ||
+                    sessionState in setOf(SessionState.CREATED, SessionState.STARTING)
+                )
     val bytesLabel =
         provisionProgress
             ?.totalBytes
             ?.let { total ->
                 "${formatBytes(provisionProgress.bytesDownloaded)} / ${formatBytes(total)}"
             }.orEmpty()
-    Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.background,
     ) {
         Column(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .animateContentSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            if (detail.isNotBlank()) {
-                Text(
-                    detail,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            if (showProgress && provisionProgress != null) {
-                val fraction = provisionProgress.fraction
-                if (fraction != null) {
-                    LinearProgressIndicator(
-                        progress = { fraction },
-                        modifier = Modifier.fillMaxWidth(),
+            Column(
+                modifier =
+                Modifier
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth()
+                    .animateContentSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                if (detail.isNotBlank()) {
+                    Text(
+                        detail,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
                     )
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
-                if (bytesLabel.isNotBlank()) {
-                    Text(bytesLabel, style = MaterialTheme.typography.labelSmall)
+                if (showProgress) {
+                    val fraction = provisionProgress?.fraction
+                    if (fraction != null) {
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    if (bytesLabel.isNotBlank()) {
+                        Text(bytesLabel, style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }

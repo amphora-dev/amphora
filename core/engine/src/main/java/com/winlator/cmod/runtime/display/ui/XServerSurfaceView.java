@@ -12,6 +12,7 @@ import com.winlator.cmod.runtime.display.renderer.VulkanRenderer;
 import com.winlator.cmod.runtime.display.xserver.XServer;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * {@link TextureView} that drives a {@link VulkanRenderer} on a dedicated render
@@ -29,6 +30,8 @@ public class XServerSurfaceView extends TextureView implements TextureView.Surfa
     private static final long TRANSIENT_FRAME_INTERVAL_NS = 1_000_000_000L / 120L;
 
     private final VulkanRenderer renderer;
+    private final AtomicBoolean firstGuestFrameRendered = new AtomicBoolean(false);
+    private volatile Runnable firstGuestFrameRenderedListener;
 
     private final Object renderLock = new Object();
     private final Deque<Runnable> eventQueue = new ArrayDeque<>();
@@ -58,6 +61,18 @@ public class XServerSurfaceView extends TextureView implements TextureView.Surfa
 
     public VulkanRenderer getRenderer() {
         return renderer;
+    }
+
+    public void setOnFirstGuestFrameRenderedListener(Runnable listener) {
+        firstGuestFrameRenderedListener = listener;
+        if (listener != null && firstGuestFrameRendered.get()) post(listener);
+    }
+
+    /** Called by {@link VulkanRenderer} after the first guest-presented frame is submitted. */
+    public void notifyFirstGuestFrameRendered() {
+        if (!firstGuestFrameRendered.compareAndSet(false, true)) return;
+        Runnable listener = firstGuestFrameRenderedListener;
+        if (listener != null) post(listener);
     }
 
     public void queueEvent(Runnable r) {
