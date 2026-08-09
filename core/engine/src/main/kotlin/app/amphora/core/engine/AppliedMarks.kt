@@ -143,8 +143,7 @@ object AppliedMarks {
 
     fun wineContent(container: Container): String = container.getExtra(WINE_CONTENT)
 
-    fun needsWineContent(container: Container, desired: String): Boolean =
-        wineContent(container) != desired
+    fun needsWineContent(container: Container, desired: String): Boolean = wineContent(container) != desired
 
     fun markWineContent(container: Container, desired: String) {
         container.putExtra(WINE_CONTENT, desired)

@@ -159,10 +159,9 @@ constructor(@ApplicationContext private val context: Context) :
         }
     }
 
-    private fun sameProfile(expected: ContentProfile, actual: ContentProfile): Boolean =
-        expected.type == actual.type &&
-            expected.verName == actual.verName &&
-            expected.verCode == actual.verCode
+    private fun sameProfile(expected: ContentProfile, actual: ContentProfile): Boolean = expected.type == actual.type &&
+        expected.verName == actual.verName &&
+        expected.verCode == actual.verCode
 
     private fun recoverReplacement(dest: File, staging: File?, backup: File) {
         staging?.let { FileUtils.delete(it) }

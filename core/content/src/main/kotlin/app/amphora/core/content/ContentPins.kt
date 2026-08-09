@@ -13,13 +13,12 @@ import java.nio.charset.StandardCharsets
 object InstalledContentPin {
     const val MARKER_NAME = ".amphora-source.sha256"
 
-    fun read(installDir: File): String? =
-        File(installDir, MARKER_NAME)
-            .takeIf(File::isFile)
-            ?.readText()
-            ?.trim()
-            ?.lowercase()
-            ?.takeIf(AssetDigest.HEX::matches)
+    fun read(installDir: File): String? = File(installDir, MARKER_NAME)
+        .takeIf(File::isFile)
+        ?.readText()
+        ?.trim()
+        ?.lowercase()
+        ?.takeIf(AssetDigest.HEX::matches)
 
     fun matches(installDir: File, expectedSha256: String?): Boolean {
         val expected = expectedSha256?.trim()?.lowercase()?.takeIf(AssetDigest.HEX::matches) ?: return false
@@ -68,13 +67,12 @@ object AppliedAssetPin {
         marker.writeText(sha)
     }
 
-    fun read(targetRoot: File, relativeAssetPath: String): String? =
-        markerFor(targetRoot, relativeAssetPath)
-            .takeIf(File::isFile)
-            ?.readText()
-            ?.trim()
-            ?.lowercase()
-            ?.takeIf(AssetDigest.HEX::matches)
+    fun read(targetRoot: File, relativeAssetPath: String): String? = markerFor(targetRoot, relativeAssetPath)
+        .takeIf(File::isFile)
+        ?.readText()
+        ?.trim()
+        ?.lowercase()
+        ?.takeIf(AssetDigest.HEX::matches)
 
     /**
      * Stable compact key for configuration gates whose output depends on one or
