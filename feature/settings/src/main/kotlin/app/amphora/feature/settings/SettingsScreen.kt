@@ -48,6 +48,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -267,11 +268,15 @@ private fun SettingsCategoryContent(
     viewModel: SettingsViewModel,
     modifier: Modifier = Modifier,
 ) {
+    val scrollState = rememberScrollState()
+    LaunchedEffect(category) {
+        scrollState.scrollTo(0)
+    }
     Column(
         modifier =
         modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
