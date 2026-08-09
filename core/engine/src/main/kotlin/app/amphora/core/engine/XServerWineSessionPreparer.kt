@@ -920,11 +920,10 @@ class XServerWineSessionPreparer @Inject constructor(
         // layers.tzst (Khronos validation) is debug-only and is not extracted by default.
         // Host VulkanRenderer enables validation only when explicitly requested.
         // extra_libs.tzst is gone: its only live payload was Mesa libGL, which the
-            // self-built imagefs now ships (imagefs packages/graphics/mesa-gl.sh). The
-            // rest (Turnip, vkBasalt, bcn_layer) has no consumer — the default Vulkan
-            // path is the wrapper ICD and full Turnip is the optional WN-Turnip zip.
-            // D5: arm64ec zink_dlls branch stripped (wineInfo.isArm64EC() always false for x86_64).
-        }
+        // self-built imagefs now ships (imagefs packages/graphics/mesa-gl.sh). The
+        // rest (Turnip, vkBasalt, bcn_layer) has no consumer — the default Vulkan
+        // path is the wrapper ICD and full Turnip is the optional WN-Turnip zip.
+        // D5: arm64ec zink_dlls branch stripped (wineInfo.isArm64EC() always false for x86_64).
 
         val wantLeegao = "wrapper-leegao" == graphicsDriver
         val leegaoMarker = File(rootDir, "usr/lib/.wrapper_leegao")
