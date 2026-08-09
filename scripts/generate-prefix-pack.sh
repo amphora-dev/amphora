@@ -16,7 +16,12 @@ if [[ -n "$adb_serial" ]]; then
 fi
 
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
-exec "$root/scripts/package-prefix-pack-from-apks.sh" \
-  "$root/app/build/outputs/apk/debug/app-debug.apk" \
-  "$root/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk" \
+args=(
+  "$root/app/build/outputs/apk/debug/app-debug.apk"
+  "$root/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
   "$out"
+)
+if [[ -n "${PREFIX_GENERATOR_WCP:-}" ]]; then
+  args+=("$PREFIX_GENERATOR_WCP")
+fi
+exec "$root/scripts/package-prefix-pack-from-apks.sh" "${args[@]}"

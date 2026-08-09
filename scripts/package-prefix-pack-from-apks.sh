@@ -2,13 +2,14 @@
 set -euo pipefail
 
 if (($# < 3)); then
-  echo "usage: $0 <app.apk> <androidTest.apk> <output.txz>" >&2
+  echo "usage: $0 <app.apk> <androidTest.apk> <output.txz> [proton-bootstrap.wcp]" >&2
   exit 2
 fi
 
 app_apk="$(realpath "$1")"
 test_apk="$(realpath "$2")"
 out="$(realpath -m "$3")"
+proton_wcp="${4:-}"
 repeat="${PREFIX_PACK_REPEAT:-2}"
 serial="${ANDROID_SERIAL:-}"
 adb_args=()
@@ -22,9 +23,20 @@ trap 'rm -rf "$tmp"' EXIT
 adb "${adb_args[@]}" install -r -d "$app_apk"
 adb "${adb_args[@]}" install -r "$test_apk"
 adb "${adb_args[@]}" shell pm clear app.amphora >/dev/null
+instrument_args=()
+if [[ -n "$proton_wcp" ]]; then
+  proton_wcp="$(realpath "$proton_wcp")"
+  adb "${adb_args[@]}" push "$proton_wcp" /data/local/tmp/amphora-prefix-generator.wcp >/dev/null
+  adb "${adb_args[@]}" shell run-as app.amphora mkdir -p files
+  adb "${adb_args[@]}" shell run-as app.amphora \
+    cp /data/local/tmp/amphora-prefix-generator.wcp files/prefix-generator-input.wcp
+  instrument_args=(-e prefix_generator_wcp_path \
+    /data/user/0/app.amphora/files/prefix-generator-input.wcp)
+fi
 
 for ((iteration = 1; iteration <= repeat; iteration++)); do
   adb "${adb_args[@]}" shell am instrument -w -r \
+    "${instrument_args[@]}" \
     -e class app.amphora.PrefixPackGeneratorTest \
     app.amphora.test/app.amphora.HiltTestRunner
 
