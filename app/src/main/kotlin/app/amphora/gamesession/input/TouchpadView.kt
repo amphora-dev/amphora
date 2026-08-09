@@ -206,6 +206,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         )
         setOnGenericMotionListener { _, event ->
             when {
+                !mouseEnabled -> true
                 event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS -> handleStylusHoverEvent(event)
                 event.isFromSource(InputDevice.SOURCE_MOUSE) -> onExternalMouseEvent(event)
                 else -> false
@@ -751,6 +752,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     /** Hardware mouse / trackball — absolute move, buttons, scroll wheel. */
     fun onExternalMouseEvent(event: MotionEvent): Boolean {
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
+        if (!mouseEnabled) return true
         showCursor()
         val actionButton = event.actionButton
         when (event.action) {

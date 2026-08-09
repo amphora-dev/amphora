@@ -189,11 +189,19 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
             touchpadView?.resetInputState()
         }
     }
-    LaunchedEffect(inputMode, pointerSensitivity, tapToClick, touchpadView) {
+    LaunchedEffect(inputMode, pointerSensitivity, tapToClick, sessionState, touchpadView) {
         touchpadView?.apply {
             setScreenTouchMode(inputMode)
             setSensitivity(pointerSensitivity)
             tapToClickEnabled = tapToClick
+            setMouseEnabled(sessionState != SessionState.PAUSED)
+        }
+    }
+    LaunchedEffect(sessionState, rendererView) {
+        when (sessionState) {
+            SessionState.PAUSED -> rendererView?.onPause()
+            SessionState.RUNNING -> rendererView?.onResume()
+            else -> Unit
         }
     }
     LaunchedEffect(fpsLimit, rendererView) {
@@ -250,6 +258,9 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                 )
                 if (performanceHudVisible) {
                     HostPerformanceOverlay(xServer = sessionSurface.xServer)
+                }
+                if (sessionState == SessionState.PAUSED) {
+                    PausedSessionOverlay()
                 }
             } else {
                 SessionPlaceholder(
@@ -378,8 +389,13 @@ private fun RuntimeSessionDrawer(
                     valueRange = 0.5f..2f,
                 )
                 RuntimeToggleRow(
-                    title = "Tap to click",
-                    subtitle = "One-finger tap sends a left click",
+                    title =
+                    if (inputMode == TouchpadView.MODE_TRACKPAD) {
+                        "Tap to click · ${if (tapToClick) "On" else "Off"}"
+                    } else {
+                        "Touch click · ${if (tapToClick) "On" else "Off"}"
+                    },
+                    subtitle = tapGestureDescription(inputMode, tapToClick),
                     checked = tapToClick,
                     enabled = controlsEnabled,
                     onCheckedChange = onTapToClickChange,
@@ -428,6 +444,30 @@ private fun RuntimeSessionDrawer(
 }
 
 @Composable
+private fun BoxScope.PausedSessionOverlay() {
+    Surface(
+        modifier = Modifier.align(Alignment.Center).zIndex(3f),
+        color = Color.Black.copy(alpha = 0.82f),
+        contentColor = Color.White,
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 28.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Session paused", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Press Back to open session controls",
+                color = Color.White.copy(alpha = 0.72f),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
 private fun RuntimeDrawerSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(
         colors =
@@ -471,6 +511,15 @@ private fun RuntimeToggleRow(
             enabled = enabled,
         )
     }
+}
+
+private fun tapGestureDescription(inputMode: Int, enabled: Boolean): String = when {
+    inputMode == TouchpadView.MODE_TOUCHSCREEN && enabled ->
+        "Touching the screen positions the cursor and holds left click"
+    inputMode == TouchpadView.MODE_TOUCHSCREEN ->
+        "Touch positions the cursor only; use a mouse or controller to click"
+    enabled -> "One-finger tap clicks; two-finger tap right-clicks"
+    else -> "Touch moves the pointer only; use a mouse or controller to click"
 }
 
 private fun runtimeStatusLabel(sessionState: SessionState?): String = when (sessionState) {

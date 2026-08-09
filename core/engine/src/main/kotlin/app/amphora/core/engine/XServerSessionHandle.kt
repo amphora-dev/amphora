@@ -21,8 +21,9 @@ import kotlinx.coroutines.sync.withLock
  *
  * Lifecycle mapping (mirrors WinNative `XServerDisplayActivity` onPause/onResume/onDestroy
  * + `performForcedSessionCleanup`):
- * - [pause] -> `XEnvironment.onPause()` (suspends ALSA output / PulseAudio). The render
- *   thread pause (`XServerSurfaceView.onPause`) is owned by the GameSession UI.
+ * - [pause] -> `XEnvironment.onPause()` (suspends ALSA output / PulseAudio) and
+ *   `ProcessHelper.pauseAllWineProcesses()`. The render thread and input pause are owned
+ *   by the GameSession UI.
  * - [resume] -> `XEnvironment.onResume()` + `ProcessHelper.resumeAllWineProcesses()`.
  * - [stop] -> `XEnvironment.stopEnvironmentComponents()` (reverse-order teardown: guest
  *   launcher first, then audio / XServer / shm) + `ProcessHelper.terminateAllWineProcesses()`
@@ -74,6 +75,7 @@ internal class XServerSessionHandle(
     override suspend fun pause() = mutex.withLock {
         if (_state.value == SessionState.RUNNING) {
             environment.onPause()
+            ProcessHelper.pauseAllWineProcesses()
             _state.value = SessionState.PAUSED
         }
     }
