@@ -240,10 +240,7 @@ private fun SettingsCategoryPane(
 }
 
 @Composable
-private fun SettingsCategoryTabs(
-    selected: SettingsCategory,
-    onSelect: (SettingsCategory) -> Unit,
-) {
+private fun SettingsCategoryTabs(selected: SettingsCategory, onSelect: (SettingsCategory) -> Unit) {
     Row(
         modifier =
         Modifier
