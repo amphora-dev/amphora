@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -334,9 +335,11 @@ private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel)
                 "provide more space and sharper UI.",
             impact = "Global default · applies on next launch",
             selected = state.resolution,
+            defaultValue = DisplayResolution.DEFAULT,
             values = DisplayResolution.entries,
             label = { it.label },
             onSelect = viewModel::selectResolution,
+            onReset = { viewModel.selectResolution(DisplayResolution.DEFAULT) },
         )
     }
     SettingSection(
@@ -350,10 +353,12 @@ private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel)
                 "Mesa Freedreno and is downloaded when first selected.",
             impact = "Global default · Direct3D 9–12 and OpenGL/Zink · next launch",
             selected = state.graphicsDriver,
+            defaultValue = GraphicsDriverSetting.WRAPPER,
             values = GraphicsDriverSetting.entries,
             label = { it.label },
             enabled = !state.applyingDriver,
             onSelect = viewModel::selectGraphicsDriver,
+            onReset = { viewModel.selectGraphicsDriver(GraphicsDriverSetting.WRAPPER) },
         )
         if (state.applyingDriver) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -375,9 +380,11 @@ private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel)
                 "the Android device language.",
             impact = "Global default · legacy ANSI text only · next launch",
             selected = state.wineLocale,
+            defaultValue = WineLocaleOption.AUTO,
             values = WineLocaleOption.entries,
             label = { it.label },
             onSelect = viewModel::selectWineLocale,
+            onReset = { viewModel.selectWineLocale(WineLocaleOption.AUTO) },
         )
         ChoiceSetting(
             title = "DirectDraw layer",
@@ -387,9 +394,11 @@ private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel)
                 "cnc-ddraw is tuned for classic software-rendered 2D games.",
             impact = "Global default · 32-bit DirectDraw titles · next launch",
             selected = state.directDrawWrapper,
+            defaultValue = DirectDrawSetting.DXWRAPPER,
             values = DirectDrawSetting.entries,
             label = { it.label },
             onSelect = viewModel::selectDirectDraw,
+            onReset = { viewModel.selectDirectDraw(DirectDrawSetting.DXWRAPPER) },
         )
     }
     StorageSection()
@@ -464,7 +473,19 @@ private fun WindowsComponentChoice(
     onChange: (Boolean) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(component.label, style = MaterialTheme.typography.titleSmall)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                component.label,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            if (!useNative) {
+                ModifiedResetAction { onChange(true) }
+            }
+        }
         Text(
             component.description,
             style = MaterialTheme.typography.bodySmall,
@@ -534,9 +555,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "aggressive dynamic recompilation for difficult games.",
                 impact = "Scope: x86_64 Wine and all Windows processes · next launch",
                 selected = state.box64Mode,
+                defaultValue = Box64Mode.PERFORMANCE,
                 values = Box64Mode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectBox64Mode,
+                onReset = { viewModel.selectBox64Mode(Box64Mode.PERFORMANCE) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -546,9 +569,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "rendering glitches in some games.",
                 impact = "Scope: Direct3D through DXVK · next launch",
                 selected = state.dxvkAsync,
+                defaultValue = false,
                 values = listOf(false, true),
                 label = { if (it) "Enabled" else "Disabled" },
                 onSelect = viewModel::setDxvkAsync,
+                onReset = { viewModel.setDxvkAsync(false) },
             )
             ChoiceSetting(
                 title = "Frame limit",
@@ -557,9 +582,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "not affect WineD3D or software renderers.",
                 impact = "Environment: DXVK_FRAME_RATE · DXVK only",
                 selected = state.frameLimit,
+                defaultValue = FrameLimit.OFF,
                 values = FrameLimit.entries,
                 label = { it.label },
                 onSelect = viewModel::selectFrameLimit,
+                onReset = { viewModel.selectFrameLimit(FrameLimit.OFF) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -569,9 +596,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "forcing a higher level cannot add missing GPU driver features.",
                 impact = "Environment: VKD3D_FEATURE_LEVEL · Direct3D 12 only",
                 selected = state.vkd3dFeatureLevel,
+                defaultValue = Vkd3dFeatureLevel.AUTO,
                 values = Vkd3dFeatureLevel.entries,
                 label = { it.label },
                 onSelect = viewModel::selectVkd3dFeatureLevel,
+                onReset = { viewModel.selectVkd3dFeatureLevel(Vkd3dFeatureLevel.AUTO) },
             )
             ChoiceSetting(
                 title = "Direct3D 12 shader model",
@@ -580,9 +609,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "by the driver may prevent a game from starting.",
                 impact = "Environment: VKD3D_SHADER_MODEL · Direct3D 12 only",
                 selected = state.vkd3dShaderModel,
+                defaultValue = Vkd3dShaderModel.AUTO,
                 values = Vkd3dShaderModel.entries,
                 label = { it.label },
                 onSelect = viewModel::selectVkd3dShaderModel,
+                onReset = { viewModel.selectVkd3dShaderModel(Vkd3dShaderModel.AUTO) },
             )
             ChoiceSetting(
                 title = "DirectX Raytracing",
@@ -591,9 +622,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "checks; DXR 1.2 is experimental and requires opacity micromap support.",
                 impact = "Environment: VKD3D_CONFIG · Direct3D 12 only",
                 selected = state.vkd3dDxr,
+                defaultValue = Vkd3dDxrMode.AUTO,
                 values = Vkd3dDxrMode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectVkd3dDxr,
+                onReset = { viewModel.selectVkd3dDxr(Vkd3dDxrMode.AUTO) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -603,9 +636,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "VSync is conservative; Immediate may tear.",
                 impact = "Dependency: wrapper → Vulkan WSI · all Vulkan renderers",
                 selected = state.presentMode,
+                defaultValue = PresentMode.AUTO,
                 values = PresentMode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectPresentMode,
+                onReset = { viewModel.selectPresentMode(PresentMode.AUTO) },
             )
             ChoiceSetting(
                 title = "BC texture handling",
@@ -614,9 +649,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "support. Full emulation improves compatibility at a performance cost.",
                 impact = "Scope: Vulkan wrapper texture formats · next launch",
                 selected = state.bcnMode,
+                defaultValue = BcnMode.DEFAULT,
                 values = BcnMode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectBcnMode,
+                onReset = { viewModel.selectBcnMode(BcnMode.DEFAULT) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -626,9 +663,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "It works with DXVK, VKD3D/DX12, OpenGL/Zink and software rendering.",
                 impact = "Android overlay · all graphics APIs · next launch",
                 selected = state.hostPerformanceHud,
+                defaultValue = false,
                 values = listOf(false, true),
                 label = { if (it) "Visible" else "Hidden" },
                 onSelect = viewModel::setHostPerformanceHud,
+                onReset = { viewModel.setHostPerformanceHud(false) },
             )
             ChoiceSetting(
                 title = "DXVK in-game HUD",
@@ -637,9 +676,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "This is display-only and does not enable verbose log files.",
                 impact = "Environment: DXVK_HUD · Direct3D 8–11 only",
                 selected = state.dxvkHud,
+                defaultValue = false,
                 values = listOf(false, true),
                 label = { if (it) "Visible" else "Hidden" },
                 onSelect = viewModel::setDxvkHud,
+                onReset = { viewModel.setDxvkHud(false) },
             )
             ChoiceSetting(
                 title = "Mesa shader cache",
@@ -648,9 +689,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "when investigating corrupt-cache rendering problems.",
                 impact = "Scope: Turnip and Zink · stored in private app storage",
                 selected = state.shaderCache,
+                defaultValue = true,
                 values = listOf(true, false),
                 label = { if (it) "Enabled" else "Disabled" },
                 onSelect = viewModel::setShaderCache,
+                onReset = { viewModel.setShaderCache(true) },
             )
             if (state.shaderCache) {
                 ChoiceSetting(
@@ -658,9 +701,11 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     description = "Maximum disk space Mesa may use for cached shaders.",
                     impact = "Environment: MESA_SHADER_CACHE_MAX_SIZE",
                     selected = state.shaderCacheSize,
+                    defaultValue = ShaderCacheSize.MB512,
                     values = ShaderCacheSize.entries,
                     label = { it.label },
                     onSelect = viewModel::selectShaderCacheSize,
+                    onReset = { viewModel.selectShaderCacheSize(ShaderCacheSize.MB512) },
                 )
             }
             TextButton(
@@ -684,11 +729,25 @@ private fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsVi
                     "performance.",
                 impact = "Environment: WINEDEBUG · written to the session log",
                 selected = state.wineLog,
+                defaultValue = WineLogMode.OFF,
                 values = WineLogMode.entries,
                 label = { it.label },
                 onSelect = viewModel::selectWineLog,
+                onReset = { viewModel.selectWineLog(WineLogMode.OFF) },
             )
-            Text("Custom environment", style = MaterialTheme.typography.titleSmall)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Custom environment",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                if (state.customEnv.isNotBlank()) {
+                    ModifiedResetAction { viewModel.setCustomEnv("") }
+                }
+            }
             Text(
                 "One KEY=VALUE per line. Engine-owned paths, sockets, loader variables and " +
                     "the Vulkan ICD cannot be overridden.",
@@ -798,12 +857,26 @@ private fun <T> ChoiceSetting(
     description: String,
     impact: String,
     selected: T,
+    defaultValue: T,
     values: List<T>,
     label: (T) -> String,
     enabled: Boolean = true,
     onSelect: (T) -> Unit,
+    onReset: () -> Unit,
 ) {
-    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (selected != defaultValue) ModifiedResetAction(onReset)
+    }
     Text(
         description,
         style = MaterialTheme.typography.bodyMedium,
@@ -833,6 +906,22 @@ private fun <T> ChoiceSetting(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun ModifiedResetAction(onReset: () -> Unit) {
+    TextButton(
+        onClick = onReset,
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .background(MaterialTheme.colorScheme.primary, CircleShape),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text("Modified · Reset", style = MaterialTheme.typography.labelSmall)
     }
 }
 
