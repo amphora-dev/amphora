@@ -78,6 +78,11 @@ fun ModernLauncherScreen(
             if (uri != null) viewModel.onExePicked(uri)
         }
     val runtimeReady = state.runtimeReady()
+    val canPrepareRuntime =
+        state.catalogStatus is ContentCatalog.Status.Ready &&
+            !state.contentBusy &&
+            !state.staging &&
+            !state.driverBusy
 
     LaunchedEffect(state.stagedExePath) {
         if (state.stagedExePath != null) {
@@ -131,6 +136,7 @@ fun ModernLauncherScreen(
                         state = state,
                         desktopSelected = desktopSelected,
                         runtimeReady = runtimeReady,
+                        canPrepareRuntime = canPrepareRuntime,
                         onLaunchProgram = {
                             state.stagedExePath?.let { path ->
                                 viewModel.markProgramLaunched()
@@ -152,6 +158,7 @@ fun ModernLauncherScreen(
                     state = state,
                     desktopSelected = desktopSelected,
                     runtimeReady = runtimeReady,
+                    canPrepareRuntime = canPrepareRuntime,
                     onLaunchProgram = {
                         state.stagedExePath?.let { path ->
                             viewModel.markProgramLaunched()
@@ -446,6 +453,7 @@ private fun DetailPane(
     state: LauncherUiState,
     desktopSelected: Boolean,
     runtimeReady: Boolean,
+    canPrepareRuntime: Boolean,
     onLaunchProgram: () -> Unit,
     onOpenExplorer: () -> Unit,
     onAddProgram: () -> Unit,
@@ -486,6 +494,7 @@ private fun DetailPane(
                     DesktopDetail(
                         state = state,
                         runtimeReady = runtimeReady,
+                        canPrepareRuntime = canPrepareRuntime,
                         onOpenExplorer = onOpenExplorer,
                         onOpenSettings = onOpenSettings,
                     )
@@ -494,6 +503,7 @@ private fun DetailPane(
                         program = selectedProgram,
                         state = state,
                         runtimeReady = runtimeReady,
+                        canPrepareRuntime = canPrepareRuntime,
                         onLaunch = onLaunchProgram,
                         onOpenSettings = onOpenSettings,
                     )
@@ -540,6 +550,7 @@ private fun DetailPane(
 private fun DesktopDetail(
     state: LauncherUiState,
     runtimeReady: Boolean,
+    canPrepareRuntime: Boolean,
     onOpenExplorer: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -555,12 +566,18 @@ private fun DesktopDetail(
         )
         Button(
             onClick = onOpenExplorer,
-            enabled = runtimeReady,
+            enabled = canPrepareRuntime,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
             contentPadding = PaddingValues(vertical = 15.dp),
         ) {
-            Text(if (state.contentBusy) "Preparing environment…" else "Open desktop")
+            Text(
+                when {
+                    state.contentBusy -> "Checking environment…"
+                    runtimeReady -> "Open desktop"
+                    else -> "Prepare and open desktop"
+                },
+            )
         }
         ConfigurationCard(state = state, onOpenSettings = onOpenSettings)
     }
@@ -571,6 +588,7 @@ private fun ProgramDetail(
     program: RecentProgram,
     state: LauncherUiState,
     runtimeReady: Boolean,
+    canPrepareRuntime: Boolean,
     onLaunch: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -586,12 +604,12 @@ private fun ProgramDetail(
         )
         Button(
             onClick = onLaunch,
-            enabled = runtimeReady,
+            enabled = canPrepareRuntime,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
             contentPadding = PaddingValues(vertical = 15.dp),
         ) {
-            Text(if (runtimeReady) "Launch program" else "Environment unavailable")
+            Text(if (runtimeReady) "Launch program" else "Prepare and launch program")
         }
         Text(
             "Last used ${relativeTime(program.lastUsedAt)}",
