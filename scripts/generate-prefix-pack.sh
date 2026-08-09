@@ -10,6 +10,7 @@ adb_port="${AMPHORA_ADB_PORT:-5037}"
 adb_args=()
 if [[ -n "$adb_host" ]]; then
   adb_args=(-H "$adb_host" -P "$adb_port")
+  export ADB_SERVER_SOCKET="tcp:$adb_host:$adb_port"
 fi
 
 tmp="$(mktemp -d)"
