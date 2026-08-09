@@ -47,8 +47,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -308,10 +308,10 @@ private fun RuntimeSessionDrawer(
     ) {
         Column(
             modifier =
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(
@@ -336,8 +336,8 @@ private fun RuntimeSessionDrawer(
                 OutlinedButton(
                     onClick = onPauseToggle,
                     enabled =
-                        controlsEnabled &&
-                            sessionState in setOf(SessionState.RUNNING, SessionState.PAUSED),
+                    controlsEnabled &&
+                        sessionState in setOf(SessionState.RUNNING, SessionState.PAUSED),
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(if (sessionState == SessionState.PAUSED) "Resume" else "Pause")
@@ -428,15 +428,12 @@ private fun RuntimeSessionDrawer(
 }
 
 @Composable
-private fun RuntimeDrawerSection(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit,
-) {
+private fun RuntimeDrawerSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(
         colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ),
+        CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -476,16 +473,16 @@ private fun RuntimeToggleRow(
     }
 }
 
-private fun runtimeStatusLabel(sessionState: SessionState?): String =
-    when (sessionState) {
-        SessionState.STARTING -> "Starting Windows session"
-        SessionState.RUNNING -> "Running"
-        SessionState.PAUSED -> "Paused"
-        SessionState.STOPPING -> "Closing session"
-        SessionState.STOPPED -> "Session ended"
-        SessionState.FAILED -> "Session failed"
-        null -> "Preparing session"
-    }
+private fun runtimeStatusLabel(sessionState: SessionState?): String = when (sessionState) {
+    SessionState.CREATED -> "Preparing session"
+    SessionState.STARTING -> "Starting Windows session"
+    SessionState.RUNNING -> "Running"
+    SessionState.PAUSED -> "Paused"
+    SessionState.STOPPING -> "Closing session"
+    SessionState.STOPPED -> "Session ended"
+    SessionState.FAILED -> "Session failed"
+    null -> "Preparing session"
+}
 
 private fun Context.findActivity(): Activity? {
     var current: Context? = this
