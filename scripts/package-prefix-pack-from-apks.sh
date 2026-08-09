@@ -27,6 +27,7 @@ instrument_args=()
 if [[ -n "$proton_wcp" ]]; then
   proton_wcp="$(realpath "$proton_wcp")"
   adb "${adb_args[@]}" push "$proton_wcp" /data/local/tmp/amphora-prefix-generator.wcp >/dev/null
+  adb "${adb_args[@]}" shell run-as app.amphora mkdir -p files
   adb "${adb_args[@]}" shell run-as app.amphora \
     cp /data/local/tmp/amphora-prefix-generator.wcp files/prefix-generator-input.wcp
   instrument_args=(-e prefix_generator_wcp_path \
