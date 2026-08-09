@@ -272,12 +272,11 @@ class PrefixPackGeneratorTest {
     private fun countRegularFiles(root: File): Long =
         root.walkTopDown().onEnter { !FileUtils.isSymlink(it) }.count { it.isFile }.toLong()
 
-    private fun sizeWithoutFollowingLinks(root: File): Long =
-        root
-            .walkTopDown()
-            .onEnter { !FileUtils.isSymlink(it) }
-            .filter(File::isFile)
-            .sumOf(File::length)
+    private fun sizeWithoutFollowingLinks(root: File): Long = root
+        .walkTopDown()
+        .onEnter { !FileUtils.isSymlink(it) }
+        .filter(File::isFile)
+        .sumOf(File::length)
 
     private companion object {
         const val OUTPUT_DIRECTORY = "prefix-generator"
