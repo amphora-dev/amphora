@@ -350,6 +350,21 @@ public abstract class WineUtils {
     return letter.length() == 1 && Character.isLetter(letter.charAt(0));
   }
 
+  public static boolean hasRequiredDosdevicesSymlinks(Container container) {
+    if (container == null || container.getRootDir() == null) return false;
+    File dosdevicesDir = new File(container.getRootDir(), ".wine/dosdevices");
+    if (!FileUtils.isSymlink(new File(dosdevicesDir, "c:"))
+        || !FileUtils.isSymlink(new File(dosdevicesDir, "z:"))) {
+      return false;
+    }
+    for (String[] drive : container.drivesIterator()) {
+      if ("A".equalsIgnoreCase(drive[0])) continue;
+      File link = new File(dosdevicesDir, drive[0].toLowerCase(Locale.ENGLISH) + ":");
+      if (!FileUtils.isSymlink(link)) return false;
+    }
+    return true;
+  }
+
   public static void createDosdevicesSymlinks(
       Container container, @Nullable String gameDirectoryPath, boolean exposeSteamGameLink) {
     Log.d(
@@ -369,8 +384,8 @@ public abstract class WineUtils {
     File[] files = dosdevicesDir.listFiles();
     if (files != null) for (File file : files) if (file.getName().matches("[a-z]:")) file.delete();
 
-    FileUtils.symlink("../drive_c", dosdevicesPath + "/c:");
-    FileUtils.symlink(container.getRootDir().getPath() + "/../..", dosdevicesPath + "/z:");
+    createVerifiedSymlink("../drive_c", dosdevicesPath + "/c:");
+    createVerifiedSymlink(container.getRootDir().getPath() + "/../..", dosdevicesPath + "/z:");
 
     String packageStorageSuffix = "/com.winnative.cmod/storage";
     String legacyPackageStorageSuffix = "/com.winlator.cmod/storage";
@@ -397,13 +412,23 @@ public abstract class WineUtils {
       String path = resolveReadableDrivePath(drive[1]);
       File linkTarget = new File(path);
       path = linkTarget.getAbsolutePath();
+      String downloadsPath =
+          Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+              .getAbsolutePath();
+      if (!linkTarget.isDirectory()
+          && normalizeHostPath(path).equals(normalizeHostPath(downloadsPath))) {
+        if (!linkTarget.mkdirs() && !linkTarget.isDirectory()) {
+          Log.w("ContainerLaunch", "Could not create Downloads drive target: " + path);
+        }
+      }
       boolean isAppStoragePath =
           path.endsWith(packageStorageSuffix) || path.endsWith(legacyPackageStorageSuffix);
       if (!linkTarget.isDirectory() && isAppStoragePath) {
         linkTarget.mkdirs();
         FileUtils.chmod(linkTarget, 0771);
       }
-      FileUtils.symlink(path, dosdevicesPath + "/" + drive[0].toLowerCase(Locale.ENGLISH) + ":");
+      createVerifiedSymlink(
+          path, dosdevicesPath + "/" + drive[0].toLowerCase(Locale.ENGLISH) + ":");
       Log.d("ContainerLaunch", "createDosdevicesSymlinks: " + drive[0] + ": -> " + path);
       driveCount++;
     }
@@ -413,6 +438,13 @@ public abstract class WineUtils {
     if (gameDirectoryPath != null && !gameDirectoryPath.isEmpty()) {
       if (exposeSteamGameLink) ensureSteamappsCommonSymlink(container, gameDirectoryPath);
       else removeSteamappsCommonSymlink(container, gameDirectoryPath);
+    }
+  }
+
+  private static void createVerifiedSymlink(String target, String linkPath) {
+    FileUtils.symlink(target, linkPath);
+    if (!FileUtils.isSymlink(new File(linkPath))) {
+      Log.e("ContainerLaunch", "Failed to create drive symlink " + linkPath + " -> " + target);
     }
   }
 
