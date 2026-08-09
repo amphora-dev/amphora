@@ -314,7 +314,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     if (showExitConfirmation) {
         AlertDialog(
             onDismissRequest = { showExitConfirmation = false },
-            title = { Text("End this session?") },
+            title = { Text("Exit Windows session?") },
             text = { Text("The Windows program and all processes in this session will be closed.") },
             confirmButton = {
                 Button(
@@ -323,7 +323,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                         if (running) exitRequested = true else onExit()
                     },
                 ) {
-                    Text("End session")
+                    Text("Exit Windows")
                 }
             },
             dismissButton = {
@@ -376,7 +376,7 @@ private fun RuntimeSessionDrawer(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                TextButton(onClick = onClose) { Text("Close") }
+                TextButton(onClick = onClose) { Text("Hide controls") }
             }
 
             Row(
@@ -397,7 +397,7 @@ private fun RuntimeSessionDrawer(
                     enabled = sessionState != SessionState.STOPPING,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("End session")
+                    Text("Exit Windows")
                 }
             }
 
