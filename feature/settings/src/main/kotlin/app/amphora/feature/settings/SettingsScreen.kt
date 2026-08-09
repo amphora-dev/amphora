@@ -1357,6 +1357,21 @@ private fun StorageUsageSection(state: SettingsUiState, onRefresh: () -> Unit) {
                 Text(if (state.storageScanning) "Measuring…" else "Recalculate")
             }
         }
+        if (usage.reclaimableBytes > 0) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "${formatStorageSize(usage.reclaimableBytes)} is caches and leftovers " +
+                        "from earlier runs.",
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
         HorizontalDivider()
         usage.entries.forEach { entry ->
             StorageUsageRow(entry = entry, totalBytes = usage.totalBytes)
@@ -1366,8 +1381,14 @@ private fun StorageUsageSection(state: SettingsUiState, onRefresh: () -> Unit) {
 
 @Composable
 private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long) {
+    var expanded by rememberSaveable(entry.label) { mutableStateOf(false) }
+    val expandable = entry.children.isNotEmpty()
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .then(if (expandable) Modifier.clickable { expanded = !expanded } else Modifier)
+            .animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
@@ -1385,19 +1406,53 @@ private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long) {
                 fontWeight = FontWeight.SemiBold,
             )
         }
-        Text(
-            entry.detail,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                entry.detail,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (expandable) {
+                Text(
+                    if (expanded) "Hide" else "Details",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
         LinearProgressIndicator(
             progress = {
                 if (totalBytes <= 0) 0f else (entry.bytes.toFloat() / totalBytes).coerceIn(0f, 1f)
             },
             modifier = Modifier.fillMaxWidth(),
         )
+        if (expanded) {
+            entry.children.forEach { child ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        child.label,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        formatStorageSize(child.bytes),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
     }
 }
 

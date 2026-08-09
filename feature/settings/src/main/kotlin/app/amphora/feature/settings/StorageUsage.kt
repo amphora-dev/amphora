@@ -10,62 +10,80 @@ import com.winlator.cmod.runtime.display.environment.ImageFs
 import java.io.File
 
 /** One line of the storage breakdown, already resolved to bytes on disk. */
-data class StorageEntry(val label: String, val detail: String, val bytes: Long)
+data class StorageEntry(
+    val label: String,
+    val detail: String,
+    val bytes: Long,
+    val children: List<StorageEntry> = emptyList(),
+)
 
 data class StorageUsage(
     val entries: List<StorageEntry> = emptyList(),
     val totalBytes: Long = 0,
     val freeBytes: Long = 0,
     val shaderCacheBytes: Long = 0,
+    val reclaimableBytes: Long = 0,
 )
 
 /**
  * Measures what Amphora occupies in app-private storage.
  *
- * The imagefs tree is reported as three separate lines because they age very
- * differently: the Linux runtime is replaced only when the rootfs pin moves,
- * the Windows prefix grows with installed programs, and the shader cache is
- * disposable and can be cleared from this screen.
+ * The imagefs tree is not reported as one number because most of it is not the
+ * Linux runtime at all: the guest home holds the active Windows prefix plus any
+ * container or prefix left behind by earlier runs, and those are usually the
+ * largest — and the only reclaimable — items on the device.
  */
 object StorageUsageScanner {
+    private const val MAX_CHILDREN = 8
+
     fun scan(context: Context): StorageUsage {
-        val imageFs = ImageFs.find(context)
-        val rootDir = imageFs.rootDir
-        val prefixDir = File(rootDir, ImageFs.WINEPREFIX.trimStart('/'))
-        val cacheDir = File(rootDir, ImageFs.CACHE_PATH.trimStart('/'))
-        val imagefsTotal = sizeOf(rootDir)
-        val prefixBytes = sizeOf(prefixDir)
+        val rootDir = resolve(ImageFs.find(context).rootDir)
+        val homeDir = File(rootDir, "home")
+        // `home/xuser` is a symlink to the active container (`xuser-1`, `xuser-2`, …).
+        val activeHome = resolve(File(homeDir, ImageFs.USER))
+        val prefixDir = File(activeHome, ".wine")
+        val cacheDir = File(activeHome, ".cache")
         val cacheBytes = sizeOf(cacheDir)
+        val stale = staleGuestData(homeDir, activeHome)
 
         val entries =
             buildList {
                 add(
                     StorageEntry(
-                        label = "Linux runtime",
-                        detail = "ImageFS libraries and filesystem",
-                        bytes = (imagefsTotal - prefixBytes - cacheBytes).coerceAtLeast(0),
-                    ),
-                )
-                add(
-                    StorageEntry(
                         label = "Windows prefix",
-                        detail = "Registry, drive C: and installed programs",
-                        bytes = prefixBytes,
+                        detail = "Drive C:, registry and installed programs",
+                        bytes = sizeOf(prefixDir),
+                        children = childrenOf(prefixDir),
                     ),
                 )
+                if (stale.isNotEmpty()) {
+                    add(
+                        StorageEntry(
+                            label = "Unused containers and backups",
+                            detail = "Left by earlier runs · safe to delete",
+                            bytes = stale.sumOf(StorageEntry::bytes),
+                            children = stale,
+                        ),
+                    )
+                }
                 addAll(componentEntries(context))
+                val assetsDir = RuntimeAssetProvisioner.runtimeAssetsDir(context)
                 add(
                     StorageEntry(
                         label = "Runtime assets",
-                        detail = "Windows components, wrappers and metadata",
-                        bytes = sizeOf(RuntimeAssetProvisioner.runtimeAssetsDir(context)),
+                        detail = "Windows components, wrappers and graphics drivers",
+                        bytes = sizeOf(assetsDir),
+                        children = childrenOf(assetsDir),
                     ),
                 )
+                add(linuxRuntimeEntry(rootDir, homeDir))
+                val exeDir = GuestFiles.exeDir(context)
                 add(
                     StorageEntry(
                         label = "Added programs",
                         detail = "Executables copied into Amphora",
-                        bytes = sizeOf(GuestFiles.exeDir(context)),
+                        bytes = sizeOf(exeDir),
+                        children = childrenOf(exeDir),
                     ),
                 )
                 add(
@@ -82,28 +100,103 @@ object StorageUsageScanner {
             totalBytes = entries.sumOf(StorageEntry::bytes),
             freeBytes = freeBytes(context),
             shaderCacheBytes = cacheBytes,
+            reclaimableBytes = stale.sumOf(StorageEntry::bytes) + cacheBytes,
+        )
+    }
+
+    /** Everything under `home` that the active container does not use. */
+    private fun staleGuestData(homeDir: File, activeHome: File): List<StorageEntry> {
+        val containers = homeDir.listFiles().orEmpty().filter { it.isDirectory && !isSymlink(it) }
+        return containers
+            .flatMap { container ->
+                if (container != activeHome) {
+                    listOf(
+                        StorageEntry(
+                            label = container.name,
+                            detail = "Inactive container",
+                            bytes = sizeOf(container),
+                        ),
+                    )
+                } else {
+                    container
+                        .listFiles()
+                        .orEmpty()
+                        .filter { it.name != ".wine" && it.name != ".cache" && !isSymlink(it) }
+                        .filter { it.isDirectory }
+                        .map {
+                            StorageEntry(
+                                label = it.name,
+                                detail = "Prefix backup",
+                                bytes = sizeOf(it),
+                            )
+                        }
+                }
+            }.filter { it.bytes > 0 }
+            .sortedByDescending(StorageEntry::bytes)
+    }
+
+    /** imagefs without the guest home: the ported Linux userland Wine runs on. */
+    private fun linuxRuntimeEntry(rootDir: File, homeDir: File): StorageEntry {
+        val children =
+            rootDir
+                .listFiles()
+                .orEmpty()
+                .filter { it != homeDir && !isSymlink(it) }
+                .map { StorageEntry(label = it.name, detail = pathKind(it), bytes = sizeOf(it)) }
+                .filter { it.bytes > 0 }
+                .sortedByDescending(StorageEntry::bytes)
+        return StorageEntry(
+            label = "Linux runtime",
+            detail = "ImageFS libraries and system directories",
+            bytes = children.sumOf(StorageEntry::bytes),
+            children = children.take(MAX_CHILDREN),
         )
     }
 
     /**
-     * `.wcp` components live under `contents/<type>/<verName>-<verCode>`, so a
-     * type directory covers every installed version of that component.
+     * `.wcp` components live under `contents/<type>/<verName>-<verCode>` and are
+     * stored extracted — the downloaded archive is not kept after installation.
      */
     private fun componentEntries(context: Context): List<StorageEntry> = COMPONENT_LABELS.mapNotNull { (type, label) ->
         val dir = ContentsManager.getContentTypeDir(context, type)
-        val bytes = sizeOf(dir)
-        if (bytes <= 0) return@mapNotNull null
-        StorageEntry(label = label, detail = installedVersions(dir), bytes = bytes)
+        val versions =
+            dir
+                .listFiles()
+                .orEmpty()
+                .filter { it.isDirectory }
+                .map { StorageEntry(label = it.name, detail = "Extracted component", bytes = sizeOf(it)) }
+                .filter { it.bytes > 0 }
+                .sortedByDescending(StorageEntry::bytes)
+        if (versions.isEmpty()) return@mapNotNull null
+        StorageEntry(
+            label = label,
+            detail = versions.joinToString { it.label },
+            bytes = versions.sumOf(StorageEntry::bytes),
+            children = if (versions.size > 1) versions else childrenOf(File(dir, versions.first().label)),
+        )
     }
 
-    private fun installedVersions(dir: File): String = dir
-        .listFiles()
-        ?.filter(File::isDirectory)
-        ?.map(File::getName)
-        ?.sorted()
-        ?.takeIf { it.isNotEmpty() }
-        ?.joinToString()
-        ?: "Installed component"
+    private fun childrenOf(dir: File): List<StorageEntry> {
+        val entries =
+            dir
+                .listFiles()
+                .orEmpty()
+                .filter { !isSymlink(it) }
+                .map { StorageEntry(label = it.name, detail = pathKind(it), bytes = sizeOf(it)) }
+                .filter { it.bytes > 0 }
+                .sortedByDescending(StorageEntry::bytes)
+        if (entries.size <= MAX_CHILDREN) return entries
+        val shown = entries.take(MAX_CHILDREN)
+        val rest = entries.drop(MAX_CHILDREN)
+        return shown +
+            StorageEntry(
+                label = "${rest.size} more items",
+                detail = "Smaller files and folders",
+                bytes = rest.sumOf(StorageEntry::bytes),
+            )
+    }
+
+    private fun pathKind(file: File): String = if (file.isDirectory) "Folder" else "File"
 
     private fun freeBytes(context: Context): Long = try {
         val stat = StatFs(context.filesDir.absolutePath)
@@ -113,18 +206,13 @@ object StorageUsageScanner {
     }
 
     /**
-     * The guest home is reached through a symlink (`home/xuser -> ./xuser-1`), so the
-     * scan root is resolved first — otherwise every entry below it looks like a link.
-     * Links found during the walk are still skipped: the prefix symlinks Windows DLLs
-     * back into the component store, and following them would bill the same bytes twice.
+     * The scan root is resolved first because the guest home is reached through a
+     * symlink; without that every entry below it would look like a link. Links
+     * found during the walk are still skipped — the prefix symlinks Windows DLLs
+     * back into the component store, and following them would double-count bytes.
      */
     private fun sizeOf(file: File): Long {
-        val root =
-            try {
-                file.canonicalFile
-            } catch (_: java.io.IOException) {
-                file.absoluteFile
-            }
+        val root = resolve(file)
         if (!root.exists()) return 0
         if (root.isFile) return root.length()
         return root
@@ -132,6 +220,12 @@ object StorageUsageScanner {
             .onEnter { it == root || !isSymlink(it) }
             .filter { it.isFile && !isSymlink(it) }
             .sumOf(File::length)
+    }
+
+    private fun resolve(file: File): File = try {
+        file.canonicalFile
+    } catch (_: java.io.IOException) {
+        file.absoluteFile
     }
 
     private fun isSymlink(file: File): Boolean = try {
