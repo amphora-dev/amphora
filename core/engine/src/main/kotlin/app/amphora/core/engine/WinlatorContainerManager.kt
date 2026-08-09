@@ -363,11 +363,7 @@ constructor(
      * do not scan/migrate it: developers can recreate that container, while new
      * prefixes are linked directly by ContainerManager.createContainer.
      */
-    private fun ensureWineBuiltinLinks(
-        container: WnContainer,
-        wineVersion: String,
-        newlyCreated: Boolean,
-    ) {
+    private fun ensureWineBuiltinLinks(container: WnContainer, wineVersion: String, newlyCreated: Boolean) {
         val linkedVersion = container.getExtra(WINE_BUILTIN_LINKS_EXTRA).orEmpty()
         if (linkedVersion == wineVersion) return
         if (linkedVersion.isEmpty() && !newlyCreated) {
