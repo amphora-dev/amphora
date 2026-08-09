@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -918,9 +919,10 @@ private fun <T> ChoiceSetting(
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    Row(
+    FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         values.forEach { value ->
             FilterChip(
@@ -1592,6 +1594,14 @@ private fun StorageSection() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Text(
+                "Android may still hide other apps' Android/data and Android/obb folders. " +
+                    "Downloads, Documents, media, and other shared files remain available.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             OutlinedButton(
                 onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
