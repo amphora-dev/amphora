@@ -52,6 +52,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -195,6 +196,7 @@ private fun LauncherTopBar(
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    val compact = LocalConfiguration.current.screenWidthDp < 600
     TopAppBar(
         colors =
         TopAppBarDefaults.topAppBarColors(
@@ -205,18 +207,20 @@ private fun LauncherTopBar(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AmphoraMark(Modifier.size(34.dp))
+                AmphoraMark(Modifier.size(if (compact) 30.dp else 34.dp))
                 Column {
                     Text(
                         "Amphora",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
                     )
-                    Text(
-                        "Windows runtime",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (!compact) {
+                        Text(
+                            "Windows runtime",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         },
@@ -224,10 +228,17 @@ private fun LauncherTopBar(
             RuntimeStatusButton(
                 ready = runtimeReady,
                 busy = state.contentBusy,
+                compact = compact,
                 onClick = onRefresh,
             )
             TextButton(onClick = onAddProgram, enabled = !state.staging) {
-                Text(if (state.staging) "Adding…" else "+ Add program")
+                Text(
+                    when {
+                        state.staging -> "Adding…"
+                        compact -> "Add"
+                        else -> "+ Add program"
+                    },
+                )
             }
             TextButton(onClick = onOpenSettings) {
                 Text("Settings")
@@ -238,7 +249,7 @@ private fun LauncherTopBar(
 }
 
 @Composable
-private fun RuntimeStatusButton(ready: Boolean, busy: Boolean, onClick: () -> Unit) {
+private fun RuntimeStatusButton(ready: Boolean, busy: Boolean, compact: Boolean, onClick: () -> Unit) {
     val statusColor =
         when {
             busy -> MaterialTheme.colorScheme.outline
@@ -256,8 +267,8 @@ private fun RuntimeStatusButton(ready: Boolean, busy: Boolean, onClick: () -> Un
         Text(
             when {
                 busy -> "Checking"
-                ready -> "Environment ready"
-                else -> "Needs attention"
+                ready -> if (compact) "Ready" else "Environment ready"
+                else -> if (compact) "Issue" else "Needs attention"
             },
             color = MaterialTheme.colorScheme.onSurface,
         )
