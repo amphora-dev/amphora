@@ -248,21 +248,39 @@ class PrefixPackGeneratorTest {
         listOf("system.reg", "user.reg", "userdef.reg").forEach { name ->
             val file = File(prefix, name)
             if (!file.isFile) return@forEach
-            val normalized =
-                file
-                    .readLines()
-                    .joinToString("\n", postfix = "\n") { line ->
-                        when {
-                            line.startsWith("\"MachineGuid\"=") ->
-                                "\"MachineGuid\"=\"$FIXED_MACHINE_GUID\""
-                            line.startsWith("#time=") -> "#time=0"
-                            line.startsWith("[") && line.contains("] ") ->
-                                line.substringBeforeLast("] ") + "] 0"
-                            else -> line.replace(outputRoot.absolutePath, "/data/data/app.amphora-prefix")
-                        }
-                    }
-            file.writeText(normalized)
+            normalizeRegistry(file, outputRoot)
         }
+    }
+
+    private fun normalizeRegistry(file: File, outputRoot: File) {
+        val output = ArrayList<String>()
+        var skippingDigitalProductId = false
+        file.readLines().forEach { line ->
+            if (skippingDigitalProductId) {
+                skippingDigitalProductId = line.trimEnd().endsWith("\\")
+                return@forEach
+            }
+            output +=
+                when {
+                    line.startsWith("\"DigitalProductId\"=hex:") -> {
+                        skippingDigitalProductId = line.trimEnd().endsWith("\\")
+                        "\"DigitalProductId\"=hex:00"
+                    }
+                    line.startsWith("\"MachineGuid\"=") ->
+                        "\"MachineGuid\"=\"$FIXED_MACHINE_GUID\""
+                    line.startsWith("\"ContainerId\"=\"{0001845E") ->
+                        "\"ContainerId\"=\"{0001845E-0000-FFFF-0000-000000000001}\""
+                    line.startsWith("\"ContainerId\"=\"{0002845E") ->
+                        "\"ContainerId\"=\"{0002845E-0000-FFFF-0000-000000000002}\""
+                    line.startsWith("\"VideoID\"=") ->
+                        "\"VideoID\"=\"{00000000-0000-4000-8000-000000000002}\""
+                    line.startsWith("#time=") -> "#time=0"
+                    line.startsWith("[") && line.contains("] ") ->
+                        line.substringBeforeLast("] ") + "] 0"
+                    else -> line.replace(outputRoot.absolutePath, "/data/data/app.amphora-prefix")
+                }
+        }
+        file.writeText(output.joinToString("\n", postfix = "\n"))
     }
 
     private fun removeSharedWineBuiltins(source: File, target: File) {
