@@ -217,7 +217,7 @@ object StorageUsageScanner {
             val target = resolve(File(path))
             if (!isRemovable(target, homeDir, activeHome)) return@forEach
             val size = sizeOf(target)
-            if (target.deleteRecursively()) freed += size
+            if (deleteTree(target)) freed += size
         }
         return freed
     }
@@ -235,6 +235,21 @@ object StorageUsageScanner {
 
     /** A renamed prefix such as `.wine.broken-backup`, never the live `.wine`. */
     private fun isOldPrefix(name: String): Boolean = name.startsWith(".wine") && name != ".wine"
+
+    /**
+     * Deletes a tree without ever following a symlink.
+     *
+     * `File.deleteRecursively()` descends into linked directories, and a Wine prefix
+     * maps whole volumes that way — `dosdevices/z:` points at `/`, so recursing
+     * through it would walk far outside the directory the user asked to remove.
+     */
+    private fun deleteTree(target: File): Boolean {
+        if (isSymlink(target)) return target.delete()
+        if (target.isDirectory) {
+            target.listFiles().orEmpty().forEach { deleteTree(it) }
+        }
+        return target.delete()
+    }
 
     private fun freeBytes(context: Context): Long = try {
         val stat = StatFs(context.filesDir.absolutePath)
