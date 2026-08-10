@@ -11,6 +11,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -219,6 +220,31 @@ public class WineRegistryEditor implements Closeable {
     StringBuilder data = new StringBuilder();
     for (byte b : bytes) data.append(String.format(Locale.ENGLISH, "%02x", Byte.toUnsignedInt(b)));
     setHexValue(key, name, data.toString());
+  }
+
+  /** Writes a Wine REG_MULTI_SZ value ({@code hex(7)}) using UTF-16LE strings. */
+  public void setMultiStringValue(String key, String name, String... values) {
+    StringBuilder joined = new StringBuilder();
+    if (values != null) {
+      for (String value : values) {
+        if (value == null || value.isEmpty()) continue;
+        joined.append(value).append('\0');
+      }
+    }
+    joined.append('\0');
+
+    byte[] bytes = joined.toString().getBytes(StandardCharsets.UTF_16LE);
+    StringBuilder lines = new StringBuilder();
+    int column = (int) Mathf.roundTo(name.length(), 2) + 10;
+    for (int i = 0; i < bytes.length; i++) {
+      if (i > 0) lines.append(",");
+      if (column++ > 56) {
+        lines.append("\\\n  ");
+        column = 8;
+      }
+      lines.append(String.format(Locale.ENGLISH, "%02x", Byte.toUnsignedInt(bytes[i])));
+    }
+    setRawValue(key, name, "hex(7):" + lines);
   }
 
   private String getRawValue(String key, String name) {

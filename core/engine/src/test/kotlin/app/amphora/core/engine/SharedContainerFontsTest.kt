@@ -1,5 +1,7 @@
 package app.amphora.core.engine
 
+import com.winlator.cmod.runtime.wine.WineRegistryEditor
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,7 +22,10 @@ class SharedContainerFontsTest {
         assertEquals(SharedContainerFonts.CN_REGULAR, links["msyh.ttc"])
         assertEquals(SharedContainerFonts.CN_BOLD, links["msyhbd.ttc"])
         assertEquals(SharedContainerFonts.CN_REGULAR, links["simsun.ttc"])
+        assertEquals(SharedContainerFonts.CN_REGULAR, links["simsunb.ttf"])
         assertEquals(SharedContainerFonts.CN_REGULAR, links["simhei.ttf"])
+        assertEquals(SharedContainerFonts.CN_REGULAR, links["deng.ttf"])
+        assertEquals(SharedContainerFonts.CN_BOLD, links["dengb.ttf"])
     }
 
     @Test
@@ -37,11 +42,57 @@ class SharedContainerFontsTest {
     fun familySubstitutes_splitCnAndJp() {
         val map = SharedContainerFonts.FAMILY_SUBSTITUTES.toMap()
         assertEquals(SharedContainerFonts.FONT_FAMILY_CN, map["Microsoft YaHei"])
+        assertEquals(SharedContainerFonts.FONT_FAMILY_CN, map["Microsoft YaHei UI Bold"])
         assertEquals(SharedContainerFonts.FONT_FAMILY_CN, map["微软雅黑"])
         assertEquals(SharedContainerFonts.FONT_FAMILY_CN, map["SimSun"])
+        assertEquals(SharedContainerFonts.FONT_FAMILY_CN, map["SimSun-ExtB"])
         assertEquals(SharedContainerFonts.FONT_FAMILY_JP, map["MS Gothic"])
         assertEquals(SharedContainerFonts.FONT_FAMILY_JP, map["Meiryo"])
         assertEquals(SharedContainerFonts.FONT_FAMILY_JP, map["Yu Gothic"])
         assertEquals(SharedContainerFonts.FONT_FAMILY_JP, map["メイリオ"])
+    }
+
+    @Test
+    fun systemFontLinks_coverWindowsUiAndLegacyFamilies() {
+        val links = SharedContainerFonts.SYSTEM_FONT_LINKS
+        assertTrue(links.contains("Segoe UI"))
+        assertTrue(links.contains("Tahoma"))
+        assertTrue(links.contains("Arial"))
+        assertTrue(links.contains("Microsoft Sans Serif"))
+        assertTrue(links.contains("Times New Roman"))
+    }
+
+    @Test
+    fun fontRegistrations_coverNormalSimplifiedChineseNames() {
+        val fonts = SharedContainerFonts.FONT_REGISTRATIONS
+        assertEquals("msyh.ttc", fonts["Microsoft YaHei & Microsoft YaHei UI (TrueType)"])
+        assertEquals("msyhbd.ttc", fonts["Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)"])
+        assertEquals("simsun.ttc", fonts["SimSun & NSimSun (TrueType)"])
+        assertEquals("deng.ttf", fonts["DengXian (TrueType)"])
+    }
+
+    @Test
+    fun registryEditor_writesFontLinkAsMultiString() {
+        val registry = Files.createTempFile("amphora-font-link", ".reg").toFile()
+        try {
+            registry.writeText(
+                "WINE REGISTRY Version 2\n\n" +
+                    "[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\FontLink\\\\SystemLink] 1\n",
+            )
+            WineRegistryEditor(registry).use {
+                it.setMultiStringValue(
+                    "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontLink\\SystemLink",
+                    "Tahoma",
+                    "SourceHanSansCN-Regular.otf,Source Han Sans CN",
+                )
+            }
+
+            val output = registry.readText()
+            assertTrue(output.contains("\"Tahoma\"=hex(7):"))
+            assertTrue(output.contains("53,00,6f,00,75,00,72,00"))
+            assertTrue(output.contains("00,00,00,00"))
+        } finally {
+            registry.delete()
+        }
     }
 }

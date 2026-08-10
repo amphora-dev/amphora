@@ -65,19 +65,25 @@ object SharedContainerFonts {
             "msyhbd.ttc" to CN_BOLD,
             "msyhl.ttc" to CN_REGULAR,
             "simsun.ttc" to CN_REGULAR,
+            "simsunb.ttf" to CN_REGULAR,
             "nsimsun.ttc" to CN_REGULAR,
             "simhei.ttf" to CN_REGULAR,
             "simkai.ttf" to CN_REGULAR,
             "simfang.ttf" to CN_REGULAR,
             "simli.ttf" to CN_REGULAR,
+            "deng.ttf" to CN_REGULAR,
+            "dengb.ttf" to CN_BOLD,
+            "dengl.ttf" to CN_REGULAR,
             "dengxian.ttf" to CN_REGULAR,
             "dengxianb.ttf" to CN_BOLD,
             "youyuan.ttf" to CN_REGULAR,
             // --- Traditional Chinese (still CN face; better than missing) ---
             "mingliu.ttc" to CN_REGULAR,
+            "mingliub.ttc" to CN_BOLD,
             "pmingliu.ttc" to CN_REGULAR,
             "msjh.ttc" to CN_REGULAR,
             "msjhbd.ttc" to CN_BOLD,
+            "msjhl.ttc" to CN_REGULAR,
             // --- Japanese (JP) ---
             "msgothic.ttc" to JP_REGULAR,
             "msmincho.ttc" to JP_REGULAR,
@@ -106,12 +112,21 @@ object SharedContainerFonts {
         listOf(
             // --- Chinese ---
             "Microsoft YaHei" to FONT_FAMILY_CN,
+            "Microsoft YaHei Bold" to FONT_FAMILY_CN,
+            "Microsoft YaHei Light" to FONT_FAMILY_CN,
             "Microsoft YaHei UI" to FONT_FAMILY_CN,
+            "Microsoft YaHei UI Bold" to FONT_FAMILY_CN,
+            "Microsoft YaHei UI Light" to FONT_FAMILY_CN,
             "微软雅黑" to FONT_FAMILY_CN,
             "Microsoft JhengHei" to FONT_FAMILY_CN,
+            "Microsoft JhengHei Bold" to FONT_FAMILY_CN,
+            "Microsoft JhengHei Light" to FONT_FAMILY_CN,
             "Microsoft JhengHei UI" to FONT_FAMILY_CN,
+            "Microsoft JhengHei UI Bold" to FONT_FAMILY_CN,
+            "Microsoft JhengHei UI Light" to FONT_FAMILY_CN,
             "微軟正黑體" to FONT_FAMILY_CN,
             "SimSun" to FONT_FAMILY_CN,
+            "SimSun-ExtB" to FONT_FAMILY_CN,
             "NSimSun" to FONT_FAMILY_CN,
             "宋体" to FONT_FAMILY_CN,
             "新宋体" to FONT_FAMILY_CN,
@@ -122,6 +137,8 @@ object SharedContainerFonts {
             "FangSong" to FONT_FAMILY_CN,
             "仿宋" to FONT_FAMILY_CN,
             "DengXian" to FONT_FAMILY_CN,
+            "DengXian Bold" to FONT_FAMILY_CN,
+            "DengXian Light" to FONT_FAMILY_CN,
             "等线" to FONT_FAMILY_CN,
             "YouYuan" to FONT_FAMILY_CN,
             "幼圆" to FONT_FAMILY_CN,
@@ -156,6 +173,45 @@ object SharedContainerFonts {
             // --- generic shell ---
             "MS Shell Dlg" to FONT_FAMILY_CN,
             "MS Shell Dlg 2" to FONT_FAMILY_CN,
+        )
+
+    /**
+     * Windows' normal Latin UI fonts rely on FontLink for CJK glyphs. Replacing
+     * these families outright changes Latin metrics; linking preserves their
+     * original face and uses Source Han only for missing Chinese characters.
+     */
+    val SYSTEM_FONT_LINKS: List<String> =
+        listOf(
+            "Segoe UI",
+            "Segoe UI Light",
+            "Segoe UI Semibold",
+            "Tahoma",
+            "Arial",
+            "Arial Unicode MS",
+            "Microsoft Sans Serif",
+            "MS Sans Serif",
+            "Lucida Sans Unicode",
+            "Verdana",
+            "Times New Roman",
+            "Courier New",
+            "System",
+        )
+
+    /** Font-file registration names commonly queried by Windows applications. */
+    val FONT_REGISTRATIONS: Map<String, String> =
+        linkedMapOf(
+            "Source Han Sans CN Regular (OpenType)" to CN_REGULAR,
+            "Source Han Sans CN Bold (OpenType)" to CN_BOLD,
+            "Source Han Sans JP Regular (OpenType)" to JP_REGULAR,
+            "Source Han Sans JP Bold (OpenType)" to JP_BOLD,
+            "Microsoft YaHei & Microsoft YaHei UI (TrueType)" to "msyh.ttc",
+            "Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)" to "msyhbd.ttc",
+            "Microsoft YaHei Light & Microsoft YaHei UI Light (TrueType)" to "msyhl.ttc",
+            "SimSun & NSimSun (TrueType)" to "simsun.ttc",
+            "SimSun-ExtB (TrueType)" to "simsunb.ttf",
+            "DengXian (TrueType)" to "deng.ttf",
+            "DengXian Bold (TrueType)" to "dengb.ttf",
+            "DengXian Light (TrueType)" to "dengl.ttf",
         )
 
     /**
@@ -325,19 +381,32 @@ object SharedContainerFonts {
         if (systemReg.isFile) {
             try {
                 WineRegistryEditor(systemReg).use { reg ->
-                    val key =
+                    val substitutesKey =
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes"
                     for ((from, to) in FAMILY_SUBSTITUTES) {
-                        reg.setStringValue(key, from, to)
+                        reg.setStringValue(substitutesKey, from, to)
                     }
-                    reg.setStringValue(key, "msyh", FONT_FAMILY_CN)
-                    reg.setStringValue(key, "simsun", FONT_FAMILY_CN)
-                    reg.setStringValue(key, "simhei", FONT_FAMILY_CN)
-                    reg.setStringValue(key, "msgothic", FONT_FAMILY_JP)
-                    reg.setStringValue(key, "meiryo", FONT_FAMILY_JP)
-                    reg.setStringValue(key, "yugothic", FONT_FAMILY_JP)
+                    reg.setStringValue(substitutesKey, "msyh", FONT_FAMILY_CN)
+                    reg.setStringValue(substitutesKey, "simsun", FONT_FAMILY_CN)
+                    reg.setStringValue(substitutesKey, "simhei", FONT_FAMILY_CN)
+                    reg.setStringValue(substitutesKey, "msgothic", FONT_FAMILY_JP)
+                    reg.setStringValue(substitutesKey, "meiryo", FONT_FAMILY_JP)
+                    reg.setStringValue(substitutesKey, "yugothic", FONT_FAMILY_JP)
+
+                    val linksKey =
+                        "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontLink\\SystemLink"
+                    val chineseFallback = "$CN_REGULAR,$FONT_FAMILY_CN"
+                    for (family in SYSTEM_FONT_LINKS) {
+                        reg.setMultiStringValue(linksKey, family, chineseFallback)
+                    }
+
+                    val fontsKey =
+                        "Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
+                    for ((name, file) in FONT_REGISTRATIONS) {
+                        reg.setStringValue(fontsKey, name, file)
+                    }
                 }
-                Log.d(TAG, "Wrote FontSubstitutes into $systemReg")
+                Log.d(TAG, "Wrote Windows font substitutes, links, and registrations into $systemReg")
             } catch (e: Exception) {
                 Log.w(TAG, "FontSubstitutes update failed", e)
             }
