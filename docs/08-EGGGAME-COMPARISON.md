@@ -250,13 +250,238 @@ egggame 的 `wineaaudio.drv` 是最有价值的音频差异——直接 Wine →
 
 ---
 
-## 10. 总结：Amphora 可借鉴的方向
+## 10. 待办：消除 `/proc/self/exe` 运行时 hook（源码 patch 路线）
+
+### 10.1 动机
+
+Amphora 控制两个关键源码仓库，可以在**编译时**消除对 `/proc/self/exe` 的依赖，而不是在运行时用 readlink/realpath hook 欺骗：
+
+- **`amphora-dev/proton-wine`**：wine 源码，`loader/main.c` 的 `get_self_exe()`
+- **`amphora-dev/imagefs`**：box64 构建（`vendor/box64-patches/` 已有 patch 机制）
+
+这与盖世游戏的做法一致（stub 掉 `get_self_exe()`，用 `argv[0]` fallback），比运行时 hook 更干净。
+
+### 10.2 readlink/realpath hook 的代价（为什么要消除）
+
+| 问题 | 说明 |
+|---|---|
+| `/proc/self/exe` 与其他 proc 文件不一致 | 通过 linker64 exec 后：`exe` 被 hook 伪造为 wine/box64 路径，但 `maps` 第一行映射真实的是 linker64。程序交叉验证时会矛盾 |
+| hook 覆盖不完整 | 只 hook 了 `readlink` 和 `realpath`，`open("/proc/self/exe")` + `fstat`、`readlinkat`、`readlinkat(AT_FDCWD, ...)` 都没覆盖 |
+| 全局拦截副作用 | LD_PRELOAD 是进程级全局的，`readlink`/`realpath` 是高频 libc 函数，每次调用有函数指针跳转 + 字符串比较开销；hook 有 bug 会破坏所有调用 |
+| 调试干扰 | gdb、perf 等工具自己调 readlink，hook 会干扰它们 |
+
+### 10.3 待办任务清单（含实现细节）
+
+#### Task 1: patch wine `get_self_exe()` 返回 NULL（`__ANDROID__`）
+
+- **仓库**：`amphora-dev/proton-wine`（分支 `proton_11.0`）
+- **文件**：`loader/main.c` 第 130-149 行
+- **当前代码**：
+
+```c
+static const char *get_self_exe(void)
+{
+#if defined(__linux__) || defined(__FreeBSD_kernel__) || defined(__NetBSD__)
+    return "/proc/self/exe";
+#elif defined (__FreeBSD__) || defined(__DragonFly__)
+    static int pathname[] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+    size_t path_size = PATH_MAX;
+    char *path = malloc( path_size );
+    if (path && !sysctl( pathname, sizeof(pathname)/sizeof(pathname[0]), path, &path_size, NULL, 0 ))
+        return path;
+    free( path );
+#elif defined(__APPLE__)
+    uint32_t path_size = PATH_MAX;
+    char *path = malloc( path_size );
+    if (path && !_NSGetExecutablePath( path, &path_size ))
+        return path;
+    free( path );
+#endif
+    return NULL;
+}
+```
+
+- **改动**：在 `#if defined(__linux__) || ...` 分支前插入 `__ANDROID__` 分支：
+
+```c
+static const char *get_self_exe(void)
+{
+#ifdef __ANDROID__
+    /* Amphora routes app-private ELF through /system/bin/linker64, so
+     * /proc/self/exe points at linker64, not at this binary. Let main()
+     * fall back to try_dlopen(argv[0]) — argv[0] is the real path. */
+    return NULL;
+#else
+    ...原逻辑...
+#endif
+}
+```
+
+- **效果链**：`main()` 里 `try_dlopen(get_self_exe())` → `try_dlopen(NULL)` → `if (!argv0) return NULL;` 立即失败 → fallback `try_dlopen(argv[0])` → 成功加载 `ntdll.so`。与盖世游戏 9KB stub 行为一致。
+- **依据**（已核实）：
+  - `loader/main.c:191-192`：`if ((handle = try_dlopen( get_self_exe() )) || (handle = try_dlopen( argv[0] )))` — fallback 是现成的
+  - `loader/main.c:156`：`if (!argv0) return NULL;` — NULL 入参安全
+  - 整个 wine 代码库（`loader/`、`server/`、`programs/`、`dlls/`）只有 `loader/main.c:133` 一处引用 `/proc/self/exe`（已 grep 核实）
+  - `try_dlopen` 内 `realpath_dirname(argv[0])` → `remove_tail(dir, "/loader")` → `build_path(p, "dlls/ntdll/ntdll.so")`（构建树布局）或 `build_path(dir, "ntdll.so")`（安装布局）— 与安装路径 `.../lib/wine/x86_64-unix/` 的相对关系需要验证（盖世游戏用的是 `../lib/wine/aarch64-unix/ntdll.so` 布局，Amphora 的 x86_64 安装布局若不同需相应调整 `try_dlopen`）
+- **提交方式**：**直接改源码提交**（不是 patch 文件）。已核实：`android/patches/` 目录里的 patch 已全部应用到源码树（如 `loader/preloader.c:1494` 有 `# elif __ANDROID__`），该目录是补丁存档。wine WCP 构建（`imagefs/ci/wine/build-proton-wcp.sh`）无 patch 应用步骤，直接构建 checkout 的源码。
+- **版本管理**：修改后 bump `buildstream/elements/l1/proton-wine-wcp.bst` 的 `ref`（当前 `d12a5634aa4d8832761f2d968d5a3d9170034910`）+ `content_manifest.json` 的 wine 条目 sha256/version。
+
+#### Task 2: patch box64 `/proc/self/exe` 用法（`__ANDROID__`）
+
+- **仓库**：`amphora-dev/imagefs`
+- **patch 机制**（已核实）：`buildstream/elements/l1/box64-wcp.bst` 的 `configure-commands` 里 `patch -p1 < .bst/patches/<name>.patch`，patch 文件放 `vendor/box64-patches/`。现有 `pipetto-controller-fix.patch` 可作模板。
+- **box64 版本**：commit `0db8df7757b523e41cf31b6204c47d22b8fb4f08`（manifest 当前 pin `Box64-0.4.5-0db8df775.wcp`）
+
+- **改动点 1：`src/core.c:352-407` `KillAllInstances()`**
+
+当前逻辑（`core.c:369-380`）：
+```c
+ssize_t self_len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+if (self_len == -1) {
+    perror("readlink(/proc/self/exe)");
+    closedir(proc_dir);
+    return;
+}
+exe_path[self_len] = '\0';
+
+char* base_name_self = strrchr(exe_path, '/');
+base_name_self = base_name_self ? base_name_self + 1 : exe_path;
+strncpy(self_name, base_name_self, sizeof(self_name));
+self_name[sizeof(self_name) - 1] = '\0';
+```
+
+替代方案（box64 有现成的 `my_context->box64path`，`core.c:1050` 赋值：`my_context->box64path = ResolveFile(argv[0], ...)`）：
+```c
+#ifdef __ANDROID__
+    /* linker64 routing makes /proc/self/exe point at linker64, not box64.
+     * my_context->box64path is resolved from argv[0] and is the real path. */
+    char* base_name_self = strrchr(my_context->box64path, '/');
+    base_name_self = base_name_self ? base_name_self + 1 : my_context->box64path;
+    strncpy(self_name, base_name_self, sizeof(self_name));
+    self_name[sizeof(self_name) - 1] = '\0';
+#else
+    ...原 readlink 逻辑...
+#endif
+```
+
+注意：`KillAllInstances()` 的调用点在 `core.c:868`（`box64 -k` / `--kill-all`），此时 `my_context` 已初始化（`core.c:1050` 在 `StartBox()` 前）。需确认函数签名里能拿到 `my_context`（`KillAllInstances()` 当前无参数，需检查调用处上下文）。
+
+**影响评估**：`KillAllInstances` 只在 `-k/--kill-all` 时调用，**不在正常启动路径**。即使不 patch 也不影响游戏运行（`box64 -k` 读不到正确自身路径，kill 不到旧实例，仅此而已）。
+
+- **改动点 2：`src/elfs/elfhacks.c:71-72`**
+
+```c
+if (find->name == NULL) /* TODO readlink? */
+    find->name = "/proc/self/exe";
+```
+
+这是 `dl_iterate_phdr` 回调 `eh_find_callback` 中 `dlpi_name` 为空时的 fallback（`info->dlpi_name[0] == '\0'` 即主程序）。通过 linker64 exec 后这里会得到 `linker64` 的名字，影响 `dl_iterate_phdr` 查找主程序 ELF 的场景。**有 `/* TODO readlink? */` 标注，开发者自己都不确定**。
+
+替代：`__ANDROID__` 下用 `my_context->box64path`（或直接返回不匹配）：
+```c
+#ifdef __ANDROID__
+    /* linker64 routing: /proc/self/exe is not this binary. */
+    find->name = my_context->box64path;  // 或 box64argv0
+#else
+    find->name = "/proc/self/exe";
+#endif
+```
+
+**影响评估**：正常路径 `dlpi_name` 非空时走不到这个分支；仅主程序（name 为空）查询时触发。patch 或忽略均可，非关键。
+
+- **提交方式**：新增 `vendor/box64-patches/android-proc-self-exe.patch`，在 `box64-wcp.bst` 的 `configure-commands` 加一行 `patch -p1 < .bst/patches/android-proc-self-exe.patch`。
+- **版本管理**：重新构建 box64 WCP，更新 `content_manifest.json` 的 box64 条目。
+
+#### Task 3: 移除 `libamphora-exec.so` 的 readlink/realpath hook 与 env 注入
+
+- **仓库**：`amphora-dev/amphora`
+- **前置条件**：Task 1/2 完成且新 wine/box64 WCP 发布。在此之前**不能移除**，否则 wine/box64 读 `/proc/self/exe` 得到 linker64。
+
+- **文件 1：`core/native/src/main/cpp/winlator/amphora_exec.c`**
+  - 删除 `readlink` hook（390-402 行）：
+    ```c
+    __attribute__((visibility("default"))) ssize_t readlink(
+        const char *restrict path, char *restrict buffer, size_t size) {
+      if (strcmp(path, "/proc/self/exe") == 0) { ... }
+      return syscall(SYS_readlinkat, AT_FDCWD, path, buffer, size);
+    }
+    ```
+  - 删除 `realpath` hook（404-412 行）：
+    ```c
+    __attribute__((visibility("default"))) char *realpath(
+        const char *path, char *resolved_path) { ... }
+    ```
+  - 删除 `SELF_EXE_ENV` 宏（51 行）：`#define SELF_EXE_ENV "AMPHORA_EXEC__PROC_SELF_EXE"`
+  - `copy_environment()`（133-168 行）：删除 `self_executable` 参数、`self_entry` 输出参数、`asprintf(self_entry, SELF_EXE_ENV "=%s", ...)` 注入逻辑、`SELF_EXE_ENV` 前缀匹配逻辑
+  - `execve()`（185-272 行）：调用处改为 `copy_environment(envp, wrap_in_linker, &self_entry)` → `copy_environment(envp)`；删除 `self_entry` 的分配/释放
+  - 注意：`execve()` 内部还有一处 `realpath(executable_path, resolved_path)`（210 行）用于路径归一化，**这不是 hook 本身，是内部逻辑**。移除 hook 后这里仍调用 libc realpath，行为不变（传的是 executable_path 不是 `/proc/self/exe`）
+
+- **文件 2：`core/engine/src/main/java/com/winlator/cmod/runtime/system/ProcessHelper.java`**
+  - `configureAppDataExecEnvironment()`（72-103 行）：删除 `AMPHORA_EXEC__PROC_SELF_EXE` 注入（82-86 行）：
+    ```java
+    if (filesDir != null
+        && executablePath != null
+        && AppDataExecutableLauncher.isAppDataPath(filesDir, new File(executablePath))) {
+      environment.put("AMPHORA_EXEC__PROC_SELF_EXE", executablePath);
+    }
+    ```
+  - `executablePath` 参数保留（`AMPHORA_EXEC_ROOT` 判断仍用），或改为不再需要（看调用处是否还传）
+
+- **文件 3（文档同步）**：
+  - `docs/07-TARGETSDK-SELINUX.md` §4.2：删掉 `AMPHORA_EXEC__PROC_SELF_EXE` env + readlink hook 描述，改为"wine/box64 已在编译期消除对 /proc/self/exe 的依赖"
+  - `docs/08-EGGGAME-COMPARISON.md` §9 对比表：`/proc/self/exe` 行改为与 egggame 对齐的 stub/argv[0] 方案
+  - `README.md` 若有相关描述同步
+
+- **保留不动**：
+  - `libamphora-exec.so` 的 `execve` hook（linker64 包装逻辑，185-272 行的核心部分）
+  - `AppDataExecutableLauncher` Java 首启包装
+  - `AMPHORA_EXEC_ROOT` / `AMPHORA_EXEC_LEGACY_ROOT` env（execve 策略判断用）
+  - `AMPHORA_EXEC_OPTOUT` / `AMPHORA_EXEC_DEBUG` env
+
+### 10.4 执行顺序、依赖与验证
+
+```
+Task 1 (wine patch) ──┐
+                      ├──> Task 3 (移除 hook) ──> 发布新 wine WCP + box64 WCP + APK
+Task 2 (box64 patch) ─┘
+```
+
+Task 3 依赖 Task 1/2 完成并发布新 WCP 后。Task 1/2 相互独立，可并行。
+
+**Task 1 验证**（proton-wine 构建后）：
+1. `readelf -l` 确认 wine launcher PT_INTERP 为 `/system/bin/linker64`（imagefs CI 已有此检查，见 `box64-wcp.bst:49-51`）
+2. 设备上从 filesDir 直接 `execve(wine)` 会 EACCES（对照），经 `AppDataExecutableLauncher` 包装后成功启动
+3. 启动后 `cat /proc/<wine-pid>/exe` 显示 linker64，但 wine 正常加载 ntdll.so 并进入 `__wine_main`（说明 argv[0] fallback 生效）
+4. wineboot 完整跑通（wineserver + services.exe 正常 fork）
+
+**Task 2 验证**（box64 WCP 构建后）：
+1. `box64 --version` 正常
+2. `box64 -k` 不崩溃（即使 kill 不到旧实例，行为可接受）
+3. 游戏启动路径（正常 box64 启动）不受影响
+
+**Task 3 验证**（APK 构建后）：
+1. 移除 hook 后，全量回归 `GameSessionLaunchTest`（androidTest）：Wine desktop 画面 + 相对触控 + Vulkan 帧
+2. 设备上 `readlink /proc/<wine-pid>/exe` = linker64，`cat /proc/<wine-pid>/maps` 第一行 = linker64 —— 两者**一致**（消除矛盾）
+3. `AMPHORA_EXEC__PROC_SELF_EXE` 不再出现在 `ps e` / `/proc/<pid>/environ` 中
+4. gdb/perf 附加进程不再受 readlink hook 干扰（可选验证）
+
+### 10.5 为什么盖世游戏不选 readlink hook
+
+盖世游戏控制全部 wine 源码（WinEmuKernel），`get_self_exe()` 改成 stub 只需要改一个函数，wine launcher 立刻走 `argv[0]` fallback，**零运行时开销、零不一致风险、零维护负担**。它的 box64 备用路线遇到 `/proc/self/exe` 问题（`KillAllInstances`）影响有限——那只是清理旧实例的辅助功能，读不到正确路径只是 kill 不到其他实例，不影响游戏运行。
+
+**能用 stub 解决的问题，没有人会选择加一层运行时 hook。** Amphora 同样控制源码（proton-wine + imagefs），没有理由不这样做。
+
+---
+
+## 11. 总结：Amphora 可借鉴的方向
 
 ### 高价值（短期可行）
 
 1. ~~**linker64 exec 包装**~~（✅ 已落地，`d9a3090`..`75ec9a5`）：Amphora `SDK_TARGET=36`，Java `AppDataExecutableLauncher` + `libamphora-exec.so` LD_PRELOAD 拦截器已实现。详见 `docs/07-TARGETSDK-SELINUX.md` §4。
 
-2. **wineaaudio.drv**：直接 Wine → AAudio，省去 ALSA aserver 中间层，降低音频延迟。需要自构建 Wine 时添加此驱动。
+2. **消除 `/proc/self/exe` 运行时 hook**（📋 待办，见 §10）：patch wine `get_self_exe()` + box64 `/proc/self/exe` 用法（`__ANDROID__`），随后移除 `libamphora-exec.so` 的 readlink/realpath hook 和 `AMPHORA_EXEC__PROC_SELF_EXE` env 注入。消除 `exe`/`maps` 不一致与全局 hook 开销，与盖世游戏做法对齐。
+
+3. **wineaaudio.drv**：直接 Wine → AAudio，省去 ALSA aserver 中间层，降低音频延迟。需要自构建 Wine 时添加此驱动。
 
 ### 中价值（中期）
 
