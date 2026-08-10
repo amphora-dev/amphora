@@ -15,7 +15,7 @@ class AndroidNativeConventionPlugin : Plugin<Project> {
                 ndk { abiFilters += "arm64-v8a" }
                 externalNativeBuild {
                     cmake {
-                        targets("winlator")
+                        targets("winlator", "amphora-exec")
                         val nativeCache =
                             rootProject.layout.projectDirectory
                                 .dir(".native-cache")
