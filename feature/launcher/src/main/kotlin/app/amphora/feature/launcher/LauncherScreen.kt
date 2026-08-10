@@ -1,7 +1,5 @@
 package app.amphora.feature.launcher
 
-import android.Manifest
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -277,10 +275,6 @@ internal fun StorageAccessBlock() {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(GuestStorageAccess.isGranted(context)) }
 
-    val requestLegacy =
-        rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions(),
-        ) { granted = GuestStorageAccess.isGranted(context) }
     val openSettings =
         rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult(),
@@ -321,42 +315,19 @@ internal fun StorageAccessBlock() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                if (granted) {
-                    OutlinedButton(
-                        onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Manage Android file access")
-                    }
-                } else {
-                    Button(
-                        onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Allow Android file access")
-                    }
-                }
-            } else if (!granted) {
-                Button(
-                    onClick = {
-                        requestLegacy.launch(
-                            arrayOf(
-                                Manifest.permission.READ_EXTERNAL_STORAGE,
-                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                            ),
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Allow Android file access")
-                }
-            } else {
+            if (granted) {
                 OutlinedButton(
                     onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("Manage Android file access")
+                }
+            } else {
+                Button(
+                    onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Allow Android file access")
                 }
             }
         }

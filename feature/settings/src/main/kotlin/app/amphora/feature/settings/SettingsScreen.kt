@@ -1,8 +1,6 @@
 package app.amphora.feature.settings
 
-import android.Manifest
 import android.app.Activity
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
@@ -1541,13 +1539,6 @@ private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long, action: (@Com
 private fun StorageSection(state: SettingsUiState, onRefresh: () -> Unit) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(GuestStorageAccess.isGranted(context)) }
-    val requestLegacy =
-        rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions(),
-        ) {
-            granted = GuestStorageAccess.isGranted(context)
-            if (granted) onRefresh()
-        }
     val openSettings =
         rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult(),
@@ -1635,42 +1626,17 @@ private fun StorageSection(state: SettingsUiState, onRefresh: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Text(
-                "Android may still hide other apps' Android/data and Android/obb folders. " +
-                    "Downloads, Documents, media, and other shared files remain available.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            OutlinedButton(
-                onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (granted) "Manage Android file access" else "Allow Android file access")
-            }
-        } else if (!granted) {
-            OutlinedButton(
-                onClick = {
-                    requestLegacy.launch(
-                        arrayOf(
-                            Manifest.permission.READ_EXTERNAL_STORAGE,
-                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                        ),
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Allow Android file access")
-            }
-        } else {
-            OutlinedButton(
-                onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Manage Android file access")
-            }
+        Text(
+            "Android may still hide other apps' Android/data and Android/obb folders. " +
+                "Downloads, Documents, media, and other shared files remain available.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(
+            onClick = { openSettings.launch(GuestStorageAccess.manageIntent(context)) },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(if (granted) "Manage Android file access" else "Allow Android file access")
         }
     }
 }
