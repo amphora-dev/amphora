@@ -1,5 +1,6 @@
 package com.winlator.cmod.runtime.system;
 
+import android.annotation.SuppressLint;
 import android.os.Process;
 import android.util.Log;
 import com.winlator.cmod.shared.util.Callback;
@@ -35,6 +36,7 @@ public abstract class ProcessHelper {
    * Anchor wine-debug file capture to the process [Context] filesDir. Replaces the
    * deleted PluviaApp singleton. Safe to call repeatedly (idempotent).
    */
+  @SuppressLint("SdCardPath") // Box64 canonicalizes filesDir to this SELinux-equivalent alias.
   public static void init(android.content.Context context) {
     if (context == null) return;
     File dir = context.getApplicationContext().getFilesDir();
