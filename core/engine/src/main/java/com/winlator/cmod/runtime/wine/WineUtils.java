@@ -779,7 +779,6 @@ public abstract class WineUtils {
     }
 
     applyLocaleToPrefix(systemRegFile, userRegFile);
-    linkFontsToFontconfig(rootDir);
 
     // Copy critical DLLs from wine installation to container
     copyWineDllsToContainer(rootDir, wineInfo);
@@ -967,14 +966,16 @@ public abstract class WineUtils {
    * and CJK glyphs render as {@code ?}. Symlink every prefix font into the
    * fontconfig scan path and rebuild the cache.
    */
-  private static void linkFontsToFontconfig(File rootDir) {
+  public static boolean syncFontsToFontconfig(
+      File rootDir, File prefixFontsDir, boolean forceCacheRebuild) {
     File fontsDir = new File(rootDir, "usr/share/fonts");
-    File prefixFontsDir = new File(rootDir,
-        ImageFs.WINEPREFIX + "/drive_c/windows/Fonts");
-    if (!prefixFontsDir.isDirectory()) return;
+    if (!prefixFontsDir.isDirectory()) return false;
 
-    fontsDir.mkdirs();
-    boolean added = false;
+    if (!fontsDir.isDirectory() && !fontsDir.mkdirs()) {
+      Log.w("WineUtils", "syncFontsToFontconfig: cannot create " + fontsDir);
+      return false;
+    }
+    boolean changed = false;
     File[] fontFiles = prefixFontsDir.listFiles();
     if (fontFiles != null) {
       for (File fontFile : fontFiles) {
@@ -984,42 +985,54 @@ public abstract class WineUtils {
           continue;
         }
         File link = new File(fontsDir, fontFile.getName());
-        if (!link.exists()) {
-          try {
-            Os.symlink(fontFile.getAbsolutePath(), link.getAbsolutePath());
-            added = true;
-          } catch (ErrnoException e) {
-            Log.w("WineUtils", "linkFontsToFontconfig: symlink failed for "
-                + fontFile.getName() + ": " + e.getMessage());
+        try {
+          if (Files.isSymbolicLink(link.toPath())
+              && link.getCanonicalFile().equals(fontFile.getCanonicalFile())) {
+            continue;
           }
+          Files.deleteIfExists(link.toPath());
+          Os.symlink(fontFile.getAbsolutePath(), link.getAbsolutePath());
+          changed = true;
+        } catch (ErrnoException | IOException e) {
+          Log.w("WineUtils", "syncFontsToFontconfig: symlink failed for "
+              + fontFile.getName() + ": " + e.getMessage());
+          return false;
         }
       }
     }
 
-    if (added) {
-      File fcCache = new File(rootDir, "usr/bin/fc-cache");
-      if (fcCache.exists()) {
-        try {
-          ProcessBuilder pb = new ProcessBuilder(
-              ProcessHelper.prepareCommandForAppData(
-                  new String[] {
-                    fcCache.getAbsolutePath(),
-                    "-f",
-                    new File(rootDir, "usr/share/fonts").getAbsolutePath()
-                  }));
-          pb.environment().put("LD_LIBRARY_PATH", rootDir.getAbsolutePath() + "/usr/lib");
-          pb.environment().put("FONTCONFIG_PATH", rootDir.getAbsolutePath() + "/usr/etc/fonts");
-          pb.environment().put("HOME", rootDir.getAbsolutePath() + ImageFs.HOME_PATH);
-          ProcessHelper.configureAppDataExecEnvironment(
-              pb.environment(), fcCache.getAbsolutePath());
-          pb.redirectErrorStream(true);
-          pb.redirectOutput(new File("/dev/null"));
-          pb.start().waitFor();
-        } catch (Exception e) {
-          Log.w("WineUtils", "linkFontsToFontconfig: fc-cache failed: " + e.getMessage());
-        }
-      }
+    if (!changed && !forceCacheRebuild) return true;
+
+    File fcCache = new File(rootDir, "usr/bin/fc-cache");
+    if (!fcCache.exists()) {
+      Log.w("WineUtils", "syncFontsToFontconfig: missing " + fcCache);
+      return true;
     }
+    try {
+      ProcessBuilder pb = new ProcessBuilder(
+          ProcessHelper.prepareCommandForAppData(
+              new String[] {
+                fcCache.getAbsolutePath(),
+                "-f",
+                fontsDir.getAbsolutePath()
+              }));
+      pb.environment().put("LD_LIBRARY_PATH", rootDir.getAbsolutePath() + "/usr/lib");
+      pb.environment().put("FONTCONFIG_PATH", rootDir.getAbsolutePath() + "/usr/etc/fonts");
+      pb.environment().put("HOME", rootDir.getAbsolutePath() + ImageFs.HOME_PATH);
+      ProcessHelper.configureAppDataExecEnvironment(
+          pb.environment(), fcCache.getAbsolutePath());
+      pb.redirectErrorStream(true);
+      pb.redirectOutput(new File("/dev/null"));
+      int exitCode = pb.start().waitFor();
+      if (exitCode != 0) {
+        Log.w("WineUtils", "syncFontsToFontconfig: fc-cache exited " + exitCode);
+        return false;
+      }
+    } catch (Exception e) {
+      Log.w("WineUtils", "syncFontsToFontconfig: fc-cache failed: " + e.getMessage());
+      return false;
+    }
+    return true;
   }
 
   private static void copyWineDllsToContainer(File rootDir, WineInfo wineInfo) {

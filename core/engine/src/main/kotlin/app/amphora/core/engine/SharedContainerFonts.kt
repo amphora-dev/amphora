@@ -6,7 +6,9 @@ import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.RuntimeAssetProvisioner
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.content.SharedDllLinker
+import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.wine.WineRegistryEditor
+import com.winlator.cmod.runtime.wine.WineUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import java.io.File
 import java.nio.file.Files
@@ -28,7 +30,7 @@ import java.nio.file.Files
  */
 object SharedContainerFonts {
     const val ASSET_PATH = "fonts.tzst"
-    const val REGISTRY_SCHEMA_VERSION = 1
+    const val REGISTRY_SCHEMA_VERSION = 2
 
     const val CN_REGULAR = "SourceHanSansCN-Regular.otf"
     const val CN_BOLD = "SourceHanSansCN-Bold.otf"
@@ -247,15 +249,21 @@ object SharedContainerFonts {
             }
         }
 
-        if (applyRegistry) {
-            applyRegistry(containerRoot)
-        }
+        val registryOk = !applyRegistry || applyRegistry(containerRoot)
 
         val primary = File(fontsDir, CN_REGULAR)
-        val ok = primary.isFile || Files.isSymbolicLink(primary.toPath())
+        val primaryOk = primary.isFile || Files.isSymbolicLink(primary.toPath())
+        val fontconfigOk =
+            WineUtils.syncFontsToFontconfig(
+                ImageFs.find(context).rootDir,
+                fontsDir,
+                applyRegistry,
+            )
+        val ok = primaryOk && registryOk && fontconfigOk
         Log.i(
             TAG,
-            "CJK fonts: linked=$linked/${WINDOWS_FONT_LINKS.size} primary=$ok cache=$cacheDir",
+            "CJK fonts: linked=$linked/${WINDOWS_FONT_LINKS.size} primary=$primaryOk " +
+                "registry=$registryOk fontconfig=$fontconfigOk cache=$cacheDir",
         )
         return ok
     }
@@ -376,10 +384,12 @@ object SharedContainerFonts {
     /**
      * Mimic a Windows CJK install: FontSubstitutes (HKLM) + Wine Replacements (HKCU).
      */
-    fun applyRegistry(containerRoot: File) {
+    fun applyRegistry(containerRoot: File): Boolean {
         val prefix = File(containerRoot, ".wine")
         val systemReg = File(prefix, "system.reg")
         val userReg = File(prefix, "user.reg")
+        var systemOk = false
+        var userOk = false
 
         if (systemReg.isFile) {
             try {
@@ -409,6 +419,7 @@ object SharedContainerFonts {
                         reg.setStringValue(fontsKey, name, file)
                     }
                 }
+                systemOk = true
                 Log.d(TAG, "Wrote Windows font substitutes, links, and registrations into $systemReg")
             } catch (e: Exception) {
                 Log.w(TAG, "FontSubstitutes update failed", e)
@@ -425,6 +436,7 @@ object SharedContainerFonts {
                         reg.setStringValue(key, from, to)
                     }
                 }
+                userOk = true
                 Log.d(TAG, "Wrote Wine Fonts\\Replacements into $userReg")
             } catch (e: Exception) {
                 Log.w(TAG, "Wine font replacements update failed", e)
@@ -432,5 +444,6 @@ object SharedContainerFonts {
         } else {
             Log.d(TAG, "Skip Wine font replacements; missing $userReg")
         }
+        return systemOk && userOk
     }
 }

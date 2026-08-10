@@ -8,6 +8,11 @@ import org.junit.Test
 
 class SharedContainerFontsTest {
     @Test
+    fun registrySchema_includesFontconfigSynchronization() {
+        assertEquals(2, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
+    }
+
+    @Test
     fun packFaces_includeCnAndJpRegularBold() {
         val faces = SharedContainerFonts.PACK_FACES
         assertTrue(faces.contains(SharedContainerFonts.CN_REGULAR))
