@@ -13,7 +13,9 @@ internal const val SDK_COMPILE = 37
 // of being passed directly to execve. libamphora-exec.so keeps that routing in
 // place for Box64/Wine descendants, satisfying Android 10+'s W^X policy.
 internal const val SDK_TARGET = 36
-internal const val SDK_MIN = 28
+// Published Box64, Vulkan wrapper, and Proton wineserver artifacts require
+// Bionic's LIBC_R symbol set (notably memfd_create), which starts at API 30.
+internal const val SDK_MIN = 30
 internal const val NDK_VERSION = "28.2.13676358"
 internal const val CMAKE_VERSION = "3.31.5"
 

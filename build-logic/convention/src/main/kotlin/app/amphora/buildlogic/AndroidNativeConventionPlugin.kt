@@ -24,7 +24,7 @@ class AndroidNativeConventionPlugin : Plugin<Project> {
                         arguments +=
                             listOf(
                                 "-DANDROID_STL=c++_shared",
-                                "-DANDROID_PLATFORM=android-26",
+                                "-DANDROID_PLATFORM=android-$SDK_MIN",
                                 // Keep FetchContent (zstd/xz) outside per-variant .cxx so CI/local
                                 // can cache the cloned sources across clean builds.
                                 "-DFETCHCONTENT_BASE_DIR=${fetchContentDir.absolutePath}",

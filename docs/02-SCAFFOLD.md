@@ -22,7 +22,7 @@
 | hilt-navigation-compose | 1.3.0 | |
 | NDK | 28.2.13676358 (r28) | 对齐 GitHub Actions runner 预装版本 |
 | CMake | 3.31.5 | 对齐 GitHub Actions runner 预装版本 |
-| compileSdk / targetSdk / minSdk | **37** / **36** / 28 | 平台包名 `platforms;android-37.0`（带 `.0`）。`filesDir` ELF 由 `/system/bin/linker64` 首启，`libamphora-exec.so` 拦截后续 `exec*` |
+| compileSdk / targetSdk / minSdk | **37** / **36** / 30 | 平台包名 `platforms;android-37.0`（带 `.0`）。发布的 Box64、Vulkan wrapper 与 wineserver 依赖 API 30 的 `LIBC_R`；`filesDir` ELF 由 `/system/bin/linker64` 首启，`libamphora-exec.so` 拦截后续 `exec*` |
 | JDK | 17 (Gradle 跑 JBR 21) | |
 
 ## 2. 关键约束 / 踩坑

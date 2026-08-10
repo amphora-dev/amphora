@@ -11,7 +11,7 @@
 |---|---|---|
 | 包名 | `com.xiaoji.egggame` | `app.amphora` |
 | targetSdk | 36 | 36 |
-| minSdk | 29 | 28 |
+| minSdk | 29 | 30 |
 | compileSdk | 37 | 37 |
 | 内核代号 | WinEmuKernel | com.winlator.cmod (源自 WinNative) |
 | 原始项目 | 自研（`/Users/me/Documents/WinEmuKernel/`） | WinNative-Emu fork |

@@ -143,7 +143,7 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 |---|---|
 | `libwinlator.so` | X/Vulkan/AHB/压缩解压/socket/shmem/进程回收；adrenotools 静态链入；zstd+xz FetchContent |
 | `libamphora-exec.so` | `LD_PRELOAD` 拦截 Box64/Wine 后续 `exec*`，把 app-private AArch64 ELF 改由 `/system/bin/linker64` 装载 |
-| ABI | **仅 arm64-v8a**；minSdk 28；NDK r28 |
+| ABI | **仅 arm64-v8a**；minSdk 30；NDK r28 |
 
 `libfakeinput.so` 不再构建（MVP 输入走 X inject）；源码已从树内移除，手柄路径回归时从 WinNative 再引入。
 
@@ -155,7 +155,7 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 | 项 | 值 / 原因 |
 |---|---|
-| compileSdk / minSdk | 37 / 28 |
+| compileSdk / minSdk | 37 / 30（对齐 Box64、Vulkan wrapper 与 wineserver 的 `LIBC_R` 依赖） |
 | **targetSdk** | **36**：Java 首启和 native 后续 `exec*` 都通过 `/system/bin/linker64`，不直接 `execve(app_data_file)` |
 | AGP / Gradle / Kotlin / KSP | 9.2.1 / 9.4.1 / 2.3.21 / 2.3.9 |
 | Hilt / Compose BOM | 2.59.2 / 2026.06.01 |
