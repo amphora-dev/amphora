@@ -2,6 +2,7 @@
 .gradle/
 gradle-user/
 **/build/
+build-logic/**/bin/
 local.properties
 
 # Native compile caches (ccache + CMake FetchContent for zstd/xz)
