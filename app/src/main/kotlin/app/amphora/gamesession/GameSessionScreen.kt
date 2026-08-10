@@ -145,15 +145,25 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
 
     // STOPPED is emitted only after Wine and XEnvironment teardown completes.
     LaunchedEffect(sessionState) {
-        if (sessionState == SessionState.STOPPED) {
-            val closed =
-                withContext(Dispatchers.IO) {
-                    rendererView?.closeAndJoin(RENDERER_CLOSE_TIMEOUT_MS) ?: true
+        when (sessionState) {
+            SessionState.STOPPING -> {
+                touchpadView?.apply {
+                    resetInputState()
+                    setMouseEnabled(false)
                 }
-            if (!closed) {
-                Log.w(TAG, "Renderer teardown timed out; session process exit will reclaim it")
+                rendererView?.onPause()
             }
-            onExit()
+            SessionState.STOPPED -> {
+                val closed =
+                    withContext(Dispatchers.IO) {
+                        rendererView?.closeAndJoin(RENDERER_CLOSE_TIMEOUT_MS) ?: true
+                    }
+                if (!closed) {
+                    Log.w(TAG, "Renderer teardown timed out; session process exit will reclaim it")
+                }
+                onExit()
+            }
+            else -> Unit
         }
     }
 
@@ -307,7 +317,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                 }
             }
         }
-        if (exitRequested) {
+        if (exitRequested || sessionState == SessionState.STOPPING) {
             SessionEndingOverlay(modifier = Modifier.fillMaxSize().zIndex(10f))
         }
     }

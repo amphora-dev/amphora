@@ -8,10 +8,13 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class XServerSessionHandleTest {
@@ -68,6 +71,35 @@ class XServerSessionHandleTest {
             environment.stopEnvironmentComponents()
             processCleaner.terminateAndWait(2_000L)
             xServer.stop()
+        }
+    }
+
+    @Test
+    fun guestExitPublishesStoppingBeforeProcessCleanupCompletes() = runTest {
+        val cleanupStarted = CountDownLatch(1)
+        val releaseCleanup = CountDownLatch(1)
+        val processCleaner = mockk<SessionProcessCleaner>()
+        every { processCleaner.terminateAndWait(any()) } answers {
+            cleanupStarted.countDown()
+            releaseCleanup.await(5, TimeUnit.SECONDS)
+            emptyList()
+        }
+        val handle =
+            XServerSessionHandle(
+                mockk(relaxed = true),
+                mockk(relaxed = true),
+                DefaultDispatcherProvider(),
+                processCleaner,
+            )
+        handle.markRunning()
+
+        handle.requestStop()
+
+        assertTrue(cleanupStarted.await(5, TimeUnit.SECONDS))
+        assertEquals(SessionState.STOPPING, handle.state.value)
+        releaseCleanup.countDown()
+        withTimeout(5_000L) {
+            handle.state.first { it == SessionState.STOPPED }
         }
     }
 
