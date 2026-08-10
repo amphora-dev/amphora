@@ -26,6 +26,8 @@ public abstract class ProcessHelper {
   private static final ArrayList<Callback<String>> debugCallbacks = new ArrayList<>();
   /** App filesDir for wine_stderr.log; set via [init]. Null until Application / engine boots. */
   private static volatile File appFilesDir;
+  /** /data/data alias used by Box64 even when Context reports /data/user/<id>. */
+  private static volatile File appLegacyFilesDir;
   /** Extracted APK native libraries, including libamphora-exec.so. */
   private static volatile File appNativeLibraryDir;
 
@@ -37,6 +39,7 @@ public abstract class ProcessHelper {
     if (context == null) return;
     File dir = context.getApplicationContext().getFilesDir();
     if (dir != null) appFilesDir = dir;
+    appLegacyFilesDir = new File("/data/data/" + context.getPackageName() + "/files");
     String nativeLibraryDir = context.getApplicationInfo().nativeLibraryDir;
     if (nativeLibraryDir != null) appNativeLibraryDir = new File(nativeLibraryDir);
   }
@@ -70,6 +73,10 @@ public abstract class ProcessHelper {
 
     File filesDir = appFilesDir;
     if (filesDir != null) environment.put("AMPHORA_EXEC_ROOT", filesDir.getAbsolutePath());
+    File legacyFilesDir = appLegacyFilesDir;
+    if (legacyFilesDir != null) {
+      environment.put("AMPHORA_EXEC_LEGACY_ROOT", legacyFilesDir.getAbsolutePath());
+    }
     if (filesDir != null
         && executablePath != null
         && AppDataExecutableLauncher.isAppDataPath(filesDir, new File(executablePath))) {

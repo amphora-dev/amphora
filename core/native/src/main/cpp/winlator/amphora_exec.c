@@ -47,6 +47,7 @@
 #endif
 
 #define EXEC_ROOT_ENV "AMPHORA_EXEC_ROOT"
+#define EXEC_LEGACY_ROOT_ENV "AMPHORA_EXEC_LEGACY_ROOT"
 #define SELF_EXE_ENV "AMPHORA_EXEC__PROC_SELF_EXE"
 #define OPT_OUT_ENV "AMPHORA_EXEC_OPTOUT"
 #define DEBUG_ENV "AMPHORA_EXEC_DEBUG"
@@ -210,8 +211,10 @@ __attribute__((visibility("default"))) int execve(
   if (path_for_policy == NULL) path_for_policy = executable_path;
 
   const char *exec_root = getenv(EXEC_ROOT_ENV);
+  const char *legacy_exec_root = getenv(EXEC_LEGACY_ROOT_ENV);
   bool wrap_in_linker =
       starts_with_path(path_for_policy, exec_root)
+          || starts_with_path(path_for_policy, legacy_exec_root)
           || strcmp(path_for_policy, "/system/bin/sh") == 0;
 
   char **allocated_env = NULL;
