@@ -1,7 +1,6 @@
 package com.winlator.cmod.shared.android
 
 import android.content.Context
-import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
@@ -89,9 +88,7 @@ object StoragePathUtils {
             storageManager.storageVolumes
                 .filter { isReadableVolume(it) && (includePrimary || !it.isPrimary) }
                 .forEach { volume ->
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        addRoot(volume.directory)
-                    }
+                    addRoot(volume.directory)
                     volume.uuid?.takeIf { it.isNotBlank() }?.let { uuid ->
                         addRoot(File("/storage/$uuid"))
                         if (includeMediaRw) addRoot(File("/mnt/media_rw/$uuid"))
@@ -160,9 +157,7 @@ object StoragePathUtils {
 
                 val volumeCandidates =
                     buildList {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            add(volume.directory)
-                        }
+                        add(volume.directory)
                         volume.uuid?.let { uuid ->
                             add(File("/storage/$uuid"))
                             add(File("/mnt/media_rw/$uuid"))

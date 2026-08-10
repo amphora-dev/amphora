@@ -1,7 +1,6 @@
 package app.amphora.core.engine
 
 import android.content.Context
-import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
 import app.amphora.core.common.dispatcher.DispatcherProvider
@@ -89,12 +88,7 @@ constructor(
                 !it.isPrimary &&
                     StoragePathUtils.isReadableMountedState(it.state)
             }.forEach { volume ->
-                val platformRoot =
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        volume.directory
-                    } else {
-                        null
-                    }
+                val platformRoot = volume.directory
                 val volumeRoot =
                     platformRoot
                         ?: volume.uuid?.takeIf { it.isNotBlank() }?.let { File("/storage/$it") }
