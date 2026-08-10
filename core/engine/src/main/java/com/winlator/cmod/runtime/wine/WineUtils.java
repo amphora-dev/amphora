@@ -9,6 +9,7 @@ import androidx.annotation.Nullable;
 import com.winlator.cmod.runtime.container.Container;
 import com.winlator.cmod.runtime.display.environment.ImageFs;
 import com.winlator.cmod.runtime.system.GPUInformation;
+import com.winlator.cmod.runtime.system.ProcessHelper;
 import com.winlator.cmod.shared.android.StoragePathUtils;
 import com.winlator.cmod.shared.io.FileUtils;
 import java.io.File;
@@ -965,11 +966,17 @@ public abstract class WineUtils {
       if (fcCache.exists()) {
         try {
           ProcessBuilder pb = new ProcessBuilder(
-              fcCache.getAbsolutePath(), "-f",
-              new File(rootDir, "usr/share/fonts").getAbsolutePath());
+              ProcessHelper.prepareCommandForAppData(
+                  new String[] {
+                    fcCache.getAbsolutePath(),
+                    "-f",
+                    new File(rootDir, "usr/share/fonts").getAbsolutePath()
+                  }));
           pb.environment().put("LD_LIBRARY_PATH", rootDir.getAbsolutePath() + "/usr/lib");
           pb.environment().put("FONTCONFIG_PATH", rootDir.getAbsolutePath() + "/usr/etc/fonts");
           pb.environment().put("HOME", rootDir.getAbsolutePath() + ImageFs.HOME_PATH);
+          ProcessHelper.configureAppDataExecEnvironment(
+              pb.environment(), fcCache.getAbsolutePath());
           pb.redirectErrorStream(true);
           pb.redirectOutput(new File("/dev/null"));
           pb.start().waitFor();

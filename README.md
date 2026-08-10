@@ -63,7 +63,9 @@ Device instrumented coverage stays on Tailscale ADB - see
 - `stageBundledContent` is **not** wired to `preBuild` (keeps routine debug APKs slim).
 - Remote/cloud ADB setup and reliable manual test commands: [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md).
 - Debug Wine path: launcher **Debug: Wine smoke test** button, or flip `DEBUG_AUTO_LAUNCH_WINE` in `AmphoraNavHost` (default starts at launcher).
-- `targetSdk` is **28** on purpose (exec box64/Wine from `filesDir`); do not bump without an exec-path redesign — see `ConventionHelpers.kt`.
+- `targetSdk` is **36**. App-private AArch64 ELF files start through
+  `/system/bin/linker64`; `libamphora-exec.so` preserves that routing for
+  Box64/Wine descendants.
 
 ## Docs
 

@@ -266,7 +266,8 @@ hook 文件的地方」。
 **因此之前（WinNative / amphora 移植初期）的做法是可行的**：hooks 打进 `wrapper.tzst` →
 `imagefs/usr/lib/`，`ADRENOTOOLS_HOOKS_PATH` 指 `imageFs.getLibDir()`。能工作因为
 (a) imagefs 在 app 私有 `filesDir` 下、同 uid、非 sdcard，`dlopen` 允许；
-(b) WinNative 与 amphora 都是 **targetSdk 28**，走 legacy SELinux domain；
+(b) amphora targetSdk 36 仍允许 `dlopen(app_data_file)`；只有直接 `execve` 被禁，
+    原生进程由 linker64 + `libamphora-exec.so` 路由；
 (c) `ld_library_path` 接受任意目录。
 它还有个优点：hooks 与 guest 侧 `libvulkan_wrapper.so` **同包同版本**，且路径在 imagefs 内
 自洽（未来若引入 mount namespace，guest 视角也一定可见）。

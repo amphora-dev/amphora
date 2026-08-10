@@ -24,7 +24,7 @@ Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 
         ├─ :core:content     ContentSource / manifest / SHA 校验
         ├─ :core:container   ContainerManager 契约（瘦模型）
         ├─ :core:rootfs      RootfsInstaller 契约
-        ├─ :core:native      libwinlator.so（arm64-v8a；fakeinput 已停编）
+        ├─ :core:native      libwinlator.so + libamphora-exec.so（arm64-v8a）
         └─ :core:common      协程 dispatcher
 ```
 
@@ -142,6 +142,7 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 | 产物 | 内容 |
 |---|---|
 | `libwinlator.so` | X/Vulkan/AHB/压缩解压/socket/shmem/进程回收；adrenotools 静态链入；zstd+xz FetchContent |
+| `libamphora-exec.so` | `LD_PRELOAD` 拦截 Box64/Wine 后续 `exec*`，把 app-private AArch64 ELF 改由 `/system/bin/linker64` 装载 |
 | ABI | **仅 arm64-v8a**；minSdk 28；NDK r28 |
 
 `libfakeinput.so` 不再构建（MVP 输入走 X inject）；源码已从树内移除，手柄路径回归时从 WinNative 再引入。
@@ -155,7 +156,7 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 | 项 | 值 / 原因 |
 |---|---|
 | compileSdk / minSdk | 37 / 28 |
-| **targetSdk** | **28**（非 36）：`filesDir` 执行 box64/Wine；targetSdk≥29 会触发 SELinux `execute_no_trans` |
+| **targetSdk** | **36**：Java 首启和 native 后续 `exec*` 都通过 `/system/bin/linker64`，不直接 `execve(app_data_file)` |
 | AGP / Gradle / Kotlin / KSP | 9.2.1 / 9.4.1 / 2.3.21 / 2.3.9 |
 | Hilt / Compose BOM | 2.59.2 / 2026.06.01 |
 | AGP 9 built-in Kotlin | **禁止**再 apply `org.jetbrains.kotlin.android` |
@@ -180,6 +181,5 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 - `:feature:settings` 续增强；键盘/手柄；音频音量接线
 - Present/DRI3 完善；多容器/prefix
-- targetSdk 上探（须先把可执行文件迁到可 exec 位置）
 - 部分 runtime 资产仍 pin 自 WinNative raw（wincomponents / ddrawrapper / meta）；`container_pattern_common` / `layers` 已从默认路径拆除；CJK 为 `fonts.tzst`（Source Han CN+JP Regular/Bold）→ `contents/FONTS/<sha>/` + 每容器 `Fonts/` 按区域 symlink（中文→CN、日文→JP）+ `FontSubstitutes` / Wine `Fonts\Replacements`
 - Exit 真机连点 / FD 泄漏回归

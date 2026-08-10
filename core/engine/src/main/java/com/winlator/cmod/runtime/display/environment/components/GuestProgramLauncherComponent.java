@@ -253,12 +253,17 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
     try {
       Log.d("GuestProgramLauncherComponent", "Shell command is " + finalCommand);
-      final java.lang.Process process =
-          Runtime.getRuntime()
-              .exec(
-                  finalCommand,
-                  envVars.toStringArray(),
-                  workingDir != null ? workingDir : imageFs.getRootDir());
+      String[] requestedCommand = ProcessHelper.splitCommand(finalCommand);
+      String[] launchCommand = ProcessHelper.prepareCommandForAppData(requestedCommand);
+      ProcessBuilder processBuilder = new ProcessBuilder(launchCommand);
+      processBuilder.directory(workingDir != null ? workingDir : imageFs.getRootDir());
+      processBuilder.environment().clear();
+      for (String name : envVars) {
+        processBuilder.environment().put(name, envVars.get(name));
+      }
+      ProcessHelper.configureAppDataExecEnvironment(
+          processBuilder.environment(), requestedCommand.length == 0 ? null : requestedCommand[0]);
+      final java.lang.Process process = processBuilder.start();
 
       // stderr MUST be drained concurrently with stdout. Wine emits a steady
       // stream of `fixme:`/`err:` lines; if nothing reads stderr, the kernel
@@ -358,13 +363,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       launchGeneration++;
       pid = execGuestProgram();
       if (pid == -1) {
-        // ProcessHelper.exec swallows pb.start() failures (e.g. SELinux
-        // execute_no_trans denial, EACCES) and returns -1. Surface it so
-        // WineEngineImpl.launch -> markFailed fires and awaitReady is honest,
-        // instead of silently marking the session RUNNING with no guest process.
+        // ProcessHelper.exec swallows pb.start() failures and returns -1. Surface it so
+        // WineEngineImpl.launch -> markFailed fires and awaitReady is honest instead of
+        // silently marking the session RUNNING with no guest process.
         throw new IllegalStateException(
             "Guest process failed to start (exec returned -1; see logcat for "
-                + "'Permission denied' / SELinux execute_no_trans / missing binary)");
+                + "linker64 errors / 'Permission denied' / missing binary)");
       }
       Log.d(
           TAG,

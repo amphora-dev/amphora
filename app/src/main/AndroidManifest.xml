@@ -19,9 +19,8 @@
          (Container.DEFAULT_DRIVES, symlinked by WineUtils.createDosdevicesSymlinks).
          Without a storage grant Android's FUSE view still lists directories but
          filters out every file, so in-guest those drives show folders and nothing
-         else. targetSdk 28 keeps legacy storage, so the READ/WRITE pair restores
-         the full view; MANAGE_EXTERNAL_STORAGE is the R+ fallback when the user
-         denies the runtime dialog. Same set as upstream WinNative. -->
+         else. READ/WRITE covers legacy devices; targetSdk 36 uses the Android 11+
+         MANAGE_EXTERNAL_STORAGE settings flow in GuestStorageAccess. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"

@@ -225,5 +225,15 @@ target_link_libraries(winlator
         liblzma
 )
 
+# Android 10+ blocks direct execve() of files below the writable app data
+# directory for targetSdk >= 29. This LD_PRELOAD shim rewrites native child
+# execs to `/system/bin/linker64 <absolute-elf-path>`, including Box64's
+# self-reexec when Wine starts another process.
+add_library(amphora-exec SHARED
+        winlator/amphora_exec.c
+)
+target_compile_options(amphora-exec PRIVATE -Wall -Wextra)
+target_link_libraries(amphora-exec PRIVATE dl)
+
 # fakeinput LD_PRELOAD shim intentionally not built (MVP input is XServer inject).
 # Source removed from tree; reintroduce from WinNative when native gamepad returns.

@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 
 public abstract class ProcessHelper {
@@ -25,6 +26,8 @@ public abstract class ProcessHelper {
   private static final ArrayList<Callback<String>> debugCallbacks = new ArrayList<>();
   /** App filesDir for wine_stderr.log; set via [init]. Null until Application / engine boots. */
   private static volatile File appFilesDir;
+  /** Extracted APK native libraries, including libamphora-exec.so. */
+  private static volatile File appNativeLibraryDir;
 
   /**
    * Anchor wine-debug file capture to the process [Context] filesDir. Replaces the
@@ -34,6 +37,60 @@ public abstract class ProcessHelper {
     if (context == null) return;
     File dir = context.getApplicationContext().getFilesDir();
     if (dir != null) appFilesDir = dir;
+    String nativeLibraryDir = context.getApplicationInfo().nativeLibraryDir;
+    if (nativeLibraryDir != null) appNativeLibraryDir = new File(nativeLibraryDir);
+  }
+
+  /**
+   * Route app-private AArch64 ELF files through the platform linker.
+   *
+   * <p>This keeps the actual {@code execve()} target in {@code system_linker_exec} instead of
+   * {@code app_data_file}, which is required when the app targets API 29 or newer.
+   */
+  public static String[] prepareCommandForAppData(String[] command) {
+    String[] prepared = AppDataExecutableLauncher.prepare(appFilesDir, command);
+    if (prepared != command) {
+      Log.d(
+          TAG,
+          "Routing app-private executable through linker64: "
+              + AppDataExecutableLauncher.describe(prepared));
+    }
+    return prepared;
+  }
+
+  /**
+   * Inject the recursive exec interceptor into a native app-private process.
+   *
+   * <p>The Java launcher can route the first ELF through linker64 itself. Box64 and Wine later
+   * call exec* again, so libamphora-exec.so must remain in LD_PRELOAD to route every descendant.
+   */
+  public static void configureAppDataExecEnvironment(
+      Map<String, String> environment, String executablePath) {
+    if (environment == null) return;
+
+    File filesDir = appFilesDir;
+    if (filesDir != null) environment.put("AMPHORA_EXEC_ROOT", filesDir.getAbsolutePath());
+    if (filesDir != null
+        && executablePath != null
+        && AppDataExecutableLauncher.isAppDataPath(filesDir, new File(executablePath))) {
+      environment.put("AMPHORA_EXEC__PROC_SELF_EXE", executablePath);
+    }
+
+    File nativeDir = appNativeLibraryDir;
+    if (nativeDir == null) return;
+    File shim = new File(nativeDir, "libamphora-exec.so");
+    if (!shim.isFile()) {
+      Log.e(TAG, "App-data exec interceptor is missing: " + shim);
+      return;
+    }
+
+    String shimPath = shim.getAbsolutePath();
+    String preload = environment.get("LD_PRELOAD");
+    if (preload == null || preload.isEmpty()) {
+      environment.put("LD_PRELOAD", shimPath);
+    } else if (!preload.contains(shimPath)) {
+      environment.put("LD_PRELOAD", shimPath + " " + preload);
+    }
   }
 
   private static final String[] SESSION_PROCESS_FILTERS = {
@@ -292,13 +349,16 @@ public abstract class ProcessHelper {
     int pid = -1;
     try {
       if (PRINT_DEBUG) Log.d("ProcessHelper", "Splitting command: " + command);
-      String[] splitCommand = splitCommand(command);
+      String[] requestedCommand = splitCommand(command);
+      String[] splitCommand = prepareCommandForAppData(requestedCommand);
       if (PRINT_DEBUG)
         Log.d("ProcessHelper", "Split command result: " + Arrays.toString(splitCommand));
       if (PRINT_DEBUG) Log.d("ProcessHelper", "Starting process...");
       ProcessBuilder pb = new ProcessBuilder(splitCommand);
       pb.directory(workingDir);
       pb.environment().putAll(EnvironmentManager.getEnvVars());
+      configureAppDataExecEnvironment(
+          pb.environment(), requestedCommand.length == 0 ? null : requestedCommand[0]);
       if (debugCallbacks.isEmpty()) {
         String wineDebug = EnvironmentManager.getEnvVars().get("WINEDEBUG");
         boolean wineDebugActive = wineDebug != null
