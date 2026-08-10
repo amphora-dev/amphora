@@ -1,6 +1,7 @@
 package app.amphora.core.engine
 
 import android.content.Context
+import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
 import app.amphora.core.common.dispatcher.DispatcherProvider
@@ -58,7 +59,7 @@ constructor(
             )
         val primary = StoragePathUtils.normalizePath(Environment.getExternalStorageDirectory().path)
 
-        return Container.drivesIterator(drives).map { drive ->
+        val mappings = Container.drivesIterator(drives).mapTo(mutableListOf()) { drive ->
             val letter = drive[0].uppercase()
             val file = File(drive[1])
             val path = StoragePathUtils.normalizePath(file.path)
@@ -79,11 +80,48 @@ constructor(
                 available = StoragePathUtils.canBrowse(file),
             )
         }
+
+        val mappedPaths = mappings.mapTo(mutableSetOf()) { it.path }
+        storageManager
+            ?.storageVolumes
+            .orEmpty()
+            .filter {
+                !it.isPrimary &&
+                    StoragePathUtils.isReadableMountedState(it.state)
+            }.forEach { volume ->
+                val platformRoot =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        volume.directory
+                    } else {
+                        null
+                    }
+                val volumeRoot =
+                    platformRoot
+                        ?: volume.uuid?.takeIf { it.isNotBlank() }?.let { File("/storage/$it") }
+                        ?: context
+                            .getExternalFilesDirs(null)
+                            .filterNotNull()
+                            .firstOrNull { dir ->
+                                val owner = runCatching { storageManager.getStorageVolume(dir) }.getOrNull()
+                                owner?.isPrimary == volume.isPrimary && owner?.uuid == volume.uuid
+                            }?.let(StoragePathUtils::resolveStorageRootFromExternalFilesDir)
+                val path = StoragePathUtils.normalizePath(volumeRoot?.path)
+                if (path.isBlank() || !mappedPaths.add(path)) return@forEach
+                mappings +=
+                    GuestDriveMapping(
+                        letter = null,
+                        label = volume.getDescription(context).takeIf { it.isNotBlank() } ?: "SD card",
+                        path = path,
+                        removable = true,
+                        available = StoragePathUtils.canBrowse(volumeRoot),
+                    )
+            }
+        return mappings
     }
 }
 
 data class GuestDriveMapping(
-    val letter: String,
+    val letter: String?,
     val label: String,
     val path: String,
     val removable: Boolean,

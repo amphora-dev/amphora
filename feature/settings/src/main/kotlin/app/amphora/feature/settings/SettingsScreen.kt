@@ -1608,9 +1608,10 @@ private fun StorageSection(state: SettingsUiState, onRefresh: () -> Unit) {
         } else {
             state.guestDrives.forEach { drive ->
                 GuestDriveMappingRow(
-                    letter = "${drive.letter}:",
+                    letter = drive.letter?.let { "$it:" } ?: "—",
                     label = drive.label,
                     path = drive.path,
+                    mapped = drive.letter != null,
                     available = drive.available,
                 )
             }
@@ -1675,7 +1676,7 @@ private fun StorageSection(state: SettingsUiState, onRefresh: () -> Unit) {
 }
 
 @Composable
-private fun GuestDriveMappingRow(letter: String, label: String, path: String, available: Boolean) {
+private fun GuestDriveMappingRow(letter: String, label: String, path: String, mapped: Boolean, available: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1693,10 +1694,14 @@ private fun GuestDriveMappingRow(letter: String, label: String, path: String, av
             )
         }
         Text(
-            if (available) "Ready" else "Unavailable",
+            when {
+                !mapped -> "Not mapped"
+                available -> "Ready"
+                else -> "Unavailable"
+            },
             style = MaterialTheme.typography.labelSmall,
             color =
-            if (available) {
+            if (mapped && available) {
                 Color(0xFF2E7D5B)
             } else {
                 MaterialTheme.colorScheme.error

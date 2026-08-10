@@ -170,16 +170,19 @@ constructor(
             }
             try {
                 val drives = guestDriveManager.refresh()
-                val removable = drives.count { it.removable && it.available }
+                val removable = drives.filter { it.removable }
+                val mappedRemovable = removable.count { it.letter != null && it.available }
                 _uiState.update {
                     it.copy(
                         refreshingGuestDrives = false,
                         guestDrives = drives,
                         guestDriveMessage =
-                        if (removable > 0) {
-                            "$removable removable storage volume(s) mapped for the next session."
-                        } else {
-                            "No accessible removable storage detected."
+                        when {
+                            mappedRemovable > 0 ->
+                                "$mappedRemovable removable storage volume(s) mapped for the next session."
+                            removable.isNotEmpty() ->
+                                "Removable storage detected but not accessible. Grant file access, then refresh."
+                            else -> "No mounted removable storage detected."
                         },
                     )
                 }

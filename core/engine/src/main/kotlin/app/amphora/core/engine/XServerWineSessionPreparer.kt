@@ -317,7 +317,13 @@ class XServerWineSessionPreparer @Inject constructor(
         WineStartMenuCreator.create(context, c)
         stageGraphicsTestExes(c)
 
-        val drivesDesired = c.getDrives() ?: ""
+        val currentDrives = c.getDrives() ?: ""
+        val drivesDesired = WineUtils.normalizePersistentDrives(context, currentDrives, true)
+        if (drivesDesired != currentDrives) {
+            c.setDrives(drivesDesired)
+            containerDataChanged = true
+            Log.i(TAG, "Storage volumes changed; reconciled Wine drives to: $drivesDesired")
+        }
         val driveLinksMissing = !WineUtils.hasRequiredDosdevicesSymlinks(c)
         if (AppliedMarks.needsDrives(c, drivesDesired) || driveLinksMissing || firstTimeBoot) {
             if (driveLinksMissing && !firstTimeBoot) {
