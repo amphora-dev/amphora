@@ -845,21 +845,28 @@ class XServerWineSessionPreparer @Inject constructor(
         var copiedDeps = 0
         for (dep in deps) {
             val src = File(imageFsLibDir, dep)
-            if (!src.exists()) {
+            val copySource =
+                runCatching {
+                    if (Files.isSymbolicLink(src.toPath())) src.canonicalFile else src
+                }.getOrDefault(src)
+            if (!copySource.isFile) {
                 Log.w(TAG, "seedAdrenotoolsRuntimeDeps: dep $dep not found at $src (skipping)")
                 continue
             }
             val dst = File(adrenotoolsDir, dep)
             // Refresh when imagefs was hot-fixed (e.g. libandroid_shm* aliases).
-            if (dst.exists() && dst.length() == src.length() && dst.lastModified() >= src.lastModified()) {
+            if (dst.exists() &&
+                dst.length() == copySource.length() &&
+                dst.lastModified() >= copySource.lastModified()
+            ) {
                 continue
             }
-            if (FileUtils.copy(src, dst)) {
+            if (FileUtils.copy(copySource, dst)) {
                 // FileUtils.copy does not preserve timestamps. Without carrying
                 // the source mtime forward, archive timestamps newer than the
                 // device clock make this branch rewrite every dependency on
                 // every session even when size and contents are unchanged.
-                src.lastModified().takeIf { it > 0L }?.let(dst::setLastModified)
+                copySource.lastModified().takeIf { it > 0L }?.let(dst::setLastModified)
                 copiedDeps++
             } else {
                 Log.w(TAG, "seedAdrenotoolsRuntimeDeps: copy failed for dep $dep")
