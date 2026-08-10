@@ -1299,16 +1299,15 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
             ) {
                 Text("Check")
             }
-            val downloadVisible = state.availableUpdate != null && !state.installReady
-            if (downloadVisible) {
+            if (state.availableUpdate != null && state.pendingApk == null) {
                 TextButton(
-                    onClick = viewModel::downloadAndPrepareInstall,
+                    onClick = viewModel::installUpdate,
                     enabled = !state.updateBusy,
                 ) {
-                    Text("Download")
+                    Text("Install update")
                 }
             }
-            if (state.installReady && state.pendingApk != null) {
+            if (state.pendingApk != null) {
                 TextButton(
                     onClick = {
                         if (viewModel.needsInstallPermission()) {
@@ -1319,7 +1318,7 @@ private fun AppUpdateSection(state: SettingsUiState, viewModel: SettingsViewMode
                     },
                     enabled = !state.updateBusy,
                 ) {
-                    Text("Install")
+                    Text("Open system installer")
                 }
             }
         }

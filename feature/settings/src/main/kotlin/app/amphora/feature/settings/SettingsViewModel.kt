@@ -17,7 +17,6 @@ import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.content.update.AppUpdateCheckResult
 import app.amphora.core.content.update.AppUpdateManifest
-import app.amphora.core.content.update.AppUpdater
 import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.GraphicsDiag
@@ -28,6 +27,8 @@ import app.amphora.core.engine.TurnipDriverProvisioner
 import app.amphora.core.engine.WindowsComponentPreferences
 import app.amphora.core.engine.WineLocaleOption
 import app.amphora.core.engine.WineLocalePreferences
+import app.amphora.core.engine.update.AppUpdateInstallResult
+import app.amphora.core.engine.update.AppUpdateManager
 import app.amphora.core.rootfs.RootfsInstaller
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
 import com.winlator.cmod.runtime.content.ContentProfile
@@ -37,6 +38,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,7 +58,7 @@ constructor(
     private val contentReconciler: ContentReconciler,
     private val turnipProvisioner: TurnipDriverProvisioner,
     private val shizukuEmergencyStopper: ShizukuEmergencyStopper,
-    private val appUpdater: AppUpdater,
+    private val updateManager: AppUpdateManager,
 ) : ViewModel() {
     private val prefs =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
@@ -67,8 +69,8 @@ constructor(
     private val _uiState =
         MutableStateFlow(
             SettingsUiState(
-                installedVersionName = appUpdater.installedVersionName(),
-                installedVersionCode = appUpdater.installedVersionCode(),
+                installedVersionName = updateManager.installedVersionName(),
+                installedVersionCode = updateManager.installedVersionCode(),
                 resolution = DisplayResolution.fromPreference(prefs.getString(PREF_RESOLUTION, null)),
                 graphicsDriver =
                 GraphicsDriverSetting.fromId(
@@ -138,6 +140,17 @@ constructor(
         viewModelScope.launch {
             shizukuEmergencyStopper.status.collect { status ->
                 _uiState.update { it.copy(shizukuCleanupStatus = status) }
+                if (status == ShizukuCleanupStatus.READY &&
+                    _uiState.value.waitingForUpdatePermission
+                ) {
+                    _uiState.update {
+                        it.copy(
+                            waitingForUpdatePermission = false,
+                            updateMessage = "Shizuku authorized. Starting update…",
+                        )
+                    }
+                    downloadAndInstallUpdate()
+                }
             }
         }
     }
@@ -495,9 +508,14 @@ constructor(
     fun checkForUpdate() {
         viewModelScope.launch {
             _uiState.update {
-                it.copy(updateBusy = true, updateMessage = null, pendingApk = null, installReady = false)
+                it.copy(
+                    updateBusy = true,
+                    updateMessage = null,
+                    pendingApk = null,
+                    waitingForUpdatePermission = false,
+                )
             }
-            when (val result = appUpdater.check()) {
+            when (val result = updateManager.check()) {
                 is AppUpdateCheckResult.UpToDate ->
                     _uiState.update {
                         it.copy(
@@ -532,33 +550,69 @@ constructor(
         }
     }
 
-    fun downloadAndPrepareInstall() {
+    fun installUpdate() {
+        if (_uiState.value.updateBusy) return
+        if (updateManager.installStatus.value == ShizukuCleanupStatus.PERMISSION_REQUIRED) {
+            if (updateManager.requestInstallPermission()) {
+                _uiState.update {
+                    it.copy(
+                        waitingForUpdatePermission = true,
+                        updateMessage = "Grant Shizuku access to install automatically.",
+                    )
+                }
+                viewModelScope.launch {
+                    delay(SHIZUKU_PERMISSION_WAIT_MS)
+                    if (_uiState.value.waitingForUpdatePermission) {
+                        _uiState.update {
+                            it.copy(
+                                waitingForUpdatePermission = false,
+                                updateMessage = "Shizuku authorization was not completed; using fallback.",
+                            )
+                        }
+                        downloadAndInstallUpdate()
+                    }
+                }
+            } else {
+                downloadAndInstallUpdate()
+            }
+            return
+        }
+        downloadAndInstallUpdate()
+    }
+
+    private fun downloadAndInstallUpdate() {
         val remote = _uiState.value.availableUpdate ?: return
+        if (_uiState.value.updateBusy) return
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     updateBusy = true,
-                    updateMessage = "Downloading ${remote.versionName}…",
-                    installReady = false,
+                    updateMessage = "Downloading and verifying ${remote.versionName}…",
                     pendingApk = null,
                 )
             }
             try {
-                val apk = appUpdater.download(remote)
-                _uiState.update {
-                    it.copy(
-                        updateBusy = false,
-                        pendingApk = apk,
-                        installReady = true,
-                        updateMessage = "Download ready. Tap Install to continue.",
-                    )
+                when (val result = updateManager.downloadAndInstall(remote)) {
+                    AppUpdateInstallResult.Started ->
+                        _uiState.update {
+                            it.copy(updateMessage = "Install started. Amphora will reopen automatically.")
+                        }
+                    is AppUpdateInstallResult.SystemInstallerRequired ->
+                        _uiState.update {
+                            it.copy(
+                                updateBusy = false,
+                                pendingApk = result.apk,
+                                updateMessage = result.reason,
+                            )
+                        }
                 }
+            } catch (failure: CancellationException) {
+                throw failure
             } catch (failure: Throwable) {
                 _uiState.update {
                     it.copy(
                         updateBusy = false,
                         pendingApk = null,
-                        installReady = false,
                         updateMessage = failure.message ?: failure.toString(),
                     )
                 }
@@ -566,17 +620,17 @@ constructor(
         }
     }
 
-    fun needsInstallPermission(): Boolean = appUpdater.needsInstallPermission()
+    fun needsInstallPermission(): Boolean = updateManager.needsSystemInstallPermission()
 
-    fun installPermissionSettingsIntent() = appUpdater.installPermissionSettingsIntent()
+    fun installPermissionSettingsIntent() = updateManager.installPermissionSettingsIntent()
 
     fun installPendingUpdate(activity: Activity) {
         val apk = _uiState.value.pendingApk ?: return
-        if (appUpdater.needsInstallPermission()) {
-            activity.startActivity(appUpdater.installPermissionSettingsIntent())
+        if (updateManager.needsSystemInstallPermission()) {
+            activity.startActivity(updateManager.installPermissionSettingsIntent())
             return
         }
-        activity.startActivity(appUpdater.installIntent(apk))
+        activity.startActivity(updateManager.systemInstallerIntent(apk))
     }
 
     private data class ComponentSnapshot(
@@ -587,6 +641,7 @@ constructor(
 
     companion object {
         const val PREF_RESOLUTION = "display_resolution"
+        private const val SHIZUKU_PERMISSION_WAIT_MS = 10_000L
     }
 }
 
@@ -598,7 +653,7 @@ data class SettingsUiState(
     val updateBusy: Boolean = false,
     val availableUpdate: AppUpdateManifest? = null,
     val pendingApk: File? = null,
-    val installReady: Boolean = false,
+    val waitingForUpdatePermission: Boolean = false,
     val updateMessage: String? = null,
     val resolution: DisplayResolution = DisplayResolution.DEFAULT,
     val graphicsDriver: GraphicsDriverSetting = GraphicsDriverSetting.WRAPPER,

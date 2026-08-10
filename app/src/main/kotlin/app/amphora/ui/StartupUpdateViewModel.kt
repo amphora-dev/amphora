@@ -7,10 +7,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.content.update.AppUpdateCheckResult
 import app.amphora.core.content.update.AppUpdateManifest
-import app.amphora.core.content.update.AppUpdater
 import app.amphora.core.engine.ShizukuCleanupStatus
-import app.amphora.core.engine.ShizukuEmergencyStopper
-import app.amphora.core.engine.ShizukuInstallResult
+import app.amphora.core.engine.update.AppUpdateInstallResult
+import app.amphora.core.engine.update.AppUpdateManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
@@ -25,16 +24,13 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class StartupUpdateViewModel
 @Inject
-constructor(
-    private val appUpdater: AppUpdater,
-    private val shizuku: ShizukuEmergencyStopper,
-) : ViewModel() {
+constructor(private val updateManager: AppUpdateManager) : ViewModel() {
     private val _state = MutableStateFlow(StartupUpdateState())
     val state: StateFlow<StartupUpdateState> = _state.asStateFlow()
 
     init {
         viewModelScope.launch {
-            shizuku.status.collect { status ->
+            updateManager.installStatus.collect { status ->
                 if (status == ShizukuCleanupStatus.READY &&
                     _state.value.waitingForShizukuPermission
                 ) {
@@ -48,7 +44,7 @@ constructor(
                 }
             }
         }
-        if (appUpdater.shouldCheckAtStartup()) {
+        if (updateManager.shouldCheckAtStartup()) {
             Log.i(TAG, "Checking for app update at startup")
             checkAtStartup()
         } else {
@@ -62,8 +58,8 @@ constructor(
 
     fun installUpdate() {
         if (_state.value.busy) return
-        if (shizuku.status.value == ShizukuCleanupStatus.PERMISSION_REQUIRED) {
-            if (shizuku.requestPermission()) {
+        if (updateManager.installStatus.value == ShizukuCleanupStatus.PERMISSION_REQUIRED) {
+            if (updateManager.requestInstallPermission()) {
                 _state.update {
                     it.copy(
                         waitingForShizukuPermission = true,
@@ -82,6 +78,8 @@ constructor(
                         downloadAndInstall()
                     }
                 }
+            } else {
+                downloadAndInstall()
             }
             return
         }
@@ -99,21 +97,13 @@ constructor(
                 )
             }
             try {
-                val apk = appUpdater.download(update)
-                appUpdater.validateDownloadedApk(apk, update)
-                _state.update { it.copy(message = "Installing ${update.versionName}…") }
-                when (val result = shizuku.installPackage(apk)) {
-                    ShizukuInstallResult.Started ->
+                when (val result = updateManager.downloadAndInstall(update)) {
+                    AppUpdateInstallResult.Started ->
                         _state.update {
                             it.copy(message = "Install started. Amphora will reopen automatically.")
                         }
-                    ShizukuInstallResult.Unavailable ->
-                        offerSystemInstaller(apk, "Shizuku is unavailable; use the system installer.")
-                    is ShizukuInstallResult.Failed ->
-                        offerSystemInstaller(
-                            apk,
-                            "Automatic install failed: ${result.reason}",
-                        )
+                    is AppUpdateInstallResult.SystemInstallerRequired ->
+                        offerSystemInstaller(result.apk, result.reason)
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -128,18 +118,18 @@ constructor(
         }
     }
 
-    fun needsSystemInstallPermission(): Boolean = appUpdater.needsInstallPermission()
+    fun needsSystemInstallPermission(): Boolean = updateManager.needsSystemInstallPermission()
 
-    fun installPermissionIntent(): Intent = appUpdater.installPermissionSettingsIntent()
+    fun installPermissionIntent(): Intent = updateManager.installPermissionSettingsIntent()
 
     fun launchSystemInstaller(activity: Activity) {
         val apk = _state.value.pendingSystemApk ?: return
-        activity.startActivity(appUpdater.installIntent(apk))
+        activity.startActivity(updateManager.systemInstallerIntent(apk))
     }
 
     private fun checkAtStartup() {
         viewModelScope.launch {
-            when (val result = appUpdater.check()) {
+            when (val result = updateManager.check()) {
                 is AppUpdateCheckResult.UpdateAvailable -> {
                     Log.i(TAG, "Startup update available: ${result.remote.versionName}")
                     _state.update { it.copy(available = result.remote) }
