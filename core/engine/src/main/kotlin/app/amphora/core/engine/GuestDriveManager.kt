@@ -26,7 +26,7 @@ import kotlinx.coroutines.withContext
 class GuestDriveManager
 @Inject
 constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
 ) {
     suspend fun refresh(): List<GuestDriveMapping> = withContext(dispatchers.io) {
@@ -68,7 +68,7 @@ constructor(
                 when {
                     path == downloads -> "Downloads"
                     path == primary -> "Device storage"
-                    removable -> volume?.getDescription(context)?.takeIf { it.isNotBlank() } ?: "SD card"
+                    removable -> volume.getDescription(context).takeIf { it.isNotBlank() } ?: "SD card"
                     else -> file.name.takeIf { it.isNotBlank() } ?: "Storage"
                 }
             GuestDriveMapping(
