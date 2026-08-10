@@ -855,6 +855,11 @@ class XServerWineSessionPreparer @Inject constructor(
                 continue
             }
             if (FileUtils.copy(src, dst)) {
+                // FileUtils.copy does not preserve timestamps. Without carrying
+                // the source mtime forward, archive timestamps newer than the
+                // device clock make this branch rewrite every dependency on
+                // every session even when size and contents are unchanged.
+                src.lastModified().takeIf { it > 0L }?.let(dst::setLastModified)
                 copiedDeps++
             } else {
                 Log.w(TAG, "seedAdrenotoolsRuntimeDeps: copy failed for dep $dep")
