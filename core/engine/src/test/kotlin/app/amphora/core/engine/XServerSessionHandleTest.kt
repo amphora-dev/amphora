@@ -11,7 +11,7 @@ import io.mockk.verifyOrder
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -19,7 +19,7 @@ import org.junit.Test
 
 class XServerSessionHandleTest {
     @Test
-    fun stopUsesBoundedProcessCleanupExactlyOnce() = runTest {
+    fun stopUsesBoundedProcessCleanupExactlyOnce() = runBlocking {
         val environment = mockk<XEnvironment>(relaxed = true)
         val xServer = mockk<XServer>(relaxed = true)
         val processCleaner = mockk<SessionProcessCleaner>()
@@ -48,7 +48,7 @@ class XServerSessionHandleTest {
     }
 
     @Test
-    fun guestExitRequestsCleanupBeforePublishingStopped() = runTest {
+    fun guestExitRequestsCleanupBeforePublishingStopped() = runBlocking {
         val environment = mockk<XEnvironment>(relaxed = true)
         val xServer = mockk<XServer>(relaxed = true)
         val processCleaner = mockk<SessionProcessCleaner>()
@@ -75,7 +75,7 @@ class XServerSessionHandleTest {
     }
 
     @Test
-    fun guestExitPublishesStoppingBeforeProcessCleanupCompletes() = runTest {
+    fun guestExitPublishesStoppingBeforeProcessCleanupCompletes() = runBlocking {
         val cleanupStarted = CountDownLatch(1)
         val releaseCleanup = CountDownLatch(1)
         val processCleaner = mockk<SessionProcessCleaner>()
@@ -104,7 +104,7 @@ class XServerSessionHandleTest {
     }
 
     @Test
-    fun failedLaunchKeepsFailedStateAfterTeardown() = runTest {
+    fun failedLaunchKeepsFailedStateAfterTeardown() = runBlocking {
         val processCleaner = mockk<SessionProcessCleaner>()
         every { processCleaner.terminateAndWait(any()) } returns emptyList()
         val handle =
