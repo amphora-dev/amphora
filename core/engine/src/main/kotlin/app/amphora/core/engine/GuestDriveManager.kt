@@ -103,7 +103,9 @@ constructor(
                             .filterNotNull()
                             .firstOrNull { dir ->
                                 val owner = runCatching { storageManager.getStorageVolume(dir) }.getOrNull()
-                                owner?.isPrimary == volume.isPrimary && owner?.uuid == volume.uuid
+                                owner != null &&
+                                    owner.isPrimary == volume.isPrimary &&
+                                    owner.uuid == volume.uuid
                             }?.let(StoragePathUtils::resolveStorageRootFromExternalFilesDir)
                 val path = StoragePathUtils.normalizePath(volumeRoot?.path)
                 if (path.isBlank() || !mappedPaths.add(path)) return@forEach
