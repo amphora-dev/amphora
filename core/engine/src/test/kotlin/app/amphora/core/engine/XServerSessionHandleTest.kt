@@ -19,7 +19,7 @@ import org.junit.Test
 
 class XServerSessionHandleTest {
     @Test
-    fun stopUsesBoundedProcessCleanupExactlyOnce() = runBlocking {
+    fun stopUsesBoundedProcessCleanupExactlyOnce(): Unit = runBlocking {
         val environment = mockk<XEnvironment>(relaxed = true)
         val xServer = mockk<XServer>(relaxed = true)
         val processCleaner = mockk<SessionProcessCleaner>()
@@ -48,7 +48,7 @@ class XServerSessionHandleTest {
     }
 
     @Test
-    fun guestExitRequestsCleanupBeforePublishingStopped() = runBlocking {
+    fun guestExitRequestsCleanupBeforePublishingStopped(): Unit = runBlocking {
         val environment = mockk<XEnvironment>(relaxed = true)
         val xServer = mockk<XServer>(relaxed = true)
         val processCleaner = mockk<SessionProcessCleaner>()
@@ -75,7 +75,7 @@ class XServerSessionHandleTest {
     }
 
     @Test
-    fun guestExitPublishesStoppingBeforeProcessCleanupCompletes() = runBlocking {
+    fun guestExitPublishesStoppingBeforeProcessCleanupCompletes(): Unit = runBlocking {
         val cleanupStarted = CountDownLatch(1)
         val releaseCleanup = CountDownLatch(1)
         val processCleaner = mockk<SessionProcessCleaner>()
@@ -104,7 +104,7 @@ class XServerSessionHandleTest {
     }
 
     @Test
-    fun failedLaunchKeepsFailedStateAfterTeardown() = runBlocking {
+    fun failedLaunchKeepsFailedStateAfterTeardown(): Unit = runBlocking {
         val processCleaner = mockk<SessionProcessCleaner>()
         every { processCleaner.terminateAndWait(any()) } returns emptyList()
         val handle =
