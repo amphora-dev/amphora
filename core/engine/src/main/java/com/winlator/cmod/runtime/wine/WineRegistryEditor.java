@@ -244,7 +244,9 @@ public class WineRegistryEditor implements Closeable {
       }
       lines.append(String.format(Locale.ENGLISH, "%02x", Byte.toUnsignedInt(bytes[i])));
     }
-    setRawValue(key, name, "hex(7):" + lines);
+    String rawValue = "hex(7):" + lines;
+    if (rawValue.equals(getRawValue(key, name))) return;
+    setRawValue(key, name, rawValue);
   }
 
   private String getRawValue(String key, String name) {

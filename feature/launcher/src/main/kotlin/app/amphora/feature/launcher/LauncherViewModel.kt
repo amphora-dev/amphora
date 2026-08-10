@@ -118,7 +118,7 @@ constructor(
     init {
         prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
         loadPrograms()
-        refreshContentInfo()
+        loadContentInfo(forceRefresh = false, showBusy = true)
     }
 
     override fun onCleared() {
@@ -126,10 +126,21 @@ constructor(
     }
 
     fun refreshContentInfo() {
+        loadContentInfo(forceRefresh = true, showBusy = true)
+    }
+
+    private fun loadContentInfo(forceRefresh: Boolean, showBusy: Boolean) {
         viewModelScope.launch {
-            _uiState.update { it.copy(contentBusy = true, stageError = null) }
+            if (showBusy) {
+                _uiState.update { it.copy(contentBusy = true, stageError = null) }
+            }
             try {
-                val manifest = catalog.refresh()
+                val manifest = if (forceRefresh) catalog.refresh() else catalog.require()
+                val loadedFromDisk =
+                    !forceRefresh &&
+                        (catalog.status.value as? ContentCatalog.Status.Ready)
+                            ?.sourceUrl
+                            ?.startsWith("file:") == true
                 val components =
                     withContext(dispatchers.io) {
                         contentReconciler.reconcile(manifest)
@@ -142,19 +153,28 @@ constructor(
                     }
                 _uiState.update {
                     it.copy(
-                        contentBusy = false,
+                        contentBusy = if (showBusy) false else it.contentBusy,
                         components = components,
                         runtimeAssets = runtimeAssets,
                         imagefsResidue = residue,
                     )
                 }
+                // Make the cached state launchable immediately, then refresh pins
+                // without returning the launcher to a blocking Loading state.
+                if (loadedFromDisk) {
+                    loadContentInfo(forceRefresh = true, showBusy = false)
+                }
             } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 _uiState.update {
-                    it.copy(
-                        contentBusy = false,
-                        stageError = "Manifest: ${e.message ?: e.javaClass.simpleName}",
-                    )
+                    if (showBusy) {
+                        it.copy(
+                            contentBusy = false,
+                            stageError = "Manifest: ${e.message ?: e.javaClass.simpleName}",
+                        )
+                    } else {
+                        it
+                    }
                 }
             }
         }

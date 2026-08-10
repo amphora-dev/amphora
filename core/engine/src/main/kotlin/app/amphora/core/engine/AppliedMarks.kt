@@ -23,6 +23,8 @@ object AppliedMarks {
     private const val INPUT = "appliedInput"
     private const val DRIVES = "appliedDrives"
     private const val WINEBUS = "appliedWinebus"
+    private const val FONTS = "appliedFonts"
+    private const val START_MENU = "appliedStartMenu"
     private const val BOX64 = "appliedBox64"
     private const val WINE_CONTENT = "appliedWineContent"
     private const val FEX = "appliedFex"
@@ -34,7 +36,7 @@ object AppliedMarks {
     val prefixOwnedKeys: List<String> =
         listOf(
             APP, IMG, DXWRAPPER, WINCOMPONENTS, SERVICES,
-            AUDIO, INPUT, DRIVES, WINEBUS,
+            AUDIO, INPUT, DRIVES, WINEBUS, FONTS, START_MENU,
             PREFIX_NEEDS_UPDATE,
         )
 
@@ -114,6 +116,20 @@ object AppliedMarks {
 
     fun markWinebus(container: Container) {
         container.putExtra(WINEBUS, WINEBUS_VALUE)
+    }
+
+    // --- shared fonts / Start Menu ---
+
+    fun needsFonts(container: Container, desired: String): Boolean = container.getExtra(FONTS) != desired
+
+    fun markFonts(container: Container, desired: String) {
+        container.putExtra(FONTS, desired)
+    }
+
+    fun needsStartMenu(container: Container, desired: String): Boolean = container.getExtra(START_MENU) != desired
+
+    fun markStartMenu(container: Container, desired: String) {
+        container.putExtra(START_MENU, desired)
     }
 
     // --- Box64 ---

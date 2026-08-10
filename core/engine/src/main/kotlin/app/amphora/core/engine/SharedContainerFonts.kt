@@ -28,6 +28,7 @@ import java.nio.file.Files
  */
 object SharedContainerFonts {
     const val ASSET_PATH = "fonts.tzst"
+    const val REGISTRY_SCHEMA_VERSION = 1
 
     const val CN_REGULAR = "SourceHanSansCN-Regular.otf"
     const val CN_BOLD = "SourceHanSansCN-Bold.otf"
@@ -218,7 +219,7 @@ object SharedContainerFonts {
      * Install shared font links + registry into [containerRoot] (the WinNative
      * container dir that contains `.wine/`).
      */
-    fun ensureInstalled(context: Context, containerRoot: File): Boolean {
+    fun ensureInstalled(context: Context, containerRoot: File, applyRegistry: Boolean = true): Boolean {
         val cacheDir =
             ensureSharedPack(context) ?: run {
                 Log.w(TAG, "Shared font package missing; CJK may fall back to Wine defaults")
@@ -246,7 +247,9 @@ object SharedContainerFonts {
             }
         }
 
-        applyRegistry(containerRoot)
+        if (applyRegistry) {
+            applyRegistry(containerRoot)
+        }
 
         val primary = File(fontsDir, CN_REGULAR)
         val ok = primary.isFile || Files.isSymbolicLink(primary.toPath())

@@ -147,6 +147,7 @@ class XServerWineSessionPreparer @Inject constructor(
     override suspend fun ensureWinePrefixEssentialFiles(container: AmphoraContainer) = withContext(dispatchers.io) {
         resolveState(null, container)
         ensureWinePrefixEssentialFilesCore()
+        Unit
     }
 
     override suspend fun extractDXWrapperFiles(container: AmphoraContainer, dxwrapper: String) =
@@ -226,7 +227,9 @@ class XServerWineSessionPreparer @Inject constructor(
             containerDataChanged = true
         }
 
-        ensureWinePrefixEssentialFilesCore()
+        if (ensureWinePrefixEssentialFilesCore()) {
+            containerDataChanged = true
+        }
 
         // 只认分号格式：dxvk-…;vkd3d-…;<DirectDraw layer>
         var localDxwrapper = dxwrapper
@@ -314,7 +317,16 @@ class XServerWineSessionPreparer @Inject constructor(
             Log.w(TAG, "未知音频驱动配置 '$audioDriver'，跳过注册表写入")
         }
 
-        WineStartMenuCreator.create(context, c)
+        val startMenuState =
+            "schema=$START_MENU_SCHEMA_VERSION|assets=${runtimeFingerprint(listOf(START_MENU_ASSET))}"
+        val startMenuMarker = File(c.getRootDir(), ".startmenu")
+        if (AppliedMarks.needsStartMenu(c, startMenuState) || !startMenuMarker.isFile) {
+            WineStartMenuCreator.create(context, c)
+            if (startMenuMarker.isFile) {
+                AppliedMarks.markStartMenu(c, startMenuState)
+                containerDataChanged = true
+            }
+        }
         stageGraphicsTestExes(c)
 
         val currentDrives = c.getDrives() ?: ""
@@ -485,11 +497,28 @@ class XServerWineSessionPreparer @Inject constructor(
      * install is the CJK font pack ([SharedContainerFonts]: contents/ + symlink
      * + FontSubstitutes / Wine Replacements registry).
      */
-    private fun ensureWinePrefixEssentialFilesCore() {
-        val c = wnContainer ?: return
+    private fun ensureWinePrefixEssentialFilesCore(): Boolean {
+        val c = wnContainer ?: return false
         File(c.getRootDir(), ".wine/drive_c/windows").mkdirs()
-        val fontsOk = SharedContainerFonts.ensureInstalled(context, c.getRootDir())
-        Log.d(TAG, "ensureWinePrefixEssentialFiles: sharedFonts=$fontsOk")
+        val fontState =
+            "schema=${SharedContainerFonts.REGISTRY_SCHEMA_VERSION}|" +
+                "assets=${runtimeFingerprint(listOf(SharedContainerFonts.ASSET_PATH))}"
+        val registryNeedsApply = AppliedMarks.needsFonts(c, fontState)
+        val fontsOk =
+            SharedContainerFonts.ensureInstalled(
+                context,
+                c.getRootDir(),
+                applyRegistry = registryNeedsApply,
+            )
+        Log.d(
+            TAG,
+            "ensureWinePrefixEssentialFiles: sharedFonts=$fontsOk registryApplied=$registryNeedsApply",
+        )
+        if (fontsOk && registryNeedsApply) {
+            AppliedMarks.markFonts(c, fontState)
+            return true
+        }
+        return false
     }
 
     // --- extractDXWrapperFiles (XSDA L7970) + helpers -------------------------
@@ -1094,9 +1123,8 @@ class XServerWineSessionPreparer @Inject constructor(
 
     /** applyGeneralPatches (XSDA L10793). */
     private fun applyGeneralPatches(c: Container) {
-        // No container_pattern overlay — prefix is Proton prefixPack; CJK fonts are
-        // a shared contents/ pin linked into windows/Fonts (plus registry substitutes).
-        SharedContainerFonts.ensureInstalled(context, c.getRootDir())
+        // No container_pattern overlay — prefix is Proton prefixPack. Shared CJK
+        // fonts are reconciled once below by ensureWinePrefixEssentialFilesCore.
         // MVP is ALSA-only; pulseaudio.tzst extract omitted (nobody consumed filesDir/pulseaudio).
         WineUtils.applySystemTweaks(context, wineInfo)
     }
@@ -1349,6 +1377,8 @@ class XServerWineSessionPreparer @Inject constructor(
         private const val TAG = "WineSessionPreparer"
         private const val D8VK_ASSET_PATH = "dxwrapper/d8vk-1.0.tzst"
         private const val WRAPPER_ASSET = "graphics_driver/wrapper.tzst"
+        private const val START_MENU_ASSET = "metadata/startmenu.json"
+        private const val START_MENU_SCHEMA_VERSION = 1
         private val WINCOMPONENT_RUNTIME_ASSETS =
             listOf(
                 "wincomponents/wincomponents.json",

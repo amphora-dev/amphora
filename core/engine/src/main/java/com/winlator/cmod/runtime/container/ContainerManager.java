@@ -93,15 +93,11 @@ public class ContainerManager {
     File file = new File(homeDir, ImageFs.USER);
     String linkTarget = "./" + ImageFs.USER + "-" + container.id;
 
-    // Make C: Drive accessible — 0771 not 0777 to prevent other apps reading file contents
-    try {
-      Runtime.getRuntime()
-          .exec(
-              new String[] {
-                "chmod", "-R", "0771", new File(containerDir, ".wine/drive_c").getAbsolutePath()
-              });
-    } catch (Exception e) {
-    }
+    // Wine and the host bridge run under the same app UID. Only the C: root needs
+    // traversal permission; recursively chmod-ing every prefix file on each launch
+    // creates thousands of needless inode updates and can overlap guest startup.
+    File driveC = new File(containerDir, ".wine/drive_c");
+    if (driveC.isDirectory()) FileUtils.chmod(driveC, 0771);
 
     // Replace the real "xuser" dir with a symlink to the active container. Best-effort
     // migrate of legacy winhandler/wfm if present (Amphora no longer installs them).

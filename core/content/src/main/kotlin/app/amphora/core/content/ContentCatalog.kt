@@ -31,11 +31,15 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
     val status: StateFlow<Status> = _status.asStateFlow()
     private val diskCache = File(context.filesDir, "content/content_manifest.json")
 
-    /** Return the cached manifest, fetching from the remote URL if needed. */
+    /**
+     * Return the in-memory or disk-cached manifest, fetching from the remote URL
+     * only when no valid cache exists. Session processes are short-lived, so a
+     * disk-first cold path prevents every game launch from blocking on HTTPS.
+     */
     suspend fun require(): ContentManifest = mutex.withLock {
         when (val current = _status.value) {
             is Status.Ready -> current.manifest
-            else -> refreshLocked()
+            else -> loadDiskCacheLocked() ?: refreshLocked()
         }
     }
 
@@ -45,7 +49,10 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
     fun peek(): ContentManifest? = (_status.value as? Status.Ready)?.manifest
 
     private suspend fun refreshLocked(): ContentManifest {
-        _status.value = Status.Loading
+        val previous = _status.value as? Status.Ready
+        if (previous == null) {
+            _status.value = Status.Loading
+        }
         return try {
             val url =
                 ContentManifestLoader.resolveRemoteUrl(context)
@@ -62,20 +69,27 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
             manifest
         } catch (failure: Throwable) {
             if (failure is kotlinx.coroutines.CancellationException) throw failure
-            val cached =
-                withContext(dispatchers.io) {
-                    runCatching {
-                        ContentManifest.parse(diskCache.readText())
-                    }.getOrNull()
-                }
+            val cached = previous?.manifest ?: readDiskCache()
             if (cached != null) {
-                _status.value = Status.Ready(cached, diskCache.toURI().toString())
+                _status.value = previous ?: Status.Ready(cached, diskCache.toURI().toString())
                 cached
             } else {
                 _status.value = Status.Failed(failure.message ?: failure.javaClass.simpleName)
                 throw failure
             }
         }
+    }
+
+    private suspend fun loadDiskCacheLocked(): ContentManifest? {
+        val cached = readDiskCache() ?: return null
+        _status.value = Status.Ready(cached, diskCache.toURI().toString())
+        return cached
+    }
+
+    private suspend fun readDiskCache(): ContentManifest? = withContext(dispatchers.io) {
+        runCatching {
+            ContentManifest.parse(diskCache.readText())
+        }.getOrNull()
     }
 
     private fun writeCacheAtomically(json: String) {

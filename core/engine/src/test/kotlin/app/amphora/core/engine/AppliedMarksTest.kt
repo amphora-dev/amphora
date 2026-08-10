@@ -14,6 +14,8 @@ class AppliedMarksTest {
         assertTrue(keys.contains("appliedDxwrapper"))
         assertTrue(keys.contains("appliedServices"))
         assertTrue(keys.contains("appliedInput"))
+        assertTrue(keys.contains("appliedFonts"))
+        assertTrue(keys.contains("appliedStartMenu"))
         assertFalse(keys.contains("appliedBox64"))
         assertFalse(keys.contains("audioDriver"))
     }

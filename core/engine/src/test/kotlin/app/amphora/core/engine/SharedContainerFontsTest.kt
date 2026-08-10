@@ -95,4 +95,30 @@ class SharedContainerFontsTest {
             registry.delete()
         }
     }
+
+    @Test
+    fun registryEditor_skipsEquivalentMultiStringRewrite() {
+        val registry = Files.createTempFile("amphora-font-link-idempotent", ".reg").toFile()
+        try {
+            registry.writeText(
+                "WINE REGISTRY Version 2\n\n" +
+                    "[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\FontLink\\\\SystemLink] 1\n",
+            )
+            val key = "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontLink\\SystemLink"
+            val fallback = "SourceHanSansCN-Regular.otf,Source Han Sans CN"
+            WineRegistryEditor(registry).use {
+                it.setMultiStringValue(key, "Tahoma", fallback)
+            }
+            assertTrue(registry.setLastModified(1_000_000L))
+            val stableTimestamp = registry.lastModified()
+
+            WineRegistryEditor(registry).use {
+                it.setMultiStringValue(key, "Tahoma", fallback)
+            }
+
+            assertEquals(stableTimestamp, registry.lastModified())
+        } finally {
+            registry.delete()
+        }
+    }
 }
