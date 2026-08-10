@@ -21,6 +21,8 @@ import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.GraphicsDiag
 import app.amphora.core.engine.GraphicsDriverIds
+import app.amphora.core.engine.GuestDriveManager
+import app.amphora.core.engine.GuestDriveMapping
 import app.amphora.core.engine.ShizukuCleanupStatus
 import app.amphora.core.engine.ShizukuEmergencyStopper
 import app.amphora.core.engine.TurnipDriverProvisioner
@@ -57,6 +59,7 @@ constructor(
     private val assetInstaller: ContentAssetInstaller,
     private val contentReconciler: ContentReconciler,
     private val turnipProvisioner: TurnipDriverProvisioner,
+    private val guestDriveManager: GuestDriveManager,
     private val shizukuEmergencyStopper: ShizukuEmergencyStopper,
     private val updateManager: AppUpdateManager,
 ) : ViewModel() {
@@ -137,6 +140,7 @@ constructor(
     init {
         refreshComponents()
         refreshStorageUsage()
+        refreshGuestDrives()
         viewModelScope.launch {
             shizukuEmergencyStopper.status.collect { status ->
                 _uiState.update { it.copy(shizukuCleanupStatus = status) }
@@ -150,6 +154,45 @@ constructor(
                         )
                     }
                     downloadAndInstallUpdate()
+                }
+            }
+        }
+    }
+
+    fun refreshGuestDrives() {
+        if (_uiState.value.refreshingGuestDrives) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    refreshingGuestDrives = true,
+                    guestDriveMessage = null,
+                )
+            }
+            try {
+                val drives = guestDriveManager.refresh()
+                val removable = drives.count { it.removable && it.available }
+                _uiState.update {
+                    it.copy(
+                        refreshingGuestDrives = false,
+                        guestDrives = drives,
+                        guestDriveMessage =
+                        if (removable > 0) {
+                            "$removable removable storage volume(s) mapped for the next session."
+                        } else {
+                            "No accessible removable storage detected."
+                        },
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        refreshingGuestDrives = false,
+                        guestDriveMessage =
+                        "Could not refresh storage drives: " +
+                            (error.message ?: error.javaClass.simpleName),
+                    )
                 }
             }
         }
@@ -680,6 +723,9 @@ data class SettingsUiState(
     val storageScanning: Boolean = false,
     val deletingStorage: Boolean = false,
     val storageMessage: String? = null,
+    val guestDrives: List<GuestDriveMapping> = emptyList(),
+    val refreshingGuestDrives: Boolean = false,
+    val guestDriveMessage: String? = null,
     val customEnv: String = "",
     val rejectedEnvNames: List<String> = emptyList(),
     val shizukuCleanupStatus: ShizukuCleanupStatus = ShizukuCleanupStatus.UNAVAILABLE,

@@ -406,7 +406,10 @@ private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel)
             onReset = { viewModel.selectDirectDraw(DirectDrawSetting.DXWRAPPER) },
         )
     }
-    StorageSection()
+    StorageSection(
+        state = state,
+        onRefresh = viewModel::refreshGuestDrives,
+    )
 }
 
 @Composable
@@ -1535,23 +1538,30 @@ private fun StorageUsageRow(entry: StorageEntry, totalBytes: Long, action: (@Com
 }
 
 @Composable
-private fun StorageSection() {
+private fun StorageSection(state: SettingsUiState, onRefresh: () -> Unit) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(GuestStorageAccess.isGranted(context)) }
     val requestLegacy =
         rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions(),
-        ) { granted = GuestStorageAccess.isGranted(context) }
+        ) {
+            granted = GuestStorageAccess.isGranted(context)
+            if (granted) onRefresh()
+        }
     val openSettings =
         rememberLauncherForActivityResult(
             ActivityResultContracts.StartActivityForResult(),
-        ) { granted = GuestStorageAccess.isGranted(context) }
+        ) {
+            granted = GuestStorageAccess.isGranted(context)
+            if (granted) onRefresh()
+        }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
                     granted = GuestStorageAccess.isGranted(context)
+                    if (granted) onRefresh()
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -1560,7 +1570,7 @@ private fun StorageSection() {
 
     SettingSection(
         title = "Storage",
-        subtitle = "Windows D: (Downloads) and F: (device storage)",
+        subtitle = "Windows D: (Downloads), F: (device storage), and removable drives",
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1574,7 +1584,7 @@ private fun StorageSection() {
                 )
                 Text(
                     if (granted) {
-                        "Wine can list files on the mapped D: and F: drives."
+                        "Wine can list files on mapped device and removable storage drives."
                     } else {
                         "Without access, Wine may show folders but hide every file inside them."
                     },
@@ -1585,11 +1595,42 @@ private fun StorageSection() {
         }
         HorizontalDivider()
         Text("Guest drive mappings", style = MaterialTheme.typography.labelLarge)
-        GuestDriveMappingRow(letter = "D:", label = "Downloads")
-        GuestDriveMappingRow(letter = "F:", label = "Internal storage")
+        if (state.guestDrives.isEmpty()) {
+            Text(
+                if (state.refreshingGuestDrives) {
+                    "Detecting storage volumes…"
+                } else {
+                    "No storage drives are currently available."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            state.guestDrives.forEach { drive ->
+                GuestDriveMappingRow(
+                    letter = "${drive.letter}:",
+                    label = drive.label,
+                    path = drive.path,
+                    available = drive.available,
+                )
+            }
+        }
+        state.guestDriveMessage?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(
+            onClick = onRefresh,
+            enabled = !state.refreshingGuestDrives,
+        ) {
+            Text(if (state.refreshingGuestDrives) "Refreshing…" else "Refresh drive mappings")
+        }
         Text(
-            "Wine uses direct filesystem links, so selecting a folder through Android's " +
-                "document picker alone is not sufficient.",
+            "Mounted SD cards are assigned G: and later letters automatically. Wine uses " +
+                "direct filesystem links, so Android file access must be granted first.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1634,13 +1675,32 @@ private fun StorageSection() {
 }
 
 @Composable
-private fun GuestDriveMappingRow(letter: String, label: String) {
+private fun GuestDriveMappingRow(letter: String, label: String, path: String, available: Boolean) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(letter, style = MaterialTheme.typography.titleSmall)
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                path,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            if (available) "Ready" else "Unavailable",
+            style = MaterialTheme.typography.labelSmall,
+            color =
+            if (available) {
+                Color(0xFF2E7D5B)
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+        )
     }
 }

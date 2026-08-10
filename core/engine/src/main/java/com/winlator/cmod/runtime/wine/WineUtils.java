@@ -112,6 +112,8 @@ public abstract class WineUtils {
     List<String[]> entries = new ArrayList<>();
     LinkedHashSet<String> usedLetters = new LinkedHashSet<>();
     LinkedHashSet<String> usedPaths = new LinkedHashSet<>();
+    List<String> mountedSdCardRoots =
+        ensureDefaults ? getMountedSdCardRootPaths(context) : new ArrayList<>();
     if (drives != null && !drives.isEmpty()) {
       for (String[] drive : Container.drivesIterator(drives)) {
         if (drive.length < 2 || drive[1] == null || drive[1].isEmpty()) continue;
@@ -120,6 +122,11 @@ public abstract class WineUtils {
         if (!isSupportedDriveLetter(letter) || "A".equals(letter) || "E".equals(letter)) continue;
 
         String normalizedPath = normalizeHostPath(drive[1]);
+        if (ensureDefaults
+            && isDirectRemovableRoot(normalizedPath)
+            && !containsNormalizedPath(mountedSdCardRoots, normalizedPath)) {
+          continue;
+        }
         if (normalizedPath.isEmpty()
             || usedLetters.contains(letter)
             || usedPaths.contains(normalizedPath)) {
@@ -140,7 +147,7 @@ public abstract class WineUtils {
 
       ensureDriveMapping(entries, usedLetters, usedPaths, "D", downloadsPath);
       ensureDriveMapping(entries, usedLetters, usedPaths, "F", externalStoragePath);
-      for (String sdCardRootPath : getMountedSdCardRootPaths(context)) {
+      for (String sdCardRootPath : mountedSdCardRoots) {
         ensureDriveMapping(entries, usedLetters, usedPaths, "G", sdCardRootPath);
       }
     }
@@ -151,6 +158,31 @@ public abstract class WineUtils {
     }
 
     return normalized.toString();
+  }
+
+  private static boolean containsNormalizedPath(List<String> paths, String candidate) {
+    for (String path : paths) {
+      if (normalizeHostPath(path).equals(candidate)) return true;
+    }
+    return false;
+  }
+
+  private static boolean isDirectRemovableRoot(String path) {
+    if (path == null || path.isEmpty()) return false;
+    String storagePrefix = "/storage/";
+    if (path.startsWith(storagePrefix)) {
+      String name = path.substring(storagePrefix.length());
+      return !name.isEmpty()
+          && name.indexOf('/') == -1
+          && !"emulated".equals(name)
+          && !"self".equals(name);
+    }
+    String mediaRwPrefix = "/mnt/media_rw/";
+    if (path.startsWith(mediaRwPrefix)) {
+      String name = path.substring(mediaRwPrefix.length());
+      return !name.isEmpty() && name.indexOf('/') == -1;
+    }
+    return false;
   }
 
   public static String getPrimaryGameDrivePath(Container container) {
@@ -398,12 +430,15 @@ public abstract class WineUtils {
     }
 
     if (context != null) {
-      String normalizedDrives = normalizePersistentDrives(context, container.getDrives(), false);
+      // Re-scan defaults on every launch. Removable volumes may have been inserted
+      // after this container was created, so its persisted D:/F: list is not enough.
+      String normalizedDrives = normalizePersistentDrives(context, container.getDrives(), true);
       if (normalizedDrives != null
           && !normalizedDrives.isEmpty()
           && !normalizedDrives.equals(container.getDrives())) {
         container.setDrives(normalizedDrives);
-        Log.d("WineUtils", "Normalized launch drives in memory to: " + normalizedDrives);
+        container.saveData();
+        Log.d("WineUtils", "Reconciled launch drives to: " + normalizedDrives);
       }
     }
 
