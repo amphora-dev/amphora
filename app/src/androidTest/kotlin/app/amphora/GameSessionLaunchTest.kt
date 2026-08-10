@@ -52,6 +52,13 @@ class GameSessionLaunchTest {
                 exePath = executable.absolutePath,
                 containerId = ContainerId("1"),
                 displaySize = DisplaySize(1280, 720),
+                // Keep enough native output for a failed device run to explain whether
+                // linker64/Box64/Wine exited; ProcessHelper writes it to wine_stderr.log.
+                env =
+                    mapOf(
+                        "WINEDEBUG" to "+err",
+                        "AMPHORA_EXEC_DEBUG" to "1",
+                    ),
             )
 
         println(
