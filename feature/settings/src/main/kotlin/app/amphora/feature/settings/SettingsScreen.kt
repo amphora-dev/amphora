@@ -1376,8 +1376,8 @@ private fun StorageUsageSection(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    "${formatStorageSize(usage.reclaimableBytes)} is caches and leftovers " +
-                        "from earlier runs.",
+                    "${formatStorageSize(usage.reclaimableBytes)} is caches and managed " +
+                        "temporary data.",
                     modifier = Modifier.padding(12.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -1423,13 +1423,12 @@ private fun StorageUsageSection(
                 .filter { it.removablePath != null }
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete unused data?") },
+            title = { Text("Delete temporary data?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        "This permanently removes containers and prefix backups that are no " +
-                            "longer in use. The active Windows prefix and installed components " +
-                            "are kept.",
+                        "This removes only old files created for interrupted Amphora " +
+                            "operations. Containers and Wine prefix recovery backups are kept.",
                     )
                     removable.forEach {
                         Text(

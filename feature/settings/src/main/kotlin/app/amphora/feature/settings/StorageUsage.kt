@@ -8,6 +8,7 @@ import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.display.environment.ImageFs
 import java.io.File
+import java.util.UUID
 
 /** One line of the storage breakdown, already resolved to bytes on disk. */
 data class StorageEntry(
@@ -25,6 +26,11 @@ data class StorageUsage(
     val freeBytes: Long = 0,
     val shaderCacheBytes: Long = 0,
     val reclaimableBytes: Long = 0,
+)
+
+data class StorageCleanupResult(
+    val bytesFreed: Long = 0,
+    val failedPaths: List<String> = emptyList(),
 )
 
 /**
@@ -46,7 +52,8 @@ object StorageUsageScanner {
         val prefixDir = File(activeHome, ".wine")
         val cacheDir = File(activeHome, ".cache")
         val cacheBytes = sizeOf(cacheDir)
-        val stale = staleGuestData(homeDir, activeHome)
+        val preserved = preservedGuestData(homeDir, activeHome)
+        val managedTemporary = managedTemporaryData(context.cacheDir)
 
         val entries =
             buildList {
@@ -58,13 +65,23 @@ object StorageUsageScanner {
                         children = childrenOf(prefixDir),
                     ),
                 )
-                if (stale.isNotEmpty()) {
+                if (preserved.isNotEmpty()) {
                     add(
                         StorageEntry(
-                            label = "Unused containers and backups",
-                            detail = "Left by earlier runs · safe to delete",
-                            bytes = stale.sumOf(StorageEntry::bytes),
-                            children = stale,
+                            label = "Other containers and recovery backups",
+                            detail = "Preserved; manage containers explicitly",
+                            bytes = preserved.sumOf(StorageEntry::bytes),
+                            children = preserved,
+                        ),
+                    )
+                }
+                if (managedTemporary.isNotEmpty()) {
+                    add(
+                        StorageEntry(
+                            label = "Managed temporary files",
+                            detail = "Old interrupted-operation files · safe to remove",
+                            bytes = managedTemporary.sumOf(StorageEntry::bytes),
+                            children = managedTemporary,
                         ),
                     )
                 }
@@ -102,12 +119,12 @@ object StorageUsageScanner {
             totalBytes = entries.sumOf(StorageEntry::bytes),
             freeBytes = freeBytes(context),
             shaderCacheBytes = cacheBytes,
-            reclaimableBytes = stale.sumOf(StorageEntry::bytes) + cacheBytes,
+            reclaimableBytes = managedTemporary.sumOf(StorageEntry::bytes) + cacheBytes,
         )
     }
 
-    /** Everything under `home` that the active container does not use. */
-    private fun staleGuestData(homeDir: File, activeHome: File): List<StorageEntry> {
+    /** Guest data outside the active prefix is recovery/user data, never generic cleanup. */
+    private fun preservedGuestData(homeDir: File, activeHome: File): List<StorageEntry> {
         val containers = homeDir.listFiles().orEmpty().filter { it.isDirectory && !isSymlink(it) }
         return containers
             .flatMap { container ->
@@ -115,9 +132,13 @@ object StorageUsageScanner {
                     listOf(
                         StorageEntry(
                             label = container.name,
-                            detail = "Inactive container",
+                            detail =
+                                if (container.name.startsWith("${ImageFs.USER}.legacy-backup-")) {
+                                    "Legacy home recovery backup · preserved"
+                                } else {
+                                    "Inactive container · preserved"
+                                },
                             bytes = sizeOf(container),
-                            removablePath = container.absolutePath,
                         ),
                     )
                 } else {
@@ -128,12 +149,41 @@ object StorageUsageScanner {
                         .map {
                             StorageEntry(
                                 label = it.name,
-                                detail = "Prefix backup",
+                                detail = "Prefix recovery backup · preserved",
                                 bytes = sizeOf(it),
-                                removablePath = it.absolutePath,
                             )
                         }
                 }
+            }.filter { it.bytes > 0 }
+            .sortedByDescending(StorageEntry::bytes)
+    }
+
+    internal fun managedTemporaryData(
+        cacheDir: File,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): List<StorageEntry> {
+        val cleanupDir = File(cacheDir, CLEANUP_DIR)
+        val archiveStage = File(cacheDir, NATIVE_ARCHIVE_STAGE_DIR)
+        val candidates =
+            buildList {
+                addAll(
+                    cacheDir
+                        .listFiles()
+                        .orEmpty()
+                        .filter { it.name.matches(WINEPREFIX_REPAIR) || it.name.matches(RESTORE_TEMP) },
+                )
+                addAll(archiveStage.listFiles().orEmpty().filter { it.name.matches(ARCHIVE_TEMP) })
+                addAll(cleanupDir.listFiles().orEmpty())
+            }
+        return candidates
+            .filter { isManagedTemporary(it, cacheDir, nowMillis) }
+            .map {
+                StorageEntry(
+                    label = it.name,
+                    detail = "Managed temporary item",
+                    bytes = sizeOf(it),
+                    removablePath = it.absolutePath,
+                )
             }.filter { it.bytes > 0 }
             .sortedByDescending(StorageEntry::bytes)
     }
@@ -202,35 +252,68 @@ object StorageUsageScanner {
     private fun pathKind(file: File): String = if (file.isDirectory) "Folder" else "File"
 
     /**
-     * Deletes leftover guest data and returns the bytes freed.
+     * Deletes only old, app-managed temporary data and returns the actual bytes freed.
      *
      * The caller passes paths measured earlier, so every one is re-validated here:
-     * a container can become the active one between the scan and the tap, and only
-     * directories directly under the guest home are ever eligible.
+     * arbitrary cache files, containers and Wine prefix backups are never eligible.
+     * A target is first atomically moved into a managed quarantine, preventing a
+     * recursive failure from leaving a half-deleted item at its original path.
      */
-    fun deleteUnusedGuestData(context: Context, paths: List<String>): Long {
-        val rootDir = resolve(ImageFs.find(context).rootDir)
-        val homeDir = resolve(File(rootDir, "home"))
-        val activeHome = resolve(File(rootDir, "home/${ImageFs.USER}"))
+    fun deleteUnusedGuestData(context: Context, paths: List<String>): StorageCleanupResult {
+        val cacheDir = resolve(context.cacheDir)
+        val cleanupDir = File(cacheDir, CLEANUP_DIR)
+        val failed = mutableListOf<String>()
         var freed = 0L
         paths.forEach { path ->
-            val target = resolve(File(path))
-            if (!isRemovable(target, homeDir, activeHome)) return@forEach
-            val size = sizeOf(target)
-            if (deleteTree(target)) freed += size
+            val requested = File(path).absoluteFile
+            if (!isManagedTemporary(requested, cacheDir)) {
+                failed += path
+                return@forEach
+            }
+            val target = resolve(requested)
+            val before = sizeOf(target)
+            val quarantined =
+                if (target.parentFile == cleanupDir) {
+                    target
+                } else {
+                    if (!cleanupDir.isDirectory && !cleanupDir.mkdirs()) {
+                        failed += path
+                        return@forEach
+                    }
+                    val destination = File(cleanupDir, "${target.name}-${UUID.randomUUID()}.deleting")
+                    if (!target.renameTo(destination)) {
+                        failed += path
+                        return@forEach
+                    }
+                    destination
+                }
+            val deleted = deleteTree(quarantined)
+            val remaining = sizeOf(quarantined)
+            freed += (before - remaining).coerceAtLeast(0)
+            if (!deleted) failed += path
         }
-        return freed
+        return StorageCleanupResult(bytesFreed = freed, failedPaths = failed)
     }
 
-    private fun isRemovable(target: File, homeDir: File, activeHome: File): Boolean {
-        if (!target.isDirectory) return false
-        if (target == activeHome || target == homeDir) return false
-        // Either a sibling container of the active one, or a superseded prefix inside
-        // it. The live prefix, the shader cache and the container's own runtime data
-        // (`.config`, `.local`, …) are never eligible.
+    internal fun isManagedTemporary(
+        requested: File,
+        cacheDir: File,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (!requested.exists() || isSymlink(requested)) return false
+        val cache = resolve(cacheDir)
+        val target = resolve(requested)
+        if (!target.toPath().startsWith(cache.toPath())) return false
         val parent = target.parentFile ?: return false
-        if (parent == homeDir) return true
-        return parent == activeHome && isOldPrefix(target.name)
+        if (parent == resolve(File(cache, CLEANUP_DIR))) return true
+        if (nowMillis - target.lastModified() < MIN_TEMP_AGE_MS) return false
+        return when (parent) {
+            cache ->
+                target.name.matches(WINEPREFIX_REPAIR) ||
+                    target.name.matches(RESTORE_TEMP)
+            resolve(File(cache, NATIVE_ARCHIVE_STAGE_DIR)) -> target.name.matches(ARCHIVE_TEMP)
+            else -> false
+        }
     }
 
     /** A renamed prefix such as `.wine.broken-backup`, never the live `.wine`. */
@@ -244,11 +327,19 @@ object StorageUsageScanner {
      * through it would walk far outside the directory the user asked to remove.
      */
     private fun deleteTree(target: File): Boolean {
-        if (isSymlink(target)) return target.delete()
-        if (target.isDirectory) {
-            target.listFiles().orEmpty().forEach { deleteTree(it) }
+        return try {
+            if (isSymlink(target)) return target.delete()
+            var complete = true
+            if (target.isDirectory) {
+                val children = target.listFiles() ?: return false
+                children.forEach {
+                    if (!deleteTree(it)) complete = false
+                }
+            }
+            target.delete() && complete
+        } catch (_: SecurityException) {
+            false
         }
-        return target.delete()
     }
 
     private fun freeBytes(context: Context): Long = try {
@@ -298,6 +389,13 @@ object StorageUsageScanner {
             ContentProfile.ContentType.CONTENT_TYPE_WOWBOX64 to "WOWBox64",
             ContentProfile.ContentType.CONTENT_TYPE_FEXCORE to "FEXCore",
         )
+
+    private const val MIN_TEMP_AGE_MS = 24L * 60L * 60L * 1_000L
+    private const val CLEANUP_DIR = ".amphora-cleanup"
+    private const val NATIVE_ARCHIVE_STAGE_DIR = "native-archive-stage"
+    private val WINEPREFIX_REPAIR = Regex("""wineprefix-repair-[a-fA-F0-9]+\.tmp""")
+    private val RESTORE_TEMP = Regex("""restore_.+\.tmp""")
+    private val ARCHIVE_TEMP = Regex("""archive-[a-z0-9]+-[a-fA-F0-9]+\.tmp""")
 }
 
 fun formatStorageSize(bytes: Long): String = when {
