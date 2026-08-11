@@ -201,10 +201,10 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
   }
 
   public void onPause() {
-    ALSAClient.setOutputSuspended(true);
+    ALSAClient.setEnvironmentPaused(true);
   }
 
   public void onResume() {
-    ALSAClient.setOutputSuspended(false);
+    ALSAClient.setEnvironmentPaused(false);
   }
 }

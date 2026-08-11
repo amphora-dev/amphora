@@ -40,23 +40,19 @@ internal class XServerInputSink(private val xServer: XServer) : InputSink {
 /**
  * ALSA-backed [AudioSink] (RFC §8 音频衔接). PCM data itself flows out-of-band over the
  * ALSA aserver Unix socket (`ALSAServerComponent` -> `ALSAClient` -> `AudioTrack`); this
- * sink only exposes volume / mute control. [setMuted] maps to
- * `ALSAClient.setOutputSuspended` (the same lever `XEnvironment.onPause` pulls).
- * [setVolume] tracks the value in [volume] for the UI; wiring it to the live `AudioTrack`
- * requires exposing the track from `ALSAClient` (P4+ audio polish).
+ * sink exposes a session master volume and mute control. Pause and user mute are
+ * tracked independently so resuming the activity cannot accidentally unmute it.
  */
 internal class XServerAudioSink : AudioSink {
     private val _volume = MutableStateFlow(1f)
     override val volume: StateFlow<Float> = _volume.asStateFlow()
-    private var muted = false
 
     override suspend fun setVolume(volume: Float) {
         _volume.value = volume.coerceIn(0f, 1f)
-        // TODO(P4+): push to ALSAClient's AudioTrack once exposed.
+        ALSAClient.setMasterVolume(_volume.value)
     }
 
     override suspend fun setMuted(muted: Boolean) {
-        this.muted = muted
-        ALSAClient.setOutputSuspended(muted)
+        ALSAClient.setMuted(muted)
     }
 }

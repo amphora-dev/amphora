@@ -37,7 +37,9 @@ public class ALSAClient {
   private float[] bassLowpassState = new float[2];
   private float bassLowpassAlpha = 0.0f;
   private static volatile short framesPerBuffer = 256;
-  private static volatile boolean outputSuspended = false;
+  private static volatile boolean environmentPaused = false;
+  private static volatile boolean muted = false;
+  private static volatile float masterVolume = 1.0f;
   private final Options options;
 
   public static class Options {
@@ -239,8 +241,24 @@ public class ALSAClient {
     }
   }
 
-  public static void setOutputSuspended(boolean suspended) {
-    outputSuspended = suspended;
+  public static void setEnvironmentPaused(boolean paused) {
+    environmentPaused = paused;
+  }
+
+  public static void setMuted(boolean value) {
+    muted = value;
+  }
+
+  public static boolean isOutputSuspended() {
+    return environmentPaused || muted;
+  }
+
+  public static void setMasterVolume(float volume) {
+    masterVolume = Math.max(0.0f, Math.min(volume, 1.0f));
+  }
+
+  public static float getMasterVolume() {
+    return masterVolume;
   }
 
   public synchronized void writeDataToStream(ByteBuffer data) {
@@ -252,7 +270,7 @@ public class ALSAClient {
 
     if (audioTrack != null) {
       data.position(0);
-      if (outputSuspended) {
+      if (isOutputSuspended()) {
         for (int i = data.position(); i < data.limit(); i++) data.put(i, (byte) 0);
       } else {
         applyAudioProcessing(data);
@@ -275,7 +293,9 @@ public class ALSAClient {
   }
 
   private void applyAudioProcessing(ByteBuffer data) {
-    if (options.volume == Options.DEFAULT_VOLUME && options.bassBoost == Options.DEFAULT_BASS_BOOST) {
+    if (options.volume == Options.DEFAULT_VOLUME
+        && options.bassBoost == Options.DEFAULT_BASS_BOOST
+        && masterVolume == 1.0f) {
       return;
     }
 
@@ -315,7 +335,7 @@ public class ALSAClient {
       bassLowpassState[channel] += bassLowpassAlpha * (sample - bassLowpassState[channel]);
       sample += bassLowpassState[channel] * options.bassBoost;
     }
-    return clamp(sample * options.volume, -1.0f, 1.0f);
+    return clamp(sample * options.volume * masterVolume, -1.0f, 1.0f);
   }
 
   private static float computeBassLowpassAlpha(int sampleRate) {

@@ -6,6 +6,7 @@ import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.WineEngine
+import app.amphora.core.engine.model.AudioSink
 import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.LaunchTarget
@@ -88,6 +89,18 @@ class GameSessionViewModelTest {
         assertTrue(enabled.viewModel.hostPerformanceHudEnabled)
     }
 
+    @Test
+    fun audioControlsAreForwardedToTheEngineSink() = runTest(dispatchers.testDispatcher) {
+        val fixture = fixture()
+
+        fixture.viewModel.setAudioVolume(0.4f)
+        fixture.viewModel.setAudioMuted(true)
+        runCurrent()
+
+        coVerify(exactly = 1) { fixture.audioSink.setVolume(0.4f) }
+        coVerify(exactly = 1) { fixture.audioSink.setMuted(true) }
+    }
+
     private fun fixture(
         savedState: Map<String, Any?> =
             mapOf(
@@ -99,7 +112,10 @@ class GameSessionViewModelTest {
     ): Fixture {
         val engine = mockk<WineEngine>()
         val handle = mockk<SessionHandle>(relaxed = true)
+        val audioSink = mockk<AudioSink>(relaxed = true)
         every { engine.provisionProgress } returns MutableStateFlow<ProvisionProgress?>(null)
+        every { engine.audioSink() } returns audioSink
+        every { audioSink.volume } returns MutableStateFlow(1f)
         every { handle.state } returns MutableStateFlow(SessionState.RUNNING)
         coEvery { engine.launch(any()) } returns handle
         val surfaceProvider = mockk<GameSessionSurfaceProvider>()
@@ -117,12 +133,13 @@ class GameSessionViewModelTest {
                 dispatchers = dispatchers,
                 savedStateHandle = SavedStateHandle(savedState),
             )
-        return Fixture(viewModel, engine, hostEnvironment)
+        return Fixture(viewModel, engine, audioSink, hostEnvironment)
     }
 
     private data class Fixture(
         val viewModel: GameSessionViewModel,
         val engine: WineEngine,
+        val audioSink: AudioSink,
         val hostEnvironment: FakeGameSessionHostEnvironment,
     )
 

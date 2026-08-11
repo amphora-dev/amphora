@@ -55,11 +55,13 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     val sessionState by viewModel.sessionState.collectAsState()
     val launchError by viewModel.launchError.collectAsState()
     val provisionProgress by viewModel.provisionProgress.collectAsState()
+    val audioVolume by viewModel.audioVolume.collectAsState()
     var rendererView by remember { mutableStateOf<XServerSurfaceView?>(null) }
     var touchpadView by remember { mutableStateOf<TouchpadView?>(null) }
     var inputMode by rememberSaveable { mutableStateOf(TouchpadView.MODE_TRACKPAD) }
     var pointerSensitivity by rememberSaveable { mutableStateOf(1f) }
     var tapToClick by rememberSaveable { mutableStateOf(true) }
+    var audioMuted by rememberSaveable { mutableStateOf(false) }
     var fpsLimit by rememberSaveable { mutableStateOf(0) }
     var stretchToFill by rememberSaveable { mutableStateOf(false) }
     var performanceHudVisible by rememberSaveable {
@@ -238,6 +240,13 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                     onPointerSensitivityChange = { pointerSensitivity = it },
                     tapToClick = tapToClick,
                     onTapToClickChange = { tapToClick = it },
+                    audioVolume = audioVolume,
+                    onAudioVolumeChange = viewModel::setAudioVolume,
+                    audioMuted = audioMuted,
+                    onAudioMutedChange = {
+                        audioMuted = it
+                        viewModel.setAudioMuted(it)
+                    },
                     fpsLimit = fpsLimit,
                     onFpsLimitChange = { fpsLimit = it },
                     stretchToFill = stretchToFill,

@@ -16,6 +16,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 /**
  * Orchestrates the Wine session lifecycle for the GameSession screen (RFC §6 / D9).
@@ -44,6 +45,8 @@ constructor(
     val surface: StateFlow<GameSessionSurface?> = surfaceProvider.surface
     val provisionProgress = wineEngine.provisionProgress
     val hostPerformanceHudEnabled = hostEnvironment.hostPerformanceHudEnabled
+    private val audioSink = wineEngine.audioSink()
+    val audioVolume = audioSink.volume
 
     private val coordinator =
         GameSessionCoordinator(
@@ -105,6 +108,18 @@ constructor(
 
     fun pause() {
         coordinator.pause()
+    }
+
+    fun setAudioVolume(volume: Float) {
+        viewModelScope.launch(dispatchers.io) {
+            audioSink.setVolume(volume)
+        }
+    }
+
+    fun setAudioMuted(muted: Boolean) {
+        viewModelScope.launch(dispatchers.io) {
+            audioSink.setMuted(muted)
+        }
     }
 
     override fun onCleared() {

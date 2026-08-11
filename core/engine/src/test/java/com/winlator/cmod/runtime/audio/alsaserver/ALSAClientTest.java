@@ -2,6 +2,7 @@ package com.winlator.cmod.runtime.audio.alsaserver;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import android.media.AudioFormat;
 import com.winlator.cmod.runtime.wine.EnvVars;
@@ -75,6 +76,29 @@ public class ALSAClientTest {
 
     assertEquals(20, options.latencyMillis);
     assertEquals(0.5f, options.volume, 0.0f);
+  }
+
+  @Test
+  public void userMuteSurvivesEnvironmentPauseAndResume() {
+    ALSAClient.setMuted(true);
+    ALSAClient.setEnvironmentPaused(true);
+    ALSAClient.setEnvironmentPaused(false);
+
+    assertTrue(ALSAClient.isOutputSuspended());
+
+    ALSAClient.setMuted(false);
+    assertFalse(ALSAClient.isOutputSuspended());
+  }
+
+  @Test
+  public void masterVolumeIsClampedToTheUiRange() {
+    ALSAClient.setMasterVolume(2.0f);
+    assertEquals(1.0f, ALSAClient.getMasterVolume(), 0.0f);
+
+    ALSAClient.setMasterVolume(-1.0f);
+    assertEquals(0.0f, ALSAClient.getMasterVolume(), 0.0f);
+
+    ALSAClient.setMasterVolume(1.0f);
   }
 
   private static ALSAClient validClient() {

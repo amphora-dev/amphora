@@ -41,6 +41,10 @@ internal fun RuntimeSessionDrawer(
     onPointerSensitivityChange: (Float) -> Unit,
     tapToClick: Boolean,
     onTapToClickChange: (Boolean) -> Unit,
+    audioVolume: Float,
+    onAudioVolumeChange: (Float) -> Unit,
+    audioMuted: Boolean,
+    onAudioMutedChange: (Boolean) -> Unit,
     fpsLimit: Int,
     onFpsLimitChange: (Int) -> Unit,
     stretchToFill: Boolean,
@@ -145,6 +149,26 @@ internal fun RuntimeSessionDrawer(
                     checked = tapToClick,
                     enabled = controlsEnabled,
                     onCheckedChange = onTapToClickChange,
+                )
+            }
+
+            RuntimeDrawerSection(title = "Audio") {
+                Text(
+                    "Volume · ${(audioVolume.coerceIn(0f, 1f) * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Slider(
+                    value = audioVolume,
+                    onValueChange = onAudioVolumeChange,
+                    enabled = controlsEnabled,
+                    valueRange = 0f..1f,
+                )
+                RuntimeToggleRow(
+                    title = "Mute",
+                    subtitle = "Keep the session muted across pause and resume",
+                    checked = audioMuted,
+                    enabled = controlsEnabled,
+                    onCheckedChange = onAudioMutedChange,
                 )
             }
 
