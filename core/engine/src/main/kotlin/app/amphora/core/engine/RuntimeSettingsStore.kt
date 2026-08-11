@@ -17,9 +17,9 @@ data class LaunchRuntimeSettings(
 )
 
 /**
- * Single source of truth for the launch choices shared by Launcher and Settings.
+ * Single source of truth for the three launch choices shared by Launcher and Settings.
  *
- * Feature modules retain ownership of mapping persisted strings to their UI enums.
+ * Feature modules retain ownership of mapping these persisted strings to their enums.
  */
 @Singleton
 class RuntimeSettingsStore private constructor(private val preferences: SharedPreferences) {
