@@ -27,6 +27,45 @@ class WineLocaleRegistryTest {
         }
     }
 
+    @Test
+    fun localeProfile_usesCountrySpecificLcidAndEightDigitUserLocale() {
+        val container = Files.createTempDirectory("amphora-country-lcid").toFile()
+        val prefix = container.resolve(".wine")
+        try {
+            assertTrue(prefix.mkdirs())
+            prefix.resolve("system.reg").writeText("WINE REGISTRY Version 2\n")
+            prefix.resolve("user.reg").writeText("WINE REGISTRY Version 2\n")
+
+            val cases =
+                mapOf(
+                    "en_GB.UTF-8" to "0809",
+                    "es_MX.UTF-8" to "080A",
+                    "pt_PT.UTF-8" to "0816",
+                    "zh_HK.UTF-8" to "0C04",
+                )
+            cases.forEach { (locale, lcid) ->
+                assertTrue(WineUtils.applyLocaleToPrefix(container, locale))
+                WineRegistryEditor(prefix.resolve("system.reg")).use {
+                    assertEquals(
+                        lcid,
+                        it.getStringValue(
+                            "System\\CurrentControlSet\\Control\\Nls\\Language",
+                            "Default",
+                        ),
+                    )
+                }
+                WineRegistryEditor(prefix.resolve("user.reg")).use {
+                    assertEquals(
+                        "0000$lcid",
+                        it.getStringValue("Control Panel\\International", "Locale"),
+                    )
+                }
+            }
+        } finally {
+            container.deleteRecursively()
+        }
+    }
+
     private fun assertLocaleRegistry(
         prefix: java.io.File,
         expectedCodepage: String,
@@ -69,6 +108,10 @@ class WineLocaleRegistryTest {
             assertEquals(
                 expectedLocaleName,
                 it.getStringValue("Control Panel\\International", "LocaleName"),
+            )
+            assertEquals(
+                "0000$expectedLcid",
+                it.getStringValue("Control Panel\\International", "Locale"),
             )
         }
     }
