@@ -9,7 +9,6 @@ import com.winlator.cmod.runtime.wine.EnvVars;
 import com.winlator.cmod.shared.io.FileUtils;
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -261,12 +260,8 @@ public class PulseAudioComponent extends EnvironmentComponent {
   }
 
   private static String readProcCmdline(String pid) {
-    try (FileInputStream fr = new FileInputStream("/proc/" + pid + "/cmdline")) {
-      byte[] bytes = fr.readAllBytes();
-      return new String(bytes, StandardCharsets.UTF_8).replace('\0', ' ');
-    } catch (IOException e) {
-      return "";
-    }
+    byte[] bytes = FileUtils.read(new File("/proc/" + pid + "/cmdline"));
+    return bytes != null ? new String(bytes, StandardCharsets.UTF_8).replace('\0', ' ') : "";
   }
 
   private void startPulseAudio() {

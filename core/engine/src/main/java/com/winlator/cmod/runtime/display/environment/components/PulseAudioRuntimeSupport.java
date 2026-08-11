@@ -6,9 +6,6 @@ import android.system.OsConstants;
 import com.winlator.cmod.shared.io.FileUtils;
 import com.winlator.cmod.shared.io.TarCompressorUtils;
 import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 
 /** Installs the matched PulseAudio control binary and AAudio modules from the APK asset. */
 public final class PulseAudioRuntimeSupport {
@@ -80,12 +77,8 @@ public final class PulseAudioRuntimeSupport {
     if (!hasRequiredFiles(runtimeDir)) return false;
     File marker = new File(runtimeDir, MARKER_NAME);
     if (!marker.isFile()) return false;
-    try {
-      return ASSET_VERSION.equals(
-          Files.readString(marker.toPath(), StandardCharsets.UTF_8).trim());
-    } catch (IOException ignored) {
-      return false;
-    }
+    String version = FileUtils.readString(marker);
+    return version != null && ASSET_VERSION.equals(version.trim());
   }
 
   private static boolean hasRequiredFiles(File runtimeDir) {
