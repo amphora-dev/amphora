@@ -45,3 +45,23 @@ spotless {
         endWithNewline()
     }
 }
+
+// A stable repository-wide JVM test entry point. Android creates
+// testDebugUnitTest for every module, including modules with no test sources;
+// invoking that task name from the root therefore schedules empty module tasks.
+// Keep the aggregate limited to modules that actually contain JVM tests and
+// include the convention-plugin tests from the composite build.
+val androidJvmTestTasks =
+    subprojects
+        .filter { project ->
+            project.fileTree("src/test") {
+                include("**/*.java", "**/*.kt")
+            }.files.isNotEmpty()
+        }.map { project -> "${project.path}:testDebugUnitTest" }
+
+tasks.register("jvmTest") {
+    group = "verification"
+    description = "Run all repository JVM tests, including build-logic tests."
+    dependsOn(androidJvmTestTasks)
+    dependsOn(gradle.includedBuild("build-logic").task(":convention:test"))
+}

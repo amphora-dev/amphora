@@ -23,6 +23,7 @@ Verify the environment:
 java -version
 ./gradlew --version
 adb version
+./gradlew jvmTest
 ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
@@ -45,7 +46,9 @@ Allow enough device storage and keep the device online. A warm launch normally
 takes about 6–7 seconds on the verified device.
 
 `stageBundledContent` remains available for legacy or diagnostic workflows, but
-it is not needed for the production remote-provisioning path.
+it is not needed for the production remote-provisioning path. It exactly stages
+verified manifest entries under `app/build/generated/assets/bundledContent/`;
+it never writes `app/src/main/assets/`.
 
 ## 2. Connect a Mac and cloud agent with Tailscale
 
