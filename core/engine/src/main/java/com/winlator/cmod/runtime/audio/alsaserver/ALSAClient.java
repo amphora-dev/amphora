@@ -24,7 +24,7 @@ public class ALSAClient {
   }
 
   private DataType dataType = DataType.U8;
-  private byte channelCount = 2;
+  private int channelCount = 2;
   private int sampleRate = 0;
   private int positionFrames;
   private int bufferSize;
@@ -142,7 +142,7 @@ public class ALSAClient {
     }
   }
 
-  public synchronized void prepare() {
+  public synchronized boolean prepare() {
     positionFrames = 0;
     previousUnderrunCount = 0;
     frameBytes = channelCount * dataType.byteCount;
@@ -150,13 +150,14 @@ public class ALSAClient {
     bassLowpassAlpha = computeBassLowpassAlpha(sampleRate);
     release();
 
-    if (!isValidBufferSize()) return;
+    int channelConfig = getChannelConfig(channelCount);
+    if (!isValidBufferSize() || channelConfig == AudioFormat.CHANNEL_INVALID) return false;
 
     AudioFormat format =
         new AudioFormat.Builder()
             .setEncoding(getPCMEncoding(dataType))
             .setSampleRate(sampleRate)
-            .setChannelMask(getChannelConfig(channelCount))
+            .setChannelMask(channelConfig)
             .build();
 
     try {
@@ -167,11 +168,21 @@ public class ALSAClient {
               .setAudioFormat(format)
               .setBufferSizeInBytes(audioTrackBufferSize)
               .build();
+      if (audioTrack.getState() != AudioTrack.STATE_INITIALIZED) {
+        release();
+        return false;
+      }
       bufferCapacityFrames = audioTrack.getBufferCapacityInFrames();
       if (options.volume < Options.DEFAULT_VOLUME) audioTrack.setVolume(options.volume);
       audioTrack.play();
+      if (audioTrack.getPlayState() != AudioTrack.PLAYSTATE_PLAYING) {
+        release();
+        return false;
+      }
+      return true;
     } catch (Exception e) {
       release();
+      return false;
     }
   }
 
@@ -352,7 +363,7 @@ public class ALSAClient {
     return dataType;
   }
 
-  public byte getChannelCount() {
+  public int getChannelCount() {
     return channelCount;
   }
 
@@ -369,7 +380,10 @@ public class ALSAClient {
   }
 
   private boolean isValidBufferSize() {
-    return (getBufferSizeInBytes() % frameBytes == 0) && bufferSize > 0;
+    return frameBytes > 0
+        && sampleRate > 0
+        && (getBufferSizeInBytes() % frameBytes == 0)
+        && bufferSize > 0;
   }
 
   public int computeLatencyMillis() {
@@ -412,8 +426,21 @@ public class ALSAClient {
     }
   }
 
-  private static int getChannelConfig(int channelCount) {
-    return channelCount <= 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
+  static int getChannelConfig(int channelCount) {
+    switch (channelCount) {
+      case 1:
+        return AudioFormat.CHANNEL_OUT_MONO;
+      case 2:
+        return AudioFormat.CHANNEL_OUT_STEREO;
+      case 4:
+        return AudioFormat.CHANNEL_OUT_QUAD;
+      case 6:
+        return AudioFormat.CHANNEL_OUT_5POINT1;
+      case 8:
+        return AudioFormat.CHANNEL_OUT_7POINT1_SURROUND;
+      default:
+        return AudioFormat.CHANNEL_INVALID;
+    }
   }
 
   public static void assignFramesPerBuffer(Context context) {
