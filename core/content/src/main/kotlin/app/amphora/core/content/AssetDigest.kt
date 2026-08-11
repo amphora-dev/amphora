@@ -43,10 +43,9 @@ object AssetDigest {
     }
 
     /** True when the sidecar still describes the existing file, regardless of its digest. */
-    fun hasCurrentRecord(assetFile: File): Boolean =
-        assetFile.isFile &&
-            pinnedSha(assetFile) != null &&
-            pinnedSize(assetFile) == assetFile.length()
+    fun hasCurrentRecord(assetFile: File): Boolean = assetFile.isFile &&
+        pinnedSha(assetFile) != null &&
+        pinnedSize(assetFile) == assetFile.length()
 
     /** Record [sha256] and the current asset size using an atomic sidecar replacement. */
     fun writePin(assetFile: File, sha256: String) {
@@ -69,9 +68,8 @@ object AssetDigest {
     }
 
     /** True when the existing asset's digest and recorded size match the sidecar. */
-    fun matchesPin(assetFile: File, expectedSha256: String): Boolean =
-        hasCurrentRecord(assetFile) &&
-            pinnedSha(assetFile) == expectedSha256.trim().lowercase()
+    fun matchesPin(assetFile: File, expectedSha256: String): Boolean = hasCurrentRecord(assetFile) &&
+        pinnedSha(assetFile) == expectedSha256.trim().lowercase()
 
     fun of(file: File): String = file.inputStream().use { of(it) }
 

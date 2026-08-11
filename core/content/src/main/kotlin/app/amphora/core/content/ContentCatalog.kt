@@ -94,10 +94,9 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
 
 /** Disk-backed, structurally validated last-known-good manifest. */
 internal class ContentManifestCache(private val file: File) {
-    fun read(): ContentManifest? =
-        runCatching {
-            ContentManifest.parse(file.readText())
-        }.getOrNull()
+    fun read(): ContentManifest? = runCatching {
+        ContentManifest.parse(file.readText())
+    }.getOrNull()
 
     fun replace(json: String): ContentManifest {
         val manifest = ContentManifest.parse(json)

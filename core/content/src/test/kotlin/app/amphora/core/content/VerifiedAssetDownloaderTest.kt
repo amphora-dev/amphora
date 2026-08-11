@@ -94,9 +94,8 @@ class VerifiedAssetDownloaderTest {
         }
     }
 
-    private fun sha256(payload: ByteArray): String =
-        MessageDigest
-            .getInstance("SHA-256")
-            .digest(payload)
-            .joinToString("") { "%02x".format(it) }
+    private fun sha256(payload: ByteArray): String = MessageDigest
+        .getInstance("SHA-256")
+        .digest(payload)
+        .joinToString("") { "%02x".format(it) }
 }
