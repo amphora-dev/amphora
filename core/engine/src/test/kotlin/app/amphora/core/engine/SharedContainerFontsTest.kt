@@ -3,6 +3,7 @@ package app.amphora.core.engine
 import com.winlator.cmod.runtime.wine.WineRegistryEditor
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -150,6 +151,38 @@ class SharedContainerFontsTest {
             assertTrue(SharedContainerFonts.windowsPackComplete(cache))
         } finally {
             cache.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun legacyFontconfigCleanup_removesOnlyManagedLinks() {
+        val root = Files.createTempDirectory("amphora-fontconfig-cleanup").toFile()
+        try {
+            val sharedFonts = root.resolve("contents/FONTS").apply { mkdirs() }
+            val sharedFace = sharedFonts.resolve("sha/msyh.ttc").apply {
+                parentFile.mkdirs()
+                writeText("font")
+            }
+            val externalFace = root.resolve("external/custom.ttf").apply {
+                parentFile.mkdirs()
+                writeText("font")
+            }
+            val fontconfigDir = root.resolve("imagefs/usr/share/fonts").apply { mkdirs() }
+            val managedLink = fontconfigDir.resolve("msyh.ttc")
+            val externalLink = fontconfigDir.resolve("custom.ttf")
+            val realFile = fontconfigDir.resolve("local.ttf").apply { writeText("font") }
+            Files.createSymbolicLink(managedLink.toPath(), sharedFace.toPath())
+            Files.createSymbolicLink(externalLink.toPath(), externalFace.toPath())
+
+            assertEquals(
+                1,
+                SharedContainerFonts.removeLegacyFontconfigLinks(fontconfigDir, sharedFonts),
+            )
+            assertFalse(Files.isSymbolicLink(managedLink.toPath()))
+            assertTrue(Files.isSymbolicLink(externalLink.toPath()))
+            assertTrue(realFile.isFile)
+        } finally {
+            root.deleteRecursively()
         }
     }
 
