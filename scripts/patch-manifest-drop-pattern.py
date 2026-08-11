@@ -19,7 +19,8 @@ from pathlib import Path
 
 DROP = frozenset({"container_pattern_common.tzst", "layers.tzst"})
 DEFAULT_FONTS_URL = (
-    "https://github.com/amphora-dev/imagefs/releases/download/pattern/fonts.tzst"
+    "https://github.com/amphora-dev/imagefs/releases/download/"
+    "pattern/fonts-windows-7dc95c80.tzst"
 )
 
 

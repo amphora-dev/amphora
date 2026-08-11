@@ -181,5 +181,5 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 - `:feature:settings` 续增强；键盘/手柄；音频音量接线
 - Present/DRI3 完善；多容器/prefix
-- 部分 runtime 资产仍 pin 自 WinNative raw（wincomponents / ddrawrapper / meta）；`container_pattern_common` / `layers` 已从默认路径拆除；CJK 为 `fonts.tzst`（Source Han CN+JP Regular/Bold）→ `contents/FONTS/<sha>/` + 每容器 `Fonts/` 按区域 symlink（中文→CN、日文→JP）+ `FontSubstitutes` / Wine `Fonts\Replacements`
+- 部分 runtime 资产仍 pin 自 WinNative raw（wincomponents / ddrawrapper / meta）；`container_pattern_common` / `layers` 已从默认路径拆除；共享 `fonts.tzst` 提供真实 Microsoft YaHei、SimHei、PMingLiU、Tahoma、Microsoft Sans Serif，并保留 Source Han CN+JP 处理未打包字体；每容器通过 `Fonts/` symlink + FontLink / `FontSubstitutes` / Wine `Fonts\Replacements` 注册
 - Exit 真机连点 / FD 泄漏回归

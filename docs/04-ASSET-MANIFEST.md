@@ -146,7 +146,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 | 7 | **`Dxvk-*.wcp`** | D3D8–11 → Vulkan | ~6.7 MB | 容器 `system32`/`syswow64` | ✅ |
 | 8 | **`Vkd3d-*.wcp`** | D3D12 → Vulkan | ~3.4 MB | 同上 | ✅ |
 | 9 | ~~`container_pattern_common.tzst`~~ | Winlator prefix 模板（字体/图标/winhandler/ddraw 工具） | ~42 MB | — | ❌ **已废止**（2026-08）：prefix 只靠 Proton `prefixPack` |
-| 10 | **`fonts.tzst`**（共享） | Adobe Source Han Sans **CN+JP** Regular/Bold（2.005R subset） | **~20 MB** | `contents/FONTS/<sha>/` 四脸；中文别名→CN、日文→JP；粗体→Bold；FontSubstitutes / Wine Replacements | ✅ |
+| 10 | **`fonts.tzst`**（共享） | Source Han Sans **CN+JP** 回退 + Microsoft YaHei、SimHei、PMingLiU、Tahoma、Microsoft Sans Serif | **~38 MB** | `contents/FONTS/<sha>/`；真实 Windows 字体优先，Source Han 处理未打包字体；FontLink / FontSubstitutes / Wine Replacements | ✅ |
 | 11 | **`wincomponents/*.tzst`** | 微软 redist（保持 tzst，**不**改 WCP） | 目录合计 ~38 MB；按 `FALLBACK` 选装 | 容器 DLL | ✅ 按需提取，机制不变 |
 | 12 | **`WN-Turnip-*.zip`** | 可选完整 Turnip | ~2.7 MB zip / ~15 MB `.so` | `contents/adrenotools/<id>/` | ⚪ 可选 |
 | 13 | **`ddrawrapper/{cnc-ddraw,dd7to9,nglide}.tzst`** | DirectDraw/Glide；`cnc-ddraw` 与 `dd7to9` **互斥单选**，默认 DxWrapper Dd7to9 | 各 0.2–3 MB | 容器 `syswow64` | ⚪ 可选 |
@@ -160,9 +160,9 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 |---|---|---|
 | rootfs | 官方 `imagefs.tzst` **199.8 MB**（解压 ~877 MB） | 自建 **~27.5 MB**（解压 ~187 MB） |
 | 图形叠加 | `extra_libs`+`layers`+旧 wrapper ≈ **29 MB**（历史） | `wrapper` ~0.7 MB（含 hooks；Mesa GL 已并入 imagefs） |
-| 容器模板/字体 | `container_pattern_common` **41.6 MB**（字体堆 + 内嵌 cnc-ddraw） | 无 pattern；共享 **CN+JP Regular/Bold** `fonts.tzst` ≈ **20 MB** |
+| 容器模板/字体 | `container_pattern_common` **41.6 MB**（字体堆 + 内嵌 cnc-ddraw） | 无 pattern；共享 Windows UI/CJK + Source Han 回退 `fonts.tzst` ≈ **38 MB** |
 | 运行时+DX | Proton+Box64+DXVK+VKD3D ≈ **181 MB** | **同左**（暂不自砍 Proton） |
-| **默认合计（量级）** | **≳ 450 MB** 资产面 | **~230–240 MB**（再去掉可选 FFmpeg/Turnip/ddraw/layers） |
+| **默认合计（量级）** | **≳ 450 MB** 资产面 | **~250–260 MB**（再去掉可选 FFmpeg/Turnip/ddraw/layers） |
 
 ### 砍掉 / 不再进默认（有据）
 

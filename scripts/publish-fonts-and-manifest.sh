@@ -3,7 +3,7 @@
 # The agent sandbox cannot read macOS keyring / ~/.ssh.
 #
 # What it does:
-#   1) Upload build/runtime-assets/fonts.tzst → amphora-dev/imagefs@pattern
+#   1) Upload versioned fonts.tzst → amphora-dev/imagefs@pattern
 #   2) Patch amphora-dev/content_manifest (add fonts, drop pattern+layers) + push
 #   3) Commit + push amphora code changes
 set -euo pipefail
@@ -12,10 +12,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 FONTS="$ROOT/build/runtime-assets/fonts.tzst"
-# Flat archive (SourceHanSansCN-Regular.otf at root). Rebuild bumps this.
-EXPECTED_SHA="3d8f543d1d68bfeaa09e7275d5d0925acfd56bbd70afe5653b3518a7ed3d5ede"
-EXPECTED_SIZE=20484991
-FONTS_URL="https://github.com/amphora-dev/imagefs/releases/download/pattern/fonts.tzst"
+# Source Han CN+JP plus real Windows UI/CJK faces. Rebuild bumps these.
+EXPECTED_SHA="7dc95c80e98224232d3f4d37655e7736d8dc3dcdd34fec82740afc1da9049955"
+EXPECTED_SIZE=40148328
+RELEASE_ASSET_NAME="fonts-windows-7dc95c80.tzst"
+FONTS_URL="https://github.com/amphora-dev/imagefs/releases/download/pattern/$RELEASE_ASSET_NAME"
 IMAGEFS_REPO="amphora-dev/imagefs"
 TAG="pattern"
 
@@ -45,14 +46,17 @@ echo "==> 1/3 upload fonts.tzst to $IMAGEFS_REPO@$TAG"
 if gh release view "$TAG" --repo "$IMAGEFS_REPO" >/dev/null 2>&1; then
   gh release edit "$TAG" --repo "$IMAGEFS_REPO" \
     --title "pattern / fonts" \
-    --notes "Source Han Sans CN+JP Regular/Bold (2.005R, ~20 MiB). Replaces container_pattern_common fonts."
+    --notes "Source Han CN+JP fallback plus Microsoft YaHei, SimHei, PMingLiU, Tahoma and Microsoft Sans Serif (~38 MiB)."
 else
   gh release create "$TAG" --repo "$IMAGEFS_REPO" \
     --title "pattern / fonts" \
-    --notes "Source Han Sans CN+JP Regular/Bold (2.005R, ~20 MiB). Replaces container_pattern_common fonts." \
+    --notes "Source Han CN+JP fallback plus Microsoft YaHei, SimHei, PMingLiU, Tahoma and Microsoft Sans Serif (~38 MiB)." \
     --target main
 fi
-gh release upload "$TAG" "$FONTS" --repo "$IMAGEFS_REPO" --clobber
+UPLOAD_FILE="${TMPDIR:-/tmp}/$RELEASE_ASSET_NAME"
+cp "$FONTS" "$UPLOAD_FILE"
+gh release upload "$TAG" "$UPLOAD_FILE" --repo "$IMAGEFS_REPO" --clobber
+rm -f "$UPLOAD_FILE"
 
 curl -fsSL "$FONTS_URL" -o /tmp/fonts-check.tzst
 CHECK_SHA="$(shasum -a 256 /tmp/fonts-check.tzst | awk '{print $1}')"
@@ -88,10 +92,10 @@ if git diff --cached --quiet; then
   echo "manifest already patched; nothing to commit"
 else
   git commit -m "$(cat <<'EOF'
-Drop container_pattern_common and layers; pin shared fonts.tzst
+Pin shared Windows-compatible fonts package
 
-Prefix now comes only from Proton prefixPack. CJK is a single shared
-Source Han Sans CN+JP package (~20 MiB) instead of the 42 MiB Winlator template.
+Keep Source Han CN+JP as fallback and add real Microsoft YaHei, SimHei,
+PMingLiU, Tahoma and Microsoft Sans Serif faces in one shared package.
 EOF
 )"
   git push origin HEAD
@@ -123,11 +127,10 @@ if git diff --cached --quiet; then
   echo "amphora: nothing to commit"
 else
   git commit -m "$(cat <<'EOF'
-Drop container_pattern_common; install shared CJK fonts only
+Install Windows-compatible UI and CJK fonts
 
-Wine prefix comes from Proton prefixPack. Remove Winlator pattern
-fallback and layers extract. Add fonts.tzst installer and publish
-helpers for content_manifest.
+Prefer real Windows font families when the complete package is present,
+while retaining Source Han CN+JP as a compatible fallback.
 EOF
 )"
   git push origin HEAD
