@@ -24,7 +24,7 @@ class VerifiedAssetDownloaderTest {
                 .digest(payload)
                 .joinToString("") { "%02x".format(it) }
         val asset = root.resolve("nested/runtime.bin")
-        asset.parentFile.mkdirs()
+        requireNotNull(asset.parentFile).mkdirs()
         asset.writeBytes(payload)
         AssetDigest.markerFor(asset).writeText(sha)
 

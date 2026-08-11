@@ -27,7 +27,7 @@ class ContentPinsTest {
     fun appliedAssetTracksSourcePinPerTarget() = withTempDirectory { root ->
         val assets = File(root, "runtime-assets")
         val source = File(assets, "graphics_driver/wrapper.tzst")
-        source.parentFile.mkdirs()
+        requireNotNull(source.parentFile).mkdirs()
         source.writeText("payload")
         AssetDigest.writePin(source, "a".repeat(64))
         val target = File(root, "imagefs").apply { mkdirs() }
@@ -44,7 +44,7 @@ class ContentPinsTest {
     fun fingerprintIsOrderIndependentAndChangesWithPins() = withTempDirectory { root ->
         val first = File(root, "a.tzst").apply { writeText("a") }
         val second = File(root, "nested/b.tzst").apply {
-            parentFile.mkdirs()
+            requireNotNull(parentFile).mkdirs()
             writeText("b")
         }
         AssetDigest.writePin(first, "a".repeat(64))
