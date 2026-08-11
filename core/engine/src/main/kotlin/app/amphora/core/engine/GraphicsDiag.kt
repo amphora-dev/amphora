@@ -32,25 +32,28 @@ object GraphicsDiag {
     fun launchEnv(context: Context): Map<String, String> {
         val logDir = ensureLogDir(context)
         val dumpDir = ensureShaderDumpDir(context)
-        return mapOf(
-            // On-screen: confirm present + API (D3D8/9 vs 11) while scene is black.
-            "DXVK_HUD" to "fps,devinfo,api,version,memory,gpuload",
-            "DXVK_LOG_LEVEL" to "info",
-            "DXVK_LOG_PATH" to logDir.absolutePath,
-            // Linked SPIR-V dumps (stock DXVK + amphora-diag builds that dump on
-            // vkCreateGraphicsPipelines failure, e.g. FF VS/FS -13 on Adreno).
-            "DXVK_SHADER_DUMP_PATH" to dumpDir.absolutePath,
-            // Override WINEDEBUG=-all so ProcessHelper captures wine_stderr.log.
-            // Do NOT enable +seh: Box64 SEH traces flood the log and stall session start
-            // for minutes (observed on TB322FC with AIO DX8/9).
-            "WINEDEBUG" to "+err",
-            // Harmless on stock DXVK; required on binsem builds if we trial those later.
-            "DXVK_DISABLE_TIMELINE_SEMAPHORES" to "1",
-        )
+        return launchEnv(logDir, dumpDir)
     }
 
-    fun ensureLogDir(context: Context): File {
-        val dir = File(context.filesDir, LOG_DIR_NAME)
+    internal fun launchEnv(logDir: File, dumpDir: File): Map<String, String> = mapOf(
+        // On-screen: confirm present + API (D3D8/9 vs 11) while scene is black.
+        "DXVK_HUD" to "fps,devinfo,api,version,memory,gpuload",
+        "DXVK_LOG_LEVEL" to "info",
+        "DXVK_LOG_PATH" to logDir.absolutePath,
+        // Linked SPIR-V dumps (stock DXVK + amphora-diag builds that dump on
+        // vkCreateGraphicsPipelines failure, e.g. FF VS/FS -13 on Adreno).
+        "DXVK_SHADER_DUMP_PATH" to dumpDir.absolutePath,
+        // Override WINEDEBUG=-all so ProcessHelper captures wine_stderr.log.
+        // Do NOT enable +seh: Box64 SEH traces flood the log and stall session start
+        // for minutes (observed on TB322FC with AIO DX8/9).
+        "WINEDEBUG" to "+err",
+        // Harmless on stock DXVK; required on binsem builds if we trial those later.
+        "DXVK_DISABLE_TIMELINE_SEMAPHORES" to "1",
+    )
+
+    fun ensureLogDir(context: Context): File = ensureLogDir(File(context.filesDir, LOG_DIR_NAME))
+
+    internal fun ensureLogDir(dir: File): File {
         if (!dir.isDirectory && !dir.mkdirs()) {
             Log.w(TAG, "Failed to create DXVK log dir: ${dir.absolutePath}")
         }
@@ -67,8 +70,9 @@ object GraphicsDiag {
         return dir
     }
 
-    fun ensureShaderDumpDir(context: Context): File {
-        val dir = File(context.filesDir, SHADER_DUMP_DIR_NAME)
+    fun ensureShaderDumpDir(context: Context): File = ensureShaderDumpDir(File(context.filesDir, SHADER_DUMP_DIR_NAME))
+
+    internal fun ensureShaderDumpDir(dir: File): File {
         if (!dir.isDirectory && !dir.mkdirs()) {
             Log.w(TAG, "Failed to create DXVK shader dump dir: ${dir.absolutePath}")
         }
@@ -78,6 +82,10 @@ object GraphicsDiag {
     /** Drop DXVK pipeline state cache — corrupt cache can look like black frames. */
     fun clearStateCache(context: Context) {
         val cache = File(ImageFs.find(context).rootDir, "home/xuser/.cache")
+        clearStateCache(cache)
+    }
+
+    internal fun clearStateCache(cache: File) {
         if (!cache.isDirectory) return
         var n = 0
         cache.walkTopDown().filter { it.isFile }.forEach {
@@ -86,8 +94,9 @@ object GraphicsDiag {
         Log.i(TAG, "Cleared $n file(s) under DXVK state cache ${cache.absolutePath}")
     }
 
-    fun logPaths(context: Context): List<File> {
-        val filesDir = context.filesDir
+    fun logPaths(context: Context): List<File> = logPaths(context.filesDir)
+
+    internal fun logPaths(filesDir: File): List<File> {
         val out = mutableListOf(File(filesDir, WINE_STDERR_NAME))
         val logDir = File(filesDir, LOG_DIR_NAME)
         if (logDir.isDirectory) {
