@@ -9,7 +9,7 @@ import org.junit.Test
 class SharedContainerFontsTest {
     @Test
     fun registrySchema_includesWindowsLanguageProfiles() {
-        assertEquals(6, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
+        assertEquals(7, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
     }
 
     @Test
@@ -116,35 +116,6 @@ class SharedContainerFontsTest {
         )
         assertEquals(SharedContainerFonts.CN_REGULAR, fonts["SimSun & NSimSun (TrueType)"])
         assertEquals(SharedContainerFonts.CN_REGULAR, fonts["DengXian (TrueType)"])
-    }
-
-    @Test
-    fun applyRegistry_restoresPreviousSystemFontOverride() {
-        val container = Files.createTempDirectory("amphora-system-font").toFile()
-        val prefix = container.resolve(".wine")
-        try {
-            assertTrue(prefix.mkdirs())
-            prefix.resolve("system.reg").writeText("WINE REGISTRY Version 2\n")
-            prefix.resolve("user.reg").writeText("WINE REGISTRY Version 2\n")
-            WineRegistryEditor(prefix.resolve("system.reg")).use {
-                it.setStringValue(
-                    SharedContainerFonts.SYSTEM_FONT_SETTINGS_KEY,
-                    "FONTS.FON",
-                    SharedContainerFonts.PREVIOUS_SYSTEM_FONT_OVERRIDE,
-                )
-            }
-
-            assertTrue(SharedContainerFonts.applyRegistry(container))
-
-            WineRegistryEditor(prefix.resolve("system.reg")).use {
-                assertEquals(
-                    SharedContainerFonts.WINE_DEFAULT_SYSTEM_FONT,
-                    it.getStringValue(SharedContainerFonts.SYSTEM_FONT_SETTINGS_KEY, "FONTS.FON"),
-                )
-            }
-        } finally {
-            container.deleteRecursively()
-        }
     }
 
     @Test

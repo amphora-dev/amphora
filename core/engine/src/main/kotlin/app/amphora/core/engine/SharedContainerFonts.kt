@@ -30,17 +30,12 @@ import java.nio.file.Files
  */
 object SharedContainerFonts {
     const val ASSET_PATH = "fonts.tzst"
-    const val REGISTRY_SCHEMA_VERSION = 6
+    const val REGISTRY_SCHEMA_VERSION = 7
 
     const val CN_REGULAR = "SourceHanSansCN-Regular.otf"
     const val CN_BOLD = "SourceHanSansCN-Bold.otf"
     const val JP_REGULAR = "SourceHanSansJP-Regular.otf"
     const val JP_BOLD = "SourceHanSansJP-Bold.otf"
-
-    internal const val SYSTEM_FONT_SETTINGS_KEY =
-        "System\\ControlSet001\\Hardware Profiles\\Current\\Software\\Fonts"
-    internal const val PREVIOUS_SYSTEM_FONT_OVERRIDE = "tahoma.ttf"
-    internal const val WINE_DEFAULT_SYSTEM_FONT = "svgasys.fon"
 
     /** Primary face kept for callers that only know the old single-file name. */
     const val FONT_FILE_NAME = CN_REGULAR
@@ -466,18 +461,6 @@ object SharedContainerFonts {
                         reg.setStringValue(fontsKey, name, file)
                     }
 
-                    // Schema 5 temporarily replaced Wine's SYSTEM_FONT bitmap face
-                    // with Tahoma. Restore only that value so custom user choices
-                    // remain untouched.
-                    val systemFont =
-                        reg.getStringValue(SYSTEM_FONT_SETTINGS_KEY, "FONTS.FON")
-                    if (systemFont.equals(PREVIOUS_SYSTEM_FONT_OVERRIDE, ignoreCase = true)) {
-                        reg.setStringValue(
-                            SYSTEM_FONT_SETTINGS_KEY,
-                            "FONTS.FON",
-                            WINE_DEFAULT_SYSTEM_FONT,
-                        )
-                    }
                 }
                 systemOk = true
                 Log.d(TAG, "Wrote Windows font substitutes, links, and registrations into $systemReg")

@@ -18,10 +18,10 @@ class WineLocaleRegistryTest {
             prefix.resolve("user.reg").writeText("WINE REGISTRY Version 2\n")
 
             assertTrue(WineUtils.applyLocaleToPrefix(container, "zh_CN.UTF-8"))
-            assertLocaleRegistry(prefix, "936", "0804", "zh-CN")
+            assertLocaleRegistry(prefix, "936", "936", "0804", "zh-CN", "svgasys.fon")
 
             assertTrue(WineUtils.applyLocaleToPrefix(container, "en_US.UTF-8"))
-            assertLocaleRegistry(prefix, "1252", "0409", "en-US")
+            assertLocaleRegistry(prefix, "1252", "437", "0409", "en-US", "vgasys.fon")
         } finally {
             container.deleteRecursively()
         }
@@ -30,8 +30,10 @@ class WineLocaleRegistryTest {
     private fun assertLocaleRegistry(
         prefix: java.io.File,
         expectedCodepage: String,
+        expectedOemCodepage: String,
         expectedLcid: String,
         expectedLocaleName: String,
+        expectedSystemFont: String,
     ) {
         WineRegistryEditor(prefix.resolve("system.reg")).use {
             assertEquals(
@@ -42,10 +44,24 @@ class WineLocaleRegistryTest {
                 ),
             )
             assertEquals(
+                expectedOemCodepage,
+                it.getStringValue(
+                    "System\\CurrentControlSet\\Control\\Nls\\Codepage",
+                    "OEMCP",
+                ),
+            )
+            assertEquals(
                 expectedLcid,
                 it.getStringValue(
                     "System\\CurrentControlSet\\Control\\Nls\\Language",
                     "Default",
+                ),
+            )
+            assertEquals(
+                expectedSystemFont,
+                it.getStringValue(
+                    "System\\CurrentControlSet\\Hardware Profiles\\Current\\Software\\Fonts",
+                    "FONTS.FON",
                 ),
             )
         }
