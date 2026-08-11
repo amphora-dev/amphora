@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.View
@@ -27,6 +28,7 @@ import com.winlator.cmod.shared.math.XForm
  *   (`injectPointerMove` / `injectPointerMoveDelta` / button press-release).
  * - No RTS gestures / ScreenTouchStick / InputControls coupling.
  * - Trackpad (default) + touchscreen absolute modes only.
+ * - Hardware keyboard events are forwarded directly through [XServer.keyboard].
  * - Pointer inject runs on a dedicated thread with motion coalescing: synchronous
  *   `ClientSocket.write` on the UI thread ANRs when Wine is slow to drain the X socket
  *   (seen as "Input dispatching timed out" on MainActivity).
@@ -219,6 +221,17 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         updateXform(w, h, xServer.screenInfo.width.toInt(), xServer.screenInfo.height.toInt())
         resolutionScale = 1000.0f / Math.min(xServer.screenInfo.width.toInt(), xServer.screenInfo.height.toInt())
     }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        requestFocus()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
+        xServer.keyboard.onKeyEvent(event) || super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
+        xServer.keyboard.onKeyEvent(event) || super.onKeyUp(keyCode, event)
 
     override fun onDetachedFromWindow() {
         releaseInput()

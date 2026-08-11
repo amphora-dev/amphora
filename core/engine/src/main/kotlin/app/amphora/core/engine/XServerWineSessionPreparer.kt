@@ -36,6 +36,38 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.withContext
 
+internal val CNC_DDRAW_SHADER_SIDECARS =
+    listOf(
+        "Shaders/crt/crt-lottes-fast-no-warp-bilinear.glsl",
+        "Shaders/interpolation/bilinear.glsl",
+        "Shaders/interpolation/catmull-rom-bilinear.glsl",
+        "Shaders/interpolation/fsr.glsl",
+        "Shaders/interpolation/fsr.glsl.pass1",
+        "Shaders/interpolation/jinc2-dedither.glsl",
+        "Shaders/interpolation/lanczos2-sharp.glsl",
+        "Shaders/nearest-neighbor.glsl",
+        "Shaders/readme.txt",
+        "Shaders/scanlines/scanline.glsl",
+        "Shaders/sharpen/rca-sharpen.glsl",
+        "Shaders/xbr/xbr-lv2-noblend.glsl",
+        "Shaders/xbrz/xbrz-freescale-multipass.glsl",
+        "Shaders/xbrz/xbrz-freescale-multipass.glsl.pass1",
+    )
+
+internal fun directDrawInstallComplete(selectedDdraw: String, syswow64Dir: File): Boolean {
+    if (!File(syswow64Dir, "ddraw.dll").isFile) return false
+    return when (selectedDdraw) {
+        DirectDrawWrapperIds.CNC_DDRAW ->
+            File(syswow64Dir, "ddraw.ini").isFile &&
+                CNC_DDRAW_SHADER_SIDECARS.all { File(syswow64Dir, it).isFile }
+        DirectDrawWrapperIds.DXWRAPPER_DD7TO9 ->
+            File(syswow64Dir, "dxwrapper.dll").isFile &&
+                File(syswow64Dir, "dxwrapper.ini").isFile
+        DirectDrawWrapperIds.D7VK -> File(syswow64Dir, "ddraw_.dll").isFile
+        else -> false
+    }
+}
+
 /**
  * Real [WineSessionPreparer] (RFC §7 / D9): the ~800-1000 line "core launch"
  * extracted verbatim from WinNative's `XServerDisplayActivity` (10,995 lines),
@@ -70,9 +102,6 @@ import kotlinx.coroutines.withContext
  * `filesDir/contents/adrenotools/<id>/` with a minimal `meta.json`, so the host
  * `VulkanRenderer` and guest ICD share the same driver. Skips only when both
  * `meta.json` and the driver `.so` are already present.
- *
- * **Stubbed (deferred):**
- * - `getDxvkFrameRateOverride` returns 0 (shortcut/preferences-driven).
  *
  * **Status:** prep path verified on device (P2 §P2 #7) and wired into the live
  * launch chain (RFC §8). Self-calls `syncContents()` in [resolveState].
@@ -288,6 +317,11 @@ class XServerWineSessionPreparer @Inject constructor(
                 )
             } else {
                 localDxwrapper = resolvedDxwrapper
+                // Persist invalidation before deleting old files. A crash or a
+                // failed apply must never leave the old success mark guarding a
+                // partially-cleared wrapper tree.
+                AppliedMarks.invalidateDxwrapper(c)
+                c.saveData()
                 wipeDxwrapperDllsForReextract()
                 extractDXWrapperFilesCore(localDxwrapper)
                 val resolvedSelection = DxWrapperSelection.parse(localDxwrapper)
@@ -402,12 +436,15 @@ class XServerWineSessionPreparer @Inject constructor(
                 " target=${wineInfo.getArch()} needsUpdate=$prefixNeedsUpdate",
         )
         val repaired = containerManager.repairContainerWinePrefix(c, wineVersion, contentsManager, null)
-        if (repaired) {
-            firstTimeBoot = true
-            Log.i(TAG, "Wine prefix repaired successfully for container ${c.id}")
-        } else {
-            Log.e(TAG, "Wine prefix repair failed for container ${c.id}")
+        val repairedPrefixValid = repaired && WineUtils.isPrefixValid(containerDir)
+        if (!repairedPrefixValid) {
+            throw IllegalStateException(
+                "Wine prefix repair failed validation for container ${c.id}: " +
+                    "repairResult=$repaired prefixValid=${WineUtils.isPrefixValid(containerDir)}",
+            )
         }
+        firstTimeBoot = true
+        Log.i(TAG, "Wine prefix repaired and validated successfully for container ${c.id}")
     }
 
     // --- ensureLaunchRuntimeFilesReady (XSDA L6280) + ensureBox64 (L6290) -----
@@ -556,7 +593,9 @@ class XServerWineSessionPreparer @Inject constructor(
                         "Applying DXVK content profile: $dxvkWrapper -> " +
                             ContentsManager.getEntryName(dxvkProfile),
                     )
-                    contentsManager.applyContent(dxvkProfile)
+                    check(contentsManager.applyContent(dxvkProfile)) {
+                        "DXVK content apply failed: ${ContentsManager.getEntryName(dxvkProfile)}"
+                    }
                     // DXVK ≥ 2.0 dropped its incomplete d3d10/d3d10_1 front-ends;
                     // Amphora's self-built 3.0.2 WCP matches upstream and only ships
                     // d3d10core. Wine's builtins forward CreateDevice/effects there.
@@ -636,7 +675,7 @@ class XServerWineSessionPreparer @Inject constructor(
                     context.assets.open(CNC_DDRAW_CONFIG_ASSET).use { input ->
                         File(syswow64Dir, "ddraw.ini").outputStream().use(input::copyTo)
                     }
-                    for (relativePath in CNC_DDRAW_SHADER_ASSETS) {
+                    for (relativePath in CNC_DDRAW_SHADER_SIDECARS) {
                         val destination = File(syswow64Dir, relativePath)
                         val parent = requireNotNull(destination.parentFile)
                         check(parent.mkdirs() || parent.isDirectory) {
@@ -666,6 +705,9 @@ class XServerWineSessionPreparer @Inject constructor(
                 // a single 32-bit ddraw.dll that translates D3D3–7 to Vulkan.
                 DirectDrawWrapperIds.D7VK -> Unit
             }
+            check(app.amphora.core.engine.directDrawInstallComplete(selectedDdraw, syswow64Dir)) {
+                "DirectDraw wrapper '$selectedDdraw' install is incomplete"
+            }
             Log.d(TAG, "Finished extraction of DXVK wrapper files, version: $dxwrapper")
         } else if (dxwrapper.contains("wined3d")) {
             val vkd3dWrapper = findDelimitedWrapper(dxwrapper, "vkd3d-")
@@ -689,7 +731,9 @@ class XServerWineSessionPreparer @Inject constructor(
         val vkd3dProfile = resolveVkd3dProfile(vkd3dWrapper)
         if (vkd3dProfile != null) {
             Log.i(TAG, "Loading VKD3D content profile: $vkd3dWrapper")
-            contentsManager.applyContent(vkd3dProfile)
+            check(contentsManager.applyContent(vkd3dProfile)) {
+                "VKD3D content apply failed: ${ContentsManager.getEntryName(vkd3dProfile)}"
+            }
         } else {
             Log.w(TAG, "VKD3D content profile not installed; no bundled VKD3D archive will be loaded: $vkd3dWrapper")
         }
@@ -933,8 +977,15 @@ class XServerWineSessionPreparer @Inject constructor(
 
     private fun extractGraphicsDriverFilesCore() {
         // 图形驱动：容器是唯一真相（getOrCreate 已从设置写入）。
-        val adrenoToolsDriverId = GraphicsDriverIds.normalize(graphicsDriverConfig["version"])
-        Log.i(TAG, "Launch graphics driver selected: graphicsDriver='$graphicsDriver' driverId='$adrenoToolsDriverId'")
+        val configuredDriverId = GraphicsDriverIds.normalize(graphicsDriverConfig["version"])
+        val isAdreno = GPUInformation.isAdrenoGPU(context)
+        val effectiveDriverId =
+            GraphicsDriverIds.resolveEffectiveDriver(configuredDriverId, isAdreno)
+        Log.i(
+            TAG,
+            "Launch graphics driver: configured='$configuredDriverId' effective='$effectiveDriverId' " +
+                "graphicsDriver='$graphicsDriver' adreno=$isAdreno",
+        )
 
         // applyPreferredRefreshRate() STRIPPED (D9: Activity/Window refresh UI -> Compose P3).
 
@@ -983,7 +1034,8 @@ class XServerWineSessionPreparer @Inject constructor(
         // path is the wrapper ICD and full Turnip is the optional WN-Turnip zip.
         // D5: arm64ec zink_dlls branch stripped (wineInfo.isArm64EC() always false for x86_64).
 
-        val wantLeegao = "wrapper-leegao" == graphicsDriver
+        val wantLeegao =
+            effectiveDriverId != GraphicsDriverIds.SYSTEM && "wrapper-leegao" == graphicsDriver
         val leegaoMarker = File(rootDir, "usr/lib/.wrapper_leegao")
         if (wantLeegao) {
             TarCompressorUtils.extract(
@@ -1000,32 +1052,32 @@ class XServerWineSessionPreparer @Inject constructor(
             leegaoMarker.delete()
         }
 
-        if (adrenoToolsDriverId.isNotEmpty() && adrenoToolsDriverId != "System") {
+        if (effectiveDriverId != GraphicsDriverIds.SYSTEM) {
             val adrenotoolsManager = AdrenotoolsManager(context)
-            val driverLibrary = adrenotoolsManager.getLibraryName(adrenoToolsDriverId)
-            Log.i(TAG, "Loading graphics/Turnip driver: id='$adrenoToolsDriverId' library='$driverLibrary'")
+            val driverLibrary = adrenotoolsManager.getLibraryName(effectiveDriverId)
+            Log.i(TAG, "Loading graphics/Turnip driver: id='$effectiveDriverId' library='$driverLibrary'")
             // Only seed wrapper.so from imagefs for the bundled "wrapper" id.
             // Optional WN-Turnip packages are installed by TurnipDriverProvisioner
             // and must not be overwritten with libvulkan_wrapper.so.
-            if (adrenoToolsDriverId == "wrapper" ||
+            if (effectiveDriverId == GraphicsDriverIds.WRAPPER ||
                 driverLibrary.isEmpty() ||
                 driverLibrary == "libvulkan_wrapper.so"
             ) {
                 installAdrenotoolsDriverIfNeeded(
-                    adrenoToolsDriverId,
+                    effectiveDriverId,
                     if (driverLibrary.isNotEmpty()) driverLibrary else "libvulkan_wrapper.so",
                 )
             }
-            val libraryName = adrenotoolsManager.getLibraryName(adrenoToolsDriverId)
+            val libraryName = adrenotoolsManager.getLibraryName(effectiveDriverId)
                 .ifEmpty { driverLibrary }
             // Guest: wrapper ICD + adrenotools backend. For the default wrapper
             // id leave PATH/NAME unset so wrapper uses system Adreno. For an
             // optional Turnip package (libraryName=libvulkan_freedreno.so), set
             // PATH/NAME/HOOKS like WinNative setDriverById.
             if (libraryName == "libvulkan_freedreno.so" &&
-                adrenotoolsManager.isInstalled(adrenoToolsDriverId)
+                adrenotoolsManager.isInstalled(effectiveDriverId)
             ) {
-                val driverDir = adrenotoolsManager.getDriverDir(adrenoToolsDriverId)
+                val driverDir = adrenotoolsManager.getDriverDir(effectiveDriverId)
                 // Turnip zip is so+meta only — seed NEEDED libs from imagefs every
                 // launch (same namespace constraint as installAdrenotoolsDriverIfNeeded).
                 seedAdrenotoolsRuntimeDeps(driverDir)
@@ -1043,12 +1095,12 @@ class XServerWineSessionPreparer @Inject constructor(
         } else {
             Log.w(
                 TAG,
-                "No Adrenotools driver applied (id='$adrenoToolsDriverId' graphicsDriver='$graphicsDriver')" +
+                "No Adrenotools driver applied (id='$effectiveDriverId' graphicsDriver='$graphicsDriver')" +
                     " - system Vulkan driver will be used",
             )
         }
 
-        if (adrenoToolsDriverId == GraphicsDriverIds.SYSTEM) {
+        if (effectiveDriverId == GraphicsDriverIds.SYSTEM) {
             // Let Android's Vulkan loader select the platform ICD (Mali,
             // SwiftShader, virtual GPU, ...). Pointing at wrapper_icd here would
             // re-enter the Adreno-only wrapper despite the explicit selection.
@@ -1060,21 +1112,31 @@ class XServerWineSessionPreparer @Inject constructor(
             )
         }
 
-        var vulkanVersion = graphicsDriverConfig["vulkanVersion"]
-        if (vulkanVersion == null) vulkanVersion = "1.3"
+        var vulkanVersion = graphicsDriverConfig["vulkanVersion"] ?: "1.4"
         try {
             // The wrapper is an ICD around the platform driver, not an HMI-exporting
             // Android HAL. Probe its underlying system driver just like the host
             // compositor; only a real Turnip package goes through adrenotools here.
             val probeDriver =
                 GraphicsDriverIds.resolveHostDriver(
-                    adrenoToolsDriverId,
-                    GPUInformation.isAdrenoGPU(context),
+                    effectiveDriverId,
+                    isAdreno,
                 )
             val fullVkVersion = GPUInformation.getVulkanVersion(probeDriver, context)
             if (fullVkVersion != null && fullVkVersion.contains(".")) {
                 val parts = fullVkVersion.split("\\.".toRegex())
-                if (parts.size >= 3) vulkanVersion = "$vulkanVersion.${parts[2]}"
+                if (parts.size >= 3) {
+                    val driverMinor = parts[1].toIntOrNull()
+                    val requestedMinor = vulkanVersion.substringAfter('.', "").toIntOrNull()
+                    if (driverMinor != null && requestedMinor != null && driverMinor < requestedMinor) {
+                        Log.i(
+                            TAG,
+                            "Clamping Vulkan $vulkanVersion to driver-supported ${parts[0]}.${parts[1]}",
+                        )
+                        vulkanVersion = "${parts[0]}.${parts[1]}"
+                    }
+                    vulkanVersion = "$vulkanVersion.${parts[2]}"
+                }
             }
         } catch (e: Throwable) {
             Log.w(TAG, "Error getting Vulkan version patch", e)
@@ -1283,13 +1345,8 @@ class XServerWineSessionPreparer @Inject constructor(
         }
     }
 
-    /**
-     * getDxvkFrameRateOverride (XSDA L627) -- stubbed to 0. The XSDA version reads
-     * per-game/global refresh-rate overrides from the shortcut + SharedPreferences;
-     * Amphora has neither (D9: no shortcuts). Wire to container/user prefs when
-     * frame-rate limiting lands.
-     */
-    private fun getDxvkFrameRateOverride(): Int = 0
+    /** Amphora has no per-shortcut override; the global session limit is authoritative. */
+    private fun getDxvkFrameRateOverride(): Int = AdvancedRuntimePreferences.frameRateLimit(context)
 
     /**
      * Migrate old physical copies and repair deleted/broken component links.
@@ -1336,7 +1393,18 @@ class XServerWineSessionPreparer @Inject constructor(
             return true
         }
         if (selectedDdraw == DirectDrawWrapperIds.DXWRAPPER_DD7TO9 &&
-            !validLink(File(syswow64, "dxwrapper.dll"))
+            (
+                !validLink(File(syswow64, "dxwrapper.dll")) ||
+                    !File(syswow64, "dxwrapper.ini").isFile
+                )
+        ) {
+            return true
+        }
+        if (selectedDdraw == DirectDrawWrapperIds.CNC_DDRAW &&
+            (
+                !File(syswow64, "ddraw.ini").isFile ||
+                    CNC_DDRAW_SHADER_SIDECARS.any { !File(syswow64, it).isFile }
+                )
         ) {
             return true
         }
@@ -1423,22 +1491,6 @@ class XServerWineSessionPreparer @Inject constructor(
         /** Wine dlopens this SONAME; present only once mesa-gl builds the EGL frontend. */
         private const val LIBEGL_SONAME = "usr/lib/libEGL.so.1"
         private const val CNC_DDRAW_CONFIG_ASSET = "cnc-ddraw/ddraw.ini"
-        private val CNC_DDRAW_SHADER_ASSETS = arrayOf(
-            "Shaders/crt/crt-lottes-fast-no-warp-bilinear.glsl",
-            "Shaders/interpolation/bilinear.glsl",
-            "Shaders/interpolation/catmull-rom-bilinear.glsl",
-            "Shaders/interpolation/fsr.glsl",
-            "Shaders/interpolation/fsr.glsl.pass1",
-            "Shaders/interpolation/jinc2-dedither.glsl",
-            "Shaders/interpolation/lanczos2-sharp.glsl",
-            "Shaders/nearest-neighbor.glsl",
-            "Shaders/readme.txt",
-            "Shaders/scanlines/scanline.glsl",
-            "Shaders/sharpen/rca-sharpen.glsl",
-            "Shaders/xbr/xbr-lv2-noblend.glsl",
-            "Shaders/xbrz/xbrz-freescale-multipass.glsl",
-            "Shaders/xbrz/xbrz-freescale-multipass.glsl.pass1",
-        )
 
         /** Mesa's opt-in to kopper on an X server without a DRI3 render device. */
         private const val KOPPER_DRI2 = "LIBGL_KOPPER_DRI2"

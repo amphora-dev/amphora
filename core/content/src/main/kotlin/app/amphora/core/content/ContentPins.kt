@@ -54,6 +54,7 @@ object AppliedAssetPin {
     fun sourceSha(sourceAsset: File): String? = AssetDigest.pinnedSha(sourceAsset)
 
     fun needsApply(targetRoot: File, sourceAsset: File, relativeAssetPath: String): Boolean {
+        normalize(relativeAssetPath)
         val expected = sourceSha(sourceAsset) ?: return true
         return read(targetRoot, relativeAssetPath) != expected
     }
@@ -94,9 +95,11 @@ object AppliedAssetPin {
         File(File(targetRoot, MARKER_DIRECTORY), normalize(relativeAssetPath) + AssetDigest.SHA_SUFFIX)
 
     private fun normalize(relativeAssetPath: String): String {
-        val normalized = relativeAssetPath.replace('\\', '/').trim('/')
+        val normalized = relativeAssetPath.replace('\\', '/')
         require(
-            normalized.isNotEmpty() &&
+            normalized.isNotBlank() &&
+                !normalized.startsWith('/') &&
+                !normalized.endsWith('/') &&
                 normalized.split('/').none { it.isEmpty() || it == "." || it == ".." },
         ) {
             "invalid relative asset path: $relativeAssetPath"

@@ -1,79 +1,48 @@
 package app.amphora.core.content
 
 import app.amphora.core.content.model.ContentComponent
-import com.sun.net.httpserver.HttpServer
-import java.net.InetSocketAddress
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
-import org.junit.After
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Before
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RemoteUrlResolverTest {
-    private lateinit var server: HttpServer
-    private lateinit var baseUrl: String
-    private var catalogBody: String = "[]"
-
-    @Before
-    fun startServer() {
-        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/default.json") { exchange ->
-            val bytes = catalogBody.toByteArray()
-            exchange.responseHeaders.add("Content-Type", "application/json")
-            exchange.sendResponseHeaders(200, bytes.size.toLong())
-            exchange.responseBody.use { it.write(bytes) }
-        }
-        server.executor = Executors.newCachedThreadPool()
-        server.start()
-        baseUrl = "http://127.0.0.1:${server.address.port}"
-    }
-
-    @After
-    fun stopServer() {
-        server.stop(0)
-    }
-
     @Test
     fun prefersPinnedRemoteUrlWithoutCatalogFetch() {
-        // Any catalog fetch would 404 after the server stops; pinned remoteUrl
-        // must short-circuit before catalogUrls() runs.
-        server.stop(0)
+        var fetches = 0
+        val resolver = RemoteUrlResolver {
+            fetches++
+            error("catalog should not be fetched")
+        }
         val manifest =
-            ContentManifest.parse(
-                """
-                {
-                  "version": 1,
-                  "wcpCatalogUrl": "$baseUrl/default.json",
-                  "components": {
-                    "wine": {
-                      "assetPath": "Proton-10.0-4-x86_64.wcp",
-                      "sha256": "${"a".repeat(64)}",
-                      "version": "Proton-10.0-4-x86_64-0",
-                      "kind": "WCP",
-                      "contentType": "Proton",
-                      "verName": "10.0-4-x86_64",
-                      "verCode": 0,
-                      "remoteUrl": "https://cdn.example/Proton-10.0-4-x86_64.wcp"
-                    }
-                  }
-                }
-                """.trimIndent(),
+            catalogManifest(
+                catalogUrl = CATALOG_A,
+                assetPath = "Proton-10.0-4-x86_64.wcp",
+                directUrl = "https://cdn.example/Proton-10.0-4-x86_64.wcp",
             )
-        val resolved = RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
+        val resolved = resolver.resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
         assertEquals("https://cdn.example/Proton-10.0-4-x86_64.wcp", resolved)
+        assertEquals(0, fetches)
     }
 
     @Test
     fun resolvesWcpFilenameFromStableCatalog() {
-        catalogBody =
-            """
+        val resolver =
+            RemoteUrlResolver {
+                """
             [
               {"remoteUrl":"https://cdn.example/releases/Proton-10.0-4-x86_64.wcp"},
               {"remoteUrl":"https://cdn.example/releases/other.wcp"}
             ]
-            """.trimIndent()
-        val manifest = catalogManifest(assetPath = "Proton-10.0-4-x86_64.wcp")
-        val resolved = RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
+                """.trimIndent()
+            }
+        val manifest = catalogManifest(CATALOG_A, "Proton-10.0-4-x86_64.wcp")
+        val resolved = resolver.resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
         assertEquals(
             "https://cdn.example/releases/Proton-10.0-4-x86_64.wcp",
             resolved,
@@ -82,57 +51,130 @@ class RemoteUrlResolverTest {
 
     @Test(expected = IllegalStateException::class)
     fun missingCatalogEntryFails() {
-        catalogBody = """[{"remoteUrl":"https://cdn.example/releases/other.wcp"}]"""
-        val manifest = catalogManifest(assetPath = "Proton-10.0-4-x86_64.wcp")
-        RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
+        val resolver =
+            RemoteUrlResolver { """[{"remoteUrl":"https://cdn.example/releases/other.wcp"}]""" }
+        val manifest = catalogManifest(CATALOG_A, "Proton-10.0-4-x86_64.wcp")
+        resolver.resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsNonHttpsCatalogUrls() {
-        catalogBody = """[{"remoteUrl":"http://insecure.example/releases/Proton-10.0-4-x86_64.wcp"}]"""
-        val manifest = catalogManifest(assetPath = "Proton-10.0-4-x86_64.wcp")
-        RemoteUrlResolver().resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
-    }
-
-    @Test(expected = IllegalArgumentException::class)
-    fun archiveWithoutRemoteUrlFails() {
-        val manifest =
-            ContentManifest.parse(
-                """
-                {
-                  "version": 1,
-                  "wcpCatalogUrl": "$baseUrl/default.json",
-                  "components": {
-                    "dxvk": {
-                      "assetPath": "dxvk.tzst",
-                      "sha256": "${"b".repeat(64)}",
-                      "version": "1",
-                      "kind": "ARCHIVE"
-                    }
-                  }
-                }
-                """.trimIndent(),
-            )
-        RemoteUrlResolver().resolve(manifest.entry(ContentComponent.DXVK)!!, manifest.wcpCatalogUrl)
-    }
-
-    private fun catalogManifest(assetPath: String): ContentManifest = ContentManifest.parse(
-        """
-            {
-              "version": 1,
-              "wcpCatalogUrl": "$baseUrl/default.json",
-              "components": {
-                "wine": {
-                  "assetPath": "$assetPath",
-                  "sha256": "${"a".repeat(64)}",
-                  "version": "Proton-10.0-4-x86_64-0",
-                  "kind": "WCP",
-                  "contentType": "Proton",
-                  "verName": "10.0-4-x86_64",
-                  "verCode": 0
-                }
-              }
+        val resolver =
+            RemoteUrlResolver {
+                """[{"remoteUrl":"http://insecure.example/releases/Proton-10.0-4-x86_64.wcp"}]"""
             }
-        """.trimIndent(),
-    )
+        val manifest = catalogManifest(CATALOG_A, "Proton-10.0-4-x86_64.wcp")
+        resolver.resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
+    }
+
+    @Test
+    fun catalogCacheIsInvalidatedWhenSourceUrlChanges() {
+        val fetches = mutableListOf<String>()
+        val resolver =
+            RemoteUrlResolver { url ->
+                fetches += url
+                val host = if (url == CATALOG_A) "one.example" else "two.example"
+                """[{"remoteUrl":"https://$host/releases/runtime.wcp"}]"""
+            }
+
+        val fromA = catalogManifest(CATALOG_A, "runtime.wcp")
+        val fromB = catalogManifest(CATALOG_B, "runtime.wcp")
+        assertEquals(
+            "https://one.example/releases/runtime.wcp",
+            resolver.resolve(fromA.entry(ContentComponent.WINE)!!, fromA.wcpCatalogUrl),
+        )
+        assertEquals(
+            "https://two.example/releases/runtime.wcp",
+            resolver.resolve(fromB.entry(ContentComponent.WINE)!!, fromB.wcpCatalogUrl),
+        )
+        assertEquals(
+            "https://one.example/releases/runtime.wcp",
+            resolver.resolve(fromA.entry(ContentComponent.WINE)!!, fromA.wcpCatalogUrl),
+        )
+        assertEquals(listOf(CATALOG_A, CATALOG_B, CATALOG_A), fetches)
+    }
+
+    @Test
+    fun concurrentCatalogResolutionFetchesOnce() {
+        val fetches = AtomicInteger()
+        val fetchStarted = CountDownLatch(1)
+        val releaseFetch = CountDownLatch(1)
+        val resolver =
+            RemoteUrlResolver {
+                fetches.incrementAndGet()
+                fetchStarted.countDown()
+                check(releaseFetch.await(5, TimeUnit.SECONDS))
+                """[{"remoteUrl":"https://cdn.example/releases/runtime.wcp"}]"""
+            }
+        val manifest = catalogManifest(CATALOG_A, "runtime.wcp")
+        val entry = manifest.entry(ContentComponent.WINE)!!
+        val executor = Executors.newFixedThreadPool(8)
+        try {
+            val results =
+                List(8) {
+                    executor.submit<String> {
+                        resolver.resolve(entry, manifest.wcpCatalogUrl)
+                    }
+                }
+            assertTrue(fetchStarted.await(5, TimeUnit.SECONDS))
+            releaseFetch.countDown()
+
+            assertEquals(
+                List(8) { "https://cdn.example/releases/runtime.wcp" },
+                results.map { it.get(5, TimeUnit.SECONDS) },
+            )
+            assertEquals(1, fetches.get())
+        } finally {
+            releaseFetch.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun duplicateFilenameFailureDoesNotPoisonLaterCatalog() {
+        val fetches = mutableListOf<String>()
+        val resolver =
+            RemoteUrlResolver { url ->
+                fetches += url
+                if (url == CATALOG_A) {
+                    """
+                    [
+                      {"remoteUrl":"https://one.example/releases/runtime.wcp"},
+                      {"remoteUrl":"https://two.example/releases/runtime.wcp"}
+                    ]
+                    """.trimIndent()
+                } else {
+                    """[{"remoteUrl":"https://valid.example/releases/runtime.wcp"}]"""
+                }
+            }
+        val invalid = catalogManifest(CATALOG_A, "runtime.wcp")
+        val valid = catalogManifest(CATALOG_B, "runtime.wcp")
+
+        val failure =
+            assertThrows(IllegalArgumentException::class.java) {
+                resolver.resolve(invalid.entry(ContentComponent.WINE)!!, invalid.wcpCatalogUrl)
+            }
+        assertTrue(failure.message.orEmpty().contains("duplicate filename"))
+
+        assertEquals(
+            "https://valid.example/releases/runtime.wcp",
+            resolver.resolve(valid.entry(ContentComponent.WINE)!!, valid.wcpCatalogUrl),
+        )
+        assertEquals(listOf(CATALOG_A, CATALOG_B), fetches)
+    }
+
+    private fun catalogManifest(catalogUrl: String, assetPath: String, directUrl: String? = null): ContentManifest {
+        val root = JSONObject(ContentManifestTest.SAMPLE)
+        root.put("wcpCatalogUrl", catalogUrl)
+        root.getJSONObject("components").getJSONObject("wine").apply {
+            put("assetPath", assetPath)
+            if (directUrl == null) remove("remoteUrl") else put("remoteUrl", directUrl)
+        }
+        return ContentManifest.parse(root.toString())
+    }
+
+    private companion object {
+        const val CATALOG_A = "https://catalog-a.example/default.json"
+        const val CATALOG_B = "https://catalog-b.example/default.json"
+    }
 }

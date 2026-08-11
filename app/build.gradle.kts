@@ -43,6 +43,8 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:engine"))
 
+    testImplementation(testFixtures(project(":core:common")))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -71,8 +73,10 @@ dependencies {
 // kernel-direct .tzst assets.
 //
 // Run explicitly: `./gradlew :app:stageBundledContent` (NOT auto-wired -- the 160 MB
-// Proton .wcp would bloat every debug APK). Staged assets are git-ignored (*.tzst /
-// *.wcp); delete them for a slim APK again. See docs/04-ASSET-MANIFEST.md §4.
+// Proton .wcp would bloat every debug APK). The plugin exactly synchronizes verified
+// manifest assets under build/generated/assets/bundledContent and registers that
+// directory with the main Android asset source set. `clean` restores a slim APK.
+// See docs/04-ASSET-MANIFEST.md §4.
 amphoraContentStaging {
     winnativeDir.set(
         file(

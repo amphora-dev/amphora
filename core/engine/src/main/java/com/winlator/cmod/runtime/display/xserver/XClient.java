@@ -4,10 +4,8 @@ import androidx.collection.ArrayMap;
 import com.winlator.cmod.runtime.display.connector.XInputStream;
 import com.winlator.cmod.runtime.display.connector.XOutputStream;
 import com.winlator.cmod.runtime.display.xserver.events.Event;
-import com.winlator.cmod.shared.android.RefreshRateUtils;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.concurrent.locks.LockSupport;
 
 public class XClient implements XResourceManager.OnResourceLifecycleListener {
   public final XServer xServer;
@@ -21,7 +19,6 @@ public class XClient implements XResourceManager.OnResourceLifecycleListener {
   private final XOutputStream outputStream;
   private final ArrayMap<Window, EventListener> eventListeners = new ArrayMap<>();
   private final ArrayList<XResource> resources = new ArrayList<>();
-  private long nextFrameTimeNanos = 0;
 
   public XClient(XServer xServer, XInputStream inputStream, XOutputStream outputStream) {
 
@@ -163,72 +160,5 @@ public class XClient implements XResourceManager.OnResourceLifecycleListener {
 
   public boolean isValidResourceId(int id) {
     return xServer.resourceIDs.isInInterval(id, resourceIDBase);
-  }
-
-  public void enforceAbsoluteFramerate() {
-    com.winlator.cmod.runtime.display.renderer.VulkanRenderer renderer = xServer.getRenderer();
-    if (renderer == null) return;
-
-    int targetFps = renderer.getFpsLimit();
-    if (targetFps <= 0) {
-      nextFrameTimeNanos = 0;
-      return;
-    }
-
-    FramePaceClock clock = xServer.getFramePaceClock();
-    float hz = clock.getDisplayRefreshHz();
-    long anchor = clock.getLastVsyncNanos();
-
-    // No vsync sample yet, or panel rate isn't an integer multiple of the target: free-run.
-    if (hz <= 0f || anchor == 0 || !RefreshRateUtils.isFrameCadenceCompatible(hz, targetFps)) {
-      enforceFreeRunning(targetFps);
-      return;
-    }
-
-    long period = (long) (1_000_000_000.0 / hz);
-    int n = Math.round(hz / targetFps);
-    long stride = (long) n * period;
-    long now = System.nanoTime();
-
-    // First frame or >100ms late: snap onto the live vsync grid.
-    if (nextFrameTimeNanos == 0 || now > nextFrameTimeNanos + 100_000_000L) {
-      long k = Math.floorDiv(now - anchor, period) + 1;
-      nextFrameTimeNanos = anchor + k * period;
-    }
-
-    long remaining = nextFrameTimeNanos - now;
-    while (remaining > 0) {
-      LockSupport.parkNanos(remaining);
-      if (Thread.interrupted()) break;
-      remaining = nextFrameTimeNanos - System.nanoTime();
-    }
-
-    // Advance N vsync periods, then re-snap to the freshest phase (mean interval unchanged).
-    long target = nextFrameTimeNanos + stride;
-    long anchorNow = clock.getLastVsyncNanos();
-    long steps = Math.round((double) (target - anchorNow) / period);
-    nextFrameTimeNanos = anchorNow + steps * period;
-  }
-
-  private void enforceFreeRunning(int targetFps) {
-    long targetFrameTime = 1_000_000_000L / targetFps;
-    long now = System.nanoTime();
-
-    // HARD RESYNC: If we are more than 100ms late, reset the clock heartbeat.
-    // This prevents "speed-up" stutters after loading screens.
-    if (nextFrameTimeNanos == 0 || now > nextFrameTimeNanos + 100_000_000L) {
-      nextFrameTimeNanos = now + targetFrameTime;
-    }
-
-    // Park instead of busy-spinning through the final frame window to reduce sustained heat.
-    long remaining = nextFrameTimeNanos - now;
-    while (remaining > 0) {
-      LockSupport.parkNanos(remaining);
-      if (Thread.interrupted()) break;
-      remaining = nextFrameTimeNanos - System.nanoTime();
-    }
-
-    // Advance to the next heartbeat
-    nextFrameTimeNanos += targetFrameTime;
   }
 }

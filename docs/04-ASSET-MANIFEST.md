@@ -1,8 +1,22 @@
 # 04 - 资产清单 / SHA 锁 (Asset Manifest)
 
-> P2 资产获取轨产物。锁定 amphora 运行时所需的全部镜像/驱动/组件资产的来源、版本与 SHA-256。
-> 最后更新: 2026-07-30 · 资产源: WinNative @ `48fe6b9` (Git LFS) + `winlator-imagefs` 可复现构建配方
-> **最终包结构定稿见 §0.6**（覆盖 §0.5 过渡现状；能缩尽缩）。
+> 资产研究、历史实测与当前分包决策。**生产 pin 的唯一真源是**
+> `amphora-dev/content_manifest/content_manifest.json`；本文中的旧 WinNative 表格仅保留为来源研究，
+> 不得用于决定设备实际下载版本。
+> 最后校对: 2026-08-11。
+
+当前生产基线：
+
+| 组件 | 当前 pin | 压缩大小 |
+|---|---|---:|
+| rootfs | `imagefs.txz` v44（xz） | 12,161,984 B |
+| Wine | `Proton-11.0-d12a5634a-x86_64.wcp` | 66,328,030 B |
+| Box64 | `Box64-0.4.5-0db8df775.wcp` | 2,699,688 B |
+| DXVK | `Dxvk-3.0.2-gplasync-6b20f622a.wcp` | 8,048,148 B |
+| VKD3D | `Vkd3d-3.0.1-3b10bd7a7.wcp` | 3,276,904 B |
+| Vulkan wrapper | `wrapper-7eae6442f.tzst` | 670,350 B |
+
+文件名、大小、SHA 和 URL 都必须从 manifest 读取；自动发布可以在不修改本文的情况下更新 pin。
 
 ---
 
@@ -13,12 +27,9 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 - amphora 移植的 `com.winlator.cmod` 内核期望的就是这套 Bionic rootfs -- **资产与内核兼容** ✅
 - 真机验证设备: Lenovo TB322FC, arm64-v8a, API 36, **Adreno 830** (Turnip 驱动目标 GPU)
 
-**rootfs 压缩格式**: `imagefs.tzst` (tar + zstd)。amphora `ImageFsRootfsInstaller` 用
-`TarCompressorUtils.extract(Type.ZSTD, ...)` 提取 -- 与资产格式直配, 无需转码。
-
-> ⚠️ 注意: `winlator-imagefs` (cnb.cool) 仓产出的是 `imagefs.txz` (xz, 18MB 重建版, SHA
-> `af66e28b...`), 与本表锁定的 WinNative `imagefs.tzst` (zstd, 190MB 原版) 是**两套不同构建**。
-> cnb.cool 仓是**可复现构建配方** (备选自建路径), 详见 §3。amphora 当前直用 WinNative 原版资产。
+**当前 rootfs 压缩格式**：`imagefs.txz`（tar + xz）。`ImageFsRootfsInstaller` 按 manifest
+的 `compression=xz` 提取。WinNative 的 `imagefs.tzst`（约 200 MB）只是移植研究基线，
+已经退出 Amphora 默认运行路径。
 
 ---
 
@@ -35,7 +46,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 
 | 资产 | 压缩 | 大小 | 条目 | 内容 | 安装者 | 更新通道 |
 |---|---|---|---|---|---|---|
-| `imagefs.tzst` | zstd | 199.8 MB | 10892 | rootfs 本体（`bin`/`etc`/`lib`/`opt`/`usr`…）| `RootfsInstaller` | **imagefs**（基线） |
+| `imagefs.txz` | xz | 12.2 MB | 以当前 Release 为准 | 自建精简 rootfs 本体 | `RootfsInstaller` | **imagefs**（生产基线） |
 | `extra_libs.tzst` | zstd | 21.1 MB | 14 | `usr/lib` 的 Mesa `libGL`+`libglapi` / Turnip / vkBasalt / bcn_layer，`usr/share/vulkan` 的 ICD + 隐式层 JSON | — | ⛔ **已废止**（2026-08-01）；GL 改由 imagefs 自建（§0.6） |
 | `layers.tzst` | zstd | 4.4 MB | 3 | `usr/lib/libVkLayer_khronos_validation.so` | `TarCompressorUtils` | **可选调试**（§0.6） |
 | `wrapper.tzst` | zstd | 3.8 MB | 12 | `usr/lib` 的 `libadrenotools` + `libvulkan_wrapper` +（历史）4 个 hook，`usr/share/vulkan/icd.d/wrapper_icd.aarch64.json` | `TarCompressorUtils` | **wrapper+hooks（独立）** |
@@ -44,15 +55,15 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 
 | 资产 | 压缩 | 大小 | 内容 |
 |---|---|---|---|
-| `Proton-10.0-4-x86_64.wcp` | **zstd** | 168.6 MB | `bin/` `lib/` `share/` `prefixPack.txz` `profile.json` |
-| `Box64-0.4.3-c08554e3f.wcp` | xz | 2.8 MB | `box64` + `profile.json`（仅 2 条目）|
+| `Proton-11.0-d12a5634a-x86_64.wcp` | 以 profile 为准 | 66.3 MB | `bin/` `lib/` `share/` `prefixPack.txz` `profile.json` |
+| `Box64-0.4.5-0db8df775.wcp` | xz | 2.7 MB | `box64` + `profile.json` |
 
 ### C. DirectX 翻译层 — WCP，但内容是 Windows DLL，落容器 `system32`/`syswow64`
 
 | 资产 | 压缩 | 大小 | 提供 |
 |---|---|---|---|
-| `Dxvk-3.0.2-gplasync.wcp` | xz | 6.7 MB | `d3d8` `d3d9` `d3d10core` `d3d11` `dxgi` |
-| `Vkd3d-3.0.1-S6_9.wcp` | xz | 3.4 MB | `d3d12` `d3d12core` |
+| `Dxvk-3.0.2-gplasync-6b20f622a.wcp` | xz | 8.0 MB | `d3d8` `d3d9` `d3d10core` `d3d11` `dxgi` |
+| `Vkd3d-3.0.1-3b10bd7a7.wcp` | xz | 3.3 MB | `d3d12` `d3d12core` |
 
 ### D. 微软可再发行组件 — tzst，与 C 同构但无 `profile.json`
 
@@ -137,14 +148,14 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 
 | # | 通道 / 产物 | 角色 | 体积目标（压缩） | 落地 | 默认？ |
 |---|---|---|---|---|---|
-| 1 | **`imagefs`**（自建 `imagefs.tzst`） | Bionic 基线：Wine unix 依赖（**gnutls 链 + GStreamer**）、ALSA、X11 客户端链、pulse **客户端**… | **~25–28 MB**（现状 CI 27.5 MB xz） | `filesDir/imagefs` | ✅ 唯一 rootfs |
+| 1 | **`imagefs`**（自建 `imagefs.txz`） | Bionic 基线：Wine unix 依赖、ALSA、X11/DRM、Mesa GL 等当前构建集合 | **12.2 MB**（以 manifest 为准） | `filesDir/imagefs` | ✅ 唯一 rootfs |
 | 2 | **`wrapper.tzst`** | `libvulkan_wrapper` + `libadrenotools` + **4 hooks** + `wrapper_icd` | **~0.7 MB**（自建 strip） | imagefs `usr/lib` + ICD | ✅ **独立发版；hooks 唯一来源** |
 | 3 | ~~adrenotools hooks @ APK~~ | — | — | — | ❌ **已取消**（2026-08-05）：APK 排除 4 hook `.so`；host/guest 共用 wrapper 那份 |
 | 4 | **Mesa GL 进 imagefs**（不再独立包） | **自建** `libGL.so.1`（`packages/graphics/mesa-gl.sh`：上游 Mesa 源码 + zink + xlib GLX，Termux 链接画像）。Mesa 25.3 起 glapi 已并入 libGL，无 `libglapi` 附件 | 使 imagefs 增约 **+3 MB**（解压 +16 MB） | imagefs `usr/lib` | ✅ 随 imagefs（2026-08-01 落地） |
-| 5 | **`Proton-*.wcp`** | Wine 运行时 | ~169 MB | WCP → imagefs | ✅ |
-| 6 | **`Box64-*.wcp`** | x86_64 翻译 | ~2.8 MB | WCP → imagefs | ✅ |
-| 7 | **`Dxvk-*.wcp`** | D3D8–11 → Vulkan | ~6.7 MB | 容器 `system32`/`syswow64` | ✅ |
-| 8 | **`Vkd3d-*.wcp`** | D3D12 → Vulkan | ~3.4 MB | 同上 | ✅ |
+| 5 | **`Proton-*.wcp`** | Wine 运行时 | 66.3 MB | WCP → imagefs | ✅ |
+| 6 | **`Box64-*.wcp`** | x86_64 翻译 | 2.7 MB | WCP → imagefs | ✅ |
+| 7 | **`Dxvk-*.wcp`** | D3D8–11 → Vulkan | 8.0 MB | 容器 `system32`/`syswow64` | ✅ |
+| 8 | **`Vkd3d-*.wcp`** | D3D12 → Vulkan | 3.3 MB | 同上 | ✅ |
 | 9 | ~~`container_pattern_common.tzst`~~ | Winlator prefix 模板（字体/图标/winhandler/ddraw 工具） | ~42 MB | — | ❌ **已废止**（2026-08）：prefix 只靠 Proton `prefixPack` |
 | 10 | **`fonts.tzst`**（共享） | Source Han Sans **CN+JP** 回退 + Microsoft YaHei、SimHei、PMingLiU、Tahoma、Microsoft Sans Serif | **~38 MB** | `contents/FONTS/<sha>/`；真实 Windows 字体优先，Source Han 处理未打包字体；FontLink / FontSubstitutes / Wine Replacements | ✅ |
 | 11 | **`wincomponents/*.tzst`** | 微软 redist（保持 tzst，**不**改 WCP） | 目录合计 ~38 MB；按 `FALLBACK` 选装 | 容器 DLL | ✅ 按需提取，机制不变 |
@@ -158,11 +169,11 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 
 | | 现状典型目录（WinNative 原样） | **本定稿默认集** |
 |---|---|---|
-| rootfs | 官方 `imagefs.tzst` **199.8 MB**（解压 ~877 MB） | 自建 **~27.5 MB**（解压 ~187 MB） |
+| rootfs | 官方 `imagefs.tzst` **199.8 MB**（历史研究基线） | 自建 `imagefs.txz` **12.2 MB**（当前 pin） |
 | 图形叠加 | `extra_libs`+`layers`+旧 wrapper ≈ **29 MB**（历史） | `wrapper` ~0.7 MB（含 hooks；Mesa GL 已并入 imagefs） |
 | 容器模板/字体 | `container_pattern_common` **41.6 MB**（字体堆 + 内嵌 cnc-ddraw） | 无 pattern；共享 Windows UI/CJK + Source Han 回退 `fonts.tzst` ≈ **38 MB** |
-| 运行时+DX | Proton+Box64+DXVK+VKD3D ≈ **181 MB** | **同左**（暂不自砍 Proton） |
-| **默认合计（量级）** | **≳ 450 MB** 资产面 | **~250–260 MB**（再去掉可选 FFmpeg/Turnip/ddraw/layers） |
+| 运行时+DX | 历史 WinNative 组合约 **181 MB** | 当前四项约 **80.4 MB** |
+| **默认核心（不含字体/按需组件）** | **≳ 450 MB** 资产面 | rootfs + wrapper + 运行时/DX 约 **93.2 MB** |
 
 ### 砍掉 / 不再进默认（有据）
 
@@ -341,7 +352,7 @@ _ZN14HookImplParamsC2EiPKcS1_S1_S1_S1_P23adrenotools_gpu_mapping
 imagefs（已含 strip 后的 Mesa GL）→ wrapper（含 hooks）
        → Proton.wcp → Box64.wcp
        → Dxvk.wcp → Vkd3d.wcp
-       → fonts（共享）→ container_pattern（瘦）→ wincomponents（FALLBACK）
+       → fonts（共享）→ wincomponents（FALLBACK）
 ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 ```
 
@@ -352,7 +363,7 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 | wrapper + adrenotools hooks 单独更新、不焊 imagefs | ✅ |
 | hooks 全局唯一来源 = 自建 `wrapper.tzst` → `imagefs/usr/lib`（host+guest）| ✅ 2026-08-05；APK **不编不打包** hooks |
 | 自建 imagefs 为唯一默认 rootfs；官方 199 MB 退出默认 | ✅ |
-| Proton **11.0-amphora**（`amphora-dev/proton-wine`）为默认 wine pin | ✅ 见远程 `content_manifest` |
+| Proton `11.0-d12a5634a-x86_64` 为默认 wine pin | ✅ 见远程 `content_manifest` |
 | `extra_libs` 废止；strip 后的 Mesa GL **并入 imagefs**（不单独拆包，见上）；砍 vkBasalt/BCn/包内 Turnip | ✅ |
 | `layers` / WN-Turnip / ddraw 包装器 = 可选 | ✅ |
 | 字体从 pattern 拆出共享；pattern 去内嵌 ddraw | ✅ |
@@ -372,10 +383,9 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 |---|---|---|---|---|---|
 | **amphora APK**（本仓 `:core:native`） | `libwinlator.so`（含**静态** adrenotools + 19 shader + zstd/xz）| — | 2.5 MB | `nativeLibraryDir` | ✅ |
 | 同上 | ~~4× adrenotools hook~~ | — | — | — | ❌ APK 不建；由 `wrapper.tzst` 提供 |
-| **`amphora-dev/imagefs`** | `imagefs.txz` / `Box64-*.wcp` / `wrapper-*.tzst`（含 hooks@8483dfd）| rootfs+box64+wrapper | 见 pin | imagefs | ✅ 默认 rootfs / hooks 唯一来源 |
-| **`amphora-dev/proton-wine`** | `Proton-11.0-amphora-x86_64.wcp` | runtime | ~62 MB | WCP → imagefs | ✅ **默认 wine** |
-| **`nicholasx417/WinNative-Components`** | `Dxvk-*.wcp` / catalog VKD3D 等 | dx | 见 pin | 容器 DLL | ✅ 以远程 manifest 为准 |
-| **`WinNative-Emu/WinNative`**（raw / LFS）| `container_pattern` / `wincomponents` / `ddrawrapper` / meta json 等 | runtimeAssets | 见 pin | 各落地根 | 🟡 仍有 pin；可逐步自有化 |
+| **`amphora-dev/imagefs`** | `imagefs.txz` / Proton / Box64 / DXVK / VKD3D / `wrapper-*.tzst`（含 hooks@8483dfd）| rootfs+runtime+dx+wrapper | 见 pin | imagefs / 容器 DLL | ✅ 当前核心 pin |
+| **`nicholasx417/WinNative-Components`** | WCP catalog fallback | catalog | — | 下载解析 | 🟡 manifest URL 不可用时回退 |
+| **`WinNative-Emu/WinNative`**（raw）| `wincomponents` / `ddrawrapper` / meta json / box64rc | runtimeAssets | 见 pin | 各落地根 | 🟡 仍有 pin；可逐步自有化 |
 | 同上 | ~~官方 `imagefs.tzst` / `wrapper.tzst` / `extra_libs.tzst`~~ | — | — | — | ⛔ 已由 amphora-dev 自建或废止 |
 | **`WinNative-Emu/Drivers`** | `WN-Turnip-*.zip` | 可选驱动 | 2.7 MB | `contents/adrenotools/<id>/` | ⚪ 可选 |
 | **`amphora-assets`（cnb）** | 历史镜像设想 | — | — | — | ⛔ **不再阻塞**（生产 = GitHub Release + `content_manifest` / GitHub API）|
@@ -387,7 +397,7 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 |---|---|---|
 | `imagefs/`（rootfs） | `imagefs`（含自建 `libGL`）+ `wrapper.tzst` + `layers` + Proton/Box64 WCP | **提取顺序敏感**；hooks 曾在此三份漂移 |
 | 容器 `system32`/`syswow64` | DXVK/VKD3D/Proton builtin/DirectDraw cache 的只读软链接 + 容器私有配置 | `cnc-ddraw` ↔ `dd7to9` **互斥**；写入前必须先 unlink，禁止跟随链接改共享源 |
-| 容器 `.wine`（prefix） | `container_pattern` | 每容器一份，字体重复 |
+| 容器 `.wine`（prefix） | Proton `prefixPack` + 共享字体链接 + 容器私有配置 | pattern 已废止；写入前须处理旧链接 |
 | `filesDir/contents/<type>/<ver>/` | `ContentsManager`（WCP） | 版本化，无冲突 |
 | `filesDir/contents/DDRAW/<id>-<sha>/` | runtime asset 解压一次后的 immutable DLL cache | prefix 只链接 DLL；INI/shader 仍为容器私有 |
 | `filesDir/contents/adrenotools/<id>/` | wrapper ICD 桥接 + 可选 Turnip | 单选 |
@@ -395,18 +405,21 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 
 ### 数量与体积汇总
 
-| | 现状 | 定稿目标 |
+| | 历史 WinNative 基线 | 当前 Amphora |
 |---|---|---|
-| 产出方数量 | 6 个外部源 + APK | 同（自建 imagefs 替掉官方 rootfs）|
-| 默认资产面 | ≳ 450 MB | **~230–240 MB** |
-| 其中 rootfs | 199.8 MB | **27.5 MB**（+Mesa GL ~33 MB）|
-| 其中图形叠加 | ~29 MB | **~4 MB** |
-| 其中容器模板 | 41.6 MB | **~10 MB** |
+| 核心 pin 产出方 | 多个外部源 + APK | `amphora-dev/imagefs` + 远程 manifest |
+| 默认核心（不含字体/按需组件） | ≳ 450 MB | **约 93.2 MB** |
+| 其中 rootfs | 199.8 MB | **12.2 MB** |
+| 其中 wrapper | 旧图形叠加约 29 MB | **0.67 MB** |
+| 其中容器模板 | 41.6 MB | **0**（使用 Proton `prefixPack`） |
 | hooks 副本数 | 3（历史）| **1**（`wrapper.tzst` → `imagefs/usr/lib`）|
 
 ---
 
-## 1. 根文件系统 (rootfs / imagefs)
+## 1. 历史 WinNative 根文件系统样本（非生产 pin）
+
+> 本节保留移植阶段的全量样本数据，用于解释裁剪来源。设备不会下载这里列出的 SHA；
+> 当前 rootfs 只看文首所述远程 manifest。
 
 | 资产 | 压缩 | 大小 (字节) | SHA-256 | 来源 |
 |---|---|---|---|---|
@@ -428,7 +441,7 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 ---
 
-## 2. 图形驱动 / DX 包装层 / 组件 (SHA-256)
+## 2. 历史上游图形驱动 / DX 包装层 / 组件样本
 
 > 全部来自 WinNative `app/src/main/assets/` (本地直存, 非 LFS)。`graphics_driver/wrapper.tzst` 是包装系统驱动的 Vulkan ICD；完整 Turnip 是单独下载的 WN-Turnip 包。box64 二进制运行时 `.wcp` 下载 (见 §5), 这里只锁 `.box64rc` 配置。
 
@@ -498,14 +511,14 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 公开源与固定 Release：[`cnb.cool/atowerlight/aio-graphics-test`](https://cnb.cool/atowerlight/aio-graphics-test)
 标签 **`amphora`**（每次 `main` 推送由 CI 覆盖附件，不保留历史版本）。设备端按
 `content_manifest.json` 的 `remoteUrl` 下载并校验后复制到 Wine
-`ProgramData/Microsoft/Windows`（APK assets `winnative/Graphics-Test-*.exe`）：
+`ProgramData/Microsoft/Windows`。APK 中的同名文件只是当前离线候选，不是生产 pin 真源：
 
 | 资产 | SHA-256 | 大小 | remoteUrl |
 |---|---|---:|---|
 | `Graphics-Test-32bit.exe` | `75589dc37b72d509e23c9c3c043fdf8e03855e5d2f1ec846efe2672662719306` | 2,083,443 | `.../releases/download/amphora/AIO-Graphics-Test-32bit.exe` |
 | `Graphics-Test-64bit.exe` | `96d76d077139ef469eff31efbc75cd9202b99bf2906b97e3c5de07dc350f5c57` | 2,065,494 | `.../releases/download/amphora/AIO-Graphics-Test-64bit.exe` |
 
-CI 重建后 SHA 会变：更新本表与 `content_manifest.json` 即可。
+CI 重建后 SHA 会变：先更新 `content_manifest.json`；本文仅在人工校对时同步。
 
 > `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。Amphora 生产路径由 `RemoteContentSource` 在设备上下载并校验 manifest 中固定的 Proton WCP，不再要求 build 时打入 APK。
 
@@ -518,28 +531,32 @@ CI 重建后 SHA 会变：更新本表与 `content_manifest.json` 即可。
 | cnb.cool 仓 (用户指定) | `https://cnb.cool/atowerlight/winlator-imagefs` (HEAD `2daa55c`) | `imagefs.txz` (xz, 18 MB) | `af66e28b61577a0cd8433155ee2123d910f02f7870b8938994d27d81281372e3` | CI 构建配方 (39 包, NDK r29 交叉编译, Bionic). 产物作 commit 附件上传 (无 git tag/release). 本地浅克隆 1.2 MB (仅脚本+docs) |
 | GitLab winlator-extra | `https://gitlab.com/winlator3/winlator-extra/-/raw/main/imagefs/imagefs.txz.{00-03}` | `imagefs.txz` (4×50 MB 分卷) | `f96d362b7e148e86ab0d2c290978bf39b38e5c7ffc8ae4adf1d2a65c62bbb780` | Pipetto-crypto build.gradle `downloadImageFS` 的原始源 |
 
-> cnb.cool 重建版 (18 MB, 精简 39 包) 与 WinNative 原版 (190 MB, 全量 877 MB 解压) **内容不同**。amphora 当前用 WinNative 原版 (与内核期望直配, `.tzst`/zstd)。若未来要自建精简 rootfs, cnb.cool 配方可用, 但需把产物 `imagefs.txz` 转 `imagefs.tzst` (xz 解 -> zstd 压) 或扩 `ImageFsInstaller` 支持 XZ 分片 (RFC §7 内核原样复用, 不建议改)。
+> 这些是早期可复现构建来源。当前生产使用 `amphora-dev/imagefs` 发布的精简
+> `imagefs.txz`，安装器已原生支持 manifest 声明的 xz 压缩，不需要转码为 zstd。
 
 ---
 
 ## 4. 待办 (资产侧)
 
-- [x] `:core:content` `BundledContentSource` (2026-07-13): `content_manifest.json` (本表派生) + SHA-256 流式校验 + ARCHIVE(`TarCompressorUtils`)/WCP(`ContentsManager.extraContentFile`) 双路径。`.wcp` SHA 已锁 ✅ (2026-07-14, gap #1)。详见 03-TRACKING §P2 #8。
-- [x] build 时资产 staging `:app:stageBundledContent` (2026-07-14): manifest 驱动; ARCHIVE 从 WinNative 拷 (SHA 校验) + WCP 从 nicholasx417 GitHub releases 下载, 入 `app/src/main/assets/` (git-ignored)。Best-effort (不破构建), standalone (不 wire preBuild -- 避免 160M Proton 膨胀每次 debug APK)。`.wcp` SHA 已锁 ✅ (2026-07-14, gap #1; wine=`e61d29be8c736abe13f662d33ff4b14fae2b7294b011283be53c8e33665d2b48` / box64=`eec659650ff31df151c13d2a522330b1636b98cd82dbf60ba3ff522759f528fd`)。详见 03-TRACKING §P2 #9。
+- [x] `:core:content` 远程内容通道：运行时获取独立仓库的 `content_manifest.json`，
+  流式校验 SHA-256/大小，并按 ROOTFS、WCP 和 runtime asset 类型安装。
+- [x] build 时资产 staging `:app:stageBundledContent`：每次按远程 manifest 精确同步非 ROOTFS `components` + 全部 `runtimeAssets` 到 `app/build/generated/assets/bundledContent/`，并由 Android main assets source set 打包；优先使用 WinNative 本地同路径文件，缺失时按 `remoteUrl`（WCP 可回落 catalog）下载。源文件、缓存和生成文件必须同时匹配 manifest `size` 与 SHA-256，否则任务失败；临时目录完整验证后才替换输出，不再写入或污染 `app/src/main/assets/`。任务仍保持 standalone，不挂 `preBuild`。
 - [x] 真机 preparer 验证: `RemoteContentSource` 下载 Proton/Box64 `.wcp` + `createContainer` + `extractGraphicsDriverFiles`
 - [x] `RemoteContentSource`: Kotlin HTTPS 下载、续传、SHA/大小校验和设备缓存；`nativeDownloadFile` 保持非生产 stub
 
 ---
 
-## 5. 运行时组件生态 (.wcp 下载源) -- nicholasx417/WinNative-Components
+## 5. 运行时组件 catalog fallback -- nicholasx417/WinNative-Components
 
-> 用户指认 + `ContentsManager.java:29` 核实: 运行时组件 (`.wcp` = Winlator Component Package) 从 **`nicholasx417/WinNative-Components`** 下载, 非 `WinNative-Emu/Components`. 这解释了为何 Proton/box64 二进制不在 imagefs/assets -- 它们是**运行时按需下载**, 非打包.
+> 生产组件优先使用远程 manifest 中逐项固定的 `remoteUrl`。该 catalog 仅用于 URL
+> 缺失时的解析回退和可选版本发现，不能覆盖 manifest 的版本、大小或 SHA。
 
-**清单源** (`ContentsManager.REMOTE_PROFILES`):
+**历史 catalog 示例**：
 ```
 https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/main/contents.json
 ```
-`ContentsManager.syncContents()` 拉此 JSON -> 列组件 -> 每个 `remoteUrl` 指向 GitHub release `.wcp` -> `downloadFile` + `finishInstallContent`/`applyContent` 装载.
+`ContentsManager.syncContents()` 可读取 catalog 发现版本；默认安装仍由 `ContentCatalog`
+和 manifest pin 驱动。
 
 **可用组件** (contents.json 抽样, verCode=0):
 | 类型 | 版本 (抽样) | .wcp remoteUrl |
@@ -548,8 +565,8 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | | `Proton-10-arm64ec-original` / `-unix` | (arm64ec, D5 砍) |
 | **Box64** | `Bionic-Box64-0.4.3-8ee3d8f2c` (**匹配 Bionic imagefs**) | `.../releases/download/bionic-box64-nightly-.../Bionic-Box64-0.4.3-8ee3d8f2c.wcp` |
 | | `Box64-0.4.3` / `0.3.9` / `0.3.8` / `0.3.7` | `.../releases/download/Stable-Box64/...wcp` |
-| **DXVK** | `Dxvk-3.0.2-gplasync` (**amphora MVP 默认**) / `2.4.1-pre-reg` / `a6xx-*` / Sarek | `.../releases/download/Stable-Dxvk/...wcp` |
-| **VKD3D** | `Vkd3d-3.0.1-S6_9` (**amphora MVP 默认**, profile `verName=3.0.1-sm69`) / nightly | `.../releases/download/Stable-VKD3D/...wcp` |
+| **DXVK** | `Dxvk-3.0.2-gplasync` / `2.4.1-pre-reg` / `a6xx-*` / Sarek | `.../releases/download/Stable-Dxvk/...wcp` |
+| **VKD3D** | `Vkd3d-3.0.1-S6_9` / nightly | `.../releases/download/Stable-VKD3D/...wcp` |
 | Wrapper / WineD3d | -- (不在 contents.json, 仍打包在 assets `graphics_driver/`/`dxwrapper/`) | -- |
 
 > WinNative assets 的 `dxwrapper/d8vk-1.0.tzst` 仅作 DXVK &lt; 2.4 的 d3d8 补丁 (`extractD8VKIfNeeded`); amphora MVP 默认装 manifest 固定的 DXVK（d3d8/9/10core/11/dxgi）+ VKD3D（d3d12/d3d12core），经 `ContentSource.resolve(DXVK|VKD3D)` + `ContentsManager.applyContent`. 容器 `dxwrapper` 形如 `dxvk-…;vkd3d-…;dd7to9`。
@@ -559,19 +576,16 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 
 | 组件 | 锁定包 | ContentsManager entry / wrapper token | 作用 |
 |---|---|---|---|
-| **DXVK** | `Dxvk-3.0.2-gplasync.wcp` | `DXVK-3.0.2-gplasync-0` → `dxvk-3.0.2-gplasync-0` | D3D8/9/10/11 → Vulkan（TB322FC 上 DX10/11 有画面） |
-| **VKD3D** | `Vkd3d-3.0.1-S6_9.wcp` | profile `verName=3.0.1-sm69` → `vkd3d-3.0.1-sm69-0` | D3D12 → Vulkan（替换 Wine stub `d3d12.dll`） |
-| **Proton** | `Proton-11.0-amphora-x86_64.wcp`（`amphora-dev/proton-wine`）| `Proton-11.0-amphora-x86_64-1` | 自建 Wine/Proton + prefixPack |
-| **Box64** | `Box64-0.4.3-c08554e3f.wcp` | `Box64-0.4.3-c08554e3f-0` | x86_64 → ARM64 用户态翻译 |
-| **Wrapper** | `graphics_driver/wrapper.tzst` | ARCHIVE `version=1` | Guest Vulkan ICD（包装系统 Adreno）+ adrenotools hooks |
+| **DXVK** | `Dxvk-3.0.2-gplasync-6b20f622a.wcp` | `DXVK-3.0.2-gplasync-6b20f622a-0` | D3D8/9/10/11 → Vulkan |
+| **VKD3D** | `Vkd3d-3.0.1-3b10bd7a7.wcp` | `VKD3D-3.0.1-3b10bd7a7-0` | D3D12 → Vulkan |
+| **Proton** | `Proton-11.0-d12a5634a-x86_64.wcp` | `Proton-11.0-d12a5634a-x86_64-0` | 自建 Wine/Proton + prefixPack |
+| **Box64** | `Box64-0.4.5-0db8df775.wcp` | `Box64-0.4.5-0db8df775-0` | x86_64 → ARM64 用户态翻译 |
+| **Wrapper** | `wrapper-7eae6442f.tzst` | runtime asset `graphics_driver/wrapper.tzst` | Guest Vulkan ICD + adrenotools hooks |
 
 容器默认 `dxwrapper`：`dxvk-…;vkd3d-…;dd7to9`；第三段可由 UI 在 `dd7to9` 与 `cnc-ddraw` 之间切换。
 
-选型原则：跟上游 **Stable** x86_64（非 arm64ec）。**默认 DXVK 以远程
-`content_manifest` 为准**（当前 pin `Dxvk-2.7.1-gplasync`）。DX8 CreateDevice /
-DX9·OpenGL 路径已在后续修复中关闭（见 [`03-TRACKING.md`](03-TRACKING.md)）；勿再把
-「FF PSO `-13` 黑屏」当开放项。VKD3D 仍常见为 **3.0.1-S6_9**（catalog 解析，可无
-`remoteUrl`）。
+选型原则：默认使用 manifest 锁定的 x86_64（非 arm64ec）组件。Catalog 中的 Stable、
+nightly 或 GPU 特化包只用于显式兼容性试验，不能静默替换生产 pin。
 
 ### 5.3 可选 adrenotools Turnip（WN-Turnip）
 

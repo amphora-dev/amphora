@@ -1,6 +1,5 @@
 package app.amphora.core.content
 
-import android.content.Context
 import app.amphora.core.content.model.ComponentId
 import app.amphora.core.content.model.ContentArtifact
 import app.amphora.core.content.model.ManifestEntry
@@ -14,11 +13,10 @@ import kotlinx.coroutines.sync.withLock
  *
  * Installed components are returned without network access. Cache misses use a
  * resumable verified download, then hand the archive to [ContentAssetInstaller].
- * After a hit or install, [ContentAssetInstaller.reconcileToPin] drops sibling
- * installs so pin bumps replace rather than accumulate.
+ * Reconciliation is installer-specific; WCP installs retain rollback versions.
  */
 class RemoteContentSource(
-    private val context: Context,
+    private val packageCacheRoot: File,
     private val catalog: ContentCatalog,
     private val installer: ContentAssetInstaller,
     private val downloader: VerifiedAssetDownloader,
@@ -59,7 +57,7 @@ class RemoteContentSource(
             )
             val archive =
                 downloader.acquire(
-                    root = ContentPackageCache.root(context),
+                    root = packageCacheRoot,
                     relativePath = entry.assetPath,
                     remoteUrl = urlResolver.resolve(entry, manifest.wcpCatalogUrl),
                     expectedSha256 = sha,

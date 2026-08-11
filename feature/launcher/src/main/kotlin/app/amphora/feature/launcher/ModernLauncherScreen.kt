@@ -60,7 +60,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import app.amphora.core.content.ContentCatalog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,12 +76,8 @@ fun ModernLauncherScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) viewModel.onExePicked(uri)
         }
-    val runtimeReady = state.runtimeReady()
-    val canPrepareRuntime =
-        state.catalogStatus is ContentCatalog.Status.Ready &&
-            !state.contentBusy &&
-            !state.staging &&
-            !state.driverBusy
+    val runtimeReady = LauncherStateEvaluator.runtimeReady(state)
+    val canPrepareRuntime = LauncherStateEvaluator.canPrepareRuntime(state)
 
     LaunchedEffect(state.stagedExePath) {
         if (state.stagedExePath != null) {
@@ -462,10 +457,7 @@ private fun DetailPane(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
 ) {
-    val selectedProgram =
-        state.recentPrograms.firstOrNull {
-            !desktopSelected && it.path == state.stagedExePath
-        }
+    val selectedProgram = LauncherStateEvaluator.selectedProgram(state, desktopSelected)
     Box(
         modifier =
         modifier.background(
@@ -694,9 +686,9 @@ private fun ConfigurationCard(state: LauncherUiState, onOpenSettings: () -> Unit
                 Text("Edit →", color = MaterialTheme.colorScheme.primary)
             }
             HorizontalDivider()
-            ConfigurationRow("Display", state.resolution.label)
-            ConfigurationRow("Graphics", state.graphicsDriver.label)
-            ConfigurationRow("DirectDraw", state.directDrawWrapper.label)
+            LauncherStateEvaluator.configuration(state).forEach { value ->
+                ConfigurationRow(value.label, value.value)
+            }
         }
     }
 }
@@ -724,9 +716,7 @@ private fun ConfigurationRow(label: String, value: String) {
 
 @Composable
 private fun RuntimeSummary(state: LauncherUiState, ready: Boolean, onRefresh: () -> Unit) {
-    val unhealthyComponents =
-        state.components.count { it.pinned == null || it.installed == null || !it.matchesPin }
-    val unhealthyAssets = state.runtimeAssets.count { !it.healthy }
+    val contentHealth = LauncherStateEvaluator.contentHealth(state)
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
@@ -755,7 +745,8 @@ private fun RuntimeSummary(state: LauncherUiState, ready: Boolean, onRefresh: ()
                     if (ready) {
                         "Proton · Box64 · ${state.graphicsDriver.label}"
                     } else {
-                        "$unhealthyComponents components and $unhealthyAssets files need attention"
+                        "${contentHealth.unhealthyComponents} components and " +
+                            "${contentHealth.unhealthyRuntimeAssets} files need attention"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -870,14 +861,6 @@ private fun AmphoraMark(modifier: Modifier = Modifier) {
         )
     }
 }
-
-private fun LauncherUiState.runtimeReady(): Boolean = catalogStatus is ContentCatalog.Status.Ready &&
-    !contentBusy &&
-    !staging &&
-    !driverBusy &&
-    components.none { it.pinned == null || it.installed == null || !it.matchesPin } &&
-    runtimeAssets.none { !it.healthy } &&
-    !imagefsResidue
 
 private fun relativeTime(timestamp: Long): String = if (timestamp <= 0L) {
     "Recently added"

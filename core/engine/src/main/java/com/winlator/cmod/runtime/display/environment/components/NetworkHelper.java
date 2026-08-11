@@ -5,7 +5,6 @@ import android.net.ConnectivityManager;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.Network;
-import android.net.NetworkInfo;
 import android.system.OsConstants;
 
 import java.net.Inet4Address;
@@ -41,18 +40,6 @@ public class NetworkHelper {
                 (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
     }
 
-    public String getIPv4Address() {
-        if (!isConnected()) return null;
-        Network activeNetwork = connectivityManager.getActiveNetwork();
-        LinkProperties linkProperties = connectivityManager.getLinkProperties(activeNetwork);
-        if (linkProperties == null) return null;
-        for (LinkAddress linkAddress : linkProperties.getLinkAddresses()) {
-            InetAddress address = linkAddress.getAddress();
-            if (address instanceof Inet4Address) return address.getHostAddress();
-        }
-        return null;
-    }
-
     public List<IFAddress> getIFAddresses() {
         ArrayList<IFAddress> result = new ArrayList<>();
         Network activeNetwork = connectivityManager.getActiveNetwork();
@@ -68,7 +55,9 @@ public class NetworkHelper {
                     ifAddress.scopeId = ((Inet6Address) address).getScopeId();
                 }
                 ifAddress.address = address.getHostAddress();
-                ifAddress.netmask = formatNetmask(linkAddress.getPrefixLength());
+                ifAddress.netmask =
+                        formatNetmask(
+                                linkAddress.getPrefixLength(), address instanceof Inet6Address);
                 ifAddress.flags = OsConstants.IFF_UP | OsConstants.IFF_RUNNING;
                 result.add(ifAddress);
             }
@@ -81,26 +70,30 @@ public class NetworkHelper {
                 + ((ipAddress >> 16) & 255) + "." + ((ipAddress >> 24) & 255);
     }
 
-    public static String formatNetmask(int prefixLength) {
-        switch (prefixLength) {
-            case 8:  return "255.0.0.0";
-            case 16: return "255.255.0.0";
-            case 24: return "255.255.255.0";
-            case 32: return "255.255.255.255";
-            case 64: return "ffff:ffff:ffff:ffff::";
-            default: return "";
-        }
-    }
+    public static String formatNetmask(int prefixLength, boolean ipv6) {
+        int addressBits = ipv6 ? 128 : 32;
+        if (prefixLength < 0 || prefixLength > addressBits) return "";
 
-    public boolean isConnected() {
-        NetworkInfo networkInfo = connectivityManager.getActiveNetworkInfo();
-        if (networkInfo == null) return false;
-        int type = networkInfo.getType();
-        if (networkInfo.isAvailable() && networkInfo.isConnectedOrConnecting()) {
-            return type == ConnectivityManager.TYPE_WIFI
-                    || type == ConnectivityManager.TYPE_ETHERNET
-                    || type == ConnectivityManager.TYPE_MOBILE;
+        if (!ipv6) {
+            long mask = prefixLength == 0 ? 0 : (0xffffffffL << (32 - prefixLength)) & 0xffffffffL;
+            return ((mask >>> 24) & 0xff)
+                    + "."
+                    + ((mask >>> 16) & 0xff)
+                    + "."
+                    + ((mask >>> 8) & 0xff)
+                    + "."
+                    + (mask & 0xff);
         }
-        return false;
+
+        StringBuilder mask = new StringBuilder();
+        int remainingBits = prefixLength;
+        for (int group = 0; group < 8; group++) {
+            int groupBits = Math.min(16, remainingBits);
+            int value = groupBits == 0 ? 0 : (0xffff << (16 - groupBits)) & 0xffff;
+            if (group > 0) mask.append(':');
+            mask.append(Integer.toHexString(value));
+            remainingBits -= groupBits;
+        }
+        return mask.toString();
     }
 }

@@ -39,13 +39,23 @@ public class ALSARequestHandler implements RequestHandler {
       case RequestCodes.PREPARE:
         if (inputStream.available() < requestLength) return false;
 
-        alsaClient.setChannelCount(inputStream.readByte());
-        alsaClient.setDataType(ALSAClient.DataType.values()[inputStream.readByte()]);
+        int channelCount = inputStream.readByte() & 0xff;
+        int dataTypeIndex = inputStream.readByte() & 0xff;
+        if (dataTypeIndex >= ALSAClient.DataType.values().length) {
+          alsaClient.release();
+          writePrepareStatus(outputStream, false, -1);
+          break;
+        }
+        alsaClient.setChannelCount(channelCount);
+        alsaClient.setDataType(ALSAClient.DataType.values()[dataTypeIndex]);
         alsaClient.setSampleRate(inputStream.readInt());
         alsaClient.setBufferSize(inputStream.readInt());
-        alsaClient.prepare();
-
-        createSharedMemory(alsaClient, outputStream);
+        if (!alsaClient.prepare()) {
+          writePrepareStatus(outputStream, false, -1);
+          alsaClient.release();
+        } else if (!createSharedMemory(alsaClient, outputStream)) {
+          alsaClient.release();
+        }
         break;
       case RequestCodes.WRITE:
         ByteBuffer buffer = alsaClient.getSharedBuffer();
@@ -74,19 +84,29 @@ public class ALSARequestHandler implements RequestHandler {
     return true;
   }
 
-  private void createSharedMemory(ALSAClient alsaClient, XOutputStream outputStream)
+  private boolean createSharedMemory(ALSAClient alsaClient, XOutputStream outputStream)
       throws IOException {
     int size = alsaClient.getBufferSizeInBytes();
     int fd = SysVSharedMemory.createMemoryFd("alsa-shm" + (++maxSHMemoryId), size);
+    boolean success = false;
 
     if (fd >= 0) {
       ByteBuffer buffer = SysVSharedMemory.mapSHMSegment(fd, size, 0, true);
-      if (buffer != null) alsaClient.setSharedBuffer(buffer);
+      if (buffer != null) {
+        alsaClient.setSharedBuffer(buffer);
+        success = true;
+      }
     }
 
+    writePrepareStatus(outputStream, success, fd);
+    return success;
+  }
+
+  private void writePrepareStatus(XOutputStream outputStream, boolean success, int fd)
+      throws IOException {
     try (XStreamLock lock = outputStream.lock()) {
-      outputStream.writeByte((byte) 0);
-      outputStream.setAncillaryFd(fd);
+      outputStream.writeByte(success ? (byte) 0 : (byte) 1);
+      if (success) outputStream.setAncillaryFd(fd);
     } finally {
       if (fd >= 0) XConnectorEpoll.closeFd(fd);
     }

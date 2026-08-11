@@ -60,18 +60,13 @@ object AdvancedRuntimePreferences {
     fun applyEnvOverrides(context: Context, env: EnvVars) {
         val prefs = prefs(context)
 
-        if (prefs.getBoolean(KEY_DXVK_ASYNC, false)) {
-            env.put("DXVK_ASYNC", "1")
-            env.put("DXVK_GPLASYNCCACHE", "1")
-        } else {
-            env.put("DXVK_ASYNC", "0")
-            env.put("DXVK_GPLASYNCCACHE", "0")
+        if (prefs.contains(KEY_DXVK_ASYNC)) {
+            val enabled = if (prefs.getBoolean(KEY_DXVK_ASYNC, true)) "1" else "0"
+            env.put("DXVK_ASYNC", enabled)
+            env.put("DXVK_GPLASYNCCACHE", enabled)
         }
 
-        when (val rate = prefs.getString(KEY_FRAME_RATE, "off")) {
-            "30", "45", "60", "90", "120" -> env.put("DXVK_FRAME_RATE", rate)
-            else -> env.put("DXVK_FRAME_RATE", "0")
-        }
+        env.put("DXVK_FRAME_RATE", frameRateLimit(prefs.getString(KEY_FRAME_RATE, "off")).toString())
 
         when (val mode = prefs.getString(KEY_PRESENT_MODE, "auto")) {
             "mailbox", "fifo", "immediate" -> {
@@ -147,6 +142,11 @@ object AdvancedRuntimePreferences {
         }.toList()
 
     fun hostPerformanceHudEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_HOST_PERF_HUD, false)
+
+    fun frameRateLimit(context: Context): Int = frameRateLimit(prefs(context).getString(KEY_FRAME_RATE, "off"))
+
+    internal fun frameRateLimit(value: String?): Int =
+        value?.toIntOrNull()?.takeIf { it in setOf(30, 45, 60, 90, 120) } ?: 0
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)

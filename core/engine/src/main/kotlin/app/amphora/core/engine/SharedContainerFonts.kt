@@ -28,7 +28,7 @@ import java.nio.file.Files
  */
 object SharedContainerFonts {
     const val ASSET_PATH = "fonts.tzst"
-    const val REGISTRY_SCHEMA_VERSION = 8
+    const val REGISTRY_SCHEMA_VERSION = 9
 
     const val CN_REGULAR = "SourceHanSansCN-Regular.otf"
     const val CN_BOLD = "SourceHanSansCN-Bold.otf"
@@ -65,6 +65,7 @@ object SharedContainerFonts {
 
     private const val TAG = "SharedContainerFonts"
     private const val CONTENTS_TYPE = "FONTS"
+    internal const val PACK_COMPLETE_MARKER = ".complete"
 
     /** Required faces inside fonts.tzst / contents cache. */
     val PACK_FACES: List<String> = listOf(CN_REGULAR, CN_BOLD, JP_REGULAR, JP_BOLD)
@@ -139,8 +140,6 @@ object SharedContainerFonts {
     val NATIVE_WINDOWS_FONT_LINKS: Map<String, String> =
         linkedMapOf(
             MICROSOFT_YAHEI to MICROSOFT_YAHEI,
-            "msyhbd.ttc" to MICROSOFT_YAHEI,
-            "msyhl.ttc" to MICROSOFT_YAHEI,
             SIMHEI to SIMHEI,
             "simhei.ttf" to SIMHEI,
             PMINGLIU to PMINGLIU,
@@ -223,11 +222,7 @@ object SharedContainerFonts {
     private val NATIVE_WINDOWS_FAMILIES: Set<String> =
         setOf(
             "Microsoft YaHei",
-            "Microsoft YaHei Bold",
-            "Microsoft YaHei Light",
             "Microsoft YaHei UI",
-            "Microsoft YaHei UI Bold",
-            "Microsoft YaHei UI Light",
             "微软雅黑",
             "SimHei",
             "黑体",
@@ -237,10 +232,6 @@ object SharedContainerFonts {
 
     private val NATIVE_WINDOWS_FAMILY_SUBSTITUTES: Map<String, String> =
         linkedMapOf(
-            "Microsoft YaHei Bold" to "Microsoft YaHei",
-            "Microsoft YaHei Light" to "Microsoft YaHei",
-            "Microsoft YaHei UI Bold" to "Microsoft YaHei UI",
-            "Microsoft YaHei UI Light" to "Microsoft YaHei UI",
             "MingLiU" to "PMingLiU",
         )
 
@@ -265,6 +256,15 @@ object SharedContainerFonts {
         } else {
             UI_FAMILY_SUBSTITUTES
         }
+
+    internal fun fontLinkFallback(locale: String?, useNativeWindowsFonts: Boolean): String {
+        val cnFamily = cnFamilyForLocale(locale)
+        return when {
+            languageForLocale(locale) == "ja" -> "$JP_REGULAR,$FONT_FAMILY_JP"
+            useNativeWindowsFonts -> "$MICROSOFT_YAHEI,Microsoft YaHei"
+            else -> "$CN_REGULAR,$cnFamily"
+        }
+    }
 
     /**
      * Windows' normal Latin UI fonts rely on FontLink for CJK glyphs. Replacing
@@ -312,8 +312,6 @@ object SharedContainerFonts {
     private val NATIVE_WINDOWS_FONT_REGISTRATIONS: Map<String, String> =
         linkedMapOf(
             "Microsoft YaHei & Microsoft YaHei UI (TrueType)" to MICROSOFT_YAHEI,
-            "Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)" to MICROSOFT_YAHEI,
-            "Microsoft YaHei Light & Microsoft YaHei UI Light (TrueType)" to MICROSOFT_YAHEI,
             "SimHei (TrueType)" to SIMHEI,
             "PMingLiU (TrueType)" to PMINGLIU,
             "Microsoft Sans Serif (TrueType)" to MICROSOFT_SANS_SERIF,
@@ -352,6 +350,7 @@ object SharedContainerFonts {
             } else {
                 WINDOWS_FONT_LINKS
             }
+        val removedManagedLinks = removeObsoleteManagedLinks(fontsDir, fontLinks.keys)
         var linked = 0
         for ((windowsName, faceName) in fontLinks) {
             val source = File(cacheDir, faceName)
@@ -394,7 +393,8 @@ object SharedContainerFonts {
             TAG,
             "CJK fonts: linked=$linked/${fontLinks.size} primary=$primaryOk " +
                 "nativeWindows=$useNativeWindowsFonts registry=$registryOk " +
-                "locale=$registryLocale removedFontconfigLinks=$removedFontconfigLinks cache=$cacheDir",
+                "locale=$registryLocale removedManagedLinks=$removedManagedLinks " +
+                "removedFontconfigLinks=$removedFontconfigLinks cache=$cacheDir",
         )
         return ok
     }
@@ -417,13 +417,18 @@ object SharedContainerFonts {
             AssetDigest.pinnedSha(archive)?.lowercase()
                 ?: AssetDigest.of(archive).lowercase()
         val cacheDir = File(ContentsManager.getContentDir(context), "$CONTENTS_TYPE/$sha")
-        if (packComplete(cacheDir)) {
+        if (packComplete(cacheDir, sha)) {
             return cacheDir
         }
 
         val staging = File(cacheDir.parentFile, ".$sha.staging-${System.nanoTime()}")
+        val publish = File(cacheDir.parentFile, ".$sha.publish-${System.nanoTime()}")
         try {
             if (staging.exists()) staging.deleteRecursively()
+            if (publish.exists()) publish.deleteRecursively()
+            check(cacheDir.parentFile?.mkdirs() == true || cacheDir.parentFile?.isDirectory == true) {
+                "Cannot create font cache root ${cacheDir.parentFile}"
+            }
             check(staging.mkdirs()) { "Cannot create font staging $staging" }
             val ok =
                 TarCompressorUtils.extract(
@@ -464,44 +469,51 @@ object SharedContainerFonts {
                 return null
             }
 
-            cacheDir.parentFile?.mkdirs()
-            if (cacheDir.exists()) cacheDir.deleteRecursively()
-            check(cacheDir.mkdirs()) { "Cannot create font cache $cacheDir" }
+            check(publish.mkdirs()) { "Cannot create font publish directory $publish" }
 
             for ((face, src) in found) {
-                val dest = File(cacheDir, face)
-                if (!src.renameTo(dest)) {
-                    src.copyTo(dest, overwrite = true)
-                    src.delete()
-                }
+                src.copyTo(File(publish, face), overwrite = true)
             }
             // If Bold/JP missing (old pack), fall back Regular CN for missing faces
             // so link table still has a file — imperfect but avoids total failure.
             for (face in PACK_FACES) {
-                val dest = File(cacheDir, face)
+                val dest = File(publish, face)
                 if (!dest.isFile) {
-                    val fallback = File(cacheDir, CN_REGULAR)
+                    val fallback = File(publish, CN_REGULAR)
                     fallback.copyTo(dest, overwrite = true)
                     Log.w(TAG, "Pack missing $face; cloned $CN_REGULAR as placeholder")
                 }
             }
 
-            staging.deleteRecursively()
-            if (!packComplete(cacheDir)) {
-                Log.e(TAG, "Font pack incomplete after publish: $cacheDir")
+            File(publish, PACK_COMPLETE_MARKER).writeText("$sha\n")
+            if (!packComplete(publish, sha)) {
+                Log.e(TAG, "Font pack incomplete before publish: $publish")
                 return null
+            }
+            // Build every file and the completion marker in a sibling directory,
+            // then expose the complete tree with one same-filesystem rename.
+            if (cacheDir.exists() && !cacheDir.deleteRecursively()) {
+                error("Cannot remove incomplete font cache $cacheDir")
+            }
+            check(publish.renameTo(cacheDir)) {
+                "Cannot atomically publish font cache $publish -> $cacheDir"
             }
             Log.i(TAG, "Published shared font pack $cacheDir (sha=$sha faces=${PACK_FACES.size})")
             return cacheDir
         } catch (e: Exception) {
             Log.e(TAG, "Cannot provision shared fonts from $archive", e)
-            staging.deleteRecursively()
             return null
+        } finally {
+            staging.deleteRecursively()
+            publish.deleteRecursively()
         }
     }
 
-    private fun packComplete(cacheDir: File): Boolean =
-        PACK_FACES.all { File(cacheDir, it).isFile && File(cacheDir, it).length() > 0L }
+    internal fun packComplete(cacheDir: File, sha: String): Boolean =
+        File(cacheDir, PACK_COMPLETE_MARKER).readTextOrNull()?.trim() == sha &&
+            PACK_FACES.all { File(cacheDir, it).isFile && File(cacheDir, it).length() > 0L }
+
+    private fun File.readTextOrNull(): String? = runCatching { readText() }.getOrNull()
 
     internal fun windowsPackComplete(cacheDir: File): Boolean =
         WINDOWS_PACK_FACES.all { File(cacheDir, it).isFile && File(cacheDir, it).length() > 0L }
@@ -513,6 +525,16 @@ object SharedContainerFonts {
         } catch (_: Exception) {
             false
         }
+    }
+
+    internal fun removeObsoleteManagedLinks(fontsDir: File, desiredNames: Set<String>): Int {
+        var removed = 0
+        val managedNames = WINDOWS_FONT_LINKS.keys + NATIVE_WINDOWS_FONT_LINKS.keys
+        for (name in managedNames - desiredNames) {
+            val target = File(fontsDir, name)
+            if (Files.isSymbolicLink(target.toPath()) && target.delete()) removed++
+        }
+        return removed
     }
 
     /**
@@ -559,10 +581,8 @@ object SharedContainerFonts {
                 WineRegistryEditor(systemReg).use { reg ->
                     val substitutesKey =
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes"
-                    if (useNativeWindowsFonts) {
-                        for (family in NATIVE_WINDOWS_FAMILIES) {
-                            reg.removeValue(substitutesKey, family)
-                        }
+                    for (family in NATIVE_WINDOWS_FAMILIES) {
+                        reg.removeValue(substitutesKey, family)
                     }
                     for ((from, to) in familySubstitutes) {
                         reg.setStringValue(
@@ -574,27 +594,30 @@ object SharedContainerFonts {
                     for ((from, to) in uiSubstitutes) {
                         reg.setStringValue(substitutesKey, from, to)
                     }
-                    reg.setStringValue(substitutesKey, "msyh", cnFamily)
+                    for (shortName in listOf("msyh", "simsun", "simhei", "msgothic", "meiryo", "yugothic")) {
+                        reg.removeValue(substitutesKey, shortName)
+                    }
+                    if (!useNativeWindowsFonts) {
+                        reg.setStringValue(substitutesKey, "msyh", cnFamily)
+                        reg.setStringValue(substitutesKey, "simhei", cnFamily)
+                    }
                     reg.setStringValue(substitutesKey, "simsun", cnFamily)
-                    reg.setStringValue(substitutesKey, "simhei", cnFamily)
                     reg.setStringValue(substitutesKey, "msgothic", FONT_FAMILY_JP)
                     reg.setStringValue(substitutesKey, "meiryo", FONT_FAMILY_JP)
                     reg.setStringValue(substitutesKey, "yugothic", FONT_FAMILY_JP)
 
                     val linksKey =
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontLink\\SystemLink"
-                    val chineseFallback =
-                        if (useNativeWindowsFonts) {
-                            "$MICROSOFT_YAHEI,Microsoft YaHei"
-                        } else {
-                            "$CN_REGULAR,$cnFamily"
-                        }
+                    val cjkFallback = fontLinkFallback(registryLocale, useNativeWindowsFonts)
                     for (family in SYSTEM_FONT_LINKS) {
-                        reg.setMultiStringValue(linksKey, family, chineseFallback)
+                        reg.setMultiStringValue(linksKey, family, cjkFallback)
                     }
 
                     val fontsKey =
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
+                    for (name in FONT_REGISTRATIONS.keys + NATIVE_WINDOWS_FONT_REGISTRATIONS.keys) {
+                        reg.removeValue(fontsKey, name)
+                    }
                     for ((name, file) in fontRegistrations) {
                         reg.setStringValue(fontsKey, name, file)
                     }

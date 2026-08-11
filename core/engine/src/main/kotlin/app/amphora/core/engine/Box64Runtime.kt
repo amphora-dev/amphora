@@ -74,9 +74,21 @@ object Box64Runtime {
         }
 
         Log.i(TAG, "安装 Box64: version=$version")
-        contentsManager.applyContent(profile)
+        // Persist invalidation before applyContent starts replacing targets. If
+        // it copies usr/bin/box64 and then fails on a later file, the next launch
+        // must retry instead of trusting the previous successful state.
+        AppliedMarks.invalidateBox64(container)
+        container.saveData()
+        if (!contentsManager.applyContent(profile)) {
+            throw IllegalStateException(
+                "Box64 content apply failed: ${ContentPinResolver.entryName(profile)}",
+            )
+        }
+        if (!box64File.isFile) {
+            throw IllegalStateException("Box64 content apply completed without usr/bin/box64")
+        }
         AppliedMarks.markBox64(container, contentState)
-        ensureExecutable(File(rootDir, "usr/bin/box64"))
+        ensureExecutable(box64File)
         return true
     }
 

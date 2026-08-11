@@ -40,6 +40,16 @@ object GraphicsDriverIds {
     }
 
     /**
+     * Resolves the one device-compatible driver selection shared by host and guest.
+     *
+     * The wrapper and downloaded Turnip packages both depend on the Adreno stack.
+     * A non-Adreno device must therefore use the Android system loader on both
+     * sides; letting only the host fall back leaves the guest pointing at an
+     * unusable wrapper ICD.
+     */
+    fun resolveEffectiveDriver(id: String?, isAdreno: Boolean): String = if (isAdreno) normalize(id) else SYSTEM
+
+    /**
      * Resolves the Vulkan backend used by the Android host compositor.
      *
      * The bundled wrapper is a loader-facing ICD (`vk_icdGetInstanceProcAddr`), not an
@@ -47,7 +57,7 @@ object GraphicsDriverIds {
      * open the platform loader directly. Downloaded Turnip packages are Android HALs and can
      * be loaded through adrenotools, but only on Adreno devices.
      */
-    fun resolveHostDriver(id: String?, isAdreno: Boolean): String = when (normalize(id)) {
+    fun resolveHostDriver(id: String?, isAdreno: Boolean): String = when (resolveEffectiveDriver(id, isAdreno)) {
         TURNIP_BALANCED -> if (isAdreno) TURNIP_BALANCED else SYSTEM
         WRAPPER, SYSTEM -> SYSTEM
         else -> SYSTEM

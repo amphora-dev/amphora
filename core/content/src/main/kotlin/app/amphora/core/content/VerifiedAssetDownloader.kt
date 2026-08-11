@@ -6,8 +6,6 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -71,10 +69,11 @@ class VerifiedAssetDownloader(
                     }
                     if (!promoteIfShaMatches(partial, destination, expectedSha256, expectedSize, relativePath)) {
                         val actual = AssetDigest.of(partial)
+                        val actualSize = partial.length()
                         partial.delete()
                         throw SecurityException(
                             "SHA-256 mismatch for $relativePath: expected=$expectedSha256 actual=$actual" +
-                                sizeHint(expectedSize, partial.length()),
+                                sizeHint(expectedSize, actualSize),
                         )
                     }
                     return@withLock destination
@@ -123,27 +122,47 @@ class VerifiedAssetDownloader(
             AssetDigest.markerFor(file).delete()
             return false
         }
-        // SHA is authoritative. A stale size pin must not delete a digest-matching asset.
-        if (expectedSize != null && file.length() != expectedSize) {
-            if (AssetDigest.matchesPin(file, expectedSha256) ||
-                AssetDigest.of(file).equals(expectedSha256, ignoreCase = true)
-            ) {
-                android.util.Log.w(
-                    TAG,
-                    "Keeping $file despite size pin mismatch " +
-                        "(manifest=$expectedSize actual=${file.length()})",
-                )
-                AssetDigest.writePin(file, expectedSha256)
+        if (AssetDigest.matchesPin(file, expectedSha256)) {
+            warnIfSizePinDiffers(file, expectedSize)
+            return true
+        }
+
+        // A valid record for a different pin identifies the last-known-good asset.
+        // Do not hash or delete it before its replacement has downloaded and verified.
+        if (AssetDigest.hasCurrentRecord(file)) return false
+
+        // Preserve the trust semantics of deployed digest-only markers while
+        // upgrading them with a size. This avoids hashing an old multi-hundred-MB
+        // asset on every offline launch after the manifest pin advances.
+        val legacyPin = AssetDigest.pinnedSha(file)
+        if (legacyPin != null) {
+            if (!legacyPin.equals(expectedSha256, ignoreCase = true)) {
+                AssetDigest.writePin(file, legacyPin)
+                return false
+            }
+            if (expectedSize == null || file.length() == expectedSize) {
+                AssetDigest.writePin(file, legacyPin)
                 return true
             }
-            file.delete()
-            AssetDigest.markerFor(file).delete()
-            return false
         }
-        if (AssetDigest.matchesPin(file, expectedSha256)) return true
+
+        // Missing/malformed markers are not trusted. Hash only this recovery path,
+        // then record metadata so later startup checks remain O(1).
         val valid = AssetDigest.of(file).equals(expectedSha256, ignoreCase = true)
-        if (valid) AssetDigest.writePin(file, expectedSha256) else file.delete()
+        if (valid) {
+            warnIfSizePinDiffers(file, expectedSize)
+            AssetDigest.writePin(file, expectedSha256)
+        }
         return valid
+    }
+
+    private fun warnIfSizePinDiffers(file: File, expectedSize: Long?) {
+        if (expectedSize == null || file.length() == expectedSize) return
+        android.util.Log.w(
+            TAG,
+            "Keeping $file despite size pin mismatch " +
+                "(manifest=$expectedSize actual=${file.length()})",
+        )
     }
 
     /**
@@ -175,7 +194,7 @@ class VerifiedAssetDownloader(
                     "actual=${partial.length()}; accepting SHA match",
             )
         }
-        atomicReplace(partial, destination)
+        AtomicFilePublisher.replace(partial, destination)
         AssetDigest.writePin(destination, expectedSha256)
         return true
     }
@@ -231,21 +250,6 @@ class VerifiedAssetDownloader(
             }
         } finally {
             connection.disconnect()
-        }
-    }
-
-    private fun atomicReplace(source: File, destination: File) {
-        try {
-            Files.move(
-                source.toPath(),
-                destination.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING,
-            )
-        } catch (_: Exception) {
-            check(source.renameTo(destination)) {
-                "Unable to move verified asset into place: $destination"
-            }
         }
     }
 

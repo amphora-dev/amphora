@@ -9,6 +9,9 @@ dependencies {
     implementation(libs.compose.gradlePlugin)
     implementation(libs.hilt.gradlePlugin)
     implementation(libs.ksp.gradlePlugin)
+
+    testImplementation(gradleTestKit())
+    testImplementation(libs.junit4)
 }
 
 gradlePlugin {

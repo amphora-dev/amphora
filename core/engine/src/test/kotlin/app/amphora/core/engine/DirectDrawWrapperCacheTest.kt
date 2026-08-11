@@ -48,6 +48,51 @@ class DirectDrawWrapperCacheTest {
         }
     }
 
+    @Test
+    fun cncDdrawCompletenessRequiresIniAndEveryShaderSidecar() {
+        val syswow64 = Files.createTempDirectory("cnc-ddraw-integrity-").toFile()
+        try {
+            syswow64.resolve("ddraw.dll").writeText("dll")
+            syswow64.resolve("ddraw.ini").writeText("ini")
+            CNC_DDRAW_SHADER_SIDECARS.forEach {
+                syswow64.resolve(it).apply {
+                    requireNotNull(parentFile).mkdirs()
+                    writeText("shader")
+                }
+            }
+            assertTrue(directDrawInstallComplete(DirectDrawWrapperIds.CNC_DDRAW, syswow64))
+
+            syswow64.resolve(CNC_DDRAW_SHADER_SIDECARS.first()).delete()
+            assertFalse(directDrawInstallComplete(DirectDrawWrapperIds.CNC_DDRAW, syswow64))
+        } finally {
+            syswow64.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun dd7to9CompletenessRequiresPrivateIni() {
+        val syswow64 = Files.createTempDirectory("dd7to9-integrity-").toFile()
+        try {
+            syswow64.resolve("ddraw.dll").writeText("dll")
+            syswow64.resolve("dxwrapper.dll").writeText("dll")
+            assertFalse(
+                directDrawInstallComplete(
+                    DirectDrawWrapperIds.DXWRAPPER_DD7TO9,
+                    syswow64,
+                ),
+            )
+            syswow64.resolve("dxwrapper.ini").writeText("ini")
+            assertTrue(
+                directDrawInstallComplete(
+                    DirectDrawWrapperIds.DXWRAPPER_DD7TO9,
+                    syswow64,
+                ),
+            )
+        } finally {
+            syswow64.deleteRecursively()
+        }
+    }
+
     private fun writeZip(archive: File, entries: Map<String, ByteArray>) {
         ZipOutputStream(archive.outputStream()).use { zip ->
             entries.forEach { (name, bytes) ->

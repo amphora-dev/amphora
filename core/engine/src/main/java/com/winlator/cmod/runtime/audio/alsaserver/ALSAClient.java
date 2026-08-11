@@ -24,7 +24,7 @@ public class ALSAClient {
   }
 
   private DataType dataType = DataType.U8;
-  private byte channelCount = 2;
+  private int channelCount = 2;
   private int sampleRate = 0;
   private int positionFrames;
   private int bufferSize;
@@ -37,7 +37,9 @@ public class ALSAClient {
   private float[] bassLowpassState = new float[2];
   private float bassLowpassAlpha = 0.0f;
   private static volatile short framesPerBuffer = 256;
-  private static volatile boolean outputSuspended = false;
+  private static volatile boolean environmentPaused = false;
+  private static volatile boolean muted = false;
+  private static volatile float masterVolume = 1.0f;
   private final Options options;
 
   public static class Options {
@@ -58,25 +60,36 @@ public class ALSAClient {
 
       options.latencyMillis =
           parseInt(
-              firstNonEmpty(envVars.get("ANDROID_ALSA_LATENCY_MS"), envVars.get("WINNATIVE_ALSA_LATENCY_MS")),
+              firstNonEmpty(
+                  envVars.get("ALSA_LATENCY_MS"),
+                  envVars.get("ANDROID_ALSA_LATENCY_MS"),
+                  envVars.get("WINNATIVE_ALSA_LATENCY_MS")),
               DEFAULT_LATENCY_MILLIS);
       options.latencyMillis = Math.max(0, options.latencyMillis);
 
       options.volume =
           parseFloat(
-              firstNonEmpty(envVars.get("ANDROID_ALSA_VOLUME"), envVars.get("WINNATIVE_ALSA_VOLUME")),
+              firstNonEmpty(
+                  envVars.get("ALSA_VOLUME"),
+                  envVars.get("ANDROID_ALSA_VOLUME"),
+                  envVars.get("WINNATIVE_ALSA_VOLUME")),
               DEFAULT_VOLUME);
       options.volume = Math.max(0.0f, Math.min(options.volume, MAX_VOLUME));
 
       options.bassBoost =
           parseFloat(
-              firstNonEmpty(envVars.get("ANDROID_ALSA_BASS_BOOST"), envVars.get("WINNATIVE_ALSA_BASS_BOOST")),
+              firstNonEmpty(
+                  envVars.get("ALSA_BASS_BOOST"),
+                  envVars.get("ANDROID_ALSA_BASS_BOOST"),
+                  envVars.get("WINNATIVE_ALSA_BASS_BOOST")),
               DEFAULT_BASS_BOOST);
       options.bassBoost = Math.max(0.0f, Math.min(options.bassBoost, MAX_BASS_BOOST));
 
       String performanceMode =
           firstNonEmpty(
-              envVars.get("ANDROID_ALSA_PERFORMANCE_MODE"), envVars.get("WINNATIVE_ALSA_PERFORMANCE_MODE"));
+              envVars.get("ALSA_PERFORMANCE_MODE"),
+              envVars.get("ANDROID_ALSA_PERFORMANCE_MODE"),
+              envVars.get("WINNATIVE_ALSA_PERFORMANCE_MODE"));
       if (performanceMode.equalsIgnoreCase("low_latency") || performanceMode.equals("1")) {
         options.performanceMode = AudioTrack.PERFORMANCE_MODE_LOW_LATENCY;
       } else if (performanceMode.equalsIgnoreCase("power_saving") || performanceMode.equals("2")) {
@@ -88,8 +101,11 @@ public class ALSAClient {
       return options;
     }
 
-    private static String firstNonEmpty(String first, String second) {
-      return first != null && !first.isEmpty() ? first : (second != null ? second : "");
+    private static String firstNonEmpty(String... values) {
+      for (String value : values) {
+        if (value != null && !value.isEmpty()) return value;
+      }
+      return "";
     }
 
     private static int parseInt(String value, int fallback) {
@@ -142,7 +158,7 @@ public class ALSAClient {
     }
   }
 
-  public synchronized void prepare() {
+  public synchronized boolean prepare() {
     positionFrames = 0;
     previousUnderrunCount = 0;
     frameBytes = channelCount * dataType.byteCount;
@@ -150,13 +166,14 @@ public class ALSAClient {
     bassLowpassAlpha = computeBassLowpassAlpha(sampleRate);
     release();
 
-    if (!isValidBufferSize()) return;
+    int channelConfig = getChannelConfig(channelCount);
+    if (!isValidBufferSize() || channelConfig == AudioFormat.CHANNEL_INVALID) return false;
 
     AudioFormat format =
         new AudioFormat.Builder()
             .setEncoding(getPCMEncoding(dataType))
             .setSampleRate(sampleRate)
-            .setChannelMask(getChannelConfig(channelCount))
+            .setChannelMask(channelConfig)
             .build();
 
     try {
@@ -167,11 +184,20 @@ public class ALSAClient {
               .setAudioFormat(format)
               .setBufferSizeInBytes(audioTrackBufferSize)
               .build();
+      if (audioTrack.getState() != AudioTrack.STATE_INITIALIZED) {
+        release();
+        return false;
+      }
       bufferCapacityFrames = audioTrack.getBufferCapacityInFrames();
-      if (options.volume < Options.DEFAULT_VOLUME) audioTrack.setVolume(options.volume);
       audioTrack.play();
+      if (audioTrack.getPlayState() != AudioTrack.PLAYSTATE_PLAYING) {
+        release();
+        return false;
+      }
+      return true;
     } catch (Exception e) {
       release();
+      return false;
     }
   }
 
@@ -215,8 +241,24 @@ public class ALSAClient {
     }
   }
 
-  public static void setOutputSuspended(boolean suspended) {
-    outputSuspended = suspended;
+  public static void setEnvironmentPaused(boolean paused) {
+    environmentPaused = paused;
+  }
+
+  public static void setMuted(boolean value) {
+    muted = value;
+  }
+
+  public static boolean isOutputSuspended() {
+    return environmentPaused || muted;
+  }
+
+  public static void setMasterVolume(float volume) {
+    masterVolume = Math.max(0.0f, Math.min(volume, 1.0f));
+  }
+
+  public static float getMasterVolume() {
+    return masterVolume;
   }
 
   public synchronized void writeDataToStream(ByteBuffer data) {
@@ -228,7 +270,7 @@ public class ALSAClient {
 
     if (audioTrack != null) {
       data.position(0);
-      if (outputSuspended) {
+      if (isOutputSuspended()) {
         for (int i = data.position(); i < data.limit(); i++) data.put(i, (byte) 0);
       } else {
         applyAudioProcessing(data);
@@ -251,7 +293,9 @@ public class ALSAClient {
   }
 
   private void applyAudioProcessing(ByteBuffer data) {
-    if (options.volume == Options.DEFAULT_VOLUME && options.bassBoost == Options.DEFAULT_BASS_BOOST) {
+    if (options.volume == Options.DEFAULT_VOLUME
+        && options.bassBoost == Options.DEFAULT_BASS_BOOST
+        && masterVolume == 1.0f) {
       return;
     }
 
@@ -291,7 +335,7 @@ public class ALSAClient {
       bassLowpassState[channel] += bassLowpassAlpha * (sample - bassLowpassState[channel]);
       sample += bassLowpassState[channel] * options.bassBoost;
     }
-    return clamp(sample * options.volume, -1.0f, 1.0f);
+    return clamp(sample * options.volume * masterVolume, -1.0f, 1.0f);
   }
 
   private static float computeBassLowpassAlpha(int sampleRate) {
@@ -352,7 +396,7 @@ public class ALSAClient {
     return dataType;
   }
 
-  public byte getChannelCount() {
+  public int getChannelCount() {
     return channelCount;
   }
 
@@ -369,7 +413,10 @@ public class ALSAClient {
   }
 
   private boolean isValidBufferSize() {
-    return (getBufferSizeInBytes() % frameBytes == 0) && bufferSize > 0;
+    return frameBytes > 0
+        && sampleRate > 0
+        && (getBufferSizeInBytes() % frameBytes == 0)
+        && bufferSize > 0;
   }
 
   public int computeLatencyMillis() {
@@ -412,8 +459,21 @@ public class ALSAClient {
     }
   }
 
-  private static int getChannelConfig(int channelCount) {
-    return channelCount <= 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
+  static int getChannelConfig(int channelCount) {
+    switch (channelCount) {
+      case 1:
+        return AudioFormat.CHANNEL_OUT_MONO;
+      case 2:
+        return AudioFormat.CHANNEL_OUT_STEREO;
+      case 4:
+        return AudioFormat.CHANNEL_OUT_QUAD;
+      case 6:
+        return AudioFormat.CHANNEL_OUT_5POINT1;
+      case 8:
+        return AudioFormat.CHANNEL_OUT_7POINT1_SURROUND;
+      default:
+        return AudioFormat.CHANNEL_INVALID;
+    }
   }
 
   public static void assignFramesPerBuffer(Context context) {

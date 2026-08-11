@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.util.Log;
+import androidx.core.content.ContextCompat;
 
 import com.winlator.cmod.runtime.display.environment.EnvironmentComponent;
 import com.winlator.cmod.shared.io.FileUtils;
@@ -28,18 +29,17 @@ public class NetworkInfoUpdateComponent extends EnvironmentComponent {
         Context context = environment.getContext();
         final NetworkHelper networkHelper = new NetworkHelper(context);
         updateIFAddrsFile(networkHelper.getIFAddresses());
-        updateEtcHostsFile(networkHelper.getIPv4Address());
 
         broadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context ctx, Intent intent) {
                 updateIFAddrsFile(networkHelper.getIFAddresses());
-                updateEtcHostsFile(networkHelper.getIPv4Address());
             }
         };
         IntentFilter filter = new IntentFilter();
         filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
-        context.registerReceiver(broadcastReceiver, filter);
+        ContextCompat.registerReceiver(
+                context, broadcastReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
     @Override
@@ -67,11 +67,5 @@ public class NetworkInfoUpdateComponent extends EnvironmentComponent {
             content.append(new NetworkHelper.IFAddress().toString());
         }
         FileUtils.writeString(file, content.toString());
-    }
-
-    public void updateEtcHostsFile(String ipAddress) {
-        String ip = ipAddress != null ? ipAddress : "127.0.0.1";
-        File file = new File(environment.getImageFs().getRootDir(), "etc/hosts");
-        FileUtils.writeString(file, ip + "\tlocalhost\n");
     }
 }

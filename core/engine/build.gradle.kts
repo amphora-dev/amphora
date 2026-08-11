@@ -19,6 +19,7 @@ dependencies {
 
     // Ported com.winlator.cmod runtime kernel (RFC §7 - Java reused as-is).
     // Versions matched to WinNative's catalog for source compatibility.
+    implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.preference)
     implementation(libs.android.material)
@@ -27,4 +28,5 @@ dependencies {
     implementation(variantOf(libs.zstd.jni) { artifactType("aar") })
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+    testImplementation(libs.org.json)
 }

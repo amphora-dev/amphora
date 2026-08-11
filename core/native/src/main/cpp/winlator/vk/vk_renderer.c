@@ -3026,9 +3026,8 @@ JNIEXPORT void JNICALL JNI_FN(nativeSetScene)(JNIEnv* env, jclass clazz, jlong h
 
 // FPS pacing is enforced by PresentExtension's PresentPacer (delayed PresentIdleNotify
 // back-pressure when VulkanRenderer.getFpsLimit() > 0) and by the swapchain present mode
-// + Choreographer-coalesced render requests. XClient.enforceAbsoluteFramerate remains for
-// non-Present paths. The compositor used to sleep+busy-spin here too, which duplicated
-// pacing and burned CPU; this entry point is kept as a no-op for Java-side ABI compatibility.
+// + Choreographer-coalesced render requests. PutImage/MIT-SHM no longer park the X dispatch
+// thread. This entry point stays as a no-op for Java-side ABI compatibility.
 JNIEXPORT void JNICALL JNI_FN(nativeSetFpsLimit)(JNIEnv* env, jclass clazz, jlong handle, jint fps) {
     (void)env; (void)clazz; (void)handle; (void)fps;
 }

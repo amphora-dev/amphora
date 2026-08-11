@@ -3,6 +3,7 @@ package app.amphora.core.content
 import android.content.Context
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import java.io.File
+import java.io.FileOutputStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +16,19 @@ import kotlinx.coroutines.withContext
  * in `amphora-dev/content_manifest` and are refreshed at runtime so imagefs /
  * WCP SHA bumps do not require an APK rebuild.
  */
-class ContentCatalog(private val context: Context, private val dispatchers: DispatcherProvider) {
+class ContentCatalog internal constructor(
+    private val cacheFile: File,
+    private val dispatchers: DispatcherProvider,
+    private val sourceUrl: () -> String?,
+    private val fetchManifest: suspend (String) -> String,
+) {
+    constructor(context: Context, dispatchers: DispatcherProvider) : this(
+        cacheFile = File(context.filesDir, "content/content_manifest.json"),
+        dispatchers = dispatchers,
+        sourceUrl = { ContentManifestLoader.resolveRemoteUrl(context) },
+        fetchManifest = { url -> ContentManifestLoader.fetchHttpsText(url) },
+    )
+
     sealed interface Status {
         data object Idle : Status
 
@@ -29,7 +42,7 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
     private val mutex = Mutex()
     private val _status = MutableStateFlow<Status>(Status.Idle)
     val status: StateFlow<Status> = _status.asStateFlow()
-    private val diskCache = File(context.filesDir, "content/content_manifest.json")
+    private val manifestCache = ContentManifestCache(cacheFile)
 
     /**
      * Return the in-memory or disk-cached manifest, fetching from the remote URL
@@ -54,24 +67,21 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
             _status.value = Status.Loading
         }
         return try {
-            val url =
-                ContentManifestLoader.resolveRemoteUrl(context)
-                    ?: error("content manifest remote URL is not configured")
+            val url = sourceUrl() ?: error("content manifest remote URL is not configured")
             val json =
                 withContext(dispatchers.io) {
-                    ContentManifestLoader.fetchHttpsText(url)
+                    fetchManifest(url)
                 }
-            val manifest = ContentManifest.parse(json)
-            withContext(dispatchers.io) {
-                runCatching { writeCacheAtomically(json) }
-            }
+            // Parsing happens before publication. A malformed remote response or
+            // failed atomic move therefore cannot replace the last-known-good cache.
+            val manifest = withContext(dispatchers.io) { manifestCache.replace(json) }
             _status.value = Status.Ready(manifest, url)
             manifest
         } catch (failure: Throwable) {
             if (failure is kotlinx.coroutines.CancellationException) throw failure
             val cached = previous?.manifest ?: readDiskCache()
             if (cached != null) {
-                _status.value = previous ?: Status.Ready(cached, diskCache.toURI().toString())
+                _status.value = previous ?: Status.Ready(cached, cacheFile.toURI().toString())
                 cached
             } else {
                 _status.value = Status.Failed(failure.message ?: failure.javaClass.simpleName)
@@ -82,25 +92,36 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
 
     private suspend fun loadDiskCacheLocked(): ContentManifest? {
         val cached = readDiskCache() ?: return null
-        _status.value = Status.Ready(cached, diskCache.toURI().toString())
+        _status.value = Status.Ready(cached, cacheFile.toURI().toString())
         return cached
     }
 
     private suspend fun readDiskCache(): ContentManifest? = withContext(dispatchers.io) {
-        runCatching {
-            ContentManifest.parse(diskCache.readText())
-        }.getOrNull()
+        manifestCache.read()
     }
+}
 
-    private fun writeCacheAtomically(json: String) {
-        val parent = requireNotNull(diskCache.parentFile)
+/** Disk-backed, structurally validated last-known-good manifest. */
+internal class ContentManifestCache(private val file: File) {
+    fun read(): ContentManifest? = runCatching {
+        ContentManifest.parse(file.readText())
+    }.getOrNull()
+
+    fun replace(json: String): ContentManifest {
+        val manifest = ContentManifest.parse(json)
+        val parent = requireNotNull(file.parentFile)
         check(parent.mkdirs() || parent.isDirectory) { "Cannot create manifest cache directory" }
         val temporary = File.createTempFile("content_manifest.", ".tmp", parent)
         try {
-            temporary.writeText(json)
-            check(temporary.renameTo(diskCache)) { "Cannot replace manifest cache" }
+            FileOutputStream(temporary).use { output ->
+                output.write(json.toByteArray(Charsets.UTF_8))
+                output.flush()
+                output.fd.sync()
+            }
+            AtomicFilePublisher.replace(temporary, file)
         } finally {
             temporary.delete()
         }
+        return manifest
     }
 }

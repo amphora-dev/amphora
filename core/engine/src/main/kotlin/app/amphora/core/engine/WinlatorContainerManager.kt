@@ -81,6 +81,7 @@ constructor(
     // --- kernel singletons (constructed like WineEngineImpl / preparer) -------
     private val contentsManager: ContentsManager = ContentsManager(context)
     private val wnContainerManager: WnContainerManager = WnContainerManager(context)
+    private val runtimePinSynchronizer = ContainerRuntimePinSynchronizer()
 
     override suspend fun getOrCreate(id: ContainerId): AmphoraContainer = withContext(dispatchers.io) {
         val manifest = catalog.require()
@@ -109,7 +110,7 @@ constructor(
                 )
         // Manifest pin (+ installed disk) is authoritative. Container fields are
         // only a cache — rewrite them whenever reconcile moved the install.
-        syncRuntimePins(
+        runtimePinSynchronizer.syncRuntimePins(
             container = wnContainer,
             wineVersion = wineVersion,
             wineSha256 = manifest.entry(ContentComponent.WINE)?.sha256.orEmpty(),
@@ -121,7 +122,9 @@ constructor(
         // Optional adrenotools driver (wrapper default, Turnip when selected).
         ensureAdrenotoolsDriver(wnContainer)
         // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
-        wnContainerManager.activateContainer(wnContainer)
+        check(wnContainerManager.activateContainer(wnContainer)) {
+            "Could not activate Wine container ${wnContainer.id}; guest launch aborted"
+        }
         wnContainer.toAmphora()
     }
 
@@ -142,30 +145,6 @@ constructor(
     }
 
     // --- helpers --------------------------------------------------------------
-
-    /**
-     * Rewrite every runtime pin on [container] from the current manifest /
-     * installed WCP set. Hash stays a download check; these strings are what
-     * launch looks up.
-     */
-    private fun syncRuntimePins(
-        container: WnContainer,
-        wineVersion: String,
-        wineSha256: String,
-        box64Version: String,
-        dxwrapper: String,
-        wincomponents: String,
-        newlyCreated: Boolean,
-    ) {
-        ensurePinnedWineVersion(container, wineVersion, wineSha256, newlyCreated)
-        ensurePinnedBox64Version(container, box64Version)
-        ensureRealDxwrapper(container, dxwrapper)
-        ensureWinComponents(container, wincomponents)
-        // One-shot: incomplete fork DXVK profile.json omitted on-disk d3d8/d3d10*;
-        // clear the preparer gate so applyContent re-runs with trust augment.
-        // (Self-built 3.0.2 does not ship d3d10/d3d10_1; those are Wine front-ends.)
-        ensureDxvkTrustAugmentReapply(container)
-    }
 
     /**
      * The container's `wineVersion` = the ContentsManager entry name of the
@@ -230,7 +209,7 @@ constructor(
                 // Turnip ids remain aligned between host and guest through adrenotools.
                 put(
                     "graphicsDriverConfig",
-                    "vulkanVersion=1.3;version=wrapper;blacklistedExtensions=;maxDeviceMemory=0;presentMode=mailbox;syncFrame=0;disablePresentWait=1;resourceType=auto;bcnEmulation=auto;bcnEmulationType=compute;bcnEmulationCache=0;gpuName=Device",
+                    "vulkanVersion=1.4;version=wrapper;blacklistedExtensions=;maxDeviceMemory=0;presentMode=mailbox;syncFrame=0;disablePresentWait=0;resourceType=auto;bcnEmulation=auto;bcnEmulationType=compute;bcnEmulationCache=0;gpuName=Device",
                 )
                 put("wincomponents", wincomponents)
             }
@@ -290,102 +269,6 @@ constructor(
     }
 
     /**
-     * Rewrite [container]'s `wineVersion` when the manifest WINE pin moves.
-     *
-     * The prefix belongs to the Proton it was unpacked from, so this also arms
-     * `wineprefixNeedsUpdate` (`repairContainerWinePrefix` carries saves) and
-     * clears the dxwrapper gate so DXVK/VKD3D DLLs land in the fresh prefix.
-     */
-    private fun ensurePinnedWineVersion(
-        container: WnContainer,
-        desired: String,
-        sha256: String,
-        newlyCreated: Boolean,
-    ) {
-        val current = container.getWineVersion() ?: ""
-        val desiredContent = "$desired|sha=$sha256"
-        val versionChanged = current != desired
-        val contentChanged = AppliedMarks.needsWineContent(container, desiredContent)
-        if (!versionChanged && !contentChanged) return
-
-        android.util.Log.i(
-            "WinlatorContainerManager",
-            "Refreshing container Wine '$current' -> '$desired' (contentChanged=$contentChanged)",
-        )
-        if (versionChanged) container.setWineVersion(desired)
-        AppliedMarks.markWineContent(container, desiredContent)
-        if (!newlyCreated) {
-            AppliedMarks.markPrefixNeedsUpdate(container)
-            AppliedMarks.invalidateDxwrapper(container)
-        }
-        container.saveData()
-    }
-
-    /**
-     * Rewrite [container]'s `box64Version` when reconcile pruned the old install.
-     * Clears the applied mark so `usr/bin/box64` is re-installed.
-     */
-    private fun ensurePinnedBox64Version(container: WnContainer, desired: String) {
-        if (desired.isEmpty()) return
-        val current = container.getBox64Version() ?: ""
-        if (current == desired) return
-
-        android.util.Log.i(
-            "WinlatorContainerManager",
-            "Migrating container box64Version '$current' -> '$desired'",
-        )
-        container.setBox64Version(desired)
-        AppliedMarks.invalidateBox64(container)
-        container.saveData()
-    }
-
-    /**
-     * Rewrite [container]'s `dxwrapper` when it differs from the manifest-pinned
-     * [desired] token (legacy `dxvk-1.0` / `vkd3d-None` / version bumps). Clears
-     * the applied mark so DLLs are re-applied on next launch.
-     */
-    private fun ensureRealDxwrapper(container: WnContainer, desired: String) {
-        val current = container.getDXWrapper() ?: ""
-        if (current == desired) return
-
-        android.util.Log.i(
-            "WinlatorContainerManager",
-            "Migrating container dxwrapper '$current' -> '$desired'",
-        )
-        container.setDXWrapper(desired)
-        AppliedMarks.invalidateDxwrapper(container)
-        container.saveData()
-    }
-
-    private fun ensureWinComponents(container: WnContainer, desired: String) {
-        val current = WindowsComponentPreferences.normalize(container.getWinComponents() ?: "")
-        if (current == desired) return
-        android.util.Log.i(
-            "WinlatorContainerManager",
-            "Migrating container wincomponents '$current' -> '$desired'",
-        )
-        container.setWinComponents(desired)
-        container.saveData()
-    }
-
-    /**
-     * Force one DXVK re-apply after [ContentsManager] started augmenting
-     * trust-listed DLLs missing from incomplete fork `profile.json`
-     * (notably `d3d8.dll` on Dxvk-2.7.1-gplasync; that fork also shipped
-     * `d3d10.dll` / `d3d10_1.dll`, which Amphora's 3.0.2 WCP does not).
-     */
-    private fun ensureDxvkTrustAugmentReapply(container: WnContainer) {
-        if (container.getExtra(DXVK_TRUST_AUGMENT_EXTRA) == "1") return
-        android.util.Log.i(
-            "WinlatorContainerManager",
-            "Clearing dxwrapper applied mark for DXVK trust-file augment re-apply",
-        )
-        AppliedMarks.invalidateDxwrapper(container)
-        container.putExtra(DXVK_TRUST_AUGMENT_EXTRA, "1")
-        container.saveData()
-    }
-
-    /**
      * Apply the user-selected adrenotools id into the container
      * (`graphicsDriverConfig.version`). 设置只写 prefs；这里同步进容器，
      * 之后启动只读容器。
@@ -422,9 +305,4 @@ constructor(
         // The Wine prefix lives directly under the container root (home/xuser-<id>/.wine).
         winePrefixPath = File(rootDir, ".wine").absolutePath,
     )
-
-    private companion object {
-        /** Marks that the DXVK trust-file augment re-apply has been scheduled once. */
-        private const val DXVK_TRUST_AUGMENT_EXTRA = "dxvkTrustAugment"
-    }
 }

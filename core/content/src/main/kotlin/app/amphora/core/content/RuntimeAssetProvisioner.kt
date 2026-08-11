@@ -56,7 +56,13 @@ class RuntimeAssetProvisioner(
 
     private fun isVerified(file: File, entry: RuntimeAssetEntry): Boolean {
         if (!file.isFile || (entry.size != null && file.length() != entry.size)) return false
-        return AssetDigest.matchesPin(file, entry.sha256)
+        if (AssetDigest.matchesPin(file, entry.sha256)) return true
+        val legacyPin = AssetDigest.pinnedSha(file)
+        if (legacyPin.equals(entry.sha256, ignoreCase = true) && AssetDigest.pinnedSize(file) == null) {
+            AssetDigest.writePin(file, entry.sha256)
+            return true
+        }
+        return false
     }
 
     private fun installFromApkAsset(entry: RuntimeAssetEntry, destination: File): Boolean {
@@ -92,14 +98,7 @@ class RuntimeAssetProvisioner(
                 Log.w(TAG, "APK asset SHA mismatch for ${entry.assetPath}")
                 return false
             }
-            if (destination.exists() && !destination.delete()) {
-                partial.delete()
-                return false
-            }
-            if (!partial.renameTo(destination)) {
-                partial.copyTo(destination, overwrite = true)
-                partial.delete()
-            }
+            AtomicFilePublisher.replace(partial, destination)
             AssetDigest.writePin(destination, entry.sha256)
             Log.i(TAG, "Installed ${entry.assetPath} from APK assets")
             true

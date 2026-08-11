@@ -6,6 +6,7 @@ import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.content.ContentAssetInstaller
 import app.amphora.core.content.ContentCatalog
+import app.amphora.core.content.ContentPackageCache
 import app.amphora.core.content.ContentReconciler
 import app.amphora.core.content.ContentSource
 import app.amphora.core.content.ProvisionProgressBus
@@ -103,7 +104,7 @@ object EngineModule {
         urlResolver: RemoteUrlResolver,
         progressBus: ProvisionProgressBus,
     ): ContentSource = RemoteContentSource(
-        context = context,
+        packageCacheRoot = ContentPackageCache.root(context),
         catalog = catalog,
         installer = installer,
         downloader = downloader,
@@ -116,7 +117,7 @@ object EngineModule {
     fun provideContentReconciler(
         @ApplicationContext context: Context,
         installer: ContentAssetInstaller,
-    ): ContentReconciler = ContentReconciler(context, installer)
+    ): ContentReconciler = ContentReconciler(ContentPackageCache.root(context), installer)
 
     @Provides
     @Singleton

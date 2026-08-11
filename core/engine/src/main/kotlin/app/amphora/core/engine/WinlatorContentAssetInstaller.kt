@@ -31,7 +31,8 @@ import kotlinx.coroutines.CompletableDeferred
  * The manifest SHA, not the display version, is the authoritative installed
  * identity. Every successful extraction records [InstalledContentPin] inside
  * the install directory. A same-version package with a new SHA is replaced
- * atomically; [reconcileToPin] then removes superseded sibling versions.
+ * atomically. Superseded WCP versions are retained because container migration
+ * is not transactional with content installation and may still need rollback.
  */
 @Singleton
 class WinlatorContentAssetInstaller
@@ -69,7 +70,10 @@ constructor(@ApplicationContext private val context: Context) :
     override fun reconcileToPin(entry: ManifestEntry): Int {
         if (!isInstalled(entry)) return 0
         return when (entry.kind) {
-            ManifestEntry.Kind.WCP -> pruneWcpSiblings(entry)
+            // Containers persist WINE/Box64/DXVK/VKD3D version tokens. Keep
+            // rollback-capable WCP siblings until a future container-aware GC can
+            // prove every container migrated successfully.
+            ManifestEntry.Kind.WCP -> 0
             ManifestEntry.Kind.ARCHIVE -> pruneArchiveSiblings(entry)
             ManifestEntry.Kind.ROOTFS -> 0
         }

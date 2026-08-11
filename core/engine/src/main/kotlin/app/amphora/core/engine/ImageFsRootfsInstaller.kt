@@ -72,13 +72,21 @@ constructor(
                 "content manifest does not define rootfs"
             }
         // Prefer the remote manifest pin so publishing a new imagefs (URL + SHA
-        // + version) does not require an APK rebuild. Spec value is the floor
-        // from ImageFsInstaller.LATEST_VERSION.
-        val desired =
-            maxOf(
-                entry.version.toIntOrNull() ?: 0,
-                spec.imagefsVersion.toIntOrNull() ?: 0,
+        // + version) does not require an APK rebuild. The APK value is a
+        // compatibility floor, not a version to stamp onto older remote bytes.
+        val manifestVersion =
+            entry.version.toIntOrNull()?.takeIf { it > 0 }
+                ?: error("rootfs manifest version is invalid: ${entry.version}")
+        val apkFloor = spec.imagefsVersion.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        if (manifestVersion < apkFloor) {
+            if (imageFs.isValid && imageFs.getVersion() >= apkFloor) {
+                return@withContext true
+            }
+            error(
+                "rootfs manifest v$manifestVersion is older than APK compatibility floor v$apkFloor",
             )
+        }
+        val desired = manifestVersion
 
         if (desired > 0 &&
             imageFs.isValid &&

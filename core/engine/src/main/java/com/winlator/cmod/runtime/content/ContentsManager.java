@@ -312,7 +312,20 @@ public class ContentsManager {
   }
 
   public void finishInstallContent(ContentProfile profile, OnInstallFinishedCallback callback) {
-    File installPath = getInstallDir(context, profile);
+    finishInstallContent(
+        getTmpDir(context),
+        getInstallDir(context, profile),
+        profile,
+        callback,
+        () -> repairInstalledContentPermissions(profile));
+  }
+
+  static void finishInstallContent(
+      File temporaryPath,
+      File installPath,
+      ContentProfile profile,
+      OnInstallFinishedCallback callback,
+      Runnable repairPermissions) {
     if (installPath.exists()) {
       callback.onFailed(InstallFailedReason.ERROR_EXIST, null);
       return;
@@ -323,11 +336,13 @@ public class ContentsManager {
       return;
     }
 
-    if (!getTmpDir(context).renameTo(installPath)) {
+    if (!temporaryPath.renameTo(installPath)) {
+      FileUtils.delete(installPath);
       callback.onFailed(InstallFailedReason.ERROR_UNKNOWN, null);
+      return;
     }
 
-    repairInstalledContentPermissions(profile);
+    repairPermissions.run();
     callback.onSucceed(profile);
   }
 

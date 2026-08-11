@@ -1,11 +1,15 @@
 package app.amphora.buildlogic
 
+import com.android.build.api.dsl.ApplicationExtension
 import groovy.json.JsonSlurper
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.UUID
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
@@ -17,50 +21,328 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+import org.gradle.kotlin.dsl.configure
 import org.gradle.kotlin.dsl.create
 import org.gradle.kotlin.dsl.register
+import org.gradle.work.DisableCachingByDefault
 
 /**
- * Configuration for the [ContentStagingConventionPlugin]. The only
- * consumer-specific input is [winnativeDir]; everything else about *what* to stage
- * comes from the manifest, so a pin bump upstream needs no edit here.
+ * Configuration for [ContentStagingConventionPlugin]. What gets staged is
+ * entirely manifest-driven; [winnativeDir] is only an optional verified local
+ * source that avoids downloading the same bytes.
  */
 abstract class ContentStagingExtension {
-    /** WinNative checkout root; ARCHIVE (.tzst) assets are copied from its `app/src/main/assets/`. */
+    /** WinNative checkout's `app/src/main/assets/` directory. */
     abstract val winnativeDir: DirectoryProperty
 
-    /** Where staged assets land. Defaults to this module's `src/main/assets/`. */
+    /** Generated Android assets directory. */
     abstract val stagedAssetsDir: DirectoryProperty
 
-    /** Download cache dir. Defaults to this module's `build/content-cache/`. */
-    abstract val wcpCacheDir: DirectoryProperty
+    /** Verified download cache under this module's build directory. */
+    abstract val contentCacheDir: DirectoryProperty
 
-    /**
-     * Remote `content_manifest.json` — the same URL the app fetches at runtime, so
-     * staged assets always match the pins the device will verify against.
-     */
+    /** Remote `content_manifest.json`, shared with runtime provisioning. */
     abstract val manifestUrl: Property<String>
 
-    /**
-     * Offline override: read the manifest from this file instead of [manifestUrl].
-     * Set via the `amphora.contentManifest.file` Gradle property.
-     */
+    /** Optional offline manifest override. */
     abstract val manifestFile: RegularFileProperty
 }
 
+internal data class StagingAsset(
+    val id: String,
+    val assetPath: String,
+    val sha256: String,
+    val size: Long,
+    val remoteUrl: String?,
+    val catalogEligible: Boolean,
+)
+
+internal data class StagingManifest(val assets: List<StagingAsset>, val wcpCatalogUrl: String?)
+
+internal fun parseStagingManifest(json: String): StagingManifest {
+    val root = JsonSlurper().parseText(json) as? Map<*, *>
+        ?: throw GradleException("[stageBundledContent] manifest root must be a JSON object")
+    val components = root["components"] as? Map<*, *>
+        ?: throw GradleException("[stageBundledContent] manifest components must be a JSON object")
+    val assets = mutableListOf<StagingAsset>()
+
+    for ((rawId, rawEntry) in components) {
+        val id = rawId as? String
+            ?: throw GradleException("[stageBundledContent] component id must be a string")
+        val entry = rawEntry as? Map<*, *>
+            ?: throw GradleException("[stageBundledContent] component $id must be a JSON object")
+        when (val kind = requiredString(entry, "kind", "component $id")) {
+            "ROOTFS" -> Unit // RootfsInstaller owns this runtime download.
+            "ARCHIVE", "WCP" ->
+                assets +=
+                    parseAsset(
+                        id = "component:$id",
+                        entry = entry,
+                        catalogEligible = kind == "WCP",
+                    )
+            else -> throw GradleException("[stageBundledContent] component $id has unsupported kind '$kind'")
+        }
+    }
+
+    val runtimeAssets = root["runtimeAssets"]
+    if (runtimeAssets != null) {
+        val entries = runtimeAssets as? List<*>
+            ?: throw GradleException("[stageBundledContent] manifest runtimeAssets must be a JSON array")
+        for ((index, rawEntry) in entries.withIndex()) {
+            val entry = rawEntry as? Map<*, *>
+                ?: throw GradleException("[stageBundledContent] runtimeAssets[$index] must be a JSON object")
+            assets += parseAsset("runtimeAssets[$index]", entry, catalogEligible = false)
+        }
+    }
+
+    val duplicates = assets.groupBy { it.assetPath }.filterValues { it.size > 1 }.keys
+    if (duplicates.isNotEmpty()) {
+        throw GradleException(
+            "[stageBundledContent] assetPath must be unique across components and runtimeAssets: " +
+                duplicates.sorted().joinToString(),
+        )
+    }
+    return StagingManifest(
+        assets = assets,
+        wcpCatalogUrl = optionalString(root, "wcpCatalogUrl"),
+    )
+}
+
+private fun parseAsset(id: String, entry: Map<*, *>, catalogEligible: Boolean): StagingAsset {
+    val assetPath = requiredString(entry, "assetPath", id)
+    validateAssetPath(assetPath, id)
+    val sha = requiredString(entry, "sha256", id).lowercase()
+    if (!sha.matches(Regex("[0-9a-f]{64}"))) {
+        throw GradleException("[stageBundledContent] $id has invalid sha256 '$sha'")
+    }
+    val size =
+        (entry["size"] as? Number)?.toLong()
+            ?: throw GradleException("[stageBundledContent] $id must declare numeric size")
+    if (size < 0) {
+        throw GradleException("[stageBundledContent] $id has invalid size $size")
+    }
+    return StagingAsset(
+        id = id,
+        assetPath = assetPath,
+        sha256 = sha,
+        size = size,
+        remoteUrl = optionalString(entry, "remoteUrl"),
+        catalogEligible = catalogEligible,
+    )
+}
+
+private fun requiredString(entry: Map<*, *>, key: String, id: String): String = optionalString(entry, key)
+    ?: throw GradleException("[stageBundledContent] $id must declare $key")
+
+private fun optionalString(entry: Map<*, *>, key: String): String? = (entry[key] as? String)?.takeIf { it.isNotBlank() }
+
+private fun validateAssetPath(path: String, id: String) {
+    val segments = path.split('/')
+    if (
+        path.startsWith('/') ||
+        '\\' in path ||
+        segments.any { it.isBlank() || it == "." || it == ".." }
+    ) {
+        throw GradleException("[stageBundledContent] $id has unsafe assetPath '$path'")
+    }
+}
+
+internal fun sha256(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+internal fun verifyStagingAsset(file: File, asset: StagingAsset) {
+    if (!file.isFile) {
+        throw GradleException("[stageBundledContent] ${asset.id}: missing ${asset.assetPath}")
+    }
+    if (file.length() != asset.size) {
+        throw GradleException(
+            "[stageBundledContent] ${asset.id}: size mismatch for ${asset.assetPath} " +
+                "(expected ${asset.size}, got ${file.length()})",
+        )
+    }
+    val actualSha = sha256(file)
+    if (actualSha != asset.sha256) {
+        throw GradleException(
+            "[stageBundledContent] ${asset.id}: SHA-256 mismatch for ${asset.assetPath} " +
+                "(expected ${asset.sha256}, got $actualSha)",
+        )
+    }
+}
+
+internal fun interface AssetDownloader {
+    fun download(url: String, destination: File)
+}
+
+internal class ExactContentStager(
+    private val winnativeDir: File?,
+    private val outputDir: File,
+    private val cacheDir: File,
+    private val downloader: AssetDownloader,
+    private val log: (String) -> Unit = {},
+) {
+    fun sync(assets: List<StagingAsset>) {
+        val parent = outputDir.parentFile
+            ?: throw GradleException("[stageBundledContent] output has no parent: $outputDir")
+        parent.mkdirs()
+        val temporary = File(parent, "${outputDir.name}.tmp-${UUID.randomUUID()}")
+        if (!temporary.mkdirs()) {
+            throw GradleException("[stageBundledContent] cannot create temporary output $temporary")
+        }
+        try {
+            for (asset in assets) {
+                val source = sourceFor(asset)
+                verifyStagingAsset(source, asset)
+                val destination = childOf(temporary, asset.assetPath)
+                destination.parentFile.mkdirs()
+                Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                verifyStagingAsset(destination, asset)
+                log("staged ${asset.assetPath} (${asset.size} bytes)")
+            }
+            assertExactOutput(temporary, assets)
+            replaceOutput(temporary)
+        } finally {
+            temporary.deleteRecursively()
+        }
+    }
+
+    private fun sourceFor(asset: StagingAsset): File {
+        val local = winnativeDir?.let { childOf(it, asset.assetPath) }
+        if (local?.exists() == true) {
+            // A present-but-corrupt local file is an error, not permission to
+            // silently substitute bytes from another source.
+            verifyStagingAsset(local, asset)
+            return local
+        }
+
+        val url =
+            asset.remoteUrl
+                ?: throw GradleException(
+                    "[stageBundledContent] ${asset.id}: ${asset.assetPath} is absent from WinNative " +
+                        "and has no verified remote URL",
+                )
+        val cached = childOf(cacheDir, asset.assetPath)
+        if (cached.exists()) {
+            try {
+                verifyStagingAsset(cached, asset)
+                return cached
+            } catch (_: GradleException) {
+                if (!cached.delete()) {
+                    throw GradleException("[stageBundledContent] cannot remove stale cache file $cached")
+                }
+            }
+        }
+
+        cached.parentFile.mkdirs()
+        val partial = File(cached.parentFile, "${cached.name}.part-${UUID.randomUUID()}")
+        try {
+            downloader.download(url, partial)
+            verifyStagingAsset(partial, asset)
+            Files.move(
+                partial.toPath(),
+                cached.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+            verifyStagingAsset(cached, asset)
+            return cached
+        } catch (failure: Throwable) {
+            partial.delete()
+            throw failure
+        }
+    }
+
+    private fun assertExactOutput(directory: File, assets: List<StagingAsset>) {
+        val expected = assets.mapTo(sortedSetOf()) { it.assetPath }
+        val actual =
+            directory
+                .walkTopDown()
+                .filter { it.isFile }
+                .map { it.relativeTo(directory).invariantSeparatorsPath }
+                .toCollection(sortedSetOf())
+        if (actual != expected) {
+            throw GradleException(
+                "[stageBundledContent] generated assets are not an exact manifest sync " +
+                    "(expected=$expected, actual=$actual)",
+            )
+        }
+    }
+
+    private fun replaceOutput(temporary: File) {
+        val backup = File(outputDir.parentFile, "${outputDir.name}.previous-${UUID.randomUUID()}")
+        val hadOutput = outputDir.exists()
+        if (hadOutput && !outputDir.renameTo(backup)) {
+            throw GradleException("[stageBundledContent] cannot move existing output $outputDir")
+        }
+        if (!temporary.renameTo(outputDir)) {
+            if (hadOutput && !backup.renameTo(outputDir)) {
+                throw GradleException(
+                    "[stageBundledContent] cannot publish $temporary or restore previous output $backup",
+                )
+            }
+            throw GradleException("[stageBundledContent] cannot publish generated assets to $outputDir")
+        }
+        if (hadOutput && !backup.deleteRecursively()) {
+            throw GradleException("[stageBundledContent] cannot remove previous output $backup")
+        }
+    }
+
+    private fun childOf(root: File, relativePath: String): File {
+        val child = File(root, relativePath)
+        val canonicalRoot = root.canonicalFile
+        val canonicalChild = child.canonicalFile
+        if (
+            canonicalChild != canonicalRoot &&
+            !canonicalChild.path.startsWith(canonicalRoot.path + File.separator)
+        ) {
+            throw GradleException("[stageBundledContent] path escapes staging root: $relativePath")
+        }
+        return canonicalChild
+    }
+}
+
+private class HttpsAssetDownloader : AssetDownloader {
+    override fun download(url: String, destination: File) {
+        requireHttps(url, "asset")
+        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+        connection.instanceFollowRedirects = true
+        connection.useCaches = false
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 300_000
+        connection.setRequestProperty("User-Agent", "Amphora-ContentStagingPlugin")
+        try {
+            if (connection.responseCode !in 200..299) {
+                throw IOException("HTTP ${connection.responseCode} ${connection.responseMessage} for $url")
+            }
+            connection.inputStream.use { input ->
+                destination.outputStream().use { output -> input.copyTo(output) }
+            }
+        } catch (failure: Throwable) {
+            throw GradleException("[stageBundledContent] download failed for $url", failure)
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
+
 /**
- * Stages the bundled-content assets referenced by `content_manifest.json` into
- * [stagedAssetsDir]. ARCHIVE (.tzst) are copied from [winnativeDir] with SHA-256
- * verification; WCP (.wcp) are downloaded from [wcpDownloadUrls]. Best-effort: a
- * missing WinNative checkout, a failed download, or an SHA mismatch logs a warning
- * and skips that asset -- it never fails the build.
- *
- * NOT auto-wired to preBuild: staging the 160 MB Proton .wcp bloats every debug
- * APK, so run explicitly (`./gradlew :app:stageBundledContent`). Staged assets are
- * git-ignored (`*.tzst` / `*.wcp`). See `docs/04-ASSET-MANIFEST.md` §4,
- * `docs/03-TRACKING.md` §P2 #9.
+ * Exact, verified staging task. It refreshes the manifest on every invocation,
+ * stages all non-rootfs components plus every runtime asset into a temporary
+ * directory, then replaces the generated assets directory only after all size
+ * and SHA-256 checks pass.
  */
+@DisableCachingByDefault(because = "The remote manifest must be refreshed on every invocation")
 abstract class StageBundledContentTask : DefaultTask() {
     @get:Optional
     @get:InputFile
@@ -72,322 +354,137 @@ abstract class StageBundledContentTask : DefaultTask() {
     @get:Internal
     abstract val winnativeDir: DirectoryProperty
 
-    @get:Internal
+    @get:OutputDirectory
     abstract val stagedAssetsDir: DirectoryProperty
 
     @get:Internal
-    abstract val wcpCacheDir: DirectoryProperty
+    abstract val contentCacheDir: DirectoryProperty
 
     init {
         group = "amphora content"
         description =
-            "Stage bundled-content assets (.tzst from WinNative, .wcp from GitHub) into src/main/assets/. Best-effort."
-        // Up-to-date when every manifest asset is staged (ARCHIVE SHAs verified).
-        outputs.upToDateWhen { allAssetsStaged() }
-    }
-
-    private fun sha256(file: File): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buf = ByteArray(64 * 1024)
-            while (true) {
-                val n = input.read(buf)
-                if (n < 0) break
-                md.update(buf, 0, n)
-            }
-        }
-        return md.digest().joinToString("") { "%02x".format(it) }
-    }
-
-    private fun catalogDownloadUrls(): Map<String, String> {
-        val catalogUrl = manifestRoot()["wcpCatalogUrl"] as? String ?: return emptyMap()
-        return try {
-            val conn = URI(catalogUrl).toURL().openConnection() as HttpURLConnection
-            conn.instanceFollowRedirects = true
-            conn.connectTimeout = 15_000
-            conn.readTimeout = 30_000
-            if (conn.responseCode !in 200..299) {
-                throw IOException("HTTP ${conn.responseCode} ${conn.responseMessage}")
-            }
-            @Suppress("UNCHECKED_CAST")
-            val entries =
-                conn.inputStream.bufferedReader().use { reader ->
-                    JsonSlurper().parse(reader) as List<Map<String, Any?>>
-                }
-            entries
-                .mapNotNull { entry ->
-                    val remoteUrl = entry["remoteUrl"] as? String ?: return@mapNotNull null
-                    val assetName = URI(remoteUrl).path.substringAfterLast('/')
-                    assetName.takeIf { it.isNotBlank() }?.let { it to remoteUrl }
-                }.toMap()
-        } catch (t: Throwable) {
-            logger.warn(
-                "[stageBundledContent] cannot load WCP catalog $catalogUrl ($t); direct URL fallbacks remain available.",
-            )
-            emptyMap()
-        }
-    }
-
-    /**
-     * The manifest text, from [manifestFile] when set (offline) or fetched from
-     * [manifestUrl]. Cached per task run so the up-to-date check and the action do
-     * not fetch twice.
-     */
-    private val manifestJson: String by lazy {
-        manifestFile.orNull?.asFile?.readText() ?: fetchText(manifestUrl.get())
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun manifestRoot(): Map<String, Any?> = JsonSlurper().parseText(manifestJson) as Map<String, Any?>
-
-    @Suppress("UNCHECKED_CAST")
-    private fun manifestComponents(): Map<String, Map<String, Any?>> =
-        manifestRoot()["components"] as Map<String, Map<String, Any?>>
-
-    private fun fetchText(url: String): String {
-        require(URI(url).scheme.equals("https", ignoreCase = true)) {
-            "[stageBundledContent] manifest URL must be https: $url"
-        }
-        val conn = URI(url).toURL().openConnection() as HttpURLConnection
-        conn.instanceFollowRedirects = true
-        conn.useCaches = false
-        conn.connectTimeout = 15_000
-        conn.readTimeout = 30_000
-        try {
-            if (conn.responseCode !in 200..299) {
-                throw IOException("HTTP ${conn.responseCode} ${conn.responseMessage} for $url")
-            }
-            return conn.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            conn.disconnect()
-        }
-    }
-
-    private fun allAssetsStaged(): Boolean = try {
-        val dir = stagedAssetsDir.get().asFile
-        val manifestStaged =
-            manifestComponents().values.all { e ->
-                val staged = File(dir, e["assetPath"] as String)
-                staged.exists() &&
-                    when (e["kind"] as String) {
-                        "ARCHIVE" -> (e["sha256"] as String?)?.let { sha256(staged) == it } ?: true
-                        else -> true
-                    }
-            }
-        // Kernel-direct .tzst (imagefs.tzst + preparer wincomponents/* / ddrawrapper/* /
-        // fonts.tzst / wincomponents/* / ddrawrapper/* ...) read via runtime-assets must all
-        // be present too, or the task is stale and must re-run stageKernelDirectAssets().
-        val winnative = winnativeDir.orNull?.asFile
-        val kernelStaged =
-            winnative?.takeIf { it.isDirectory }?.let { w ->
-                w.walkTopDown().filter { it.isFile && !it.name.endsWith(".wcp") }.all { src ->
-                    val rel = src.relativeTo(w).path
-                    !(rel.startsWith("wnsteam/") || rel.contains("arm64ec")) ||
-                        File(dir, rel).exists()
-                }
-            } ?: true
-        manifestStaged && kernelStaged
-    } catch (t: Throwable) {
-        logger.debug("[stageBundledContent] up-to-date check failed: $t", t)
-        false
+            "Exactly stage and verify manifest components/runtimeAssets into generated Android assets."
+        outputs.upToDateWhen { false }
     }
 
     @TaskAction
     fun stage() {
-        val stagedDir = stagedAssetsDir.get().asFile
-        val cacheDir = wcpCacheDir.get().asFile
-        val winnativeAssets = winnativeDir.orNull?.asFile
-        val catalog = catalogDownloadUrls()
-
-        for ((id, entry) in manifestComponents()) {
-            val assetPath = entry["assetPath"] as String
-            val kind = entry["kind"] as String
-            val expectedSha = entry["sha256"] as String?
-            val staged = File(stagedDir, assetPath)
-            staged.parentFile.mkdirs()
-            when (kind) {
-                "ARCHIVE" -> stageArchive(id, assetPath, expectedSha, staged, winnativeAssets)
-                // remoteUrl in the manifest wins; the catalog resolves entries that
-                // deliberately have none (RemoteUrlResolver does the same at runtime).
-                "WCP" ->
-                    stageWcp(
-                        id,
-                        assetPath,
-                        expectedSha,
-                        staged,
-                        cacheDir,
-                        entry["remoteUrl"] as String? ?: catalog[assetPath],
-                    )
-                // ROOTFS is installed by RootfsInstaller from the manifest at runtime.
-                "ROOTFS" -> logger.lifecycle("[stageBundledContent] $id: ROOTFS is downloaded on device; not staged.")
-                else -> logger.warn("[stageBundledContent] $id: unknown kind '$kind'; skipping.")
+        val manifestJson =
+            manifestFile.orNull?.asFile?.readText()
+                ?: fetchHttpsText(manifestUrl.get())
+        val manifest = parseStagingManifest(manifestJson)
+        val winnative = winnativeDir.orNull?.asFile
+        val needsCatalog =
+            manifest.assets.any { asset ->
+                asset.catalogEligible &&
+                    asset.remoteUrl == null &&
+                    winnative?.let { File(it, asset.assetPath).isFile } != true
             }
-        }
-
-        // Kernel-direct runtime archives: ImageFsRootfsInstaller (imagefs.tzst) +
-        // XServerWineSessionPreparer / WinComponentSetup (fonts.tzst,
-        // wincomponents/*, ddrawrapper/*, ...) read these via RuntimeAssetProvisioner,
-        // bypassing ContentSource/manifest. Stage them from the WinNative checkout too.
-        stageKernelDirectAssets(winnativeAssets, stagedDir)
-    }
-
-    /**
-     * Stages the kernel-direct assets the ported `com.winlator.cmod` kernel reads
-     * straight from `context.assets` (rootfs + preparer/runtime files), bypassing
-     * [ContentSource] / the manifest. Every file under the WinNative checkout's
-     * assets is copied (idempotent on equal size) except `.wcp` (WCP-download-
-     * managed by the manifest), Steam (`wnsteam/`) and arm64ec (RFC §7 / D5
-     * non-targets). This covers `.tzst` archives *and* non-archive assets the
-     * kernel reads straight from assets (e.g. `metadata/startmenu.json` --
-     * `WineStartMenuCreator`). Manifest-managed archives are re-touched harmlessly.
-     * Best-effort: a missing checkout logs a warning and skips.
-     */
-    private fun stageKernelDirectAssets(winnativeAssets: File?, stagedDir: File) {
-        if (winnativeAssets == null || !winnativeAssets.isDirectory) {
-            logger.warn(
-                "[stageBundledContent] WinNative checkout absent; skipping kernel-direct assets (imagefs.tzst, metadata/startmenu.json, wincomponents/*, ...).",
-            )
-            return
-        }
-        var copied = 0
-        winnativeAssets.walkTopDown().filter { it.isFile && !it.name.endsWith(".wcp") }.forEach { src ->
-            val rel = src.relativeTo(winnativeAssets).path
-            if (rel.startsWith("wnsteam/") || rel.contains("arm64ec")) return@forEach
-            val staged = File(stagedDir, rel)
-            staged.parentFile.mkdirs()
-            if (staged.exists() && staged.length() == src.length()) return@forEach
-            src.copyTo(staged, overwrite = true)
-            logger.lifecycle("[stageBundledContent] kernel-direct: staged $rel (${src.length()} bytes).")
-            copied++
-        }
-        if (copied ==
-            0
-        ) {
-            logger.lifecycle("[stageBundledContent] kernel-direct .tzst assets all present; nothing copied.")
-        }
-    }
-
-    private fun stageArchive(
-        id: String,
-        assetPath: String,
-        expectedSha: String?,
-        staged: File,
-        winnativeAssets: File?,
-    ) {
-        val src = winnativeAssets?.let { File(it, assetPath) }
-        if (src == null || !src.exists()) {
-            logger.warn("[stageBundledContent] $id: WinNative checkout absent; skipping ARCHIVE $assetPath.")
-            return
-        }
-        if (staged.exists() && expectedSha != null && sha256(staged) == expectedSha) {
-            logger.lifecycle("[stageBundledContent] $id: already staged ($assetPath); skipping.")
-            return
-        }
-        src.copyTo(staged, overwrite = true)
-        val actualSha = sha256(staged)
-        if (expectedSha != null && actualSha != expectedSha) {
-            logger.error(
-                "[stageBundledContent] $id: SHA-256 MISMATCH for $assetPath (expected $expectedSha, got $actualSha). Runtime resolve will reject this asset.",
-            )
-        } else {
-            logger.lifecycle("[stageBundledContent] $id: staged $assetPath (sha256=$actualSha).")
-        }
-    }
-
-    private fun stageWcp(
-        id: String,
-        assetPath: String,
-        expectedSha: String?,
-        staged: File,
-        cacheDir: File,
-        url: String?,
-    ) {
-        if (staged.exists()) {
-            val actualSha = sha256(staged)
-            if (expectedSha == null || actualSha == expectedSha) {
-                logger.lifecycle("[stageBundledContent] $id: already staged ($assetPath, sha256=$actualSha); skipping.")
-                return
+        val catalog =
+            if (needsCatalog) {
+                val url =
+                    manifest.wcpCatalogUrl
+                        ?: throw GradleException(
+                            "[stageBundledContent] a WCP has no remoteUrl and the manifest has no wcpCatalogUrl",
+                        )
+                fetchCatalog(url)
+            } else {
+                emptyMap()
             }
-            logger.warn(
-                "[stageBundledContent] $id: removing stale staged asset $assetPath (expected $expectedSha, got $actualSha).",
-            )
-            staged.delete()
-        }
-        if (url == null) {
-            throw GradleException(
-                "[stageBundledContent] $id: $assetPath has no remoteUrl in the manifest " +
-                    "and is absent from the WCP catalog.",
-            )
-        }
-        cacheDir.mkdirs()
-        val cached = File(cacheDir, assetPath)
-        if (cached.exists() && expectedSha != null && sha256(cached) != expectedSha) {
-            logger.warn("[stageBundledContent] $id: removing stale cached asset $assetPath.")
-            cached.delete()
-        }
-        if (!cached.exists()) {
-            logger.lifecycle("[stageBundledContent] $id: downloading $url ...")
-            try {
-                val conn = URI(url).toURL().openConnection() as HttpURLConnection
-                conn.instanceFollowRedirects = true
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 300_000
-                if (conn.responseCode !in 200..299) {
-                    throw IOException("HTTP ${conn.responseCode} ${conn.responseMessage}")
+        val resolved =
+            manifest.assets.map { asset ->
+                if (asset.remoteUrl == null && asset.catalogEligible) {
+                    asset.copy(remoteUrl = catalog[asset.assetPath])
+                } else {
+                    asset
                 }
-                conn.inputStream.use { input ->
-                    cached.outputStream().use { out -> input.copyTo(out, 64 * 1024) }
-                }
-            } catch (t: Throwable) {
-                cached.delete()
-                throw GradleException("[stageBundledContent] $id: download failed for $assetPath", t)
             }
-        }
-        cached.copyTo(staged, overwrite = false)
-        val actualSha = sha256(staged)
-        if (expectedSha != null && actualSha != expectedSha) {
-            staged.delete()
-            cached.delete()
-            throw GradleException(
-                "[stageBundledContent] $id: SHA-256 mismatch for $assetPath (expected $expectedSha, got $actualSha).",
-            )
-        } else {
-            logger.lifecycle(
-                "[stageBundledContent] $id: staged $assetPath (sha256=$actualSha).${if (expectedSha == null) " Paste into content_manifest.json to lock." else ""}",
-            )
+        ExactContentStager(
+            winnativeDir = winnative,
+            outputDir = stagedAssetsDir.get().asFile,
+            cacheDir = contentCacheDir.get().asFile,
+            downloader = HttpsAssetDownloader(),
+            log = { logger.lifecycle("[stageBundledContent] $it") },
+        ).sync(resolved)
+        logger.lifecycle(
+            "[stageBundledContent] exactly staged ${resolved.size} verified assets into " +
+                stagedAssetsDir.get().asFile,
+        )
+    }
+
+    private fun fetchCatalog(url: String): Map<String, String> {
+        val parsed = JsonSlurper().parseText(fetchHttpsText(url)) as? List<*>
+            ?: throw GradleException("[stageBundledContent] WCP catalog must be a JSON array: $url")
+        return parsed.mapNotNull { rawEntry ->
+            val entry = rawEntry as? Map<*, *> ?: return@mapNotNull null
+            val remoteUrl = optionalString(entry, "remoteUrl") ?: return@mapNotNull null
+            val assetName = URI(remoteUrl).path.substringAfterLast('/')
+            assetName.takeIf { it.isNotBlank() }?.let { it to remoteUrl }
+        }.toMap()
+    }
+
+    private fun fetchHttpsText(url: String): String {
+        requireHttps(url, "manifest/catalog")
+        val connection = URI(url).toURL().openConnection() as HttpURLConnection
+        connection.instanceFollowRedirects = true
+        connection.useCaches = false
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 30_000
+        connection.setRequestProperty("User-Agent", "Amphora-ContentStagingPlugin")
+        connection.setRequestProperty(
+            "Accept",
+            if (isGithubContentsApi(url)) "application/vnd.github.raw" else "application/json, text/plain, */*",
+        )
+        try {
+            if (connection.responseCode !in 200..299) {
+                throw IOException("HTTP ${connection.responseCode} ${connection.responseMessage} for $url")
+            }
+            return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (failure: Throwable) {
+            throw GradleException("[stageBundledContent] cannot fetch $url", failure)
+        } finally {
+            connection.disconnect()
         }
     }
 }
 
-/**
- * Registers [StageBundledContentTask]. The manifest comes from the same remote URL
- * the app fetches at runtime (`amphora.contentManifest.url`), so there is no copy of
- * it in this repository to keep in sync. Pass
- * `-Pamphora.contentManifest.file=<path>` to stage offline from a local manifest.
- */
 class ContentStagingConventionPlugin : Plugin<Project> {
     override fun apply(target: Project): Unit = with(target) {
-        val ext = extensions.create<ContentStagingExtension>("amphoraContentStaging")
-
-        // Defaults local to the applying module.
-        ext.stagedAssetsDir.convention(layout.projectDirectory.dir("src/main/assets"))
-        ext.wcpCacheDir.convention(layout.buildDirectory.dir("content-cache"))
-        ext.manifestUrl.convention(
-            providers.gradleProperty(CONTENT_MANIFEST_URL_PROPERTY),
-        )
+        val extension = extensions.create<ContentStagingExtension>("amphoraContentStaging")
+        extension.stagedAssetsDir.convention(layout.buildDirectory.dir("generated/assets/bundledContent"))
+        extension.contentCacheDir.convention(layout.buildDirectory.dir("content-cache"))
+        extension.manifestUrl.convention(providers.gradleProperty(CONTENT_MANIFEST_URL_PROPERTY))
         providers.gradleProperty("amphora.contentManifest.file").orNull?.let {
-            ext.manifestFile.set(file(it))
+            extension.manifestFile.set(file(it))
+        }
+
+        plugins.withId("com.android.application") {
+            extensions.configure<ApplicationExtension> {
+                sourceSets
+                    .getByName("main")
+                    .assets.directories
+                    .add(extension.stagedAssetsDir.get().asFile.absolutePath)
+            }
         }
 
         tasks.register<StageBundledContentTask>("stageBundledContent") {
-            manifestFile.set(ext.manifestFile)
-            manifestUrl.set(ext.manifestUrl)
-            winnativeDir.set(ext.winnativeDir)
-            stagedAssetsDir.set(ext.stagedAssetsDir)
-            wcpCacheDir.set(ext.wcpCacheDir)
+            manifestFile.set(extension.manifestFile)
+            manifestUrl.set(extension.manifestUrl)
+            winnativeDir.set(extension.winnativeDir)
+            stagedAssetsDir.set(extension.stagedAssetsDir)
+            contentCacheDir.set(extension.contentCacheDir)
         }
     }
 }
+
+private fun requireHttps(url: String, label: String) {
+    if (!URI(url).scheme.equals("https", ignoreCase = true)) {
+        throw GradleException("[stageBundledContent] $label URL must use HTTPS: $url")
+    }
+}
+
+private fun isGithubContentsApi(url: String): Boolean =
+    url.startsWith("https://api.github.com/repos/") && url.contains("/contents/")
 
 /** Gradle property holding the runtime manifest URL; see `gradle.properties`. */
 const val CONTENT_MANIFEST_URL_PROPERTY = "amphora.contentManifest.url"
