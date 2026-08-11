@@ -1,6 +1,7 @@
 package app.amphora.core.content
 
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
 
@@ -8,8 +9,9 @@ import java.security.MessageDigest
  * SHA-256 and the `.sha256` sidecar convention, in one place.
  *
  * Every provisioned asset is stored next to a sidecar holding its lowercase hex
- * digest, and that sidecar is what later runs compare against the manifest pin
- * instead of re-hashing hundreds of megabytes. The suffix and the hashing loop
+ * digest and recorded byte size. Later runs trust the marker only while both the
+ * destination and recorded size still match, avoiding both missing/truncated-file
+ * false positives and re-hashing hundreds of megabytes. The suffix and hashing loop
  * used to be spelled out separately in [VerifiedAssetDownloader],
  * [RuntimeAssetProvisioner], [RuntimeAssetLocalOverride], the launcher and the
  * session preparer — five places that had to agree on a filename for the cache to
@@ -30,21 +32,46 @@ object AssetDigest {
 
     /** Digest pinned by [assetFile]'s sidecar, or null when absent or malformed. */
     fun pinnedSha(assetFile: File): String? {
-        val marker = markerFor(assetFile)
-        if (!marker.isFile) return null
-        return marker.readText().trim().lowercase().takeIf { HEX.matches(it) }
+        val firstLine = markerLines(assetFile)?.firstOrNull() ?: return null
+        return firstLine.trim().lowercase().takeIf { HEX.matches(it) }
     }
 
-    /** Record [sha256] as [assetFile]'s pin. */
+    /** Byte size recorded with the pin, or null for malformed/legacy digest-only markers. */
+    fun pinnedSize(assetFile: File): Long? {
+        val size = markerLines(assetFile)?.getOrNull(1)?.trim()?.toLongOrNull() ?: return null
+        return size.takeIf { it >= 0L }
+    }
+
+    /** True when the sidecar still describes the existing file, regardless of its digest. */
+    fun hasCurrentRecord(assetFile: File): Boolean =
+        assetFile.isFile &&
+            pinnedSha(assetFile) != null &&
+            pinnedSize(assetFile) == assetFile.length()
+
+    /** Record [sha256] and the current asset size using an atomic sidecar replacement. */
     fun writePin(assetFile: File, sha256: String) {
         val digest = sha256.trim().lowercase()
         require(HEX.matches(digest)) { "invalid sha256: $sha256" }
-        markerFor(assetFile).writeText(digest)
+        require(assetFile.isFile) { "missing asset: $assetFile" }
+        val marker = markerFor(assetFile)
+        marker.parentFile?.mkdirs()
+        val temporary = File(marker.absolutePath + ".tmp")
+        try {
+            FileOutputStream(temporary).use { output ->
+                output.write("$digest\n${assetFile.length()}\n".toByteArray(Charsets.UTF_8))
+                output.flush()
+                output.fd.sync()
+            }
+            AtomicFilePublisher.replace(temporary, marker)
+        } finally {
+            temporary.delete()
+        }
     }
 
-    /** True when [assetFile]'s sidecar matches [expectedSha256], case-insensitively. */
+    /** True when the existing asset's digest and recorded size match the sidecar. */
     fun matchesPin(assetFile: File, expectedSha256: String): Boolean =
-        pinnedSha(assetFile) == expectedSha256.trim().lowercase()
+        hasCurrentRecord(assetFile) &&
+            pinnedSha(assetFile) == expectedSha256.trim().lowercase()
 
     fun of(file: File): String = file.inputStream().use { of(it) }
 
@@ -64,6 +91,12 @@ object AssetDigest {
     fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it) }
 
     fun newDigest(): MessageDigest = MessageDigest.getInstance("SHA-256")
+
+    private fun markerLines(assetFile: File): List<String>? {
+        val marker = markerFor(assetFile)
+        if (!marker.isFile) return null
+        return runCatching { marker.readLines() }.getOrNull()
+    }
 
     private const val BUFFER_SIZE = 64 * 1024
 }

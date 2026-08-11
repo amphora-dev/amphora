@@ -3,6 +3,7 @@ package app.amphora.core.content
 import android.content.Context
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import java.io.File
+import java.io.FileOutputStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,7 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
     private val _status = MutableStateFlow<Status>(Status.Idle)
     val status: StateFlow<Status> = _status.asStateFlow()
     private val diskCache = File(context.filesDir, "content/content_manifest.json")
+    private val manifestCache = ContentManifestCache(diskCache)
 
     /**
      * Return the in-memory or disk-cached manifest, fetching from the remote URL
@@ -61,10 +63,9 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
                 withContext(dispatchers.io) {
                     ContentManifestLoader.fetchHttpsText(url)
                 }
-            val manifest = ContentManifest.parse(json)
-            withContext(dispatchers.io) {
-                runCatching { writeCacheAtomically(json) }
-            }
+            // Parsing happens before publication. A malformed remote response or
+            // failed atomic move therefore cannot replace the last-known-good cache.
+            val manifest = withContext(dispatchers.io) { manifestCache.replace(json) }
             _status.value = Status.Ready(manifest, url)
             manifest
         } catch (failure: Throwable) {
@@ -87,20 +88,32 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
     }
 
     private suspend fun readDiskCache(): ContentManifest? = withContext(dispatchers.io) {
-        runCatching {
-            ContentManifest.parse(diskCache.readText())
-        }.getOrNull()
+        manifestCache.read()
     }
+}
 
-    private fun writeCacheAtomically(json: String) {
-        val parent = requireNotNull(diskCache.parentFile)
+/** Disk-backed, structurally validated last-known-good manifest. */
+internal class ContentManifestCache(private val file: File) {
+    fun read(): ContentManifest? =
+        runCatching {
+            ContentManifest.parse(file.readText())
+        }.getOrNull()
+
+    fun replace(json: String): ContentManifest {
+        val manifest = ContentManifest.parse(json)
+        val parent = requireNotNull(file.parentFile)
         check(parent.mkdirs() || parent.isDirectory) { "Cannot create manifest cache directory" }
         val temporary = File.createTempFile("content_manifest.", ".tmp", parent)
         try {
-            temporary.writeText(json)
-            check(temporary.renameTo(diskCache)) { "Cannot replace manifest cache" }
+            FileOutputStream(temporary).use { output ->
+                output.write(json.toByteArray(Charsets.UTF_8))
+                output.flush()
+                output.fd.sync()
+            }
+            AtomicFilePublisher.replace(temporary, file)
         } finally {
             temporary.delete()
         }
+        return manifest
     }
 }

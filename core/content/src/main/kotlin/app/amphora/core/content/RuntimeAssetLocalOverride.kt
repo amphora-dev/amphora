@@ -37,7 +37,7 @@ object RuntimeAssetLocalOverride {
         }
         val shaMarker = shaMarkerFile(assetFile)
         if (!shaMarker.isFile) return false
-        val pinned = shaMarker.readText().trim().lowercase()
+        val pinned = AssetDigest.pinnedSha(assetFile)
         if (pinned != overrideSha) {
             Log.w(
                 TAG,
@@ -54,7 +54,7 @@ object RuntimeAssetLocalOverride {
         val digest = sha256.trim().lowercase()
         require(AssetDigest.HEX.matches(digest)) { "invalid sha256: $sha256" }
         require(assetFile.isFile) { "missing asset: $assetFile" }
-        shaMarkerFile(assetFile).writeText(digest)
+        AssetDigest.writePin(assetFile, digest)
         markerFile(assetFile).writeText(digest)
         Log.i(TAG, "Armed local-override for ${assetFile.name} ($digest)")
     }
