@@ -31,6 +31,7 @@ class XServerSessionHandleTest {
                 DefaultDispatcherProvider(),
                 processCleaner,
             )
+        handle.markStarting()
         handle.markRunning()
 
         handle.stop()
@@ -60,6 +61,7 @@ class XServerSessionHandleTest {
                 DefaultDispatcherProvider(),
                 processCleaner,
             )
+        handle.markStarting()
         handle.markRunning()
 
         handle.requestStop()
@@ -91,6 +93,7 @@ class XServerSessionHandleTest {
                 DefaultDispatcherProvider(),
                 processCleaner,
             )
+        handle.markStarting()
         handle.markRunning()
 
         handle.requestStop()
@@ -120,5 +123,24 @@ class XServerSessionHandleTest {
 
         assertEquals(SessionState.FAILED, handle.state.value)
         verify(exactly = 1) { processCleaner.terminateAndWait(2_000L) }
+    }
+
+    @Test
+    fun markRunningCannotReviveStoppedSession(): Unit = runBlocking {
+        val processCleaner = mockk<SessionProcessCleaner>()
+        every { processCleaner.terminateAndWait(any()) } returns emptyList()
+        val handle =
+            XServerSessionHandle(
+                mockk(relaxed = true),
+                mockk(relaxed = true),
+                DefaultDispatcherProvider(),
+                processCleaner,
+            )
+        handle.markStarting()
+
+        handle.stop()
+        handle.markRunning()
+
+        assertEquals(SessionState.STOPPED, handle.state.value)
     }
 }

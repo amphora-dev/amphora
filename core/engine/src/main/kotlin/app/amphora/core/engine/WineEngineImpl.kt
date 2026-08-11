@@ -39,6 +39,10 @@ import com.winlator.cmod.runtime.wine.WineInfo
 import com.winlator.cmod.shared.io.FileUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.NonCancellable
@@ -378,8 +382,8 @@ constructor(
 
     /**
      * Copy the staged exe into the container's `drive_c` and return its Wine path
-     * (`C:\<name>`). Idempotent: skips the copy when the destination already matches
-     * the source size (re-launching the same exe). The `C:` dosdevice -> `drive_c`
+     * (`C:\<name>`). Idempotent: skips the copy only when the destination content
+     * matches, because different executables can share a name and size. The `C:` dosdevice -> `drive_c`
      * (createDosdevicesSymlinks), so `C:\<name>` resolves to the copied file.
      */
     private fun stageExeIntoPrefix(container: WinNativeContainer, exePath: String): String {
@@ -387,8 +391,8 @@ constructor(
         val exeName = src.name.ifEmpty { "amphora-game.exe" }
         val driveC = File(container.getRootDir(), ".wine/drive_c").apply { mkdirs() }
         val dest = File(driveC, exeName)
-        if (!dest.exists() || dest.length() != src.length()) {
-            FileUtils.copy(src, dest)
+        check(stageExecutable(src, dest)) {
+            "Could not stage executable $src into Wine prefix at $dest"
         }
         return "C:\\$exeName"
     }
@@ -406,3 +410,49 @@ internal fun buildWineExplorerCommand(screenInfo: String): String =
 
 internal fun buildWineProgramCommand(screenInfo: String, wineExePath: String): String =
     "wine explorer /desktop=shell,$screenInfo \"$wineExePath\""
+
+/**
+ * Publishes a changed executable through a same-directory temporary file so a
+ * failed copy never truncates the last usable destination.
+ */
+internal fun stageExecutable(source: File, destination: File): Boolean {
+    if (!source.isFile) return false
+    if (destination.isFile && FileUtils.contentEquals(source, destination)) return true
+    val parent = destination.parentFile ?: return false
+    if (!parent.isDirectory && !parent.mkdirs()) return false
+    val temporary =
+        try {
+            File.createTempFile(".${destination.name}.", ".tmp", parent)
+        } catch (_: IOException) {
+            return false
+        } catch (_: SecurityException) {
+            return false
+        }
+    return try {
+        if (!FileUtils.copy(source, temporary) || !FileUtils.contentEquals(source, temporary)) {
+            false
+        } else {
+            try {
+                Files.move(
+                    temporary.toPath(),
+                    destination.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(
+                    temporary.toPath(),
+                    destination.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
+            true
+        }
+    } catch (_: IOException) {
+        false
+    } catch (_: SecurityException) {
+        false
+    } finally {
+        if (temporary.exists()) temporary.delete()
+    }
+}
