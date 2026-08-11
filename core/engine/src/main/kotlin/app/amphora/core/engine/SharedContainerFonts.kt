@@ -8,15 +8,13 @@ import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.content.SharedDllLinker
 import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.wine.WineRegistryEditor
-import com.winlator.cmod.runtime.wine.WineUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import java.io.File
 import java.nio.file.Files
 
 /**
- * Shared CJK font pack: Adobe Source Han Sans **CN + JP** (Regular + Bold),
- * linked into each Wine prefix like DXVK/ddraw (`contents/` + symlink), plus
- * Windows-style registry substitutes.
+ * Shared Windows-compatible font pack, linked into each Wine prefix like
+ * DXVK/ddraw (`contents/` + symlink), plus Windows-style registry mappings.
  *
  * Layout:
  * - `runtime-assets/fonts.tzst` (SHA-pinned)
@@ -372,6 +370,11 @@ object SharedContainerFonts {
                 Log.w(TAG, "Failed to link $windowsName -> $source")
             }
         }
+        val removedFontconfigLinks =
+            removeLegacyFontconfigLinks(
+                File(ImageFs.find(context).rootDir, "usr/share/fonts"),
+                File(contentsRoot, CONTENTS_TYPE),
+            )
 
         val registryOk =
             !applyRegistry ||
@@ -383,18 +386,15 @@ object SharedContainerFonts {
 
         val primary = File(fontsDir, CN_REGULAR)
         val primaryOk = primary.isFile || Files.isSymbolicLink(primary.toPath())
-        val fontconfigOk =
-            WineUtils.syncFontsToFontconfig(
-                ImageFs.find(context).rootDir,
-                fontsDir,
-                applyRegistry,
-            )
-        val ok = primaryOk && registryOk && fontconfigOk
+        // Wine scans C:\windows\Fonts directly before loading host Fontconfig
+        // fonts. Registering the same files under imagefs/usr/share/fonts would
+        // enumerate every face twice and force an unnecessary fc-cache rebuild.
+        val ok = primaryOk && registryOk
         Log.i(
             TAG,
             "CJK fonts: linked=$linked/${fontLinks.size} primary=$primaryOk " +
                 "nativeWindows=$useNativeWindowsFonts registry=$registryOk " +
-                "locale=$registryLocale fontconfig=$fontconfigOk cache=$cacheDir",
+                "locale=$registryLocale removedFontconfigLinks=$removedFontconfigLinks cache=$cacheDir",
         )
         return ok
     }
@@ -513,6 +513,27 @@ object SharedContainerFonts {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Remove links created by the former `/usr/share/fonts` synchronization.
+     * Real files and links outside the shared FONTS cache are user/image assets
+     * and must remain untouched.
+     */
+    internal fun removeLegacyFontconfigLinks(fontconfigDir: File, sharedFontsRoot: File): Int {
+        if (!fontconfigDir.isDirectory || !sharedFontsRoot.isDirectory) return 0
+        val sharedRoot =
+            runCatching { sharedFontsRoot.canonicalFile.toPath() }
+                .getOrElse { return 0 }
+        var removed = 0
+        for (entry in fontconfigDir.listFiles().orEmpty()) {
+            if (!Files.isSymbolicLink(entry.toPath())) continue
+            val pointsIntoSharedFonts =
+                runCatching { entry.canonicalFile.toPath().startsWith(sharedRoot) }
+                    .getOrDefault(false)
+            if (pointsIntoSharedFonts && entry.delete()) removed++
+        }
+        return removed
     }
 
     /**

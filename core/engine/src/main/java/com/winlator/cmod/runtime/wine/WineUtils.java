@@ -2,8 +2,6 @@ package com.winlator.cmod.runtime.wine;
 
 import android.content.Context;
 import android.os.Environment;
-import android.system.ErrnoException;
-import android.system.Os;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import com.winlator.cmod.runtime.container.Container;
@@ -15,7 +13,6 @@ import com.winlator.cmod.shared.io.FileUtils;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -1027,84 +1024,6 @@ public abstract class WineUtils {
       case "GB": return "44";
       default: return "1";
     }
-  }
-
-  /**
-   * The self-built imagefs ships an empty {@code usr/share/fonts/}. fontconfig's
-   * {@code fonts.conf} only lists that directory (and {@code ~/.fonts}), so Wine's
-   * freetype backend cannot find the CJK fonts that live in the prefix's
-   * {@code drive_c/windows/Fonts/}. When an app requests a font name that has no
-   * direct file match in the prefix, fontconfig falls back to Latin-only fonts,
-   * and CJK glyphs render as {@code ?}. Symlink every prefix font into the
-   * fontconfig scan path and rebuild the cache.
-   */
-  public static boolean syncFontsToFontconfig(
-      File rootDir, File prefixFontsDir, boolean forceCacheRebuild) {
-    File fontsDir = new File(rootDir, "usr/share/fonts");
-    if (!prefixFontsDir.isDirectory()) return false;
-
-    if (!fontsDir.isDirectory() && !fontsDir.mkdirs()) {
-      Log.w("WineUtils", "syncFontsToFontconfig: cannot create " + fontsDir);
-      return false;
-    }
-    boolean changed = false;
-    File[] fontFiles = prefixFontsDir.listFiles();
-    if (fontFiles != null) {
-      for (File fontFile : fontFiles) {
-        String name = fontFile.getName().toLowerCase(Locale.ROOT);
-        if (!name.endsWith(".ttf") && !name.endsWith(".ttc")
-            && !name.endsWith(".otf") && !name.endsWith(".fon")) {
-          continue;
-        }
-        File link = new File(fontsDir, fontFile.getName());
-        try {
-          if (Files.isSymbolicLink(link.toPath())
-              && link.getCanonicalFile().equals(fontFile.getCanonicalFile())) {
-            continue;
-          }
-          Files.deleteIfExists(link.toPath());
-          Os.symlink(fontFile.getAbsolutePath(), link.getAbsolutePath());
-          changed = true;
-        } catch (ErrnoException | IOException e) {
-          Log.w("WineUtils", "syncFontsToFontconfig: symlink failed for "
-              + fontFile.getName() + ": " + e.getMessage());
-          return false;
-        }
-      }
-    }
-
-    if (!changed && !forceCacheRebuild) return true;
-
-    File fcCache = new File(rootDir, "usr/bin/fc-cache");
-    if (!fcCache.exists()) {
-      Log.w("WineUtils", "syncFontsToFontconfig: missing " + fcCache);
-      return true;
-    }
-    try {
-      ProcessBuilder pb = new ProcessBuilder(
-          ProcessHelper.prepareCommandForAppData(
-              new String[] {
-                fcCache.getAbsolutePath(),
-                "-f",
-                fontsDir.getAbsolutePath()
-              }));
-      pb.environment().put("LD_LIBRARY_PATH", rootDir.getAbsolutePath() + "/usr/lib");
-      pb.environment().put("FONTCONFIG_PATH", rootDir.getAbsolutePath() + "/usr/etc/fonts");
-      pb.environment().put("HOME", rootDir.getAbsolutePath() + ImageFs.HOME_PATH);
-      ProcessHelper.configureAppDataExecEnvironment(
-          pb.environment(), fcCache.getAbsolutePath());
-      pb.redirectErrorStream(true);
-      pb.redirectOutput(new File("/dev/null"));
-      int exitCode = pb.start().waitFor();
-      if (exitCode != 0) {
-        Log.w("WineUtils", "syncFontsToFontconfig: fc-cache exited " + exitCode);
-        return false;
-      }
-    } catch (Exception e) {
-      Log.w("WineUtils", "syncFontsToFontconfig: fc-cache failed: " + e.getMessage());
-      return false;
-    }
-    return true;
   }
 
   private static void copyWineDllsToContainer(File rootDir, WineInfo wineInfo) {
