@@ -16,7 +16,19 @@ import kotlinx.coroutines.withContext
  * in `amphora-dev/content_manifest` and are refreshed at runtime so imagefs /
  * WCP SHA bumps do not require an APK rebuild.
  */
-class ContentCatalog(private val context: Context, private val dispatchers: DispatcherProvider) {
+class ContentCatalog internal constructor(
+    private val cacheFile: File,
+    private val dispatchers: DispatcherProvider,
+    private val sourceUrl: () -> String?,
+    private val fetchManifest: suspend (String) -> String,
+) {
+    constructor(context: Context, dispatchers: DispatcherProvider) : this(
+        cacheFile = File(context.filesDir, "content/content_manifest.json"),
+        dispatchers = dispatchers,
+        sourceUrl = { ContentManifestLoader.resolveRemoteUrl(context) },
+        fetchManifest = { url -> ContentManifestLoader.fetchHttpsText(url) },
+    )
+
     sealed interface Status {
         data object Idle : Status
 
@@ -30,8 +42,7 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
     private val mutex = Mutex()
     private val _status = MutableStateFlow<Status>(Status.Idle)
     val status: StateFlow<Status> = _status.asStateFlow()
-    private val diskCache = File(context.filesDir, "content/content_manifest.json")
-    private val manifestCache = ContentManifestCache(diskCache)
+    private val manifestCache = ContentManifestCache(cacheFile)
 
     /**
      * Return the in-memory or disk-cached manifest, fetching from the remote URL
@@ -56,12 +67,10 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
             _status.value = Status.Loading
         }
         return try {
-            val url =
-                ContentManifestLoader.resolveRemoteUrl(context)
-                    ?: error("content manifest remote URL is not configured")
+            val url = sourceUrl() ?: error("content manifest remote URL is not configured")
             val json =
                 withContext(dispatchers.io) {
-                    ContentManifestLoader.fetchHttpsText(url)
+                    fetchManifest(url)
                 }
             // Parsing happens before publication. A malformed remote response or
             // failed atomic move therefore cannot replace the last-known-good cache.
@@ -72,7 +81,7 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
             if (failure is kotlinx.coroutines.CancellationException) throw failure
             val cached = previous?.manifest ?: readDiskCache()
             if (cached != null) {
-                _status.value = previous ?: Status.Ready(cached, diskCache.toURI().toString())
+                _status.value = previous ?: Status.Ready(cached, cacheFile.toURI().toString())
                 cached
             } else {
                 _status.value = Status.Failed(failure.message ?: failure.javaClass.simpleName)
@@ -83,7 +92,7 @@ class ContentCatalog(private val context: Context, private val dispatchers: Disp
 
     private suspend fun loadDiskCacheLocked(): ContentManifest? {
         val cached = readDiskCache() ?: return null
-        _status.value = Status.Ready(cached, diskCache.toURI().toString())
+        _status.value = Status.Ready(cached, cacheFile.toURI().toString())
         return cached
     }
 
