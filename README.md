@@ -21,7 +21,7 @@ Name from *amphora* — the ancient two-handled vessel that carried wine. A cont
         ↓
 :core:engine          WineEngine + Winlator runtime (com.winlator.cmod)
         ↓
-:core:{content,container,rootfs,native,common,ui}
+:core:{content,container,rootfs,native,common}
 ```
 
 Contracts live in the lower modules; Winlator-backed implementations live in `:core:engine` (DIP). See the architecture doc for the launch pipeline and Vulkan/touch path.
@@ -49,6 +49,12 @@ Instrumented E2E (ARM64 Adreno device recommended):
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
+Repository-wide JVM tests (Android modules with test sources plus build logic):
+
+```bash
+./gradlew jvmTest
+```
+
 GitHub Actions CI (`.github/workflows/ci.yml`): `continuous-test` on every push
 / PR - JVM unit tests with JaCoCo coverage summary + debug/androidTest assemble.
 On `main`, the same job also publishes the debug APK to the rolling Release tag
@@ -60,7 +66,8 @@ Device instrumented coverage stays on Tailscale ADB - see
 
 **Notes**
 
-- `stageBundledContent` is **not** wired to `preBuild` (keeps routine debug APKs slim).
+- `stageBundledContent` is **not** wired to `preBuild` (keeps routine debug APKs slim). It writes only to
+  `app/build/generated/assets/bundledContent`, which is registered as a main asset source set; `clean` removes it.
 - Remote/cloud ADB setup and reliable manual test commands: [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md).
 - Debug Wine path: launcher **Debug: Wine smoke test** button, or flip `DEBUG_AUTO_LAUNCH_WINE` in `AmphoraNavHost` (default starts at launcher).
 - `targetSdk` is **36**. App-private AArch64 ELF files start through
