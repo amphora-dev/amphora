@@ -12,7 +12,6 @@ import com.winlator.cmod.runtime.wine.WineUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import java.io.File
 import java.nio.file.Files
-import java.util.Locale
 
 /**
  * Shared CJK font pack: Adobe Source Han Sans **CN + JP** (Regular + Bold),
@@ -31,12 +30,18 @@ import java.util.Locale
  */
 object SharedContainerFonts {
     const val ASSET_PATH = "fonts.tzst"
-    const val REGISTRY_SCHEMA_VERSION = 3
+    const val REGISTRY_SCHEMA_VERSION = 8
 
     const val CN_REGULAR = "SourceHanSansCN-Regular.otf"
     const val CN_BOLD = "SourceHanSansCN-Bold.otf"
     const val JP_REGULAR = "SourceHanSansJP-Regular.otf"
     const val JP_BOLD = "SourceHanSansJP-Bold.otf"
+    const val MICROSOFT_YAHEI = "msyh.ttc"
+    const val SIMHEI = "SimHei.ttf"
+    const val PMINGLIU = "PMingLiU.ttf"
+    const val MICROSOFT_SANS_SERIF = "micross.ttf"
+    const val TAHOMA = "tahoma.ttf"
+    const val TAHOMA_BOLD = "tahomabd.ttf"
 
     /** Primary face kept for callers that only know the old single-file name. */
     const val FONT_FILE_NAME = CN_REGULAR
@@ -51,11 +56,31 @@ object SharedContainerFonts {
     internal fun cnFamilyForLanguage(language: String?): String =
         if (language.equals("zh", ignoreCase = true)) FONT_FAMILY_CN_LOCALIZED else FONT_FAMILY_CN
 
+    internal fun languageForLocale(locale: String?): String = locale
+        ?.substringBefore('.')
+        ?.substringBefore('_')
+        ?.substringBefore('-')
+        ?.lowercase()
+        .orEmpty()
+
+    internal fun cnFamilyForLocale(locale: String?): String = cnFamilyForLanguage(languageForLocale(locale))
+
     private const val TAG = "SharedContainerFonts"
     private const val CONTENTS_TYPE = "FONTS"
 
     /** Required faces inside fonts.tzst / contents cache. */
     val PACK_FACES: List<String> = listOf(CN_REGULAR, CN_BOLD, JP_REGULAR, JP_BOLD)
+
+    /** Optional complete Windows-compatible set; partial sets remain disabled. */
+    val WINDOWS_PACK_FACES: List<String> =
+        listOf(
+            MICROSOFT_YAHEI,
+            SIMHEI,
+            PMINGLIU,
+            MICROSOFT_SANS_SERIF,
+            TAHOMA,
+            TAHOMA_BOLD,
+        )
 
     /**
      * Windows Fonts file name → pack face file name under contents/FONTS/<sha>/.
@@ -110,6 +135,23 @@ object SharedContainerFonts {
             "malgunbd.ttf" to JP_BOLD,
             "gulim.ttc" to JP_REGULAR,
             "batang.ttc" to JP_REGULAR,
+        )
+
+    /** Overrides used only when every [WINDOWS_PACK_FACES] entry is present. */
+    val NATIVE_WINDOWS_FONT_LINKS: Map<String, String> =
+        linkedMapOf(
+            MICROSOFT_YAHEI to MICROSOFT_YAHEI,
+            "msyhbd.ttc" to MICROSOFT_YAHEI,
+            "msyhl.ttc" to MICROSOFT_YAHEI,
+            SIMHEI to SIMHEI,
+            "simhei.ttf" to SIMHEI,
+            PMINGLIU to PMINGLIU,
+            "pmingliu.ttc" to PMINGLIU,
+            "mingliu.ttc" to PMINGLIU,
+            "mingliub.ttc" to PMINGLIU,
+            MICROSOFT_SANS_SERIF to MICROSOFT_SANS_SERIF,
+            TAHOMA to TAHOMA,
+            TAHOMA_BOLD to TAHOMA_BOLD,
         )
 
     /**
@@ -178,10 +220,53 @@ object SharedContainerFonts {
             "Malgun Gothic" to FONT_FAMILY_JP,
             "Gulim" to FONT_FAMILY_JP,
             "Batang" to FONT_FAMILY_JP,
-            // --- generic shell ---
-            "MS Shell Dlg" to FONT_FAMILY_CN,
-            "MS Shell Dlg 2" to FONT_FAMILY_CN,
         )
+
+    private val NATIVE_WINDOWS_FAMILIES: Set<String> =
+        setOf(
+            "Microsoft YaHei",
+            "Microsoft YaHei Bold",
+            "Microsoft YaHei Light",
+            "Microsoft YaHei UI",
+            "Microsoft YaHei UI Bold",
+            "Microsoft YaHei UI Light",
+            "微软雅黑",
+            "SimHei",
+            "黑体",
+            "PMingLiU",
+            "MingLiU",
+        )
+
+    private val NATIVE_WINDOWS_FAMILY_SUBSTITUTES: Map<String, String> =
+        linkedMapOf(
+            "Microsoft YaHei Bold" to "Microsoft YaHei",
+            "Microsoft YaHei Light" to "Microsoft YaHei",
+            "Microsoft YaHei UI Bold" to "Microsoft YaHei UI",
+            "Microsoft YaHei UI Light" to "Microsoft YaHei UI",
+            "MingLiU" to "PMingLiU",
+        )
+
+    internal fun familySubstitutes(useNativeWindowsFonts: Boolean): List<Pair<String, String>> =
+        if (useNativeWindowsFonts) {
+            FAMILY_SUBSTITUTES.filterNot { it.first in NATIVE_WINDOWS_FAMILIES } +
+                NATIVE_WINDOWS_FAMILY_SUBSTITUTES.toList()
+        } else {
+            FAMILY_SUBSTITUTES
+        }
+
+    /** Windows NT-family logical shell font defaults. */
+    val UI_FAMILY_SUBSTITUTES: Map<String, String> =
+        linkedMapOf(
+            "MS Shell Dlg" to "Microsoft Sans Serif",
+            "MS Shell Dlg 2" to "Tahoma",
+        )
+
+    internal fun uiFamilySubstitutesForLocale(locale: String?): Map<String, String> =
+        if (languageForLocale(locale) == "ja") {
+            UI_FAMILY_SUBSTITUTES + ("MS Shell Dlg" to "MS UI Gothic")
+        } else {
+            UI_FAMILY_SUBSTITUTES
+        }
 
     /**
      * Windows' normal Latin UI fonts rely on FontLink for CJK glyphs. Replacing
@@ -212,21 +297,48 @@ object SharedContainerFonts {
             "Source Han Sans CN Bold (OpenType)" to CN_BOLD,
             "Source Han Sans JP Regular (OpenType)" to JP_REGULAR,
             "Source Han Sans JP Bold (OpenType)" to JP_BOLD,
-            "Microsoft YaHei & Microsoft YaHei UI (TrueType)" to "msyh.ttc",
-            "Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)" to "msyhbd.ttc",
-            "Microsoft YaHei Light & Microsoft YaHei UI Light (TrueType)" to "msyhl.ttc",
-            "SimSun & NSimSun (TrueType)" to "simsun.ttc",
-            "SimSun-ExtB (TrueType)" to "simsunb.ttf",
-            "DengXian (TrueType)" to "deng.ttf",
-            "DengXian Bold (TrueType)" to "dengb.ttf",
-            "DengXian Light (TrueType)" to "dengl.ttf",
+            // Register aliases against the canonical pack file. Wine de-duplicates
+            // identical faces, so registering an alias file first (for example
+            // dengl.ttf) makes later FontLink lookups by CN_REGULAR fail even
+            // though both paths point to the same OTF.
+            "Microsoft YaHei & Microsoft YaHei UI (TrueType)" to CN_REGULAR,
+            "Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)" to CN_BOLD,
+            "Microsoft YaHei Light & Microsoft YaHei UI Light (TrueType)" to CN_REGULAR,
+            "SimSun & NSimSun (TrueType)" to CN_REGULAR,
+            "SimSun-ExtB (TrueType)" to CN_REGULAR,
+            "DengXian (TrueType)" to CN_REGULAR,
+            "DengXian Bold (TrueType)" to CN_BOLD,
+            "DengXian Light (TrueType)" to CN_REGULAR,
         )
+
+    private val NATIVE_WINDOWS_FONT_REGISTRATIONS: Map<String, String> =
+        linkedMapOf(
+            "Microsoft YaHei & Microsoft YaHei UI (TrueType)" to MICROSOFT_YAHEI,
+            "Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)" to MICROSOFT_YAHEI,
+            "Microsoft YaHei Light & Microsoft YaHei UI Light (TrueType)" to MICROSOFT_YAHEI,
+            "SimHei (TrueType)" to SIMHEI,
+            "PMingLiU (TrueType)" to PMINGLIU,
+            "Microsoft Sans Serif (TrueType)" to MICROSOFT_SANS_SERIF,
+            "Tahoma (TrueType)" to TAHOMA,
+            "Tahoma Bold (TrueType)" to TAHOMA_BOLD,
+        )
+
+    internal fun fontRegistrations(useNativeWindowsFonts: Boolean): Map<String, String> = if (useNativeWindowsFonts) {
+        FONT_REGISTRATIONS + NATIVE_WINDOWS_FONT_REGISTRATIONS
+    } else {
+        FONT_REGISTRATIONS
+    }
 
     /**
      * Install shared font links + registry into [containerRoot] (the WinNative
      * container dir that contains `.wine/`).
      */
-    fun ensureInstalled(context: Context, containerRoot: File, applyRegistry: Boolean = true): Boolean {
+    fun ensureInstalled(
+        context: Context,
+        containerRoot: File,
+        applyRegistry: Boolean = true,
+        registryLocale: String = WineLocalePreferences.resolve(context),
+    ): Boolean {
         val cacheDir =
             ensureSharedPack(context) ?: run {
                 Log.w(TAG, "Shared font package missing; CJK may fall back to Wine defaults")
@@ -235,8 +347,15 @@ object SharedContainerFonts {
 
         val fontsDir = File(containerRoot, ".wine/drive_c/windows/Fonts").apply { mkdirs() }
         val contentsRoot = ContentsManager.getContentDir(context)
+        val useNativeWindowsFonts = windowsPackComplete(cacheDir)
+        val fontLinks =
+            if (useNativeWindowsFonts) {
+                WINDOWS_FONT_LINKS + NATIVE_WINDOWS_FONT_LINKS
+            } else {
+                WINDOWS_FONT_LINKS
+            }
         var linked = 0
-        for ((windowsName, faceName) in WINDOWS_FONT_LINKS) {
+        for ((windowsName, faceName) in fontLinks) {
             val source = File(cacheDir, faceName)
             if (!source.isFile) {
                 Log.w(TAG, "Pack face missing for $windowsName: $source")
@@ -254,8 +373,13 @@ object SharedContainerFonts {
             }
         }
 
-        val cnFamily = cnFamilyForLanguage(Locale.getDefault().language)
-        val registryOk = !applyRegistry || applyRegistry(containerRoot, cnFamily)
+        val registryOk =
+            !applyRegistry ||
+                applyRegistry(
+                    containerRoot,
+                    registryLocale,
+                    useNativeWindowsFonts,
+                )
 
         val primary = File(fontsDir, CN_REGULAR)
         val primaryOk = primary.isFile || Files.isSymbolicLink(primary.toPath())
@@ -268,8 +392,9 @@ object SharedContainerFonts {
         val ok = primaryOk && registryOk && fontconfigOk
         Log.i(
             TAG,
-            "CJK fonts: linked=$linked/${WINDOWS_FONT_LINKS.size} primary=$primaryOk " +
-                "registry=$registryOk cnFamily=$cnFamily fontconfig=$fontconfigOk cache=$cacheDir",
+            "CJK fonts: linked=$linked/${fontLinks.size} primary=$primaryOk " +
+                "nativeWindows=$useNativeWindowsFonts registry=$registryOk " +
+                "locale=$registryLocale fontconfig=$fontconfigOk cache=$cacheDir",
         )
         return ok
     }
@@ -314,7 +439,7 @@ object SharedContainerFonts {
 
             // Collect faces from flat root or nested windows/Fonts/ (legacy).
             val found = mutableMapOf<String, File>()
-            for (face in PACK_FACES) {
+            for (face in PACK_FACES + WINDOWS_PACK_FACES) {
                 val hit =
                     sequenceOf(
                         File(staging, face),
@@ -378,6 +503,9 @@ object SharedContainerFonts {
     private fun packComplete(cacheDir: File): Boolean =
         PACK_FACES.all { File(cacheDir, it).isFile && File(cacheDir, it).length() > 0L }
 
+    internal fun windowsPackComplete(cacheDir: File): Boolean =
+        WINDOWS_PACK_FACES.all { File(cacheDir, it).isFile && File(cacheDir, it).length() > 0L }
+
     private fun isLinkTo(target: File, source: File): Boolean {
         return try {
             if (!Files.isSymbolicLink(target.toPath())) return false
@@ -390,10 +518,18 @@ object SharedContainerFonts {
     /**
      * Mimic a Windows CJK install: FontSubstitutes (HKLM) + Wine Replacements (HKCU).
      */
-    fun applyRegistry(containerRoot: File, cnFamily: String = FONT_FAMILY_CN): Boolean {
+    fun applyRegistry(
+        containerRoot: File,
+        registryLocale: String = "en_US.UTF-8",
+        useNativeWindowsFonts: Boolean = false,
+    ): Boolean {
         val prefix = File(containerRoot, ".wine")
         val systemReg = File(prefix, "system.reg")
         val userReg = File(prefix, "user.reg")
+        val cnFamily = cnFamilyForLocale(registryLocale)
+        val uiSubstitutes = uiFamilySubstitutesForLocale(registryLocale)
+        val familySubstitutes = familySubstitutes(useNativeWindowsFonts)
+        val fontRegistrations = fontRegistrations(useNativeWindowsFonts)
         var systemOk = false
         var userOk = false
 
@@ -402,12 +538,20 @@ object SharedContainerFonts {
                 WineRegistryEditor(systemReg).use { reg ->
                     val substitutesKey =
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes"
-                    for ((from, to) in FAMILY_SUBSTITUTES) {
+                    if (useNativeWindowsFonts) {
+                        for (family in NATIVE_WINDOWS_FAMILIES) {
+                            reg.removeValue(substitutesKey, family)
+                        }
+                    }
+                    for ((from, to) in familySubstitutes) {
                         reg.setStringValue(
                             substitutesKey,
                             from,
                             if (to == FONT_FAMILY_CN) cnFamily else to,
                         )
+                    }
+                    for ((from, to) in uiSubstitutes) {
+                        reg.setStringValue(substitutesKey, from, to)
                     }
                     reg.setStringValue(substitutesKey, "msyh", cnFamily)
                     reg.setStringValue(substitutesKey, "simsun", cnFamily)
@@ -418,14 +562,19 @@ object SharedContainerFonts {
 
                     val linksKey =
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontLink\\SystemLink"
-                    val chineseFallback = "$CN_REGULAR,$cnFamily"
+                    val chineseFallback =
+                        if (useNativeWindowsFonts) {
+                            "$MICROSOFT_YAHEI,Microsoft YaHei"
+                        } else {
+                            "$CN_REGULAR,$cnFamily"
+                        }
                     for (family in SYSTEM_FONT_LINKS) {
                         reg.setMultiStringValue(linksKey, family, chineseFallback)
                     }
 
                     val fontsKey =
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
-                    for ((name, file) in FONT_REGISTRATIONS) {
+                    for ((name, file) in fontRegistrations) {
                         reg.setStringValue(fontsKey, name, file)
                     }
                 }
@@ -442,12 +591,20 @@ object SharedContainerFonts {
             try {
                 WineRegistryEditor(userReg).use { reg ->
                     val key = "Software\\Wine\\Fonts\\Replacements"
-                    for ((from, to) in FAMILY_SUBSTITUTES) {
+                    if (useNativeWindowsFonts) {
+                        for (family in NATIVE_WINDOWS_FAMILIES) {
+                            reg.removeValue(key, family)
+                        }
+                    }
+                    for ((from, to) in familySubstitutes) {
                         reg.setStringValue(
                             key,
                             from,
                             if (to == FONT_FAMILY_CN) cnFamily else to,
                         )
+                    }
+                    for ((from, to) in uiSubstitutes) {
+                        reg.setStringValue(key, from, to)
                     }
                 }
                 userOk = true

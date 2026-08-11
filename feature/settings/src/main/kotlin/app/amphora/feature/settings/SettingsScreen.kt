@@ -377,11 +377,11 @@ private fun CommonSettings(state: SettingsUiState, viewModel: SettingsViewModel)
         subtitle = "Regional and translation behavior for older Windows games",
     ) {
         ChoiceSetting(
-            title = "Language for non-Unicode programs",
+            title = "Windows language profile",
             description =
-            "Selects Wine's ANSI codepage for legacy applications. Automatic follows " +
-                "the Android device language.",
-            impact = "Global default · legacy ANSI text only · next launch",
+            "Simulates the Windows system locale for legacy ANSI text and locale-aware " +
+                "font aliases. Automatic follows the Android device language.",
+            impact = "Global default · ANSI codepage and Windows fonts · next launch",
             selected = state.wineLocale,
             defaultValue = WineLocaleOption.AUTO,
             values = WineLocaleOption.entries,
