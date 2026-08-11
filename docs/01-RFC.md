@@ -154,7 +154,7 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 | `display/renderer` | 1,930 | VulkanRenderer/Texture/GPUImage（native 绑定 + 渲染线程 + 窗口事件监听） | 必需 |
 | `display/environment` | 2,840 | XEnvironment + GuestProgramLauncher(1265) + ALSAServer + NetworkHelper | 必需 |
 | `display/connector` | 774 | XConnectorEpoll/ClientSocket（X 协议 socket I/O） | 必需 |
-| `display/winhandler` | 1,985 | WinHandler（输入事件 -> X server 注入） | 必需 |
+| `display/winhandler` | 1,985 | WinHandler（原计划用于输入） | 原计划必需；as-built 已删除，当前触控/键鼠走 X inject |
 | `display/ui` | 1,965 | XServerSurfaceView + TouchpadView（渲染靶 + 触屏覆盖层） | 必需 |
 | `audio` | 922 | ALSAClient/ALSAServerComponent/RequestHandler（整块复用 Java） | 必需 |
 | `system` | 1,446 | ProcessHelper/GPUInformation/EnvironmentManager | 必需 |
@@ -354,4 +354,5 @@ GameSessionViewModel.launch(LaunchSpec)
 - [x] MVP 范围认可
 - [x] 复用策略认可
 
-审核通过后开始 scaffold: `build-logic` convention plugins → `libs.versions.toml` → 模块空壳 → `:core:native` CMake 桩 → `:core:engine` 接口定义。
+Scaffold 与 v0.1 已完成；当前实现、开放回归项和构建方法分别见
+`05-ARCHITECTURE.md`、`03-TRACKING.md` 与 README。

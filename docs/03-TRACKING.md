@@ -53,7 +53,10 @@
   (launcher **Debug: Wine smoke test**；后续改为 `SessionActivity` debug intent，不再有
   `DEBUG_AUTO_LAUNCH_WINE`); 删 Graphics-Test staging / `StubAudioSink` / 空
   `SettingsViewModel`; surface 渲染异常改记日志。
-- ✅ 残留清理续: 删 `GameRecorder`/`PulseAudioComponent`/`WinToast`/`AppTerminationHelper`/`PerformanceHudState` + 接线拆除; `WineInfo` 不再读假 `R.array.wine_entries` (走 ContentsManager install dir)。
+- ✅ 当时残留清理: 删旧 `GameRecorder`/`PulseAudioComponent`/`WinToast`/
+  `AppTerminationHelper`/`PerformanceHudState` 接线；后续已用
+  `HostPerformanceMonitor` + `GameSessionPerformanceHud` 重做 HUD，并恢复新的 Pulse
+  组件。`WineInfo` 不再读假 `R.array.wine_entries`。
 - ✅ WinHandler/手柄 stub 闭包清理: 删 `WinHandler`/`XServerDisplayActivity`/controls stubs/`rumble/*`; 按钮一律走 X 协议; `FakeInputWriter` 仅留 GPLC env 空环辅助; inputType 常量内联到 `Container`。
 - ✅ fakeinput 裁剪 + BuildConfig/R 收敛: GPLC 不再 copy/LD_PRELOAD `libfakeinput` / FAKE_EVDEV/udev; CMake 停编 fakeinput; 删 `FakeInputWriter` + 手写 `BuildConfig`; Vulkan validation 改读 `FLAG_DEBUGGABLE`; preset/拷贝文案硬编码，避开假 `R` ID。
 - ✅ 假 `R` 死 UI 闭包: 删手写 `R.java` + `DownloadProgressDialog`/`MultiSelectionComboBox`/`HttpUtils`/`AppUtils`; `ImageFsInstaller` 仅留 `LATEST_VERSION`; wallpaper 改纯色回退; Box64/FEX 去掉 Spinner/import-export 死路径。
