@@ -27,7 +27,7 @@ command -v python3 >/dev/null
 command -v dpkg-deb >/dev/null || die "dpkg-deb required"
 case "$IMAGEFS_ARCHIVE" in
   *.tzst|*.zst)
-    python3 -c 'import zstandard' 2>/dev/null || die "python3-zstandard required for zstd archives"
+    command -v zstd >/dev/null || die "zstd required for zstd archives"
     ;;
   *.txz|*.xz) ;;
   *) die "unsupported imagefs archive: $IMAGEFS_ARCHIVE (expected .txz/.xz/.tzst/.zst)" ;;
@@ -40,6 +40,7 @@ log "Extracting link libs from imagefs..."
 python3 - "$IMAGEFS_ARCHIVE" "$SYSROOT" <<'PY'
 import contextlib
 import os
+import subprocess
 import sys
 import tarfile
 
@@ -57,19 +58,21 @@ def keep(name: str) -> bool:
         return False
     return any(k in name for k in keys)
 count = 0
-with open(src, "rb") as archive:
-    if src.endswith((".tzst", ".zst")):
-        import zstandard as zstd
-        stream = zstd.ZstdDecompressor().stream_reader(archive)
-        mode = "r|"
-    else:
-        stream = contextlib.nullcontext(archive)
-        mode = "r|*"
-    with stream as reader, tarfile.open(fileobj=reader, mode=mode) as tf:
-        for member in tf:
-            if member.isfile() and keep(member.name):
-                tf.extract(member, dst, filter="data")
-                count += 1
+process = None
+if src.endswith((".tzst", ".zst")):
+    process = subprocess.Popen(("zstd", "-q", "-dc", src), stdout=subprocess.PIPE)
+    stream = contextlib.closing(process.stdout)
+    mode = "r|"
+else:
+    stream = open(src, "rb")
+    mode = "r|*"
+with stream as reader, tarfile.open(fileobj=reader, mode=mode) as tf:
+    for member in tf:
+        if member.isfile() and keep(member.name):
+            tf.extract(member, dst, filter="data")
+            count += 1
+if process is not None and process.wait() != 0:
+    raise SystemExit("zstd failed to decompress imagefs archive")
 if count == 0:
     raise SystemExit("no wrapper link libraries found in imagefs archive")
 print("extracted", count, "libs/pc")
