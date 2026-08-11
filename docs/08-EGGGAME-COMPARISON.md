@@ -109,7 +109,10 @@ egggame 的 **arm64x 路线**是 Amphora 没有的：
 - 直接绑定 Android Surface：`ANativeWindow_fromSurface(Surface)`
 - DRI3 + Present 扩展：通过 AHB fd 传递 pixmap
 - GLX 扩展（软件回退）
-- Vulkan 驱动加载：`dlopen("libvulkan.so")` → Mesa loader → `libvulkan_freedreno.so` (Turnip)
+- 普通 Vulkan 驱动加载：`dlopen("libvulkan.so")` → Mesa loader →
+  `libvulkan_freedreno.so` (Turnip)
+- 插帧样本另有 guest ICD 链：
+  `VK_ICD_FILENAMES → libGameScopeVK.so → GAMESCOPE_DRIVER_PATH → 实际 Vulkan 驱动`
 - 驱动替换：`WINEMU_REPLACED_DRIVER` 环境变量 + `vulkan.adreno.so`
 
 渲染管线：
@@ -147,7 +150,9 @@ Wine → X11 Pixmap (DRI3 AHB fd)
 | 驱动替换 | `WINEMU_REPLACED_DRIVER` + `vulkan.adreno.so` | adrenotools hook + wrapper ICD |
 | OpenGL 路径 | GLX (in-process, 可能软件渲染) | EGL + Zink (`WINE_USE_EGL=1`) |
 
-egggame 不使用 adrenotools，而是用 Mesa 标准 ICD 发现机制 + 自定义 `WINEMU_REPLACED_DRIVER` 环境变量替换驱动。这更简单但需要完整 Mesa 安装。
+egggame 不使用 adrenotools，而是用 Mesa 标准 ICD 发现机制 + 自定义
+`WINEMU_REPLACED_DRIVER` 环境变量替换驱动。这不等于没有驱动定制：
+`libGameScopeVK.so` 本身就是位于 guest Vulkan 与真实驱动之间的闭源 ICD 包装层。
 
 GameHub 另随 imagefs 交付闭源 `libGameScopeVK.so` 插帧 ICD。当前样本确认它使用自带
 SPIR-V compute 管线；没有 `VK_NV_optical_flow` 或通用 ML runtime 的依赖证据，也

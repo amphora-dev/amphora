@@ -138,7 +138,8 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 Pulse 代码与配套 WCP 已在功能分支完成构建验证；生产 manifest 发布含
 `winepulse` 的新 WCP 前，完整性检查会继续选择 ALSA。
 
-已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
+已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。当前基线没有插帧后端；GameHub、WinNative 与开源候选仅见
+[`09-FRAME-GENERATION-RESEARCH.md`](09-FRAME-GENERATION-RESEARCH.md)，不属于已落地架构。
 
 ---
 
@@ -201,6 +202,7 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 | `06-ENVIRONMENT.md` | Cloud/ADB/真机测试与 CI |
 | `07-TARGETSDK-SELINUX.md` | targetSdk 36 app-private ELF 执行 |
 | `08-EGGGAME-COMPARISON.md` | GameHub / WinNative / Amphora 对比 |
+| `09-FRAME-GENERATION-RESEARCH.md` | 插帧逆向、开源候选与验证门槛（研究） |
 | `RESEARCH-proton-wine-selfbuild.md` | Proton 自建依据与当前 BuildStream 结果 |
 | `WRAPPER-BUILD.md` | Vulkan wrapper 独立构建方法 |
 
