@@ -94,21 +94,16 @@ class ContentCatalogTest {
         assertEquals(null, catalog.peek())
     }
 
-    private fun cacheFile(): File =
-        File(temporaryFolder.root, "content/content_manifest.json").also {
-            it.parentFile.mkdirs()
-        }
+    private fun cacheFile(): File = File(temporaryFolder.root, "content/content_manifest.json").also {
+        requireNotNull(it.parentFile).mkdirs()
+    }
 
-    private fun catalog(
-        cacheFile: File,
-        fetchManifest: suspend (String) -> String,
-    ): ContentCatalog =
-        ContentCatalog(
-            cacheFile = cacheFile,
-            dispatchers = ImmediateDispatchers,
-            sourceUrl = { REMOTE_URL },
-            fetchManifest = fetchManifest,
-        )
+    private fun catalog(cacheFile: File, fetchManifest: suspend (String) -> String): ContentCatalog = ContentCatalog(
+        cacheFile = cacheFile,
+        dispatchers = ImmediateDispatchers,
+        sourceUrl = { REMOTE_URL },
+        fetchManifest = fetchManifest,
+    )
 
     private object ImmediateDispatchers : DispatcherProvider {
         override val main: CoroutineDispatcher = Dispatchers.Unconfined

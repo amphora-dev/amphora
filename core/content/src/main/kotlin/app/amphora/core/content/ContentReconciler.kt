@@ -12,10 +12,7 @@ import java.io.File
  *    garbage collection can prove they are no longer rollback targets.
  * 2. [ContentPackageCache.pruneToPins] for superseded download filenames
  */
-class ContentReconciler(
-    private val packageRoot: File,
-    private val installer: ContentAssetInstaller,
-) {
+class ContentReconciler(private val packageRoot: File, private val installer: ContentAssetInstaller) {
     data class Report(val siblingDirsRemoved: Int, val packageFilesRemoved: Int) {
         val changed: Boolean get() = siblingDirsRemoved > 0 || packageFilesRemoved > 0
     }

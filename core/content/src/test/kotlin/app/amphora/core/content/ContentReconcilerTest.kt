@@ -66,10 +66,8 @@ class ContentReconcilerTest {
         assertEquals(listOf(ContentComponent.WINE), installer.reconciled.map { it.component })
     }
 
-    private class FakeInstaller(
-        private val siblingsRemoved: Int = 0,
-        private val failOn: ContentComponent? = null,
-    ) : ContentAssetInstaller {
+    private class FakeInstaller(private val siblingsRemoved: Int = 0, private val failOn: ContentComponent? = null) :
+        ContentAssetInstaller {
         val reconciled = mutableListOf<ManifestEntry>()
 
         override fun resolvedPath(entry: ManifestEntry): File = File(entry.assetPath)
