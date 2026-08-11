@@ -31,7 +31,8 @@ SYSROOT="${SYSROOT:-/tmp/wn-sysroot}"
 WORKDIR="${WORKDIR:-/tmp/wrapper-build}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/build/vulkan-wrapper}"
 API_LEVEL="${API_LEVEL:-30}"
-PREFIX_FAKE="/data/data/com.winlator.cmod/files/imagefs/usr"
+INSTALL_PREFIX="/usr"
+RUNTIME_RPATH='$ORIGIN'
 
 NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
 CLANG="$NDK_BIN/aarch64-linux-android${API_LEVEL}-clang"
@@ -180,8 +181,8 @@ pkg-config = 'pkg-config'
 # __TERMUX__ unlocks Pipetto AHardwareBuffer WSI fields.
 c_args = ['-I$SYSROOT/usr/include', '-Wno-error', '-D__USE_GNU', '-D__TERMUX__']
 cpp_args = ['-I$SYSROOT/usr/include', '-Wno-error', '-D__USE_GNU', '-D__TERMUX__']
-c_link_args = ['-L$SYSROOT/usr/lib', '-landroid-sysvshm', '-Wl,-rpath,$PREFIX_FAKE/lib']
-cpp_link_args = ['-L$SYSROOT/usr/lib', '-landroid-sysvshm', '-Wl,-rpath,$PREFIX_FAKE/lib']
+c_link_args = ['-L$SYSROOT/usr/lib', '-landroid-sysvshm', '-Wl,-rpath,$RUNTIME_RPATH']
+cpp_link_args = ['-L$SYSROOT/usr/lib', '-landroid-sysvshm', '-Wl,-rpath,$RUNTIME_RPATH']
 
 [host_machine]
 system = 'android'
@@ -225,7 +226,7 @@ configure() {
   meson setup "$builddir" \
     --cross-file "$WORKDIR/android-aarch64.txt" \
     --native-file "$WORKDIR/native.txt" \
-    --prefix "$PREFIX_FAKE" \
+    --prefix "$INSTALL_PREFIX" \
     --libdir lib \
     -Dbuildtype=release \
     -Db_ndebug=true \
@@ -274,11 +275,9 @@ pack_tzst() {
   mkdir -p "$stage/usr/lib" "$stage/usr/share/vulkan/icd.d"
 
   "$NDK_BIN/llvm-strip" --strip-unneeded "$so" -o "$stage/usr/lib/libvulkan_wrapper.so"
-  patchelf --set-rpath "$PREFIX_FAKE/lib" "$stage/usr/lib/libvulkan_wrapper.so"
 
   # Fresh adrenotools + hooks from subproject.
   cp -a "$builddir/subprojects/libadrenotools/libadrenotools.so" "$stage/usr/lib/"
-  patchelf --set-rpath "$PREFIX_FAKE/lib" "$stage/usr/lib/libadrenotools.so" 2>/dev/null || true
   for h in main_hook file_redirect_hook gsl_alloc_hook hook_impl; do
     f="$(find "$builddir/subprojects/libadrenotools" -name "lib${h}.so" | head -1)"
     [[ -n "$f" ]] && cp -a "$f" "$stage/usr/lib/"
@@ -289,6 +288,19 @@ pack_tzst() {
     [[ -f "$builddir/src/android_stub/${s}.so" ]] && cp -a "$builddir/src/android_stub/${s}.so" "$stage/usr/lib/"
   done
   [[ -f "$SYSROOT/usr/lib/libandroid-sysvshm.so" ]] && cp -a "$SYSROOT/usr/lib/libandroid-sysvshm.so" "$stage/usr/lib/"
+
+  # Keep the archive relocatable across Android package names and install roots.
+  # Every bundled dependency lives beside the wrapper in usr/lib.
+  local library rpath
+  for library in "$stage/usr/lib/"*.so; do
+    patchelf --set-rpath "$RUNTIME_RPATH" "$library"
+    rpath="$(patchelf --print-rpath "$library")"
+    [[ "$rpath" == "$RUNTIME_RPATH" ]] ||
+      die "unexpected runtime path in $(basename "$library"): $rpath"
+  done
+  if grep -R -a -q '/data/data/com\.winlator\.cmod/' "$stage"; then
+    die "legacy Winlator package path leaked into wrapper archive"
+  fi
 
   python3 - <<PY
 import json
