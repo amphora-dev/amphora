@@ -3,6 +3,9 @@ package app.amphora.gamesession
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
@@ -115,6 +118,31 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                 RefreshRateUtils.getSavedGlobalRefreshRateOverride(it),
                 fpsLimit,
             )
+        }
+    }
+    DisposableEffect(activity, fpsLimit) {
+        if (activity == null) {
+            onDispose {}
+        } else {
+            val displayManager = activity.getSystemService(DisplayManager::class.java)
+            val reapplyRefreshRate = {
+                RefreshRateUtils.applyPreferredRefreshRate(
+                    activity,
+                    RefreshRateUtils.getSavedGlobalRefreshRateOverride(activity),
+                    fpsLimit,
+                )
+                Unit
+            }
+            val listener =
+                object : DisplayManager.DisplayListener {
+                    override fun onDisplayAdded(displayId: Int) = reapplyRefreshRate()
+
+                    override fun onDisplayRemoved(displayId: Int) = reapplyRefreshRate()
+
+                    override fun onDisplayChanged(displayId: Int) = reapplyRefreshRate()
+                }
+            displayManager.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
+            onDispose { displayManager.unregisterDisplayListener(listener) }
         }
     }
 
