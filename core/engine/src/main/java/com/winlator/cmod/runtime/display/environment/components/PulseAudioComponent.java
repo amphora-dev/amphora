@@ -121,14 +121,16 @@ public class PulseAudioComponent extends EnvironmentComponent {
           firstNonEmpty(
               envVars.get("WINNATIVE_PULSE_AAUDIO_PERFORMANCE_MODE"),
               envVars.get("ANDROID_PULSE_AAUDIO_PERFORMANCE_MODE"));
-      if (performanceMode.equalsIgnoreCase(PERFORMANCE_MODE_LOW_LATENCY)
-          || performanceMode.equals("12")) {
-        options.performanceMode = PERFORMANCE_MODE_LOW_LATENCY;
-      } else if (performanceMode.equalsIgnoreCase(PERFORMANCE_MODE_POWER_SAVING)
-          || performanceMode.equals("11")) {
-        options.performanceMode = PERFORMANCE_MODE_POWER_SAVING;
-      } else {
-        options.performanceMode = PERFORMANCE_MODE_NONE;
+      if (!performanceMode.isEmpty()) {
+        if (performanceMode.equalsIgnoreCase(PERFORMANCE_MODE_LOW_LATENCY)
+            || performanceMode.equals("12")) {
+          options.performanceMode = PERFORMANCE_MODE_LOW_LATENCY;
+        } else if (performanceMode.equalsIgnoreCase(PERFORMANCE_MODE_POWER_SAVING)
+            || performanceMode.equals("11")) {
+          options.performanceMode = PERFORMANCE_MODE_POWER_SAVING;
+        } else {
+          options.performanceMode = PERFORMANCE_MODE_NONE;
+        }
       }
 
       return options;
