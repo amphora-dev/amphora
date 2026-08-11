@@ -55,16 +55,14 @@ object SharedContainerFonts {
     internal fun cnFamilyForLanguage(language: String?): String =
         if (language.equals("zh", ignoreCase = true)) FONT_FAMILY_CN_LOCALIZED else FONT_FAMILY_CN
 
-    internal fun languageForLocale(locale: String?): String =
-        locale
-            ?.substringBefore('.')
-            ?.substringBefore('_')
-            ?.substringBefore('-')
-            ?.lowercase()
-            .orEmpty()
+    internal fun languageForLocale(locale: String?): String = locale
+        ?.substringBefore('.')
+        ?.substringBefore('_')
+        ?.substringBefore('-')
+        ?.lowercase()
+        .orEmpty()
 
-    internal fun cnFamilyForLocale(locale: String?): String =
-        cnFamilyForLanguage(languageForLocale(locale))
+    internal fun cnFamilyForLocale(locale: String?): String = cnFamilyForLanguage(languageForLocale(locale))
 
     private const val TAG = "SharedContainerFonts"
     private const val CONTENTS_TYPE = "FONTS"
