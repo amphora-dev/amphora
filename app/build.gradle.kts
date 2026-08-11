@@ -35,6 +35,14 @@ android {
             )
         }
     }
+
+    packaging {
+        jniLibs {
+            // The PulseAudio daemon is executed from nativeLibraryDir and loads its
+            // matched shared libraries from the same extracted directory.
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {

@@ -72,6 +72,10 @@ constructor(
                 Box64Mode.fromId(
                     prefs.getString(AdvancedRuntimePreferences.KEY_BOX64_PRESET, null),
                 ),
+                audioBackend =
+                AudioBackend.fromId(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_AUDIO_DRIVER, null),
+                ),
                 dxvkAsync = prefs.getBoolean(AdvancedRuntimePreferences.KEY_DXVK_ASYNC, true),
                 frameLimit =
                 FrameLimit.fromValue(
@@ -293,6 +297,7 @@ constructor(
             remove(WineLocalePreferences.KEY)
             remove(WindowsComponentPreferences.KEY_WINCOMPONENTS)
             remove(AdvancedRuntimePreferences.KEY_BOX64_PRESET)
+            remove(AdvancedRuntimePreferences.KEY_AUDIO_DRIVER)
             remove(AdvancedRuntimePreferences.KEY_DXVK_ASYNC)
             remove(AdvancedRuntimePreferences.KEY_FRAME_RATE)
             remove(AdvancedRuntimePreferences.KEY_PRESENT_MODE)
@@ -314,6 +319,7 @@ constructor(
                 directDrawWrapper = DirectDrawSetting.DXWRAPPER,
                 wineLocale = WineLocaleOption.AUTO,
                 box64Mode = Box64Mode.PERFORMANCE,
+                audioBackend = AudioBackend.ALSA,
                 dxvkAsync = true,
                 frameLimit = FrameLimit.OFF,
                 presentMode = PresentMode.AUTO,
@@ -341,6 +347,11 @@ constructor(
     fun selectBox64Mode(value: Box64Mode) {
         prefs.edit { putString(AdvancedRuntimePreferences.KEY_BOX64_PRESET, value.id) }
         _uiState.update { it.copy(box64Mode = value) }
+    }
+
+    fun selectAudioBackend(value: AudioBackend) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_AUDIO_DRIVER, value.id) }
+        _uiState.update { it.copy(audioBackend = value) }
     }
 
     fun setDxvkAsync(enabled: Boolean) {
@@ -573,6 +584,7 @@ data class SettingsUiState(
     val directDrawWrapper: DirectDrawSetting = DirectDrawSetting.DXWRAPPER,
     val wineLocale: WineLocaleOption = WineLocaleOption.AUTO,
     val box64Mode: Box64Mode = Box64Mode.PERFORMANCE,
+    val audioBackend: AudioBackend = AudioBackend.ALSA,
     val dxvkAsync: Boolean = true,
     val frameLimit: FrameLimit = FrameLimit.OFF,
     val presentMode: PresentMode = PresentMode.AUTO,
@@ -681,6 +693,16 @@ enum class Box64Mode(val id: String, val label: String) {
 
     companion object {
         fun fromId(value: String?): Box64Mode = entries.firstOrNull { it.id == value } ?: PERFORMANCE
+    }
+}
+
+enum class AudioBackend(val id: String, val label: String) {
+    ALSA(AdvancedRuntimePreferences.AUDIO_DRIVER_ALSA, "ALSA · compatible"),
+    PULSEAUDIO(AdvancedRuntimePreferences.AUDIO_DRIVER_PULSEAUDIO, "PulseAudio · AAudio"),
+    ;
+
+    companion object {
+        fun fromId(value: String?): AudioBackend = entries.firstOrNull { it.id == value } ?: ALSA
     }
 }
 

@@ -4,6 +4,7 @@ import app.amphora.core.engine.model.AudioSink
 import app.amphora.core.engine.model.InputSink
 import app.amphora.core.engine.model.PointerButton
 import com.winlator.cmod.runtime.audio.alsaserver.ALSAClient
+import com.winlator.cmod.runtime.display.environment.components.PulseAudioComponent
 import com.winlator.cmod.runtime.display.xserver.Pointer
 import com.winlator.cmod.runtime.display.xserver.XServer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,21 +39,31 @@ internal class XServerInputSink(private val xServer: XServer) : InputSink {
 }
 
 /**
- * ALSA-backed [AudioSink] (RFC §8 音频衔接). PCM data itself flows out-of-band over the
- * ALSA aserver Unix socket (`ALSAServerComponent` -> `ALSAClient` -> `AudioTrack`); this
- * sink exposes a session master volume and mute control. Pause and user mute are
- * tracked independently so resuming the activity cannot accidentally unmute it.
+ * Session [AudioSink] for both the ALSA/AudioTrack and PulseAudio/AAudio backends.
  */
 internal class XServerAudioSink : AudioSink {
     private val _volume = MutableStateFlow(1f)
     override val volume: StateFlow<Float> = _volume.asStateFlow()
+    val currentVolume: Float
+        get() = _volume.value
+
+    @Volatile
+    private var pulseAudio: PulseAudioComponent? = null
+
+    fun useAlsa() {
+        pulseAudio = null
+    }
+
+    fun usePulseAudio(component: PulseAudioComponent) {
+        pulseAudio = component
+    }
 
     override suspend fun setVolume(volume: Float) {
         _volume.value = volume.coerceIn(0f, 1f)
-        ALSAClient.setMasterVolume(_volume.value)
+        pulseAudio?.setVolume(_volume.value) ?: ALSAClient.setMasterVolume(_volume.value)
     }
 
     override suspend fun setMuted(muted: Boolean) {
-        ALSAClient.setMuted(muted)
+        pulseAudio?.setMuted(muted) ?: ALSAClient.setMuted(muted)
     }
 }

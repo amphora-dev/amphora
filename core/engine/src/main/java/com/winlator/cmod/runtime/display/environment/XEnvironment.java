@@ -4,6 +4,7 @@ import android.content.Context;
 import android.util.Log;
 import com.winlator.cmod.runtime.audio.alsaserver.ALSAClient;
 import com.winlator.cmod.runtime.display.environment.components.GuestProgramLauncherComponent;
+import com.winlator.cmod.runtime.display.environment.components.PulseAudioComponent;
 import com.winlator.cmod.shared.io.FileUtils;
 import java.io.File;
 import java.util.ArrayList;
@@ -202,9 +203,13 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
 
   public void onPause() {
     ALSAClient.setEnvironmentPaused(true);
+    PulseAudioComponent pulseAudio = getComponent(PulseAudioComponent.class);
+    if (pulseAudio != null) pulseAudio.suspend();
   }
 
   public void onResume() {
+    PulseAudioComponent pulseAudio = getComponent(PulseAudioComponent.class);
+    if (pulseAudio != null) pulseAudio.resume();
     ALSAClient.setEnvironmentPaused(false);
   }
 }

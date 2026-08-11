@@ -27,6 +27,7 @@ import com.winlator.cmod.runtime.display.environment.XEnvironment
 import com.winlator.cmod.runtime.display.environment.components.ALSAServerComponent
 import com.winlator.cmod.runtime.display.environment.components.GuestProgramLauncherComponent
 import com.winlator.cmod.runtime.display.environment.components.NetworkInfoUpdateComponent
+import com.winlator.cmod.runtime.display.environment.components.PulseAudioComponent
 import com.winlator.cmod.runtime.display.environment.components.SysVSharedMemoryComponent
 import com.winlator.cmod.runtime.display.environment.components.XServerComponent
 import com.winlator.cmod.runtime.display.xserver.ScreenInfo
@@ -53,7 +54,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Real [WineEngine] facade (RFC §6 / §7 / D9). Delegates to the ported
- * `com.winlator.cmod` runtime: [XEnvironment] (ALSAServer + XServer + GuestProgramLauncher
+ * `com.winlator.cmod` runtime: [XEnvironment] (audio + XServer + GuestProgramLauncher
  * components) + [GuestProgramLauncherComponent] (the `box64 wine explorer /desktop=WxH exe`
  * launch) + [XServer] (render target + input). Sibling interfaces: [ContainerManager] (P4 ✅),
  * [RootfsInstaller] (P2), [WineSessionPreparer] (P2). Bound as the [WineEngine] impl in
@@ -280,7 +281,7 @@ constructor(
     /**
      * Build guest launch env (XSDA `setupXEnvironment` merge order):
      * locale / prefix → container defaults → preparer (driver/DXVK/wrapper) →
-     * [LaunchSpec.env] → ALSA.
+     * [LaunchSpec.env] → selected audio backend.
      *
      * Container [WinNativeContainer.getEnvVars] carries `ZINK_*` / `TU_DEBUG` /
      * `mesa_glthread` from [WinNativeContainer.DEFAULT_ENV_VARS] for native
@@ -321,12 +322,17 @@ constructor(
                     "WINEDEBUG=${envVars.get("WINEDEBUG")}",
             )
         }
-        // ALSA socket when using alsa backend (WinNative alsa branch).
-        // Registry Audio 由 AppliedMarks 门控写入；可配置 alsa / pulseaudio。
-        // 当前运行时只接了 ALSA aserver；选 pulse 需另接 Pulse 组件。
         val rootPath = imageFs.getRootDir().path
-        envVars.put("ANDROID_ALSA_SERVER", rootPath + UnixSocketConfig.ALSA_SERVER_PATH)
-        envVars.put("ANDROID_ASERVER_USE_SHM", "true")
+        if (container.getAudioDriver() == AdvancedRuntimePreferences.AUDIO_DRIVER_PULSEAUDIO) {
+            val pulseOptions = PulseAudioComponent.Options.fromEnvVars(envVars)
+            if (!envVars.has("PULSE_LATENCY_MSEC")) {
+                envVars.put("PULSE_LATENCY_MSEC", pulseOptions.latencyMillis)
+            }
+            envVars.put("PULSE_SERVER", rootPath + UnixSocketConfig.PULSE_SERVER_PATH)
+        } else {
+            envVars.put("ANDROID_ALSA_SERVER", rootPath + UnixSocketConfig.ALSA_SERVER_PATH)
+            envVars.put("ANDROID_ASERVER_USE_SHM", "true")
+        }
         return envVars
     }
 
@@ -345,12 +351,27 @@ constructor(
                 UnixSocketConfig.createSocket(rootPath, UnixSocketConfig.XSERVER_PATH),
             ),
         )
-        environment.addComponent(
-            ALSAServerComponent(
-                UnixSocketConfig.createSocket(rootPath, UnixSocketConfig.ALSA_SERVER_PATH),
-                ALSAClient.Options.fromEnvVars(envVars),
-            ),
-        )
+        if (envVars.has("PULSE_SERVER")) {
+            val pulseOptions =
+                PulseAudioComponent.Options.fromEnvVars(envVars).apply {
+                    volume = sessionAudioSink.currentVolume
+                }
+            val pulseAudio =
+                PulseAudioComponent(
+                    UnixSocketConfig.createSocket(rootPath, UnixSocketConfig.PULSE_SERVER_PATH),
+                    pulseOptions,
+                )
+            sessionAudioSink.usePulseAudio(pulseAudio)
+            environment.addComponent(pulseAudio)
+        } else {
+            sessionAudioSink.useAlsa()
+            environment.addComponent(
+                ALSAServerComponent(
+                    UnixSocketConfig.createSocket(rootPath, UnixSocketConfig.ALSA_SERVER_PATH),
+                    ALSAClient.Options.fromEnvVars(envVars),
+                ),
+            )
+        }
         environment.addComponent(NetworkInfoUpdateComponent())
         return environment
     }

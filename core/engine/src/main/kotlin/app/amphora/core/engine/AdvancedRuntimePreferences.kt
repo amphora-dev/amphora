@@ -11,7 +11,11 @@ import com.winlator.cmod.runtime.wine.EnvVars
  * The custom editor deliberately cannot replace them.
  */
 object AdvancedRuntimePreferences {
+    const val AUDIO_DRIVER_ALSA = "alsa"
+    const val AUDIO_DRIVER_PULSEAUDIO = "pulseaudio"
+
     const val KEY_BOX64_PRESET = "advanced_box64_preset"
+    const val KEY_AUDIO_DRIVER = "advanced_audio_driver"
     const val KEY_DXVK_ASYNC = "advanced_dxvk_async"
     const val KEY_FRAME_RATE = "advanced_frame_rate"
     const val KEY_PRESENT_MODE = "advanced_present_mode"
@@ -39,6 +43,7 @@ object AdvancedRuntimePreferences {
             "DISPLAY",
             "WINEPREFIX",
             "ANDROID_ALSA_SERVER",
+            "PULSE_SERVER",
             "ANDROID_SYSVSHM_SERVER",
             "ANDROID_RESOLV_DNS",
             "VK_ICD_FILENAMES",
@@ -55,6 +60,11 @@ object AdvancedRuntimePreferences {
             -> stored
             else -> Box64Preset.PERFORMANCE
         }
+    }
+
+    fun audioDriver(context: Context): String = when (prefs(context).getString(KEY_AUDIO_DRIVER, AUDIO_DRIVER_ALSA)) {
+        AUDIO_DRIVER_PULSEAUDIO -> AUDIO_DRIVER_PULSEAUDIO
+        else -> AUDIO_DRIVER_ALSA
     }
 
     fun applyEnvOverrides(context: Context, env: EnvVars) {

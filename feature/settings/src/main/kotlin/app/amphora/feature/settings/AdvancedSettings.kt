@@ -159,7 +159,7 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "${state.box64Mode.label} · ${state.presentMode.label}",
+                        "${state.box64Mode.label} · ${state.audioBackend.label}",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
@@ -186,6 +186,22 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                 label = { it.label },
                 onSelect = viewModel::selectBox64Mode,
                 onReset = { viewModel.selectBox64Mode(Box64Mode.PERFORMANCE) },
+            )
+            HorizontalDivider()
+            ChoiceSetting(
+                title = "Audio backend",
+                description =
+                "ALSA uses Android AudioTrack for broad compatibility. PulseAudio routes " +
+                    "Wine audio through an AAudio sink for lower latency and restores the " +
+                    "stream after Android audio-device interruptions. The current matched " +
+                    "AAudio module falls back to ALSA on 16 KB-page devices.",
+                impact = "Wine driver and session audio service · next launch",
+                selected = state.audioBackend,
+                defaultValue = AudioBackend.ALSA,
+                values = AudioBackend.entries,
+                label = { it.label },
+                onSelect = viewModel::selectAudioBackend,
+                onReset = { viewModel.selectAudioBackend(AudioBackend.ALSA) },
             )
             HorizontalDivider()
             ChoiceSetting(

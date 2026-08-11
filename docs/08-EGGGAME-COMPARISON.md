@@ -187,36 +187,39 @@ egggame 不使用 adrenotools，而是用 Mesa 标准 ICD 发现机制 + 自定�
 
 ## 7. 音频系统
 
-### 盖世游戏：三路音频
+### 盖世游戏 6.1.2：双音频后端
 
-**路径 1: wineaaudio.drv（自研，最低延迟）**
-- 自定义 Wine 音频驱动，直接调用 Android **AAudio C API**
-- 实现 Windows MMDevice API：`IAudioClient`/`IAudioClient2`/`IAudioClient3`/`IAudioRenderClient`/`IAudioCaptureClient`/`IAudioClock`
-- 构建工具：Android clang 22.0.0
-- 源码：`../dlls/wineaaudio.drv/mmdevdrv.c`
-- 无 ALSA/PulseAudio 中间层
+6.1.0 起运行核位于独立 `com.xiaoji.egggame.plugin.pcengine` 插件。对 6.1.2 主 APK
+及插件版本 `100-1` 的复核只确认了 `Alsa` / `Pulse` 两个枚举值；当前插件中没有
+`wineaaudio.drv`。旧文档中的直接 Wine → AAudio 结论不能作为当前实现依据。
 
-**路径 2: ALSA aserver（与 Amphora 相同）**
+**路径 1: ALSA aserver**
 - `libasound.so` + `libasound_module_pcm_android_aserver.so`
 - `android_aserver.conf` 配置（结构与 Amphora 相同）
 - JNI：`ALSAClient_downMix8Bit/16Bit/Float`（与 Amphora 共享代码血脉）
 - 数据流：Wine winealsa.drv → alsa-lib → aserver plugin → Unix socket → Java ALSAClient → AudioTrack
 
-**路径 3: PulseAudio 17.0（完整安装）**
-- `pulseaudio` 二进制 + 完整 libpulse 库
+**路径 2: PulseAudio → AAudio**
+- PulseAudio 守护进程 + 匹配的 libpulse 库
 - `winepulse.drv` Wine 驱动
-- 配置：`client.conf`、`daemon.conf`、`default.pa`
+- `default.pa` 加载 `module-native-protocol-unix` 与 `module-aaudio-sink`
+- 数据流：Wine winepulse.drv → PulseAudio Unix socket → module-aaudio-sink → AAudio
 
-### Amphora：单路 ALSA aserver
+### Amphora：ALSA 保底 + 可选 PulseAudio/AAudio
 
-- ALSA aserver only（MVP 决策）
-- 无 PulseAudio（显式排除）
-- 无 wineaaudio.drv
-- 数据流：Wine winealsa.drv → alsa-lib → aserver → Unix socket → ALSAServerComponent (Java) → AudioTrack
+- 默认仍为 ALSA，避免未验机前改变既有容器行为。
+- 设置可选择 PulseAudio；下次启动同步 Wine 注册表为 `Audio=pulse`。
+- Pulse 运行时采用 WinNative 维护的匹配套件：守护进程依赖库、`pactl`、
+  `module-native-protocol-unix`、`module-aaudio-sink` 和 `libprotocol-native`。
+- 当前匹配的 `module-aaudio-sink` 仅为 4 KB ELF；16 KB 页设备自动保留 ALSA，避免
+  Android linker 拒绝加载。
+- 暂停/恢复通过 `pactl suspend-sink` 关闭并重开 AAudio stream；native sink 的错误回调
+  负责处理电话或设备切换造成的 AAudio disconnect。
 
 ### 关键差异
 
-egggame 的 `wineaaudio.drv` 是最有价值的音频差异——直接 Wine → AAudio，省去了 ALSA aserver 的 Unix socket 跳转 + Java AudioTrack 中间层，延迟更低。
+PulseAudio 路径仍多一层混音服务，但可使用 AAudio 低延迟路径，同时保留成熟的 Wine
+Pulse 驱动兼容性。直接实现新的 Wine AAudio 驱动不属于本次移植范围。
 
 ---
 
@@ -231,7 +234,7 @@ egggame 的 `wineaaudio.drv` 是最有价值的音频差异——直接 Wine →
 | DXVK | 3.0.2-async + v2.6-1-async | 3.0.2-gplasync |
 | VKD3D | proton-3.0.1 | proton (版本待查) |
 | Turnip | v26.1.0_b8 (`libvulkan_freedreno.so`) | 源自 WinNative-Emu/Drivers |
-| PulseAudio | 17.0 (完整安装) | 无 |
+| PulseAudio | 完整安装 + AAudio sink | 13.0 可选后端 + AAudio sink |
 | libandroid-spawn | 有 (Termux) | 无 |
 
 ---
@@ -481,7 +484,8 @@ Task 3 依赖 Task 1/2 完成并发布新 WCP 后。Task 1/2 相互独立，可�
 
 2. **消除 `/proc/self/exe` 运行时 hook**（📋 待办，见 §10）：patch wine `get_self_exe()` + box64 `/proc/self/exe` 用法（`__ANDROID__`），随后移除 `libamphora-exec.so` 的 readlink/realpath hook 和 `AMPHORA_EXEC__PROC_SELF_EXE` env 注入。消除 `exe`/`maps` 不一致与全局 hook 开销，与盖世游戏做法对齐。
 
-3. **wineaaudio.drv**：直接 Wine → AAudio，省去 ALSA aserver 中间层，降低音频延迟。需要自构建 Wine 时添加此驱动。
+3. ~~**PulseAudio → AAudio 可选后端**~~（✅ 已落地）：匹配的 PulseAudio 13 运行库、
+   `pactl` 与 AAudio sink 模块随 APK 发布；设置中可选，并保留 ALSA 回退。
 
 ### 中价值（中期）
 
@@ -494,5 +498,3 @@ Task 3 依赖 Task 1/2 完成并发布新 WCP 后。Task 1/2 相互独立，可�
 5. **C X server**：egggame 的 libxserver.so 功能更完整（触控所有权、手势），但 Amphora 的 Java X server 已满足鼠标/键盘需求，迁移成本极高。
 
 6. **插件化 APK**：egggame 的运行时插件下载对商业产品有意义，但 Amphora 作为开源项目不需要。
-
-7. **PulseAudio**：egggame 安装了完整 PA 17.0，但 wineaaudio.drv 已提供更低延迟的路径，PA 多余。

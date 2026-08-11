@@ -17,6 +17,7 @@ import com.winlator.cmod.runtime.content.AdrenotoolsManager
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.display.environment.ImageFs
+import com.winlator.cmod.runtime.display.environment.components.PulseAudioRuntimeSupport
 import com.winlator.cmod.runtime.system.GPUInformation
 import com.winlator.cmod.runtime.wine.DXVKConfigUtils
 import com.winlator.cmod.runtime.wine.EnvVars
@@ -66,6 +67,20 @@ internal fun directDrawInstallComplete(selectedDdraw: String, syswow64Dir: File)
         DirectDrawWrapperIds.D7VK -> File(syswow64Dir, "ddraw_.dll").isFile
         else -> false
     }
+}
+
+internal fun resolveSessionAudioDriver(
+    requested: String,
+    pulsePlatformSupported: Boolean,
+    pulseWineDriverAvailable: Boolean,
+): String = if (
+    requested == AdvancedRuntimePreferences.AUDIO_DRIVER_PULSEAUDIO &&
+    pulsePlatformSupported &&
+    pulseWineDriverAvailable
+) {
+    AdvancedRuntimePreferences.AUDIO_DRIVER_PULSEAUDIO
+} else {
+    AdvancedRuntimePreferences.AUDIO_DRIVER_ALSA
 }
 
 /**
@@ -341,7 +356,27 @@ class XServerWineSessionPreparer @Inject constructor(
             containerDataChanged = true
         }
 
-        val audioDriver = c.getAudioDriver()?.takeIf { it.isNotBlank() } ?: Container.DEFAULT_AUDIO_DRIVER
+        val requestedAudioDriver = AdvancedRuntimePreferences.audioDriver(context)
+        val pulseDriverAvailable =
+            File(wineInfo.path, "lib/wine/x86_64-unix/winepulse.so").isFile
+        val pulsePlatformSupported = PulseAudioRuntimeSupport.isSupportedPlatform()
+        val audioDriver =
+            resolveSessionAudioDriver(
+                requestedAudioDriver,
+                pulsePlatformSupported,
+                pulseDriverAvailable,
+            )
+        if (audioDriver != requestedAudioDriver) {
+            Log.w(
+                TAG,
+                "PulseAudio unavailable (pageSizeSupported=$pulsePlatformSupported, " +
+                    "winepulse=$pulseDriverAvailable); using ALSA",
+            )
+        }
+        if (c.getAudioDriver() != audioDriver) {
+            c.setAudioDriver(audioDriver)
+            containerDataChanged = true
+        }
         val wineAudio = WineUtils.wineAudioDriverName(audioDriver)
         if (wineAudio != null && (AppliedMarks.needsAudio(c, wineAudio) || firstTimeBoot)) {
             WineUtils.ensureWineAudioDriver(c, imageFs.getRootDir(), audioDriver)
@@ -1206,7 +1241,7 @@ class XServerWineSessionPreparer @Inject constructor(
     private fun applyGeneralPatches(c: Container) {
         // No container_pattern overlay — prefix is Proton prefixPack. Shared CJK
         // fonts are reconciled once below by ensureWinePrefixEssentialFilesCore.
-        // MVP is ALSA-only; pulseaudio.tzst extract omitted (nobody consumed filesDir/pulseaudio).
+        // PulseAudio runtime assets are installed on demand by PulseAudioRuntimeSupport.
         WineUtils.applySystemTweaks(context, wineInfo)
     }
 

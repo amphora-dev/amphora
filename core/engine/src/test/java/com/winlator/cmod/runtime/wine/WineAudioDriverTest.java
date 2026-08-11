@@ -12,8 +12,8 @@ public class WineAudioDriverTest {
   }
 
   @Test
-  public void fallsBackToAlsaForLegacyPulseConfiguration() {
-    assertEquals("alsa", WineUtils.wineAudioDriverName("pulseaudio"));
+  public void mapsPulseAudioConfigurationToWinePulseDriver() {
+    assertEquals("pulse", WineUtils.wineAudioDriverName("pulseaudio"));
   }
 
   @Test
