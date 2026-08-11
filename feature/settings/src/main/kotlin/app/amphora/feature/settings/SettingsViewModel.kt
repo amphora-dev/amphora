@@ -6,41 +6,32 @@ import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.amphora.core.common.dispatcher.DispatcherProvider
-import app.amphora.core.content.AssetDigest
-import app.amphora.core.content.ContentAssetInstaller
 import app.amphora.core.content.ContentCatalog
-import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.ContentReconciler
-import app.amphora.core.content.RuntimeAssetLocalOverride
-import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
-import app.amphora.core.content.model.ManifestEntry
-import app.amphora.core.content.update.AppUpdateCheckResult
 import app.amphora.core.content.update.AppUpdateManifest
 import app.amphora.core.engine.AdvancedRuntimePreferences
+import app.amphora.core.engine.ContentHealthScanner
 import app.amphora.core.engine.DirectDrawWrapperIds
-import app.amphora.core.engine.GraphicsDiag
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.GuestDriveManager
 import app.amphora.core.engine.GuestDriveMapping
+import app.amphora.core.engine.LaunchRuntimeSettings
+import app.amphora.core.engine.RuntimeSettingsStore
 import app.amphora.core.engine.ShizukuCleanupStatus
 import app.amphora.core.engine.ShizukuEmergencyStopper
 import app.amphora.core.engine.TurnipDriverProvisioner
 import app.amphora.core.engine.WindowsComponentPreferences
 import app.amphora.core.engine.WineLocaleOption
 import app.amphora.core.engine.WineLocalePreferences
-import app.amphora.core.engine.update.AppUpdateInstallResult
-import app.amphora.core.engine.update.AppUpdateManager
-import app.amphora.core.rootfs.RootfsInstaller
+import app.amphora.core.engine.model.ContentComponentHealth
+import app.amphora.core.engine.model.ContentHealthSnapshot
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
-import com.winlator.cmod.runtime.content.ContentProfile
-import com.winlator.cmod.runtime.content.ContentsManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,13 +46,14 @@ constructor(
     @ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
     private val catalog: ContentCatalog,
-    private val rootfsInstaller: RootfsInstaller,
-    private val assetInstaller: ContentAssetInstaller,
     private val contentReconciler: ContentReconciler,
+    private val contentHealthScanner: ContentHealthScanner,
+    private val storageService: SettingsStorageService,
     private val turnipProvisioner: TurnipDriverProvisioner,
     private val guestDriveManager: GuestDriveManager,
     private val shizukuEmergencyStopper: ShizukuEmergencyStopper,
-    private val updateManager: AppUpdateManager,
+    private val updateController: SettingsUpdateController,
+    private val runtimeSettings: RuntimeSettingsStore,
 ) : ViewModel() {
     private val prefs =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
@@ -73,17 +65,8 @@ constructor(
     private val _uiState =
         MutableStateFlow(
             SettingsUiState(
-                installedVersionName = updateManager.installedVersionName(),
-                installedVersionCode = updateManager.installedVersionCode(),
-                resolution = DisplayResolution.fromPreference(prefs.getString(PREF_RESOLUTION, null)),
-                graphicsDriver =
-                GraphicsDriverSetting.fromId(
-                    prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
-                ),
-                directDrawWrapper =
-                DirectDrawSetting.fromId(
-                    prefs.getString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, null),
-                ),
+                installedVersionName = updateController.installedVersionName(),
+                installedVersionCode = updateController.installedVersionCode(),
                 wineLocale = WineLocalePreferences.selected(context),
                 box64Mode =
                 Box64Mode.fromId(
@@ -134,11 +117,16 @@ constructor(
                 customEnv = initialCustomEnv,
                 rejectedEnvNames = AdvancedRuntimePreferences.rejectedCustomEnvNames(initialCustomEnv),
                 shizukuCleanupStatus = shizukuEmergencyStopper.status.value,
-            ),
+            ).withRuntimeSettings(runtimeSettings.settings.value),
         )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            runtimeSettings.settings.collect { settings ->
+                _uiState.update { it.withRuntimeSettings(settings) }
+            }
+        }
         refreshComponents()
         refreshStorageUsage()
         refreshGuestDrives()
@@ -199,10 +187,7 @@ constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(deletingStorage = true, storageMessage = null) }
             try {
-                val result =
-                    withContext(dispatchers.io) {
-                        StorageUsageScanner.deleteUnusedGuestData(context, paths)
-                    }
+                val result = storageService.deleteUnusedGuestData(paths)
                 _uiState.update {
                     it.copy(
                         deletingStorage = false,
@@ -237,7 +222,7 @@ constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(storageScanning = true) }
             try {
-                val usage = withContext(dispatchers.io) { StorageUsageScanner.scan(context) }
+                val usage = storageService.scanUsage()
                 _uiState.update { it.copy(storageScanning = false, storageUsage = usage) }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
@@ -252,7 +237,7 @@ constructor(
     }
 
     fun selectResolution(value: DisplayResolution) {
-        prefs.edit { putString(PREF_RESOLUTION, value.name) }
+        runtimeSettings.setResolutionName(value.name)
         _uiState.update { it.copy(resolution = value) }
     }
 
@@ -277,7 +262,7 @@ constructor(
             _uiState.update { it.copy(applyingDriver = true, error = null) }
             try {
                 if (value == GraphicsDriverSetting.TURNIP) turnipProvisioner.ensureInstalled()
-                prefs.edit { putString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, value.id) }
+                runtimeSettings.setGraphicsDriverId(value.id)
                 _uiState.update { it.copy(graphicsDriver = value, applyingDriver = false) }
                 refreshComponents()
             } catch (error: Throwable) {
@@ -293,7 +278,7 @@ constructor(
     }
 
     fun selectDirectDraw(value: DirectDrawSetting) {
-        prefs.edit { putString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, value.id) }
+        runtimeSettings.setDirectDrawWrapperId(value.id)
         _uiState.update { it.copy(directDrawWrapper = value) }
     }
 
@@ -303,10 +288,8 @@ constructor(
     }
 
     fun resetPreferences() {
+        runtimeSettings.clearLaunchSettings()
         prefs.edit {
-            remove(PREF_RESOLUTION)
-            remove(GraphicsDriverIds.PREFS_KEY_DRIVER_ID)
-            remove(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID)
             remove(WineLocalePreferences.KEY)
             remove(WindowsComponentPreferences.KEY_WINCOMPONENTS)
             remove(AdvancedRuntimePreferences.KEY_BOX64_PRESET)
@@ -432,7 +415,7 @@ constructor(
             _uiState.update { it.copy(clearingShaderCache = true, cacheActionMessage = null) }
             try {
                 val freed = _uiState.value.storageUsage?.shaderCacheBytes ?: 0
-                withContext(dispatchers.io) { GraphicsDiag.clearStateCache(context) }
+                storageService.clearShaderCache()
                 _uiState.update {
                     it.copy(
                         clearingShaderCache = false,
@@ -476,18 +459,14 @@ constructor(
                 val snapshot =
                     withContext(dispatchers.io) {
                         contentReconciler.reconcile(manifest)
-                        ComponentSnapshot(
-                            components = scanComponents(manifest),
-                            runtimeAssets = scanRuntimeAssets(manifest),
-                            imagefsResidue = File(context.filesDir, "imagefs.olddead").exists(),
-                        )
+                        contentHealthScanner.scan(manifest)
                     }
                 _uiState.update {
                     it.copy(
                         refreshing = false,
-                        components = snapshot.components,
-                        runtimeAssets = snapshot.runtimeAssets,
-                        imagefsResidue = snapshot.imagefsResidue,
+                        components = snapshot.toComponentStatuses(),
+                        runtimeAssets = snapshot.toRuntimeAssetHealth(),
+                        imagefsResidue = snapshot.imageFsResidue,
                         manifestReady = true,
                     )
                 }
@@ -504,71 +483,6 @@ constructor(
         }
     }
 
-    private suspend fun scanComponents(manifest: ContentManifest): List<ComponentStatus> =
-        ContentComponent.entries.map { component ->
-            val entry = manifest.entry(component)
-            val pin = entry?.pinLabel()
-            val installed =
-                if (component == ContentComponent.ROOTFS) {
-                    rootfsInstaller.currentVersion()
-                } else {
-                    installedLabel(entry)
-                }
-            val state =
-                when {
-                    entry == null -> ComponentHealth.NO_PIN
-                    installed == null -> ComponentHealth.MISSING
-                    component == ContentComponent.ROOTFS && installed != pin -> ComponentHealth.UPDATE
-                    component != ContentComponent.ROOTFS && !assetInstaller.isInstalled(entry) ->
-                        ComponentHealth.UPDATE
-                    else -> ComponentHealth.READY
-                }
-            ComponentStatus(
-                component = component,
-                installed = installed,
-                pinned = pin,
-                health = state,
-            )
-        }
-
-    private fun scanRuntimeAssets(manifest: ContentManifest): List<RuntimeAssetHealth> {
-        val root = RuntimeAssetProvisioner.runtimeAssetsDir(context)
-        return manifest.runtimeAssets().map { entry ->
-            val file = File(root, entry.assetPath)
-            val override =
-                RuntimeAssetLocalOverride
-                    .takeIf { RuntimeAssetLocalOverride.isActive(file) }
-                    ?.let { RuntimeAssetLocalOverride.markerFile(file).readText().trim() }
-            val installedSha = AssetDigest.pinnedSha(file)
-            val health =
-                when {
-                    override != null -> AssetHealth.LOCAL
-                    !file.isFile -> AssetHealth.MISSING
-                    installedSha == null -> AssetHealth.UNVERIFIED
-                    installedSha != entry.sha256.lowercase() -> AssetHealth.MISMATCH
-                    entry.size != null && file.length() != entry.size -> AssetHealth.MISMATCH
-                    else -> AssetHealth.READY
-                }
-            RuntimeAssetHealth(entry.assetPath, health)
-        }
-    }
-
-    private fun installedLabel(entry: ManifestEntry?): String? {
-        if (entry == null) return null
-        if (assetInstaller.isInstalled(entry)) return entry.pinLabel()
-        if (entry.kind != ManifestEntry.Kind.WCP) return null
-        val type =
-            ContentProfile.ContentType.getTypeByName(entry.contentType ?: return null) ?: return null
-        return ContentsManager
-            .getContentTypeDir(context, type)
-            .listFiles()
-            ?.filter { it.isDirectory }
-            ?.map { it.name }
-            ?.sorted()
-            ?.takeIf { it.isNotEmpty() }
-            ?.joinToString(", ")
-    }
-
     fun checkForUpdate() {
         dispatchUpdate(SettingsUpdateEvent.CheckRequested)
     }
@@ -577,7 +491,7 @@ constructor(
         dispatchUpdate(
             SettingsUpdateEvent.InstallRequested(
                 permissionRequired =
-                updateManager.installStatus.value == ShizukuCleanupStatus.PERMISSION_REQUIRED,
+                updateController.installStatus.value == ShizukuCleanupStatus.PERMISSION_REQUIRED,
             ),
         )
     }
@@ -598,97 +512,53 @@ constructor(
     }
 
     private fun executeUpdateEffect(effect: SettingsUpdateEffect<AppUpdateManifest>) {
-        when (effect) {
-            SettingsUpdateEffect.CheckForUpdate ->
-                viewModelScope.launch {
-                    val outcome =
-                        when (val result = updateManager.check()) {
-                            is AppUpdateCheckResult.UpToDate ->
-                                UpdateCheckOutcome.UpToDate(result.remote.versionName)
-                            is AppUpdateCheckResult.UpdateAvailable ->
-                                UpdateCheckOutcome.UpdateAvailable(
-                                    update = result.remote,
-                                    installedVersionCode = result.installedVersionCode,
-                                    remoteVersionCode = result.remote.versionCode.toLong(),
-                                    remoteVersionName = result.remote.versionName,
-                                )
-                            is AppUpdateCheckResult.Unavailable ->
-                                UpdateCheckOutcome.Unavailable(result.reason)
-                            is AppUpdateCheckResult.Failed ->
-                                UpdateCheckOutcome.Failed(
-                                    result.error.message ?: result.error.toString(),
-                                )
-                        }
-                    dispatchUpdate(SettingsUpdateEvent.CheckCompleted(outcome))
-                }
-            SettingsUpdateEffect.RequestPermission -> {
-                val requestStarted = updateManager.requestInstallPermission()
-                dispatchUpdate(
-                    SettingsUpdateEvent.PermissionRequestCompleted(
-                        requestStarted = requestStarted,
-                        permissionReady =
-                        updateManager.installStatus.value == ShizukuCleanupStatus.READY,
-                    ),
-                )
-            }
-            SettingsUpdateEffect.SchedulePermissionTimeout ->
-                viewModelScope.launch {
-                    delay(SHIZUKU_PERMISSION_WAIT_MS)
-                    dispatchUpdate(SettingsUpdateEvent.PermissionWaitExpired)
-                }
-            is SettingsUpdateEffect.DownloadAndInstall ->
-                viewModelScope.launch {
-                    try {
-                        when (val result = updateManager.downloadAndInstall(effect.update)) {
-                            AppUpdateInstallResult.Started ->
-                                dispatchUpdate(SettingsUpdateEvent.InstallStarted)
-                            is AppUpdateInstallResult.SystemInstallerRequired ->
-                                dispatchUpdate(
-                                    SettingsUpdateEvent.SystemInstallerRequired(
-                                        artifact = result.apk,
-                                        reason = result.reason,
-                                    ),
-                                )
-                        }
-                    } catch (failure: CancellationException) {
-                        throw failure
-                    } catch (failure: Throwable) {
-                        dispatchUpdate(
-                            SettingsUpdateEvent.InstallFailed(
-                                failure.message ?: failure.toString(),
-                            ),
-                        )
-                    }
-                }
+        viewModelScope.launch {
+            dispatchUpdate(updateController.execute(effect))
         }
     }
 
-    fun needsInstallPermission(): Boolean = updateManager.needsSystemInstallPermission()
+    fun needsInstallPermission(): Boolean = updateController.needsSystemInstallPermission()
 
-    fun installPermissionSettingsIntent() = updateManager.installPermissionSettingsIntent()
+    fun installPermissionSettingsIntent() = updateController.installPermissionSettingsIntent()
 
     fun installPendingUpdate(activity: Activity) {
         val apk = _uiState.value.pendingApk ?: return
-        if (updateManager.needsSystemInstallPermission()) {
-            activity.startActivity(updateManager.installPermissionSettingsIntent())
+        if (updateController.needsSystemInstallPermission()) {
+            activity.startActivity(updateController.installPermissionSettingsIntent())
             return
         }
-        activity.startActivity(updateManager.systemInstallerIntent(apk))
-    }
-
-    private data class ComponentSnapshot(
-        val components: List<ComponentStatus>,
-        val runtimeAssets: List<RuntimeAssetHealth>,
-        val imagefsResidue: Boolean,
-    )
-
-    companion object {
-        const val PREF_RESOLUTION = "display_resolution"
-        private const val SHIZUKU_PERMISSION_WAIT_MS = 10_000L
+        activity.startActivity(updateController.systemInstallerIntent(apk))
     }
 }
 
-private fun ManifestEntry.pinLabel(): String = verName ?: version
+private fun ContentHealthSnapshot.toComponentStatuses(): List<ComponentStatus> = components.map { component ->
+    ComponentStatus(
+        component = component.component,
+        installed = component.installed,
+        pinned = component.pinned,
+        health =
+        when (component.state) {
+            ContentComponentHealth.State.READY -> ComponentHealth.READY
+            ContentComponentHealth.State.MISSING -> ComponentHealth.MISSING
+            ContentComponentHealth.State.UPDATE -> ComponentHealth.UPDATE
+            ContentComponentHealth.State.NO_PIN -> ComponentHealth.NO_PIN
+        },
+    )
+}
+
+private fun ContentHealthSnapshot.toRuntimeAssetHealth(): List<RuntimeAssetHealth> = runtimeAssets.map { asset ->
+    RuntimeAssetHealth(
+        path = asset.assetPath,
+        health =
+        when (asset.state) {
+            app.amphora.core.engine.model.RuntimeAssetHealth.State.READY -> AssetHealth.READY
+            app.amphora.core.engine.model.RuntimeAssetHealth.State.MISSING -> AssetHealth.MISSING
+            app.amphora.core.engine.model.RuntimeAssetHealth.State.MISMATCH -> AssetHealth.MISMATCH
+            app.amphora.core.engine.model.RuntimeAssetHealth.State.UNVERIFIED -> AssetHealth.UNVERIFIED
+            app.amphora.core.engine.model.RuntimeAssetHealth.State.LOCAL_OVERRIDE -> AssetHealth.LOCAL
+        },
+    )
+}
 
 data class SettingsUiState(
     val installedVersionName: String = "unknown",
@@ -742,6 +612,12 @@ data class SettingsUiState(
         get() = runtimeAssets.count { it.health !in setOf(AssetHealth.READY, AssetHealth.LOCAL) }
     val localAssets: Int get() = runtimeAssets.count { it.health == AssetHealth.LOCAL }
 }
+
+internal fun SettingsUiState.withRuntimeSettings(settings: LaunchRuntimeSettings): SettingsUiState = copy(
+    resolution = DisplayResolution.fromPreference(settings.resolutionName),
+    graphicsDriver = GraphicsDriverSetting.fromId(settings.graphicsDriverId),
+    directDrawWrapper = DirectDrawSetting.fromId(settings.directDrawWrapperId),
+)
 
 enum class DisplayResolution(val width: Int, val height: Int, val label: String) {
     R1280x720(1280, 720, "1280 × 720"),
