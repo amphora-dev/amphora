@@ -44,21 +44,20 @@ internal constructor(
         runtimeAssetsDirectory = RuntimeAssetProvisioner.runtimeAssetsDir(context),
         imageFsResidue = File(context.filesDir, IMAGE_FS_RESIDUE_NAME),
         contentTypeDirectoryResolver =
-            ContentTypeDirectoryResolver { contentTypeName ->
-                ContentProfile.ContentType
-                    .getTypeByName(contentTypeName)
-                    ?.let { ContentsManager.getContentTypeDir(context, it) }
-            },
+        ContentTypeDirectoryResolver { contentTypeName ->
+            ContentProfile.ContentType
+                .getTypeByName(contentTypeName)
+                ?.let { ContentsManager.getContentTypeDir(context, it) }
+        },
         currentRootfsVersion = rootfsInstaller::currentVersion,
         isComponentInstalled = assetInstaller::isInstalled,
     )
 
-    suspend fun scan(manifest: ContentManifest): ContentHealthSnapshot =
-        ContentHealthSnapshot(
-            components = scanComponents(manifest),
-            runtimeAssets = scanRuntimeAssets(manifest),
-            imageFsResidue = imageFsResidue.exists(),
-        )
+    suspend fun scan(manifest: ContentManifest): ContentHealthSnapshot = ContentHealthSnapshot(
+        components = scanComponents(manifest),
+        runtimeAssets = scanRuntimeAssets(manifest),
+        imageFsResidue = imageFsResidue.exists(),
+    )
 
     private suspend fun scanComponents(manifest: ContentManifest): List<ContentComponentHealth> =
         ContentComponent.entries.map { component ->
