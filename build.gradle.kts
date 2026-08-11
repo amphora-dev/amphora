@@ -9,6 +9,63 @@ plugins {
     alias(libs.plugins.spotless)
 }
 
+abstract class AggregateJvmCoverageTask : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val reports: ConfigurableFileCollection
+
+    @get:OutputFile
+    abstract val summaryFile: RegularFileProperty
+
+    @TaskAction
+    fun aggregate() {
+        val counterTypes = listOf("INSTRUCTION", "BRANCH", "LINE", "METHOD", "CLASS")
+        val totals = counterTypes.associateWith { longArrayOf(0L, 0L) }.toMutableMap()
+        val reportFiles = reports.files.sortedBy { it.absolutePath }
+        check(reportFiles.isNotEmpty()) { "No JVM coverage reports were configured" }
+        reportFiles.forEach { report ->
+            check(report.isFile) { "Missing JVM coverage report: $report" }
+            val root =
+                javax.xml.parsers.DocumentBuilderFactory
+                    .newInstance()
+                    .newDocumentBuilder()
+                    .parse(report)
+                    .documentElement
+            val children = root.childNodes
+            for (index in 0 until children.length) {
+                val counter = children.item(index)
+                if (counter.nodeName != "counter") continue
+                val attributes = counter.attributes
+                val type = attributes.getNamedItem("type").nodeValue
+                val total = totals[type] ?: continue
+                total[0] += attributes.getNamedItem("missed").nodeValue.toLong()
+                total[1] += attributes.getNamedItem("covered").nodeValue.toLong()
+            }
+        }
+        val summary =
+            buildString {
+                appendLine("JVM coverage across ${reportFiles.size} tested Android modules")
+                counterTypes.forEach { type ->
+                    val (missed, covered) = requireNotNull(totals[type])
+                    val percentage = if (missed + covered == 0L) 0.0 else covered * 100.0 / (missed + covered)
+                    appendLine(
+                        "%-11s %6.2f%% (%d/%d)".format(
+                            java.util.Locale.ROOT,
+                            type.lowercase().replaceFirstChar(Char::uppercase),
+                            percentage,
+                            covered,
+                            missed + covered,
+                        ),
+                    )
+                }
+            }
+        val output = summaryFile.get().asFile
+        output.parentFile.mkdirs()
+        output.writeText(summary)
+        logger.lifecycle("\n$summary")
+    }
+}
+
 // Formatting is enforced only over Amphora-authored sources. The ported
 // com.winlator.cmod kernel lives under `src/main/java/com/winlator/` and keeps
 // upstream's layout: reformatting it would make every future diff against
@@ -51,17 +108,32 @@ spotless {
 // invoking that task name from the root therefore schedules empty module tasks.
 // Keep the aggregate limited to modules that actually contain JVM tests and
 // include the convention-plugin tests from the composite build.
+val androidProjectsWithJvmTests =
+    subprojects.filter { project ->
+        project.fileTree("src/test") {
+            include("**/*.java", "**/*.kt")
+        }.files.isNotEmpty()
+    }
+
 val androidJvmTestTasks =
-    subprojects
-        .filter { project ->
-            project.fileTree("src/test") {
-                include("**/*.java", "**/*.kt")
-            }.files.isNotEmpty()
-        }.map { project -> "${project.path}:testDebugUnitTest" }
+    androidProjectsWithJvmTests.map { project -> "${project.path}:testDebugUnitTest" }
 
 tasks.register("jvmTest") {
     group = "verification"
     description = "Run all repository JVM tests, including build-logic tests."
     dependsOn(androidJvmTestTasks)
     dependsOn(gradle.includedBuild("build-logic").task(":convention:test"))
+}
+
+tasks.register<AggregateJvmCoverageTask>("jvmCoverage") {
+    group = "verification"
+    description = "Run JVM tests and aggregate JaCoCo counters for Android modules that contain tests."
+    val coverageTasks = androidProjectsWithJvmTests.map { "${it.path}:createDebugUnitTestCoverageReport" }
+    dependsOn(coverageTasks)
+    reports.from(
+        androidProjectsWithJvmTests.map {
+            it.layout.buildDirectory.file("reports/coverage/test/debug/report.xml")
+        },
+    )
+    summaryFile.set(layout.buildDirectory.file("reports/coverage/jvm-summary.txt"))
 }
