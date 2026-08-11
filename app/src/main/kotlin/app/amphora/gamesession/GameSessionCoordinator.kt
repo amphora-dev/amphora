@@ -51,7 +51,7 @@ internal class GameSessionCoordinator(
             try {
                 val handle = launchSession(request)
                 val pendingAction = sessionActions.attach(handle)
-                launch { handle.state.collect { mutableSessionState.value = it } }
+                scope.launch { handle.state.collect { mutableSessionState.value = it } }
                 withContext(actionDispatcher) {
                     when (pendingAction) {
                         PendingSessionAction.STOP -> handle.stop()

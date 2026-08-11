@@ -10,6 +10,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -19,6 +20,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class GameSessionCoordinatorTest {
     @Test
     fun emptyProgramPathFailsWithoutCallingLaunchBoundary() = runTest {
