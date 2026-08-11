@@ -328,15 +328,25 @@ public class PulseAudioComponent extends EnvironmentComponent {
     File modulesDir = new File(workingDir, "modules");
     StringBuilder output = new StringBuilder();
     try {
-      String[] envp =
-          new String[] {
-            "LD_LIBRARY_PATH=/system/lib64:" + nativeLibraryDir + ":" + modulesDir,
-            "HOME=" + workingDir,
-            "PULSE_SERVER=" + socketConfig.path,
-            "TMPDIR=" + environment.getTmpDir()
-          };
-      Process process =
-          Runtime.getRuntime().exec(pactl.getAbsolutePath() + " " + command, envp, workingDir);
+      ArrayList<String> requestedCommand = new ArrayList<>();
+      requestedCommand.add(pactl.getAbsolutePath());
+      for (String argument : command.split(" ")) {
+        if (!argument.isEmpty()) requestedCommand.add(argument);
+      }
+      String[] preparedCommand =
+          ProcessHelper.prepareCommandForAppData(requestedCommand.toArray(new String[0]));
+      ProcessBuilder processBuilder = new ProcessBuilder(preparedCommand);
+      processBuilder.directory(workingDir);
+      processBuilder.redirectErrorStream(true);
+      processBuilder
+          .environment()
+          .put("LD_LIBRARY_PATH", "/system/lib64:" + nativeLibraryDir + ":" + modulesDir);
+      processBuilder.environment().put("HOME", workingDir.getAbsolutePath());
+      processBuilder.environment().put("PULSE_SERVER", socketConfig.path);
+      processBuilder.environment().put("TMPDIR", environment.getTmpDir().getAbsolutePath());
+      ProcessHelper.configureAppDataExecEnvironment(
+          processBuilder.environment(), pactl.getAbsolutePath());
+      Process process = processBuilder.start();
       try (BufferedReader reader =
           new BufferedReader(new InputStreamReader(process.getInputStream()))) {
         String line;
