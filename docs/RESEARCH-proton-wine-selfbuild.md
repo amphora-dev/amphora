@@ -1,16 +1,20 @@
 # Proton Wine (x86_64 for Android/Bionic) 自建路径调研
 
 > 纯研究输出。调查对象：`WinNative-Emu/proton-wine`（fork 自 `ValveSoftware/wine`，默认分支 `proton_11.0`）。
-> 本地副本：`/Users/sky/co/github/WinNative-Emu/proton-wine`（proton_11.0 分支，2026-07-09 克隆）。
-> 结论用于支撑 Amphora「MVP = x86_64 + box64，自己从源码构建 Proton」决策。
->
-> 注意：`docs/01-RFC.md` 的 D5 仍写「Proton 11 arm64ec」，已被本次决策（x86_64 + box64）取代，文档需后续更新。
+> 调查样本：`proton_11.0` 分支（2026-07-09 checkout）。
+> 结论用于支撑 Amphora「x86_64 + box64，自己从源码构建 Proton」决策。
+> **现状更新（2026-08-11）**：该决策已落地为 `amphora-dev/imagefs` BuildStream
+> 管线；本文保留上游调研，当前交付方式以 `04-ASSET-MANIFEST.md` 为准。
 
 ---
 
 ## 0. 一句话结论
 
-上游 `WinNative-Emu/proton-wine` 的 CI **本身就是完整的自建路径**（workflow + build-scripts + 46 补丁全部开放）。所谓「自建」= fork 该仓库、触发 `build-proton-sdk35.yml`（x86_64 only）、产出 `proton-11.0-1-x86_64.wcp`。Wine 源码构建本身已完全脚本化、可复现；**真正的工程量与风险不在 Wine 编译，而在两个外部 blob：`termuxfs`（~1.2 GB，无构建脚本）和 `prefixPack.txz`（wineboot 产物，需先有可运行 Wine）**。对 Amphora MVP，建议「自建 Wine + 复用上游 termuxfs/prefixPack blob（SHA 锁定）」，把重建 termuxfs 推到 v1+。
+上游 `WinNative-Emu/proton-wine` 提供完整源码、工作流和 Android 补丁，可作为
+自建起点。Amphora 当前不再复用 1.2 GB termuxfs：BuildStream 只把精简 Bionic
+sysroot 作为构建依赖，WCP 打包 Wine、`prefixPack.txz` 和 profile；运行库由
+imagefs 提供。Pulse 路径另外用 PA13 开发输入构建 `winepulse.so`，运行时由 Box64
+包装到 APK 内同 ABI 的 native `libpulse.so`。
 
 ---
 
@@ -209,7 +213,7 @@ LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"   # 运行期从设备 /data/
 
 ---
 
-## 5. 产物格式与打入 APK 的方式
+## 5. 产物格式与消费方式
 
 ### 5.1 .wcp 格式
 `.wcp` = `tar cJf`（xz）打包 `bin/ lib/ share/ prefixPack.txz profile.json`。`profile.json` 描述类型/版本/wine 路径。WinNative 与 Winlator CMOD/Ludashi 共用同一格式，仅 `type` 字段不同（`Proton` vs `Wine`）。
@@ -219,82 +223,52 @@ LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"   # 运行期从设备 /data/
 - `ContainerManager.extractContainerPatternFile`：建容器时，从安装目录取 `prefixPack.txz`（`.tzst` 走 ZSTD，否则 XZ），解压到容器目录作为初始 Wine prefix。
 - `ContentProfile`：字段 `type/versionName/versionCode/desc/files[]/wine{binPath,libPath,prefixPack}/official`。
 
-### 5.3 Amphora 打入 APK 的方式
-Amphora RFC D4/D5 已定「MVP 不做下载，捆绑固定二进制」「assets 用 `noCompress` 保留 tzst/txz」。两种可选：
-1. **整包 .wcp 进 assets**：把 `proton-11.0-1-x86_64.wcp` 放 `app/src/main/assets/`，`noCompress` xz。首启解压到 imagefs。优点：与上游格式一致，未来切 .wcp 下载零成本。缺点：.wcp ~150-200 MB（x86_64 Wine 体积），APK 大。
-2. **预解压进 assets**：把 `bin/ lib/ share/ prefixPack.txz` 直接摊进 assets（或 rootfs 镜像），跳过运行期 tar 解压。优点：启动快，省一份解压逻辑。缺点：偏离上游格式，未来接下载源要改回。
+### 5.3 Amphora 当前消费方式
 
-无论哪种，`termuxfs` 的运行期库（`/data/data/com.termux/files/usr/lib` 下的 freetype/SDL2/pulse 等 `.so`）必须一并部署到设备对应路径——这是 Bionic 路线的硬约束（rpath bake 死了）。Amphora 的 imagefs/rootfs 需要包含这部分（或软链）。
-
----
-
-## 6. 自建工程量评估
-
-### 6.1 工作量分解
-
-| 环节 | 难度 | 工程量 | 备注 |
-|---|---|---|---|
-| Fork + 跑 CI 产 x86_64 .wcp | 低 | 0.5-1 天 | workflow 现成，matrix 改 `[x86_64]` 即可 |
-| Wine 源码编译本身 | 中 | 已脚本化 | `make -j$(nproc)`，CI ~30-45 分/arch |
-| 46 补丁维护 | 中-高 | 持续 | 每次 upstream bump 可能冲突，esync/fsync 大且侵入 |
-| termuxfs 重建 | **高** | 数小时 + 1.2 GB | termux-packages Docker 全量编译，MVP 不建议 |
-| prefixPack 生成 | 中 | 0.5 天 | 需可运行 Wine（设备/模拟器里 wineboot） |
-| 打入 APK + imagefs 部署 | 中 | 1-2 天 | rpath 路径映射、noCompress、首启解压 |
-
-### 6.2 CI 复杂度
-- 单 job matrix x86_64，ubuntu-24.04，~30-45 分钟（Wine 巨大）。三层缓存（NDK / llvm-mingw / wine-tools）后，增量构建可降到 ~15-20 分。
-- 磁盘：termuxfs 1.2 GB + NDK ~3 GB + llvm-mingw ~0.5 GB + 源码 + 构建 ~5-8 GB。GitHub runner 84 GB 够，但要先 `rm -rf` 释放（workflow 已做）。
-- release job 用 `GITHUB_TOKEN` 发 tag。
-
-### 6.3 首次构建预计时间
-- **冷启动**（无缓存）：下载 termuxfs 1.2 GB（~5-10 分）+ NDK 1 GB + llvm-mingw + autogen + wine-tools ~10 分 + `make` ~30-45 分 + install/打包 ~5 分 = **约 60-75 分钟**。
-- **热启动**（缓存命中）：跳过下载/装 NDK/llvm-mingw/wine-tools，主要 `make` = **约 30-40 分钟**。
-
-### 6.4 维护成本
-- **补丁是最大长期成本**：proton_11.0 分支会随上游 Wine 移动，46 补丁每次 rebase 可能冲突，尤其 esync（42 KB）、nsiproxy（15 KB）、midimap（22 KB）三大块。
-- termuxfs 一旦构建/锁定可长期不动（freetype/SDL2 等 ABI 稳定）。
-- prefixPack 在 Wine 大版本变化时需重生。
-
-### 6.5 自建 vs 下载预编译 取舍
-
-| 维度 | 下载预编译 | 自建（fork CI） |
-|---|---|---|
-| 可复现/可审计 | ❌ 上游 x86_64 无长期 release，只有 30 天 CI artifact | ✅ 锁 commit + SHA |
-| 版本控制 | ❌ 受上游节奏 | ✅ 自主 |
-| 定制（改补丁/驱动） | ❌ | ✅ |
-| 首次成本 | 0 | 1-2 天搭 CI |
-| 持续成本 | 0（但供应链风险） | 补丁维护 |
-| x86_64 可得性 | ❌ 上游基本不发 x86_64 release | ✅ 自己产 |
-
-**关键事实**：上游 x86_64 `.wcp` 没有长期 release（最近 release 只有 arm64ec）。所以「下载预编译 x86_64」这条路实际不通——要么依赖会过期的 CI artifact（不可持续），要么 fork 自己跑 CI（=自建）。**Amphora 选「自己从源码构建」是被迫也是正确的**：x86_64 没有现成的稳定预编译源。
+- Proton WCP 由 `amphora-dev/imagefs` 发布，URL、大小和 SHA 由远程
+  `content_manifest.json` 管理；常规 APK 不内置 WCP。
+- `RemoteContentSource` 下载并校验后交给 `ContentsManager` 安装到 imagefs；
+  建容器时从 WCP 的 `prefixPack.txz` 生成 prefix。
+- `stageBundledContent` 仅用于离线或 instrumented 测试，输出在
+  `build/generated/assets/bundledContent`，不污染源码 assets。
+- Wine 的 Bionic 依赖由精简 imagefs 提供；Pulse 客户端例外，通过
+  `DT_NEEDED=libpulse.so` 由 Box64 native wrapper 解析到 APK 内 PA13。
 
 ---
 
-## 7. 给 Amphora 的建议
+## 6. 当前自建结果
 
-### 7.1 MVP 路径（x86_64 + box64）
-1. **Fork `WinNative-Emu/proton-wine`**，锁 `proton_11.0` 某个 commit。
-2. **基于 `build-proton-sdk35.yml`**，matrix 改为 `[x86_64]` only，触发 CI 产出 `proton-11.0-1-x86_64.wcp`。
-3. **termuxfs / prefixPack 复用上游 `Assets` release**（SHA256 锁定）：`termuxfs-x86_64.tar`（1182 MB）、`prefixPack-x86_64-11.txz`（7.9 MB）。不自己重建。
-4. **.wcp 产物 SHA256 锁定**，打入 Amphora APK assets（`noCompress` xz/txz），首启解压到 imagefs。
-5. **termuxfs 运行期库**部署到设备 `/data/data/com.termux/files/usr/lib`（或 imagefs 内等价路径 + 软链），匹配 bake 进 Wine `.so` 的 rpath。
-6. box64 走独立来源（nicholasx417 / WinNative-Components），与本调研无关。
+| 环节 | 当前实现 |
+|---|---|
+| 源码 | `amphora-dev/proton-wine` 固定 commit |
+| 编排 | `amphora-dev/imagefs` 的 `l1/proton-wine-wcp.bst` |
+| 工具链 | Android NDK + llvm-mingw + host Wine tools，输入隔离 |
+| 运行库 | 精简 imagefs sysroot，不下载完整 termuxfs |
+| prefix | 构建生成并打入 `prefixPack.txz` |
+| Pulse | PA13 headers/libs 仅作交叉链接输入；产物只依赖 `libpulse.so` |
+| 门禁 | x64/i386 PE 架构、Unix ELF、RELR、页对齐、`DT_NEEDED`、绝对路径检查 |
+| 交付 | Release WCP + 远程 manifest SHA pin |
 
-### 7.2 何时自建 termuxfs / prefixPack
-- **v1+**：当需要定制 termuxfs 包集（减体积 / 加包）、或上游 Assets 下架、或要完全可复现时，再建 termuxfs（termux-packages Docker）。
-- prefixPack：当 Wine 大版本变化或 prefix 结构需定制时，在能跑 Wine 的 Android 环境里 `wineboot` 重生。
+主要维护风险仍是 Proton Android 补丁随上游变化，以及 Wine、imagefs 与 APK native
+依赖的 ABI 契约。CI 必须正向验证这些契约，不能只检查文件存在。
 
-### 7.3 风险点
-- **termuxfs 1.2 GB 下载**是 CI 的单点（上游下架就断）。建议 **Amphora 自建 CI 时把 termuxfs 缓存到自己的 release/artifact**，不每次都拉上游。
-- **rpath 路径耦合**：`/data/data/com.termux/files/usr/lib` 是 Termux 标准路径，Amphora imagefs 必须复现该路径或软链，否则 Wine `.so` 运行期找不到 freetype/SDL2。
-- **D5 文档过时**：`docs/01-RFC.md` D5 仍写 arm64ec，需更新为 x86_64 + box64。
-- **46 补丁无回退余地**：几乎全是 Android 必需，不能为省事删类别。能省的只有 advapi32（化妆）和 opengl32（防御）两个小补丁。
+---
+
+## 7. 后续约束
+
+1. 升级 Proton commit 时重新构建完整 WCP，不复用旧 `prefixPack`。
+2. 保持 Wine Unix 库与 imagefs Bionic SONAME/符号集合一致。
+3. `winepulse.so` 必须只声明 `DT_NEEDED=libpulse.so`，不得携带 PA17
+   `libpulsecommon` 或 Termux 绝对路径。
+4. Box64 native wrapper、APK PA13 与 Wine Pulse 驱动应成对回归。
+5. 发布后由 content manifest 更新 URL、大小与 SHA，应用仓库不硬编码版本。
 
 ---
 
 ## 8. 关键文件索引
 
-- 仓库：`/Users/sky/co/github/WinNative-Emu/proton-wine`（branch `proton_11.0`）
+- 上游研究仓库：`WinNative-Emu/proton-wine`（branch `proton_11.0`）
+- Amphora fork：`amphora-dev/proton-wine`
 - 工作流：`.github/workflows/build-proton-sdk35.yml`（主）、`build-proton-sdk28.yml`、`build-arm64ec-unixlib-steam.yml`（manual，arm64ec only）、`README.md`
 - 构建脚本：`build-scripts/build-step0-autogen.sh`、`build-step0.sh`、`build-step-x86_64.sh`、`build-step-arm64ec.sh`
 - 补丁：`android/patches/`（47 个 `.patch`）
@@ -302,4 +276,4 @@ Amphora RFC D4/D5 已定「MVP 不做下载，捆绑固定二进制」「assets 
 - shm_utils：`android/shm_utils/shm_utils.h`
 - 上游 release `Assets`：`termuxfs-{x86_64,aarch64}.tar`、`prefixPack-{x86_64-11,arm64ec-11}.txz`
 - WinNative 消费参考：`app/src/main/runtime/content/{ContentsManager.java,ContentProfile.java}`、`app/src/main/runtime/container/ContainerManager.java`
-- Amphora 现有调研：`docs/00-RESEARCH.md` §4.3、`docs/01-RFC.md` D4/D5（D5 待更新）
+- Amphora 现有调研：`docs/00-RESEARCH.md` §4.3、`docs/01-RFC.md` D4/D5

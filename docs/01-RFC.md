@@ -7,6 +7,11 @@
 | **日期** | 2026-07-10 |
 | **依据** | [`00-RESEARCH.md`](00-RESEARCH.md) |
 
+> 本文保留立项时的决策与取舍，不作为当前实现清单。后续演进会在对应决议下标注；
+> 未标注的现状以 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) 为准。
+> 特别是本文原计划中的 `libfakeinput`、WinHandler 和 SurfaceView 已分别被 X 协议注入、
+> 解耦后的 `TouchpadView` 与 TextureView-based `XServerSurfaceView` 取代。
+
 ---
 
 ## 1. 名称与愿景
@@ -186,6 +191,10 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 - **渲染模式**: 默认按需（`RENDERMODE_WHEN_DIRTY`），由 X Present 逐帧事件 + 窗口内容事件唤醒，`Choreographer` 合流到每显示帧最多一次；连续模式仅录屏兜底。Compose 侧无需主动 invalidate。
 - **HUD/抽屉**: 透明 Compose UI 叠在 SurfaceView 之上正常工作（SurfaceView surface 独立窗口穿洞在下）。
 
+> **后续演进（2026-07）**：Compose `AndroidView` 下的 SurfaceView 子窗口在目标设备上
+> 不可靠，实际落地改为 `XServerSurfaceView`（TextureView）。当前实现见
+> `05-ARCHITECTURE.md` §4。
+
 ### 输入衔接
 - **不进 SurfaceView**: WinNative 的 `XServerSurfaceView` 纯渲染靶，不接触摸；触摸由叠在上面的 `TouchpadView`（透明覆盖 View）消费 -> `xServer.injectPointerMove/Button` -> X 协议转给 Wine。
 - **Amphora 落地**: 同一 `Box` 内 `AndroidView { TouchpadView(...) }` 覆盖（复用 WinNative 已验证的多指/双指滚动/tap-to-click/触屏笔逻辑），或纯 Compose `Modifier.pointerInput` 重写手势状态机（代价高，非 MVP）。
@@ -194,18 +203,23 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 - **完整数据流**: Wine `winealsa.drv` -> alsa-lib(imagefs) -> `libasound_module_pcm_android_aserver.so`(imagefs `usr/lib/alsa-lib/`) -> Unix socket `/usr/tmp/.sound/AS0` -> `ALSAServerComponent`(Java 复用, epoll) -> `AudioTrack` -> 扬声器。
 - **Wine 后端配置**: `user.reg` `[Software\\Wine\\Drivers] Audio="alsa"`（建容器时写）。
 - **native 插件**: `audio_plugin/module_pcm_android_aserver.c`（ALSA PCM ioplug 插件）随 winlator-imagefs `alsa-android-aserver` 包进 rootfs，**非独立 native 移植项**（构建期核实包产物）。
-- **Java 侧（整块复用）**: `ALSAServerComponent` + `ALSAClient`（~615 行）是纯 app 运行时逻辑--epoll socket 服务器 + 自定义二进制协议解析 + `AudioTrack` 创建/写入 + 音量 DSP + underrun 处理 + 可选 SHM。落在 `:core:engine`，原样复用（保留 `com.winlator.cmod` 包名），依赖 winlator 的 `XConnectorEpoll` JNI。**PulseAudio/AAudio 路径 MVP 不做**（默认不走；`module-aaudio-sink.so` 预编译且源码不在 WinNative，留 v0.2+）。
+- **Java 侧（整块复用）**: `ALSAServerComponent` + `ALSAClient`（~615 行）是纯 app 运行时逻辑--epoll socket 服务器 + 自定义二进制协议解析 + `AudioTrack` 创建/写入 + 音量 DSP + underrun 处理 + 可选 SHM。落在 `:core:engine`，原样复用（保留 `com.winlator.cmod` 包名），依赖 winlator 的 `XConnectorEpoll` JNI。**原 MVP 决议只做 ALSA**，PulseAudio/AAudio 留给后续。
+
+> **后续演进（2026-08）**：ALSA 仍是默认及回退路径；可选 PulseAudio/AAudio
+> 已实现。链路为 `winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`，
+> PA13 运行库与模块随 APK 交付。详见 `05-ARCHITECTURE.md` §4 和
+> `08-EGGGAME-COMPARISON.md` §7。
 
 ## 9. 路线图
 
-| 版本 | 内容 | 估时(1人) |
-|------|------|----------|
-| **v0.1** | MVP — 一个 exe 跑通（显示+输入+音频）| 2-4 周 |
-| v0.2 | 容器管理（多 prefix、游戏列表、快捷方式）| 2-3 周 |
-| v0.3 | `RemoteContentSource` — 可切换 Wine/box64/DXVK 版本 | 2-3 周 |
-| v0.4 | 输入增强（手柄、虚拟键盘、自定义布局）| 2 周 |
-| v1.0 | 稳定性、性能调优、多设备适配 | 持续 |
-| v1.x+ | 按需加 Steam/Epic/GOG（独立 feature 模块，内核不动）| 按需 |
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| **v0.1** | 一个 exe 跑通（显示、输入、ALSA 音频） | ✅ 已完成 |
+| 内容供应 | `RemoteContentSource`、SHA pin、Wine/Box64/DXVK/VKD3D 更新 | ✅ 已完成 |
+| 音频增强 | 可选 PulseAudio/AAudio，ALSA 回退 | ✅ 已实现，待扩大真机回归 |
+| 输入增强 | 手柄、虚拟键盘、自定义布局 | 📋 候选 |
+| 兼容路线 | FEX/arm64ec 与更多设备适配 | 📋 候选 |
+| 商店集成 | Steam/Epic/GOG 独立 feature，不反向侵入内核 | 长期候选 |
 
 ## 10. 待决议（请审核）
 
@@ -218,7 +232,7 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 - proot 为 glibc 路线遗留死代码（未编译、零调用）；prefix 隔离靠 Wine prefix（`wineboot` 生成 `WINEPREFIX`）。
 
 ### D3: 项目名 ✅ 已定
-- **Amphora**，包名 `app.amphora`，目录 `/Users/sky/co/github/amphora`。
+- **Amphora**，包名 `app.amphora`，仓库 `amphora-dev/amphora`。
 
 ### D4: 内容获取 ✅ 已定（后经演进）
 - 原 MVP 决议「不做下载、捆绑固定二进制」已被运行时路径取代。
@@ -248,10 +262,18 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 - **rpath 路径耦合（硬约束）**: Wine `.so` 的 rpath bake 死 `/data/data/com.termux/files/usr/lib`，Amphora imagefs 必须复现该路径（软链/拷贝 termuxfs 的 lib），否则运行期找不到 freetype/SDL2/pulse。
 - **46 补丁几乎全为 Android/Bionic 必需**（esync/fsync/ntdll/nsiproxy/winex11/winepulse/wow64 等），无整类可删；仅 advapi32（化妆）+ opengl32（防御）可选。
 
+> **后续演进**：Proton、Box64、DXVK、VKD3D 和 rootfs 均由
+> `amphora-dev/imagefs` 发布并经远程 manifest 安装，不再默认打入 APK；
+> Proton WCP 也已由 BuildStream 自构建并加入 winepulse 产物门禁。
+
 ### D8: AdrenotoolsManager 简化（GPU 驱动） ✅ 已定
 - **固定单 Turnip 驱动**，MVP 不做多驱动切换。Turnip 驱动固定版本捆绑 assets（`graphics_driver/extra_libs.tzst`），预装到 `contents/adrenotools/<固定id>/`。
 - `AdrenotoolsManager` 精简到 ~30 行：仅保留 `vulkan.c` JNI 回调必需的构造器 `(Context)` + `getLibraryName(String)`；删除 `reloadContainers`（反向依赖 `feature.settings.GraphicsDriverConfigUtils` 的根源）+ 12 个多驱动管理方法。
 - 效果：解除内核反向依赖特性层的架构债（§4）；多驱动切换推 v0.3（`RemoteContentSource` 配套）。
+
+> **后续演进**：默认路径已改为 wrapper 包装系统 Vulkan；可选 Turnip 仍通过
+> `contents/adrenotools/<id>/` 安装。`extra_libs.tzst` 已废止，Mesa GL 自建并入
+> imagefs。详见 `04-ASSET-MANIFEST.md` §0.6。
 
 ### D9: XServerDisplayActivity 拆解策略 ✅ 已定
 

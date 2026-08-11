@@ -2,13 +2,16 @@
 
 > 整理自对 `WinNative` (fork of Winlator Bionic + Pluvia) 及周边生态的深度分析。
 > 目的: 为 Amphora 项目提供事实依据。所有结论标注来源/验证方式。
-> 最后更新: 2026-07-10。
+> 最后更新: 2026-08-11。
+> 本文描述移植前的 WinNative 样本，不是 Amphora 当前实现清单；当前架构与资产分别以
+> [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) 和
+> [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) 为准。
 
 ---
 
 ## 1. 参考项目: WinNative 概况
 
-- **仓库**: 本地 `/Users/sky/co/github/WinNative`（fork 自 `MaxsTechReview/WinNative`，源自 `WinNative-Emu/WinNative`）
+- **仓库**: `WinNative-Emu/WinNative`（审查样本为其本地 checkout）
 - **定位**: Android 上的 Windows (x86_64) 模拟器，融合 Winlator Bionic + Pluvia
 - **架构路线**: **Bionic**（Wine 链接 Android bionic libc，非 glibc）
 - **构建**: Android Studio + JDK 17 + NDK `27.3.13750724` + CMake；产物 arm64-v8a only
@@ -111,7 +114,7 @@
 | `experimental-drm.tzst` | 15M | gbe_fork，`tools/update-gbe-fork.sh` 确定性复现（pinned + SHA256 校验）|
 | `graphics_driver/` (wrapper/extra_libs/zink_dlls 等) | 35M | Mesa/Turnip，`WinNative-Emu/Drivers` 开放构建 |
 | `layers.tzst` | 4.2M | Khronos Vulkan-ValidationLayers |
-| `pulseaudio.tzst` | 78K | `audio_plugin/` CMake 源码构建 |
+| `pulseaudio.tzst` | 78K | ARM64 `pactl`/Pulse 模块归档；Amphora 后续与 PA13 JNI 库配套复用 |
 | `dxwrapper/d8vk`, `cnc-ddraw` | 2M | DXVK / FunkyFr3sh/cnc-ddraw 开源 |
 | `ddrawrapper/cnc-ddraw`, `nglide` | 1.4M | 开源 |
 | native .so (cpp/) | - | 本仓库 CMake 源码编译 |
@@ -135,7 +138,9 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 ```
 
 ### 4.1 `.wcp` 格式
-= `tar -cJf`（**xz 压缩 tar**）+ `profile.json` 清单（type/versionName/files[] 映射 `${system32}`/`${syswow64}`）。
+= 压缩 tar + `profile.json` 清单（type/versionName/files[] 映射
+`${system32}`/`${syswow64}`）。样本并非全部使用 xz：Proton 可为 zstd，
+Box64/DXVK/VKD3D 常见为 xz，消费端必须按 profile/内容探测。
 
 ### 4.2 nicholasx417/WinNative-Components（代码实际用）
 - 1937 commits, 149 releases, 作者 Xnick417x（第三方）。README 声明工作流"专有"但公开可读。
@@ -168,8 +173,9 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 
 ## 5. 已有资产: winlator-imagefs (我们的 rootfs 构建)
 
-- **目录**: `/Users/sky/co/github/winlator-imagefs/`
-- **仓库**: `https://cnb.cool/atowerlight/winlator-imagefs`
+- **本地样本目录**: 任意 `winlator-imagefs` checkout
+- **历史仓库**: `cnb.cool/atowerlight/winlator-imagefs`（当前已不可访问，仅保留来源记录）
+- **当前生产仓库**: [`amphora-dev/imagefs`](https://github.com/amphora-dev/imagefs)
 - **目标**: NDK r29 (clang 21) 交叉编译 42 包（`build-all.sh` `ALL_PACKAGES` 数组实测计数；仓库自身 README/BUILD-REPORT 因表格合并 X11 扩展行写作"39 个包"，口径不一致，以脚本数组为准），`aarch64-linux-android26`，**Bionic libc** (`/system/bin/linker64`)
 - **产物**: `imagefs.txz` (18M) + sha256
 - **状态**: 经多轮 CI 迭代转绿（git log 明确记录第二至第五轮失败修复，另有两轮未标号修复 + 缓存优化提交），与官方 Bionic imagefs 的 SONAME/NEEDED/ELF **全部对齐**验证
@@ -223,7 +229,8 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 - **技术上不可复现的 (0%)**: 无 -- 连最硬的 imagefs 都破了。
 - **法律上不可复现的 (~24%)**: Valve Steam 客户端 + 微软 redist DLL -- 闭源商业软件，任何 Wine 项目共同的边界。
 
-> 结论: WinNative 的 imagefs（最初判断为 glibc 黑盒）实为 Bionic 且可源码复现。Amphora 复用 winlator-imagefs 即可覆盖 rootfs 层。
+> 结论: WinNative 的 imagefs（最初判断为 glibc 黑盒）实为 Bionic 且可源码复现。
+> Amphora 已把该验证结果演进为自己的 `amphora-dev/imagefs` BuildStream 管线。
 
 ---
 
@@ -233,6 +240,6 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 - nicholasx417/WinNative-Components (代码实际用): https://github.com/nicholasx417/WinNative-Components
 - WinNative-Emu/proton-wine (Proton 源): https://github.com/WinNative-Emu/proton-wine
 - WinNative-Emu/Drivers (Turnip): https://github.com/WinNative-Emu/Drivers
+- Amphora imagefs（当前生产）: https://github.com/amphora-dev/imagefs
 - termux/termux-packages (termuxfs 源): https://github.com/termux/termux-packages
 - 原版 brunodev85/winlator: https://github.com/brunodev85/winlator
-- 本地 winlator-imagefs: `/Users/sky/co/github/winlator-imagefs/`（构建记录 `docs/BUILD-HISTORY.md`）

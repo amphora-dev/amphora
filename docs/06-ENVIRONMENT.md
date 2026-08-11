@@ -35,15 +35,18 @@ app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 ```
 
 The debug APK is intentionally slim. Rootfs, Proton, Box64, DXVK, VKD3D and
-kernel-direct archives are not required in `app/src/main/assets`. On first
-launch, the device downloads pinned HTTPS artifacts from
+manifest-managed runtime archives are not required in `app/src/main/assets`.
+On first launch, the device downloads pinned HTTPS artifacts from
 `content_manifest.json`, verifies their SHA-256 and size, and atomically installs
 them under app-private storage. Later launches use marker/size checks and do not
-download them again.
+download them again. The optional PulseAudio backend is deliberately APK-resident:
+its PA13 Android libraries are under `jniLibs` and `pulseaudio.tzst` supplies the
+matched client/modules.
 
-The first provisioning run downloads roughly 450 MB and expands to about 3.7 GB.
-Allow enough device storage and keep the device online. A warm launch normally
-takes about 6–7 seconds on the verified device.
+The current manifest's default core is roughly 93 MB compressed before shared
+fonts and optional components. The installed Wine runtime, prefix and game files
+need substantially more space, so reserve several GB and keep the device online.
+A warm launch normally takes about 6–7 seconds on the verified device.
 
 `stageBundledContent` remains available for legacy or diagnostic workflows, but
 it is not needed for the production remote-provisioning path. It exactly stages
@@ -198,7 +201,14 @@ adb shell am instrument -w -r \
   app.amphora.test/app.amphora.HiltTestRunner
 ```
 
-Run the complete suite with the state-mutating preparer test last:
+For a local ADB server, the preferred complete run stages content first:
+
+```bash
+./gradlew :app:connectedAndroidTestWithContent
+```
+
+For remote ADB, run a selected smoke suite manually with the state-mutating
+preparer test last:
 
 ```bash
 TEST_CLASSES="\
@@ -213,8 +223,9 @@ adb shell am instrument -w -r \
   app.amphora.test/app.amphora.HiltTestRunner
 ```
 
-The verified warm-cache result is 7/7 tests passing with no skipped tests in
-about 10 seconds of device-side test time.
+Do not treat a green result with `assumeTrue` skips as full coverage. Check the
+instrumentation output for skipped asset-gated tests, or use the staging
+aggregate above when the Gradle runner can reach the device directly.
 
 Use an outer timeout and cleanup while diagnosing:
 
@@ -273,11 +284,12 @@ installed tree.
 
 Amphora uses GitHub Actions via `.github/workflows/ci.yml`.
 
-Job `continuous-test` runs on `ubuntu-24.04` for every branch `push` and for
-pull requests:
+Job `continuous-test` runs on `ubuntu-24.04` for pushes to `main` and for pull
+requests:
 
-1. `scripts/ci-check.sh spotlessCheck lint :app:assembleDebug :app:assembleDebugAndroidTest` — 一次 Gradle 调用跑完格式化 / lint / JVM 测试 / 两个 APK
-2. `:app:assembleDebug` + `:app:assembleDebugAndroidTest`
+`scripts/ci-check.sh spotlessCheck lint :app:assembleDebug :app:assembleDebugAndroidTest`
+uses one Gradle invocation for repository JVM tests, JaCoCo aggregation,
+formatting, lint and both APK assemblies.
 
 The runner's preinstalled Android SDK (NDK `28.2.13676358`, CMake `3.31.5`) is
 used directly. Gradle User Home is cached via `gradle/actions/setup-gradle`
@@ -287,9 +299,9 @@ GitHub Actions does **not** run Android emulator/redroid instrumented tests
 (rootless DinD, no binder, arm64-only APK). Physical-device coverage stays on
 Tailscale ADB above.
 
-`scripts/ci-check.sh` also prints JaCoCo line/branch coverage for
-`:core:common` and `:core:content` (HTML under each module's
-`build/reports/coverage/`).
+`scripts/ci-check.sh` also runs `jvmCoverage` and prints the repository summary
+from `build/reports/coverage/jvm-summary.txt`; module HTML/XML reports remain
+under each module's `build/reports/coverage/`.
 
 `scripts/setup-android-sdk.sh` remains for local / Cursor Cloud SDK bootstrap
 (see `.cursor/environment.json`); CI relies on the runner's preinstalled SDK
@@ -300,7 +312,7 @@ Local equivalent:
 ```bash
 bash scripts/setup-android-sdk.sh
 bash scripts/ci-check.sh   # 不带参数 = 只跑 JVM 测试 + 覆盖率
-./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+bash scripts/ci-check.sh spotlessCheck lint :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
 ## 7. Teardown
@@ -320,4 +332,3 @@ sudo brew services stop tailscale
 
 On the cloud host, stop the `tailscaled` tmux session. Remove the cloud node from
 the Tailscale admin console if it was created only for an ephemeral agent.
-probe 20260806192843

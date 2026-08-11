@@ -30,7 +30,10 @@
 1. **AGP 9 built-in Kotlin** - AGP 9.0 起内置 KGP（默认 2.2.10），**禁止** `org.jetbrains.kotlin.android` 插件。convention 不 apply kotlin-android；`jvmTarget` 默认取 `compileOptions.targetCompatibility`（17）。Compose compiler 插件仍手动 apply，版本对齐 KGP。
 2. **Kotlin 2.3.21 怎么来的** - built-in 默认 2.2.10，但 compose 插件 `org.jetbrains.kotlin.plugin.compose:2.3.21` 依赖 KGP 2.3.21，apply 后把进程 KGP 升到 2.3.21（AGP 允许 ≥2.2.10）。KSP 须对齐到 2.3.9。→ **不必接受 2.2.10，可直接用最新 Kotlin 2.3.21**。
 3. **Hilt 2.59.2+ → AGP 9** - Hilt 2.59 起仅兼容 AGP ≥ 9.0.0。要最新 Hilt 就得上 AGP 9。
-4. **`platforms;android-37.0`（带 `.0`）** - 最新 AndroidX（core 1.19 / lifecycle 2.11 / hilt-nav 1.4 等）`minCompileSdk=37`。平台包名是 `platforms;android-37.0` 不是 `platforms;android-37`（后者 sdkmanager 报 not found）。装上即可 compileSdk 37、用最新 AndroidX。
+4. **`platforms;android-37.0`（带 `.0`）** - 当前 AndroidX（core 1.19 /
+   lifecycle 2.11 / hilt-navigation-compose 1.3.0 等）要求较新的 compile SDK。
+   平台包名是 `platforms;android-37.0` 不是 `platforms;android-37`（后者
+   sdkmanager 报 not found）。
 5. **`native` 是 Java 关键字** - `:core:native` 的 AGP namespace 不能含 `native`，用 `app.amphora.core.nativelib`（模块路径仍 `:core:native`；移植的 `com.winlator.cmod` JNI 类不受影响）。
 6. **AGP 9 DSL 变化** - `CommonExtension` 去泛型化；`compileOptions{}`/`testOptions{}` 块方法从 `CommonExtension` 移除（只剩属性 getter），convention 改属性访问（`compileOptions.sourceCompatibility = ...`）。`defaultConfig{}`/`buildFeatures{}`/`externalNativeBuild{}` 块仍在 `ApplicationExtension`/`LibraryExtension`。
 7. **Kotlin DSL reified 扩展要显式 import** - `.kt` 源码（convention plugin）里 `extensions.getByType<T>()`/`findByType<T>()` 不自动导入，需 `import org.gradle.kotlin.dsl.getByType/findByType`。
@@ -71,10 +74,11 @@
 ```
 ./gradlew help                     # 全工程配置通过
 ./gradlew :app:assembleDebug       # BUILD SUCCESSFUL（Kotlin 2.3.21 + KSP/Hilt + native .so + Compose + APK）
-./gradlew :core:common:test        # 单测骨架通过
+./gradlew jvmTest                  # 仓库 JVM 单测 + JaCoCo 汇总
 ```
 
 APK `app/build/outputs/apk/debug/app-debug.apk` 内含 `lib/arm64-v8a/libwinlator.so`（CMake/NDK 管线端到端验证）。`libfakeinput.so` 已停编——输入走 X inject，见 05-ARCHITECTURE §6。运行时资产在首次启动时按 manifest pin 下载。
+可选 PulseAudio 的 PA13 JNI 库和匹配模块归档是例外，固定随 APK 交付。
 
 ## 7. 下一步
 

@@ -351,7 +351,9 @@ __attribute__((visibility("default"))) int execve(
   （`/data/user/<id>/...`）与 legacy 别名（`/data/data/<pkg>/files`）。Box64 会 canonicalize
   路径，两者都必须匹配，否则 canonical 后的路径逃逸拦截。
 - **`AMPHORA_EXEC_OPTOUT`**：环境变量逃生舱，跳过拦截走 raw execve。
-- **系统路径白名单**：`/system/bin/sh` 等系统路径直接放行，不包装。
+- **系统路径策略**：app-private AArch64 ELF 与 `/system/bin/sh` 通过 linker64
+  包装；其他系统路径走 raw exec。`/system/bin/sh` 是显式特例，因为它可能作为
+  app-private 脚本的解释器继续触发子进程。
 
 ### 4.3 LD_PRELOAD 注入
 
@@ -363,6 +365,9 @@ __attribute__((visibility("default"))) int execve(
 这保证 Box64/Wine 及所有 fork 出的子进程都加载拦截器。
 
 ### 4.4 两条路线的差异
+
+当前生产只启用 box64 路线；FEXCore 列仅说明同一拦截器未来可复用，不表示它已作为
+可选运行后端交付。
 
 | | box64 路线 | FEXCore 路线 |
 |---|---|---|

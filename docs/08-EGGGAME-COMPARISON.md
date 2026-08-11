@@ -82,8 +82,9 @@ egggame 同时安装两个 Wine 版本，用户可选择：
 
 ### Amphora：单 Wine 构建
 
-- Proton 11.0 x86_64，自构建（`WinNative-Emu/proton-wine` CI workflow）
-- x86_64 翻译：box64 (0.4.3) 主路线，FEXCore (arm64ec) 备路线
+- Proton 11.0 x86_64，由 `amphora-dev/proton-wine` 源码和
+  `amphora-dev/imagefs` BuildStream 自构建
+- x86_64 翻译：Box64 0.4.5 (`0db8df775`)；FEXCore/arm64ec 仅保留框架，未作为生产后端交付
 - arm64ec 路线在 RFC D5 中被明确标注为"太重"，MVP 不做
 
 ### 关键差异
@@ -244,19 +245,23 @@ WinNative 与盖世在这里是**同路线的两套实现**。现有证据不能
 - 设置可选择 PulseAudio；下次启动同步 Wine 注册表为 `Audio=pulse`。
 - Pulse 运行时采用 WinNative 维护的匹配套件：守护进程依赖库、`pactl`、
   `module-native-protocol-unix`、`module-aaudio-sink` 和 `libprotocol-native`。
-- 当前匹配的 `module-aaudio-sink` 仅为 4 KB ELF；16 KB 页设备自动保留 ALSA，避免
-  Android linker 拒绝加载。
+- 当前 `module-aaudio-sink` 的 ELF LOAD 段只按 4 KB 页对齐（文件约 27 KB）；
+  16 KB 页设备自动保留 ALSA，避免 Android linker 拒绝加载。
 - 暂停/恢复通过 `pactl suspend-sink` 关闭并重开 AAudio stream；native sink 的错误回调
   负责处理电话或设备切换造成的 AAudio disconnect。
 - 启动时等待并确认 `AAudioSink` 真正出现；模块加载失败会清理 Pulse 进程并明确失败，
   不把“守护进程存在”误判成“音频可用”。
-- `pactl` 和守护进程使用适配 targetSdk 36 的独立启动环境，避免 app-private ELF
-  执行包装或全局 `LD_PRELOAD` 污染 Pulse 进程。
+- 守护进程使用隔离环境直接从 `nativeLibraryDir` 启动，不继承全局 `LD_PRELOAD`；
+  app-private `pactl` 则显式经过 linker64/`libamphora-exec.so` 包装，适配
+  targetSdk 36。
 - 音量和静音状态在 ALSA/Pulse 切换、暂停与恢复后保持一致。
 - 自构建 Proton WCP 含 `winepulse.so` 及 x64/x86 `winepulse.drv`；编译头文件、
   native `libpulse` 与 APK 运行时统一为 PulseAudio 13。
 - BuildStream 门禁正向验证 `winepulse.so` 的 x86_64 架构和
   `DT_NEEDED=libpulse.so`，并禁止 guest `libpulse` 绕过 Box64 native wrapper。
+
+以上应用与 WCP 改动已在功能分支完成构建验证；生产 manifest 尚未切换到含
+`winepulse` 的新 WCP，因此当前正式 pin 会触发 ALSA 安全回退。
 
 ### 三方差异
 
@@ -281,11 +286,11 @@ PulseAudio 路径比直接 Wine 音频驱动多一层混音服务，但能复用
 | 组件 | egggame | Amphora |
 |---|---|---|
 | Wine (arm64x) | Proton 11.0, NDK r29 | 无 |
-| Wine (x86_64) | Proton 10.0 (8.0-14686), NDK r26b | Proton 11.0, NDK r27d |
-| box64 | 0.39 + 0.4.1-2 | 0.4.3-c08554e3f |
-| FEX | Fex_20260509 (`libarm64ecfex.dll`) | FEXCore (env vars, 无 DLL) |
+| Wine (x86_64) | Proton 10.0 (8.0-14686), NDK r26b | Proton 11.0 (`d12a5634a`), NDK r29 |
+| box64 | 0.39 + 0.4.1-2 | 0.4.5 (`0db8df775`) |
+| FEX | Fex_20260509 (`libarm64ecfex.dll`) | 框架保留，生产未交付 |
 | DXVK | 3.0.2-async + v2.6-1-async | 3.0.2-gplasync |
-| VKD3D | proton-3.0.1 | proton (版本待查) |
+| VKD3D | proton-3.0.1 | 3.0.1 (`3b10bd7a7`) |
 | Turnip | v26.1.0_b8 (`libvulkan_freedreno.so`) | 源自 WinNative-Emu/Drivers |
 | PulseAudio | 完整安装 + AAudio sink | 13.0 可选后端 + AAudio sink |
 | libandroid-spawn | 有 (Termux) | 无 |
@@ -537,8 +542,9 @@ Task 3 依赖 Task 1/2 完成并发布新 WCP 后。Task 1/2 相互独立，可�
 
 2. **消除 `/proc/self/exe` 运行时 hook**（📋 待办，见 §10）：patch wine `get_self_exe()` + box64 `/proc/self/exe` 用法（`__ANDROID__`），随后移除 `libamphora-exec.so` 的 readlink/realpath hook 和 `AMPHORA_EXEC__PROC_SELF_EXE` env 注入。消除 `exe`/`maps` 不一致与全局 hook 开销，与盖世游戏做法对齐。
 
-3. ~~**PulseAudio → AAudio 可选后端**~~（✅ 已落地）：匹配的 PulseAudio 13 运行库、
-   `pactl` 与 AAudio sink 模块随 APK 发布；设置中可选，并保留 ALSA 回退。
+3. ~~**PulseAudio → AAudio 可选后端**~~（✅ 代码与构建已落地，⏳ 待发布联动）：
+   匹配的 PulseAudio 13 运行库、`pactl` 与 AAudio sink 模块随 APK 发布；设置中可选，
+   并保留 ALSA 回退。需发布含 `winepulse` 的 WCP 并更新生产 manifest 后端到端生效。
 
 ### 中价值（中期）
 

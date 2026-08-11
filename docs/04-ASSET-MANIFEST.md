@@ -17,6 +17,12 @@
 | Vulkan wrapper | `wrapper-7eae6442f.tzst` | 670,350 B |
 
 文件名、大小、SHA 和 URL 都必须从 manifest 读取；自动发布可以在不修改本文的情况下更新 pin。
+PulseAudio 是例外，不属于远程 manifest：`pulseaudio.tzst`（78,340 B）与约 2.03 MB
+PA13 Android JNI 依赖随 APK 固定交付，避免 Wine 客户端、守护进程和模块跨版本漂移。
+
+> **发布联动状态（2026-08-11）**：应用与 imagefs 功能分支已完成 Pulse 代码及
+> `winepulse.so`/`.drv` 构建；文首当前生产 Proton pin 仍是联动前产物。manifest
+> 发布新 WCP 前，运行时完整性检查会把 Pulse 请求安全回退到 ALSA。
 
 ---
 
@@ -83,11 +89,15 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 
 | 资产 | 大小 | 提供 | 备注 |
 |---|---|---|---|
-| `dd7to9.tzst` | 3.0 MB | `ddraw.dll` + `dxwrapper.dll` + `.ini` | ⚠️ 与 `cnc-ddraw` **互斥** |
-| `nglide.tzst` | 1.2 MB | `glide` `glide2x` `glide3x` `3DfxSpl*` | Glide，不与前两者冲突 |
-| `cnc-ddraw.tzst` | 0.17 MB | `ddraw.dll`；APK 随附官方完整 `ddraw.ini`（全局默认改为 D3D9，保留游戏 preset） | ⚠️ 与 `dd7to9` **互斥** |
+| `dd7to9.tzst` | 3.0 MB | `ddraw.dll` + `dxwrapper.dll` + `.ini` | ⚠️ DirectDraw 三选一 |
+| `d7vk.zip` | 以 manifest 为准 | 上游 x32 `ddraw.dll`，D3D3–7 → Vulkan | ⚠️ DirectDraw 三选一 |
+| `nglide.tzst` | 1.2 MB | `glide` `glide2x` `glide3x` `3DfxSpl*` | Glide，不与 DirectDraw 三选一冲突 |
+| `cnc-ddraw.tzst` | 0.17 MB | `ddraw.dll`；APK 随附官方完整 `ddraw.ini`（全局默认改为 D3D9，保留游戏 preset） | ⚠️ DirectDraw 三选一 |
 
 ### F. 容器模板 — 落容器目录，**每个容器一份**
+
+> 历史 WinNative 样本；Amphora 当前已废止该包，prefix 只从 Proton
+> `prefixPack.txz` 生成，字体改为共享 `fonts.tzst`。
 
 | 资产 | 大小 | 条目 | 内容 |
 |---|---|---|---|
@@ -108,6 +118,17 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 `gpu_cards.json`（26.5 KB，GPU 名 → vendor/device ID）·`startmenu.json`（2.1 KB）·
 `wincomponents.json`（1.8 KB，D 类的选装清单）·`default.box64rc`（1.3 KB）
 
+### I. APK 内音频运行时 — 不走远程 manifest
+
+| 资产 | 大小 | 内容 | 安装/加载 |
+|---|---:|---|---|
+| `pulseaudio.tzst` | 78,340 B | ARM64 `pactl`、`module-native-protocol-unix`、`module-aaudio-sink`、`libprotocol-native` | `PulseAudioRuntimeSupport` 按版本 marker 原子安装到 `filesDir/pulseaudio-runtime` |
+| `jniLibs/arm64-v8a` PA13 库 | 约 2.03 MB | `libpulseaudio`、`libpulse`、`libpulsecore/common-13.0`、`libsndfile`、`libltdl` | Android legacy JNI packaging 解压到 `nativeLibraryDir` |
+
+这套资产只在用户选择 Pulse 后启动；默认及不支持的平台继续使用 imagefs 内 ALSA
+aserver。它与远程 Proton WCP 中的 x86_64 `winepulse.so` 配套，但两边独立发布时必须
+保持 `DT_NEEDED=libpulse.so` 和 PA13 ABI 契约。
+
 ### 归类暴露出的问题
 
 **C 与 D 同构却用两套机制。** 两者解压后都是 `system32/` + `syswow64/` 的 DLL 覆盖，
@@ -119,8 +140,9 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 `ContentsManager.extraContentFile` 必须先试 ZSTD 再试 XZ，§5 里「`.wcp` = xz 压缩 tar」
 的表述不准确。
 
-**`cnc-ddraw` 与 `dd7to9` 互斥。** 两者都提供 `syswow64/ddraw.dll`，同时提取后者覆盖
-前者。`03-TRACKING.md` 里记的「注入 dd7to9 回退导致 DX9–11 挂」很可能与这个覆盖有关。
+**`cnc-ddraw`、`dd7to9` 与 `d7vk` 互斥。** 三者都提供
+`syswow64/ddraw.dll`，UI 和安装器必须只落一份。`d7vk` 另外把 Proton builtin
+保留为 `ddraw_.dll`，供其代理调用。
 
 **Turnip 有两份并存且版本不同。** `extra_libs.tzst` 里 11.5 MB（2025-08-07，已 strip），
 `WN-Turnip` zip 里 14.8 MB（2026-07-22）。后者装到 `filesDir/contents/adrenotools/`，通过
@@ -160,7 +182,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 | 10 | **`fonts.tzst`**（共享） | Source Han Sans **CN+JP** 回退 + Microsoft YaHei、SimHei、PMingLiU、Tahoma、Microsoft Sans Serif | **~38 MB** | `contents/FONTS/<sha>/`；真实 Windows 字体优先，Source Han 处理未打包字体；FontLink / FontSubstitutes / Wine Replacements | ✅ |
 | 11 | **`wincomponents/*.tzst`** | 微软 redist（保持 tzst，**不**改 WCP） | 目录合计 ~38 MB；按 `FALLBACK` 选装 | 容器 DLL | ✅ 按需提取，机制不变 |
 | 12 | **`WN-Turnip-*.zip`** | 可选完整 Turnip | ~2.7 MB zip / ~15 MB `.so` | `contents/adrenotools/<id>/` | ⚪ 可选 |
-| 13 | **`ddrawrapper/{cnc-ddraw,dd7to9,nglide}.tzst`** | DirectDraw/Glide；`cnc-ddraw` 与 `dd7to9` **互斥单选**，默认 DxWrapper Dd7to9 | 各 0.2–3 MB | 容器 `syswow64` | ⚪ 可选 |
+| 13 | **`ddrawrapper/{cnc-ddraw,dd7to9}.tzst` + `d7vk.zip` + `nglide.tzst`** | DirectDraw 三选一，默认 DxWrapper Dd7to9；nGlide 独立 | 各包以 manifest 为准 | 容器 `syswow64` | ⚪ 可选 |
 | 14 | ~~`layers.tzst`~~ | Vulkan validation | ~4.4 MB | — | ❌ **默认不装**（host 调试层可选；guest 不 extract） |
 | 14b | **`mesa-gl-override.tzst`**（可选） | 排查 OpenGL/DX7 时替换 `libGL`，**不进发布默认集** | ~5 MB | imagefs `usr/lib` 覆盖 | ⚪ 仅调试 |
 | 15 | **FFmpeg 附加包**（可选） | `winedmo` 硬依赖；默认媒体走 GStreamer | 视自建拆包 | imagefs 叠加或并入 imagefs 变体 | ⚪ 可选（默认可不含） |
@@ -186,7 +208,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 | `extra_libs` 内 `libvulkan_freedreno` + freedreno ICD | 默认 Wrapper 模式用系统 Adreno；完整 Turnip 只走可选 zip |
 | `layers.tzst`（默认） | validation 仅调试 |
 | `wrapper.tzst` 内的 4 hook | ✅ 唯一来源（guest+host）；APK 不再打包第二份 |
-| `wrapper-leegao` / `virgl-*` / `zink-*` / `pulseaudio.tzst` | Amphora MVP 不用（Pulse/FEX 保留扩展位） |
+| `wrapper-leegao` / `virgl-*` / `zink-*` | Amphora 默认路径不用 |
 | pattern 内多字体（日文装饰体等）+ 内嵌 `cnc-ddraw` | 默认 DxWrapper Dd7to9；字体改为共享 CN+JP Regular/Bold 四脸包 |
 | `d8vk-1.0.tzst` | 默认 DXVK ≥ 3.x 已带 d3d8 |
 | wincomponents → WCP | 无版本轮换需求，改格式零收益；**维持 tzst** |
@@ -200,7 +222,10 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
    见下「收敛到只有一份 hooks」。
 3. **Mesa GL 不单独拆包**，理由见下「为什么 Mesa GL 进 imagefs 而 wrapper 不进」。
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
-5. **ddraw** 默认 DxWrapper Dd7to9；`cnc-ddraw` ↔ `dd7to9` 互斥，UI/安装器只落一份。两套资产均仅含 PE32 `syswow64/ddraw.dll`：32-bit 优先 native wrapper；x86_64 无 native DLL，按 `ddraw=n,b` 回退 Proton builtin ddraw/WineD3D→Zink。
+5. **ddraw** 默认 DxWrapper Dd7to9；`cnc-ddraw` / `dd7to9` / `d7vk`
+   互斥，UI/安装器只落一份。三套路径都只部署 PE32
+   `syswow64/ddraw.dll`；x86_64 无对应 wrapper，按 `ddraw=n,b` 回退 Proton
+   builtin ddraw/WineD3D→Zink。
 6. **字体** 全局一份；多容器不重复打进 pattern。
 7. **发布面**：默认 pin / 产物走公开 GitHub Release（`amphora-dev/*`）+
    `content_manifest`（GitHub Contents API，raw 回退）；不塞进默认 APK。
@@ -254,6 +279,10 @@ libGL 两者都不具备：Vulkan 驱动是**真实插拔点**（Wrapper 默认 
 ICD 与 hooks 要能独立于 rootfs 换版。
 
 ### hooks 路径：`nativeLibraryDir` 的约束到底有多硬
+
+> **历史方案分析，非当前布局。** 本节保留用于说明为什么两种目录都能加载；
+> “hooks 指向 APK”方案随后被否决。当前唯一布局是自建 `wrapper.tzst` →
+> `imagefs/usr/lib`，见 §0.6 与本文开头的定稿表。
 
 **先纠正一个说法**：先前写「hooks 物理上不可能待在 imagefs 里」是错的。读 adrenotools 实现：
 
@@ -315,7 +344,8 @@ _ZN14HookImplParamsC2EiPKcS1_S1_S1_S1_P23adrenotools_gpu_mapping
 与 submodule `8483dfd` 的 `hook_impl_params.h:22` 逐参对齐（`int` + **5×** `const char*`
 + `adrenotools_gpu_mapping*`）。字段集相同 → 布局相同（`int` + 5×`std::string` + 指针；
 两侧同为 NDK `libc++_shared`，`_LIBCPP_ABI_VERSION=1` 下 `std::string` 恒 24 字节）。
-**结论：hooks 指向 APK 自建版不构成 ABI 错配。**
+**当时的局部结论**：在所测提交上，hooks 指向 APK 自建版未发生 ABI 错配；这不构成
+采用多份 hooks 的理由，当前实现仍只保留 wrapper 内一份。
 
 顺带测出的第二件事：guest `libvulkan_wrapper.so` 对 `libadrenotools` 的**未定义符号只有
 一个** `adrenotools_open_libvulkan`（不引用 `patch_bcn` / `set_turbo` / `get_bcn_type`）。
@@ -396,7 +426,7 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 | 落地根 | 谁写入 | 冲突风险 |
 |---|---|---|
 | `imagefs/`（rootfs） | `imagefs`（含自建 `libGL`）+ `wrapper.tzst` + `layers` + Proton/Box64 WCP | **提取顺序敏感**；hooks 曾在此三份漂移 |
-| 容器 `system32`/`syswow64` | DXVK/VKD3D/Proton builtin/DirectDraw cache 的只读软链接 + 容器私有配置 | `cnc-ddraw` ↔ `dd7to9` **互斥**；写入前必须先 unlink，禁止跟随链接改共享源 |
+| 容器 `system32`/`syswow64` | DXVK/VKD3D/Proton builtin/DirectDraw cache 的只读软链接 + 容器私有配置 | `cnc-ddraw` / `dd7to9` / `d7vk` **互斥**；写入前必须先 unlink，禁止跟随链接改共享源 |
 | 容器 `.wine`（prefix） | Proton `prefixPack` + 共享字体链接 + 容器私有配置 | pattern 已废止；写入前须处理旧链接 |
 | `filesDir/contents/<type>/<ver>/` | `ContentsManager`（WCP） | 版本化，无冲突 |
 | `filesDir/contents/DDRAW/<id>-<sha>/` | runtime asset 解压一次后的 immutable DLL cache | prefix 只链接 DLL；INI/shader 仍为容器私有 |
@@ -493,7 +523,7 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 | `layers.tzst` | `9beac20c3e2c7f2c224f2c18cc6dc253b0f70450006fc986970992c7a8814ffa` | Vulkan 层 |
 | `extras.tzst` | `c8750ea9df7bccb8d6b93e9d3432214a9fa473ca32022a46cf02a471eb02a052` | Mono MSI 等 |
 | `experimental-drm.tzst` | `cc95e069d6221d9fa7f92c8311574131d6fda277b65c587a771cc10cad898736` | |
-| `pulseaudio.tzst` | `357bb53fbcf91ab2adcd2e6a4b7fc3f2cb95f1555610681b08dbf6d412ac4bd8` | PA 模块 (glibc/PA17, 与 Bionic imagefs 的 PA13 模块有别) |
+| `pulseaudio.tzst` | `357bb53fbcf91ab2adcd2e6a4b7fc3f2cb95f1555610681b08dbf6d412ac4bd8` | ARM64 Pulse 模块；当前 Amphora 与 PA13 JNI 库配套后随 APK 交付 |
 | `container_pattern.tzst` | `4043fa27127c663461d45e953f9023bdcacf31b21f611d954d5b4e872ebb32e6` | Wine prefix 模板 |
 | `container_pattern_common.tzst` | `6f5a7b011f2ab79d8be60c4783de97f635289fd901fb624b26c2a3725fc8f479` | |
 | `proton-9.0-x86_64_container_pattern.tzst` | `fa25987a3ba4f1b951bd1161f9a65a9450f0b72b87583fd3d9971d92c63a9608` | Proton x86_64 prefix |
@@ -528,7 +558,7 @@ CI 重建后 SHA 会变：先更新 `content_manifest.json`；本文仅在人工
 
 | 来源 | URL | 产物 | SHA-256 | 说明 |
 |---|---|---|---|---|
-| cnb.cool 仓 (用户指定) | `https://cnb.cool/atowerlight/winlator-imagefs` (HEAD `2daa55c`) | `imagefs.txz` (xz, 18 MB) | `af66e28b61577a0cd8433155ee2123d910f02f7870b8938994d27d81281372e3` | CI 构建配方 (39 包, NDK r29 交叉编译, Bionic). 产物作 commit 附件上传 (无 git tag/release). 本地浅克隆 1.2 MB (仅脚本+docs) |
+| cnb.cool 历史仓 | `cnb.cool/atowerlight/winlator-imagefs` (HEAD `2daa55c`；当前不可访问) | `imagefs.txz` (xz, 18 MB) | `af66e28b61577a0cd8433155ee2123d910f02f7870b8938994d27d81281372e3` | 仅保留早期来源记录；生产已迁移到 `amphora-dev/imagefs` |
 | GitLab winlator-extra | `https://gitlab.com/winlator3/winlator-extra/-/raw/main/imagefs/imagefs.txz.{00-03}` | `imagefs.txz` (4×50 MB 分卷) | `f96d362b7e148e86ab0d2c290978bf39b38e5c7ffc8ae4adf1d2a65c62bbb780` | Pipetto-crypto build.gradle `downloadImageFS` 的原始源 |
 
 > 这些是早期可复现构建来源。当前生产使用 `amphora-dev/imagefs` 发布的精简
@@ -582,7 +612,8 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 | **Box64** | `Box64-0.4.5-0db8df775.wcp` | `Box64-0.4.5-0db8df775-0` | x86_64 → ARM64 用户态翻译 |
 | **Wrapper** | `wrapper-7eae6442f.tzst` | runtime asset `graphics_driver/wrapper.tzst` | Guest Vulkan ICD + adrenotools hooks |
 
-容器默认 `dxwrapper`：`dxvk-…;vkd3d-…;dd7to9`；第三段可由 UI 在 `dd7to9` 与 `cnc-ddraw` 之间切换。
+容器默认 `dxwrapper`：`dxvk-…;vkd3d-…;dd7to9`；第三段可由 UI 在
+`dd7to9`、`cnc-ddraw` 与 `d7vk` 之间切换。
 
 选型原则：默认使用 manifest 锁定的 x86_64（非 arm64ec）组件。Catalog 中的 Stable、
 nightly 或 GPU 特化包只用于显式兼容性试验，不能静默替换生产 pin。
@@ -617,7 +648,11 @@ nightly 或 GPU 特化包只用于显式兼容性试验，不能静默替换生�
 
 > **易混点**：真机是 **arm64-v8a Android**，但 guest 里跑的是 **x86_64 Wine**（外面套 Box64）。所以要下 **不带 `arm64ec`** 的 `.wcp`。带 `arm64ec` 的包是给「arm64ec Proton + FEX」那条 WinNative 路线的；装错 ABI 会直接对不上 `ContentsManager`/DLL 架构。`a6xx` 则是 **Adreno GPU** 名，和 `arm64ec` 不是一类东西。
 
-**和 WineD3D / Zink 的关系**：AIO **OpenGL** 走 Wine `opengl32` → EGL → Mesa **Zink**。32-bit DirectDraw 强制二选一：DxWrapper Dd7to9 或 cnc-ddraw（D3D9 renderer）→ DXVK → Vulkan；缺包时启动失败。两套上游 wrapper 都不提供 x86_64 DLL，因此 64-bit DirectDraw 走 Proton builtin `ddraw` → WineD3D → EGL/Zink。
+**和 WineD3D / Zink 的关系**：AIO **OpenGL** 走 Wine `opengl32` → EGL →
+Mesa **Zink**。32-bit DirectDraw 在 DxWrapper Dd7to9、cnc-ddraw（D3D9
+renderer）和 d7vk（D3D3–7 直转 Vulkan）中三选一；缺包时启动失败。三套路径都
+不部署 x86_64 DLL，因此 64-bit DirectDraw 走 Proton builtin `ddraw` → WineD3D
+→ EGL/Zink。
 
 「有 FPS 但黑屏」历史原因是 launch env 漏合并容器 `DEFAULT_ENV_VARS`（`ZINK_DESCRIPTORS` / `TU_DEBUG=noconform,sysmem` / `mesa_glthread`）。这些变量现在只服务 OpenGL EGL/Zink；DirectDraw 强制走 native wrapper → D3D9/DXVK。
 
@@ -628,5 +663,5 @@ nightly 或 GPU 特化包只用于显式兼容性试验，不能静默替换生�
 生产路径是 Kotlin `RemoteContentSource` + `VerifiedAssetDownloader`（可续传 + SHA），
 按 GitHub API / raw 上的 `content_manifest.json` pin 拉取 `.wcp` / ARCHIVE / ROOTFS。
 不要把 native stub 理解成「设备不能下载」。
-- **preparer 真验可行路径** (绕过 stub): host `curl` 下载 `.wcp` -> `adb push` -> `ContentsManager.extraContentFile(Uri, callback)` 本地装 (走 `nativeExtractArchive`, 非 download) -> `createContainer` (抽 Wine prefix) -> 跑 preparer.
-- **v0.3**: 恢复 curl body 解除 stub -> 设备直接下载.
+- **历史诊断路径**（仍可离线使用）：host `curl` 下载 `.wcp` → `adb push` →
+  `ContentsManager.extraContentFile` 本地安装。生产路径不计划恢复 JNI curl。

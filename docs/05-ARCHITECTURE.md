@@ -53,8 +53,10 @@ Hilt 绑定集中在 `EngineModule`；三个 sibling 接口已无 stub。
 
 ```
 MainActivity → AmphoraNavHost
-  ├─ [默认] launcher → SAF .exe → filesDir/exe/ → game_session
-  └─ [测试] Debug: Wine smoke test / DEBUG_AUTO_LAUNCH_WINE=true → Wine session
+  ├─ launcher → SAF .exe → filesDir/exe/
+  ├─ settings
+  └─ SessionActivity.launch(...) → 独立 Android `:session` 进程
+       └─ [测试] launcher 的 Debug: Wine smoke test / MainActivity debug intent
 
 GameSessionViewModel
   → WineEngine.launch(LaunchSpec)   // MVP 容器 id = "1"
@@ -62,7 +64,7 @@ GameSessionViewModel
        2. WinlatorContainerManager.getOrCreate()     // WINE/BOX64/DXVK/VKD3D .wcp + prefix
        3. XServerWineSessionPreparer                 // prefix 修复 / DXVK+VKD3D DLL / Turnip env
        4. XServer + GameSessionSurface               // 暴露给 UI
-       5. XEnvironment + SysV / XServer / ALSA / Net
+       5. XEnvironment + SysV / XServer / ALSA 或 PulseAudio / Net
        6. stageExeIntoPrefix → C:\<exe>              // Z: 映 rootfs，宿主路径不可直传
        7. GuestProgramLauncher: box64 wine explorer /desktop=shell,WxH "C:\..."
        8. startEnvironmentComponents()
@@ -105,6 +107,20 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 声音、服务、DLL、组件、盘符、输入、Box64/FEX 全部同一套。  
 `dxwrapper` 只认分号格式。图形启动只读容器（`getOrCreate` 已从设置写入）。
 
+## 3.3 Android 存储与 Wine 盘符
+
+- Wine `dosdevices` 需要真实文件系统路径，SAF URI 不能直接作为盘符目标；Android 11+
+  使用 `MANAGE_EXTERNAL_STORAGE` 的 per-app 设置页授权，旧
+  `READ_EXTERNAL_STORAGE` 不足以保证可遍历。
+- `GuestDriveManager` 通过 `StorageManager.storageVolumes` 枚举主存储和已挂载可读的
+  SD 卡，规范化路径并展示可用状态；UI 刷新只读，避免与独立 `:session` 进程同时改写
+  容器 JSON。
+- 每次启动由 `WineUtils.normalizePersistentDrives(..., includeRemovable=true)` 权威协调
+  持久盘符，再创建 `dosdevices` 符号链接，因此容器创建后插入的 SD 卡也能出现。
+- 运行时组件 DLL 使用另一套受限链接：`SharedDllLinker` 只允许
+  `filesDir/contents` 下的普通文件，先设只读，再用临时相对 symlink + rename 原子发布
+  到 prefix，避免容器写穿共享组件缓存。
+
 ---
 
 ## 4. 渲染与输入
@@ -116,8 +132,11 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 | Java 渲染 | `VulkanRenderer` | 加载 `winlator`，direct scene buffer |
 | Native | `vk_renderer.c` + adrenotools | swapchain / AHB 导入 / Turnip 或系统 `libvulkan.so` |
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
-| Guest 图形 | Wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw→DxWrapper Dd7to9 或 cnc-ddraw→D3D9/DXVK；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | 默认 wrapper 包装系统 Adreno，host 直接用同一系统 Vulkan；显式 Turnip 才由 host/guest 共用 adrenotools driver |
+| Guest 图形 | Wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw 在 Dd7to9 / cnc-ddraw / D7VK 中单选；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | 默认 wrapper 包装系统 Adreno，host 直接用同一系统 Vulkan；显式 Turnip 才由 host/guest 共用 adrenotools driver |
 | 音频 | ALSA aserver 或 Wine PulseAudio | 默认 ALSA；可选 `winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`，16 KB 页或驱动不完整时保留 ALSA |
+
+Pulse 代码与配套 WCP 已在功能分支完成构建验证；生产 manifest 发布含
+`winepulse` 的新 WCP 前，完整性检查会继续选择 ALSA。
 
 已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 
@@ -130,13 +149,15 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 - **安装路径**：
   - `WCP` → `ContentsManager.extraContentFile` + `finishInstallContent` → `filesDir/contents/...`
   - `ARCHIVE` → `TarCompressorUtils` → `filesDir/amphora-content/<component>/<version>/`
-- **构建 staging**：`./gradlew :app:stageBundledContent`（**不**挂 preBuild；Proton ~160MB 避免每次 debug APK 膨胀）
+- **构建 staging**：`./gradlew :app:stageBundledContent`（**不**挂 preBuild；当前 Proton pin 约 66.3 MB，仍不应膨胀每次 debug APK）
   - 每次重新读取同一份远程 manifest，遍历非 ROOTFS `components` 与全部 `runtimeAssets`；`-Pamphora.contentManifest.file=<path>` 可离线
   - 优先使用相邻 `WinNative` checkout 中的同路径文件；缺失时用条目的 `remoteUrl` 下载（WCP 可回落 `wcpCatalogUrl`）
   - 本地文件、下载缓存和最终生成文件都同时校验 `size` 与 SHA-256，任一不匹配即失败
   - 先完整写临时目录，成功后精确替换 `app/build/generated/assets/bundledContent/`，不会污染 `app/src/main/assets/`；该目录已接入 main Android assets source set
 
-无资产时 `assembleDebug` 仍绿；端到端运行/instrumented 测试需先 staging。
+无资产时 `assembleDebug` 仍绿；联网运行可由 `RemoteContentSource` 首启下载。
+要求资产门禁不跳过的 instrumented 测试应使用
+`./gradlew :app:connectedAndroidTestWithContent` 先 staging。
 
 ---
 
@@ -172,11 +193,16 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 | 文档 | 角色 |
 |---|---|
 | `00-RESEARCH.md` | WinNative 拆解依据（历史） |
-| `01-RFC.md` | 立项决议 D1–D9（不变真源） |
+| `01-RFC.md` | 立项决议 D1–D9 与后续演进注记 |
 | `02-SCAFFOLD.md` | scaffold 时 as-built 栈与踩坑（历史；栈版本仍有效） |
 | `03-TRACKING.md` | agent handoff checklist（living） |
 | `04-ASSET-MANIFEST.md` | 资产 SHA 锁 |
 | **`05-ARCHITECTURE.md`** | **当前实现架构（本文）** |
+| `06-ENVIRONMENT.md` | Cloud/ADB/真机测试与 CI |
+| `07-TARGETSDK-SELINUX.md` | targetSdk 36 app-private ELF 执行 |
+| `08-EGGGAME-COMPARISON.md` | GameHub / WinNative / Amphora 对比 |
+| `RESEARCH-proton-wine-selfbuild.md` | Proton 自建依据与当前 BuildStream 结果 |
+| `WRAPPER-BUILD.md` | Vulkan wrapper 独立构建方法 |
 
 ---
 
