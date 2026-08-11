@@ -187,7 +187,6 @@ public class ALSAClient {
         return false;
       }
       bufferCapacityFrames = audioTrack.getBufferCapacityInFrames();
-      if (options.volume < Options.DEFAULT_VOLUME) audioTrack.setVolume(options.volume);
       audioTrack.play();
       if (audioTrack.getPlayState() != AudioTrack.PLAYSTATE_PLAYING) {
         release();

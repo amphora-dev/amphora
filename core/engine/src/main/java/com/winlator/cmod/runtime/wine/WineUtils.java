@@ -683,8 +683,8 @@ public abstract class WineUtils {
    * 把注册表里的声音驱动写成容器想要的值。
    *
    * <p>由调用方用 AppliedMarks 门控：想要 ≠ 装过才调用；成功后更新标记。
-   * Amphora 当前实现了 {@code alsa}；{@code pulseaudio} 映射为 Wine 的 {@code pulse}，
-   * 便于以后接 Pulse 后端，缺后端时由运行时暴露错误而不是静默改成别的驱动。
+   * Amphora 当前只实现 {@code alsa}。旧容器中的 {@code pulseaudio} 配置安全回退到
+   * ALSA，避免把注册表指向未安装的 Pulse 后端而导致静音。
    */
   public static void ensureWineAudioDriver(Container container, File rootDir, String audioDriver) {
     if (container == null || rootDir == null || audioDriver == null || audioDriver.isEmpty()) {
@@ -701,6 +701,9 @@ public abstract class WineUtils {
     if (wineAudio == null) {
       Log.w("WineUtils", "ensureWineAudioDriver: unknown driver " + audioDriver);
       return;
+    }
+    if ("pulseaudio".equals(audioDriver)) {
+      Log.w("WineUtils", "PulseAudio backend is unavailable; falling back to ALSA");
     }
 
     try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
@@ -720,7 +723,7 @@ public abstract class WineUtils {
   public static String wineAudioDriverName(String audioDriver) {
     if (audioDriver == null) return null;
     if ("alsa".equals(audioDriver)) return "alsa";
-    if ("pulseaudio".equals(audioDriver)) return "pulse";
+    if ("pulseaudio".equals(audioDriver)) return "alsa";
     return null;
   }
 
