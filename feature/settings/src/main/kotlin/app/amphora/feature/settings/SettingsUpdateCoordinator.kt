@@ -95,13 +95,17 @@ private fun <Update, Artifact> reduce(
     event: SettingsUpdateEvent<Update, Artifact>,
 ): SettingsUpdateTransition<Update, Artifact> = when (event) {
     SettingsUpdateEvent.CheckRequested ->
-        state.copy(
-            checking = true,
-            pendingArtifact = null,
-            permissionPhase = PermissionPhase.NONE,
-            permissionReadyObserved = false,
-            message = null,
-        ).transition(SettingsUpdateEffect.CheckForUpdate)
+        if (state.busy || state.permissionPhase != PermissionPhase.NONE) {
+            state.transition()
+        } else {
+            state.copy(
+                checking = true,
+                pendingArtifact = null,
+                permissionPhase = PermissionPhase.NONE,
+                permissionReadyObserved = false,
+                message = null,
+            ).transition(SettingsUpdateEffect.CheckForUpdate)
+        }
     is SettingsUpdateEvent.CheckCompleted ->
         when (val outcome = event.outcome) {
             is UpdateCheckOutcome.UpToDate ->

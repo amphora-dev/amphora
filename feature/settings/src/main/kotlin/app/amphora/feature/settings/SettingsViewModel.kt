@@ -582,6 +582,7 @@ constructor(
         )
     }
 
+    @Synchronized
     private fun dispatchUpdate(event: SettingsUpdateEvent<AppUpdateManifest, File>) {
         val transition = updateCoordinator.dispatch(event)
         _uiState.update {

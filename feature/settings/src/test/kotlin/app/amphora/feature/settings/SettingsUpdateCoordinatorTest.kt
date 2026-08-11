@@ -79,6 +79,33 @@ class SettingsUpdateCoordinatorTest {
     }
 
     @Test
+    fun duplicateCheckWhileBusyDoesNotStartAnotherEffect() {
+        val coordinator = coordinator()
+
+        val first = coordinator.dispatch(SettingsUpdateEvent.CheckRequested)
+        val duplicate = coordinator.dispatch(SettingsUpdateEvent.CheckRequested)
+
+        assertEquals(listOf(SettingsUpdateEffect.CheckForUpdate), first.effects)
+        assertTrue(first.state.checking)
+        assertTrue(duplicate.effects.isEmpty())
+        assertTrue(duplicate.state.checking)
+    }
+
+    @Test
+    fun checkRequestCannotCancelPermissionWait() {
+        val coordinator = waitingForPermission()
+
+        val transition = coordinator.dispatch(SettingsUpdateEvent.CheckRequested)
+
+        assertTrue(transition.effects.isEmpty())
+        assertTrue(transition.state.waitingForPermission)
+        assertEquals(
+            "Grant Shizuku access to install automatically.",
+            transition.state.message,
+        )
+    }
+
+    @Test
     fun repeatedInstallRequestsProduceOneInstallEffect() {
         val coordinator = coordinatorWithAvailable()
 
