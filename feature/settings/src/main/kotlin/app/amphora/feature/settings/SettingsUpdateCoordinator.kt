@@ -43,13 +43,10 @@ internal sealed interface SettingsUpdateEvent<out Update, out Artifact> {
     data class CheckCompleted<Update>(val outcome: UpdateCheckOutcome<Update>) :
         SettingsUpdateEvent<Update, Nothing>
 
-    data class InstallRequested(val permissionRequired: Boolean) :
-        SettingsUpdateEvent<Nothing, Nothing>
+    data class InstallRequested(val permissionRequired: Boolean) : SettingsUpdateEvent<Nothing, Nothing>
 
-    data class PermissionRequestCompleted(
-        val requestStarted: Boolean,
-        val permissionReady: Boolean = false,
-    ) : SettingsUpdateEvent<Nothing, Nothing>
+    data class PermissionRequestCompleted(val requestStarted: Boolean, val permissionReady: Boolean = false) :
+        SettingsUpdateEvent<Nothing, Nothing>
 
     data object PermissionReady : SettingsUpdateEvent<Nothing, Nothing>
 
@@ -57,10 +54,8 @@ internal sealed interface SettingsUpdateEvent<out Update, out Artifact> {
 
     data object InstallStarted : SettingsUpdateEvent<Nothing, Nothing>
 
-    data class SystemInstallerRequired<Artifact>(
-        val artifact: Artifact,
-        val reason: String,
-    ) : SettingsUpdateEvent<Nothing, Artifact>
+    data class SystemInstallerRequired<Artifact>(val artifact: Artifact, val reason: String) :
+        SettingsUpdateEvent<Nothing, Artifact>
 
     data class InstallFailed(val message: String) : SettingsUpdateEvent<Nothing, Nothing>
 }
@@ -98,116 +93,115 @@ internal data class SettingsUpdateTransition<Update, Artifact>(
 private fun <Update, Artifact> reduce(
     state: SettingsUpdateState<Update, Artifact>,
     event: SettingsUpdateEvent<Update, Artifact>,
-): SettingsUpdateTransition<Update, Artifact> =
-    when (event) {
-        SettingsUpdateEvent.CheckRequested ->
-            state.transition(
+): SettingsUpdateTransition<Update, Artifact> = when (event) {
+    SettingsUpdateEvent.CheckRequested ->
+        state.transition(
+            state.copy(
+                checking = true,
+                pendingArtifact = null,
+                permissionPhase = PermissionPhase.NONE,
+                permissionReadyObserved = false,
+                message = null,
+            ),
+            SettingsUpdateEffect.CheckForUpdate,
+        )
+    is SettingsUpdateEvent.CheckCompleted ->
+        when (val outcome = event.outcome) {
+            is UpdateCheckOutcome.UpToDate ->
                 state.copy(
-                    checking = true,
-                    pendingArtifact = null,
-                    permissionPhase = PermissionPhase.NONE,
-                    permissionReadyObserved = false,
-                    message = null,
-                ),
-                SettingsUpdateEffect.CheckForUpdate,
-            )
-        is SettingsUpdateEvent.CheckCompleted ->
-            when (val outcome = event.outcome) {
-                is UpdateCheckOutcome.UpToDate ->
-                    state.copy(
-                        checking = false,
-                        availableUpdate = null,
-                        availableVersionName = null,
-                        message = "Up to date (${outcome.remoteVersionName})",
-                    ).transition()
-                is UpdateCheckOutcome.UpdateAvailable ->
-                    state.copy(
-                        checking = false,
-                        availableUpdate = outcome.update,
-                        availableVersionName = outcome.remoteVersionName,
-                        message =
-                        "Update available: ${outcome.remoteVersionName} " +
-                            "(${outcome.installedVersionCode} → ${outcome.remoteVersionCode})",
-                    ).transition()
-                is UpdateCheckOutcome.Unavailable ->
-                    state.copy(
-                        checking = false,
-                        availableUpdate = null,
-                        availableVersionName = null,
-                        message = outcome.reason,
-                    ).transition()
-                is UpdateCheckOutcome.Failed ->
-                    state.copy(
-                        checking = false,
-                        availableUpdate = null,
-                        availableVersionName = null,
-                        message = outcome.message,
-                    ).transition()
-            }
-        is SettingsUpdateEvent.InstallRequested ->
-            when {
-                state.busy || state.permissionPhase != PermissionPhase.NONE ||
-                    state.availableUpdate == null -> state.transition()
-                event.permissionRequired ->
-                    state.copy(permissionPhase = PermissionPhase.REQUESTING).transition(
-                        SettingsUpdateEffect.RequestPermission,
-                    )
-                else -> state.beginInstall()
-            }
-        is SettingsUpdateEvent.PermissionRequestCompleted ->
-            when {
-                state.permissionPhase != PermissionPhase.REQUESTING -> state.transition()
-                !event.requestStarted || event.permissionReady || state.permissionReadyObserved ->
-                    state.beginInstall()
-                else ->
-                    state.copy(
-                        permissionPhase = PermissionPhase.WAITING,
-                        permissionReadyObserved = false,
-                        message = "Grant Shizuku access to install automatically.",
-                    ).transition(SettingsUpdateEffect.SchedulePermissionTimeout)
-            }
-        SettingsUpdateEvent.PermissionReady ->
-            when (state.permissionPhase) {
-                PermissionPhase.REQUESTING ->
-                    state.copy(permissionReadyObserved = true).transition()
-                PermissionPhase.WAITING -> state.beginInstall()
-                PermissionPhase.NONE -> state.transition()
-            }
-        SettingsUpdateEvent.PermissionWaitExpired ->
-            if (state.permissionPhase == PermissionPhase.WAITING) {
+                    checking = false,
+                    availableUpdate = null,
+                    availableVersionName = null,
+                    message = "Up to date (${outcome.remoteVersionName})",
+                ).transition()
+            is UpdateCheckOutcome.UpdateAvailable ->
+                state.copy(
+                    checking = false,
+                    availableUpdate = outcome.update,
+                    availableVersionName = outcome.remoteVersionName,
+                    message =
+                    "Update available: ${outcome.remoteVersionName} " +
+                        "(${outcome.installedVersionCode} → ${outcome.remoteVersionCode})",
+                ).transition()
+            is UpdateCheckOutcome.Unavailable ->
+                state.copy(
+                    checking = false,
+                    availableUpdate = null,
+                    availableVersionName = null,
+                    message = outcome.reason,
+                ).transition()
+            is UpdateCheckOutcome.Failed ->
+                state.copy(
+                    checking = false,
+                    availableUpdate = null,
+                    availableVersionName = null,
+                    message = outcome.message,
+                ).transition()
+        }
+    is SettingsUpdateEvent.InstallRequested ->
+        when {
+            state.busy || state.permissionPhase != PermissionPhase.NONE ||
+                state.availableUpdate == null -> state.transition()
+            event.permissionRequired ->
+                state.copy(permissionPhase = PermissionPhase.REQUESTING).transition(
+                    SettingsUpdateEffect.RequestPermission,
+                )
+            else -> state.beginInstall()
+        }
+    is SettingsUpdateEvent.PermissionRequestCompleted ->
+        when {
+            state.permissionPhase != PermissionPhase.REQUESTING -> state.transition()
+            !event.requestStarted || event.permissionReady || state.permissionReadyObserved ->
                 state.beginInstall()
-            } else {
-                state.transition()
-            }
-        SettingsUpdateEvent.InstallStarted ->
-            if (state.installing) {
+            else ->
                 state.copy(
-                    message = "Install started. Amphora will reopen automatically.",
-                ).transition()
-            } else {
-                state.transition()
-            }
-        is SettingsUpdateEvent.SystemInstallerRequired ->
-            if (state.installing) {
-                state.copy(
-                    installing = false,
-                    pendingArtifact = event.artifact,
-                    message = event.reason,
-                ).transition()
-            } else {
-                state.transition()
-            }
-        is SettingsUpdateEvent.InstallFailed ->
-            if (state.installing) {
-                state.copy(
-                    installing = false,
-                    pendingArtifact = null,
-                    message = event.message,
-                ).transition()
-            } else {
-                state.transition()
-            }
-    }
+                    permissionPhase = PermissionPhase.WAITING,
+                    permissionReadyObserved = false,
+                    message = "Grant Shizuku access to install automatically.",
+                ).transition(SettingsUpdateEffect.SchedulePermissionTimeout)
+        }
+    SettingsUpdateEvent.PermissionReady ->
+        when (state.permissionPhase) {
+            PermissionPhase.REQUESTING ->
+                state.copy(permissionReadyObserved = true).transition()
+            PermissionPhase.WAITING -> state.beginInstall()
+            PermissionPhase.NONE -> state.transition()
+        }
+    SettingsUpdateEvent.PermissionWaitExpired ->
+        if (state.permissionPhase == PermissionPhase.WAITING) {
+            state.beginInstall()
+        } else {
+            state.transition()
+        }
+    SettingsUpdateEvent.InstallStarted ->
+        if (state.installing) {
+            state.copy(
+                message = "Install started. Amphora will reopen automatically.",
+            ).transition()
+        } else {
+            state.transition()
+        }
+    is SettingsUpdateEvent.SystemInstallerRequired ->
+        if (state.installing) {
+            state.copy(
+                installing = false,
+                pendingArtifact = event.artifact,
+                message = event.reason,
+            ).transition()
+        } else {
+            state.transition()
+        }
+    is SettingsUpdateEvent.InstallFailed ->
+        if (state.installing) {
+            state.copy(
+                installing = false,
+                pendingArtifact = null,
+                message = event.message,
+            ).transition()
+        } else {
+            state.transition()
+        }
+}
 
 private fun <Update, Artifact> SettingsUpdateState<Update, Artifact>.beginInstall():
     SettingsUpdateTransition<Update, Artifact> {
