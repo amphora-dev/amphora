@@ -3,6 +3,7 @@ package com.winlator.cmod.runtime.content
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -40,5 +41,43 @@ class ContentsManagerTest {
         assertEquals(0, successes)
         assertEquals(0, repairs)
         assertFalse(installPath.exists())
+    }
+
+    @Test
+    fun existingInstallIsReportedWithoutDeletingRollbackContent() {
+        val installPath = File(temporaryFolder.root, "contents/wine/version-0").apply {
+            mkdirs()
+            resolve("existing-runtime").writeText("keep")
+        }
+        val temporaryPath = File(temporaryFolder.root, "incoming").apply {
+            mkdirs()
+            resolve("new-runtime").writeText("new")
+        }
+        val profile = ContentProfile()
+        var failureReason: ContentsManager.InstallFailedReason? = null
+        var successes = 0
+        var repairs = 0
+
+        ContentsManager.finishInstallContent(
+            temporaryPath,
+            installPath,
+            profile,
+            object : ContentsManager.OnInstallFinishedCallback {
+                override fun onFailed(reason: ContentsManager.InstallFailedReason, e: Exception?) {
+                    failureReason = reason
+                }
+
+                override fun onSucceed(profile: ContentProfile) {
+                    successes++
+                }
+            },
+            Runnable { repairs++ },
+        )
+
+        assertEquals(ContentsManager.InstallFailedReason.ERROR_EXIST, failureReason)
+        assertEquals(0, successes)
+        assertEquals(0, repairs)
+        assertEquals("keep", installPath.resolve("existing-runtime").readText())
+        assertTrue(temporaryPath.resolve("new-runtime").isFile)
     }
 }

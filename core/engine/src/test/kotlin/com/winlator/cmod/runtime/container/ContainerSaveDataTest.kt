@@ -108,18 +108,19 @@ class ContainerSaveDataTest {
     }
 
     @Test
-    fun saveRefusesToReplaceEmptyConfig() {
+    fun saveRefusesToReplaceEmptyOrBlankConfig() {
         val root = Files.createTempDirectory("container-empty-").toFile()
         try {
             assertTrue(newContainer(root).saveData())
             val container = loadContainer(root)
             val config = root.resolve(".container")
-            config.writeText("")
+            listOf("", " \n\t").forEachIndexed { index, invalid ->
+                config.writeText(invalid)
+                container.name = "must-not-replace-$index"
 
-            container.name = "must-not-replace"
-
-            assertFalse(container.saveData())
-            assertEquals("", config.readText())
+                assertFalse(container.saveData())
+                assertEquals(invalid, config.readText())
+            }
         } finally {
             root.deleteRecursively()
         }
