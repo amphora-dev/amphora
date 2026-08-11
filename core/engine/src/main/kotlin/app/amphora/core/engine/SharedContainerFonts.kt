@@ -31,7 +31,7 @@ import java.util.Locale
  */
 object SharedContainerFonts {
     const val ASSET_PATH = "fonts.tzst"
-    const val REGISTRY_SCHEMA_VERSION = 3
+    const val REGISTRY_SCHEMA_VERSION = 4
 
     const val CN_REGULAR = "SourceHanSansCN-Regular.otf"
     const val CN_BOLD = "SourceHanSansCN-Bold.otf"
@@ -178,9 +178,18 @@ object SharedContainerFonts {
             "Malgun Gothic" to FONT_FAMILY_JP,
             "Gulim" to FONT_FAMILY_JP,
             "Batang" to FONT_FAMILY_JP,
-            // --- generic shell ---
-            "MS Shell Dlg" to FONT_FAMILY_CN,
-            "MS Shell Dlg 2" to FONT_FAMILY_CN,
+        )
+
+    /**
+     * Preserve Wine's compact Latin UI metrics. Previous schemas replaced these
+     * aliases with Source Han, which can move large text outside tightly sized
+     * legacy controls. Tahoma keeps Windows-compatible metrics; [SYSTEM_FONT_LINKS]
+     * supplies CJK glyphs without replacing its Latin digits.
+     */
+    val UI_FAMILY_SUBSTITUTES: Map<String, String> =
+        linkedMapOf(
+            "MS Shell Dlg" to "Tahoma",
+            "MS Shell Dlg 2" to "Tahoma",
         )
 
     /**
@@ -212,14 +221,18 @@ object SharedContainerFonts {
             "Source Han Sans CN Bold (OpenType)" to CN_BOLD,
             "Source Han Sans JP Regular (OpenType)" to JP_REGULAR,
             "Source Han Sans JP Bold (OpenType)" to JP_BOLD,
-            "Microsoft YaHei & Microsoft YaHei UI (TrueType)" to "msyh.ttc",
-            "Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)" to "msyhbd.ttc",
-            "Microsoft YaHei Light & Microsoft YaHei UI Light (TrueType)" to "msyhl.ttc",
-            "SimSun & NSimSun (TrueType)" to "simsun.ttc",
-            "SimSun-ExtB (TrueType)" to "simsunb.ttf",
-            "DengXian (TrueType)" to "deng.ttf",
-            "DengXian Bold (TrueType)" to "dengb.ttf",
-            "DengXian Light (TrueType)" to "dengl.ttf",
+            // Register aliases against the canonical pack file. Wine de-duplicates
+            // identical faces, so registering an alias file first (for example
+            // dengl.ttf) makes later FontLink lookups by CN_REGULAR fail even
+            // though both paths point to the same OTF.
+            "Microsoft YaHei & Microsoft YaHei UI (TrueType)" to CN_REGULAR,
+            "Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)" to CN_BOLD,
+            "Microsoft YaHei Light & Microsoft YaHei UI Light (TrueType)" to CN_REGULAR,
+            "SimSun & NSimSun (TrueType)" to CN_REGULAR,
+            "SimSun-ExtB (TrueType)" to CN_REGULAR,
+            "DengXian (TrueType)" to CN_REGULAR,
+            "DengXian Bold (TrueType)" to CN_BOLD,
+            "DengXian Light (TrueType)" to CN_REGULAR,
         )
 
     /**
@@ -409,6 +422,9 @@ object SharedContainerFonts {
                             if (to == FONT_FAMILY_CN) cnFamily else to,
                         )
                     }
+                    for ((from, to) in UI_FAMILY_SUBSTITUTES) {
+                        reg.setStringValue(substitutesKey, from, to)
+                    }
                     reg.setStringValue(substitutesKey, "msyh", cnFamily)
                     reg.setStringValue(substitutesKey, "simsun", cnFamily)
                     reg.setStringValue(substitutesKey, "simhei", cnFamily)
@@ -448,6 +464,9 @@ object SharedContainerFonts {
                             from,
                             if (to == FONT_FAMILY_CN) cnFamily else to,
                         )
+                    }
+                    for ((from, to) in UI_FAMILY_SUBSTITUTES) {
+                        reg.setStringValue(key, from, to)
                     }
                 }
                 userOk = true

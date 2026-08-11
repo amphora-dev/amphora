@@ -9,7 +9,7 @@ import org.junit.Test
 class SharedContainerFontsTest {
     @Test
     fun registrySchema_includesFontconfigSynchronization() {
-        assertEquals(3, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
+        assertEquals(4, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
     }
 
     @Test
@@ -70,6 +70,15 @@ class SharedContainerFontsTest {
     }
 
     @Test
+    fun shellUiAliases_preserveCompactTahomaMetrics() {
+        val cjkSubstitutes = SharedContainerFonts.FAMILY_SUBSTITUTES.toMap()
+        assertTrue("MS Shell Dlg" !in cjkSubstitutes)
+        assertTrue("MS Shell Dlg 2" !in cjkSubstitutes)
+        assertEquals("Tahoma", SharedContainerFonts.UI_FAMILY_SUBSTITUTES["MS Shell Dlg"])
+        assertEquals("Tahoma", SharedContainerFonts.UI_FAMILY_SUBSTITUTES["MS Shell Dlg 2"])
+    }
+
+    @Test
     fun systemFontLinks_coverWindowsUiAndLegacyFamilies() {
         val links = SharedContainerFonts.SYSTEM_FONT_LINKS
         assertTrue(links.contains("Segoe UI"))
@@ -82,10 +91,16 @@ class SharedContainerFontsTest {
     @Test
     fun fontRegistrations_coverNormalSimplifiedChineseNames() {
         val fonts = SharedContainerFonts.FONT_REGISTRATIONS
-        assertEquals("msyh.ttc", fonts["Microsoft YaHei & Microsoft YaHei UI (TrueType)"])
-        assertEquals("msyhbd.ttc", fonts["Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)"])
-        assertEquals("simsun.ttc", fonts["SimSun & NSimSun (TrueType)"])
-        assertEquals("deng.ttf", fonts["DengXian (TrueType)"])
+        assertEquals(
+            SharedContainerFonts.CN_REGULAR,
+            fonts["Microsoft YaHei & Microsoft YaHei UI (TrueType)"],
+        )
+        assertEquals(
+            SharedContainerFonts.CN_BOLD,
+            fonts["Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)"],
+        )
+        assertEquals(SharedContainerFonts.CN_REGULAR, fonts["SimSun & NSimSun (TrueType)"])
+        assertEquals(SharedContainerFonts.CN_REGULAR, fonts["DengXian (TrueType)"])
     }
 
     @Test
