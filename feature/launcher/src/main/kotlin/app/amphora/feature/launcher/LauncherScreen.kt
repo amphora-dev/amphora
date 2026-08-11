@@ -336,16 +336,10 @@ internal fun StorageAccessBlock() {
 
 @Composable
 internal fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
-    val unhealthyComponents =
-        uiState.components.count {
-            it.pinned == null || it.installed == null || !it.matchesPin
-        }
-    val unhealthyAssets = uiState.runtimeAssets.count { !it.healthy }
+    val contentHealth = LauncherStateEvaluator.contentHealth(uiState)
     val healthy =
         uiState.catalogStatus is ContentCatalog.Status.Ready &&
-            unhealthyComponents == 0 &&
-            unhealthyAssets == 0 &&
-            !uiState.imagefsResidue
+            contentHealth.healthy
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors =
@@ -386,7 +380,8 @@ internal fun VersionBlock(uiState: LauncherUiState, onRefresh: () -> Unit) {
                             if (healthy) {
                                 "Proton, Box64 and graphics layers are ready"
                             } else {
-                                "$unhealthyComponents components and $unhealthyAssets files need attention"
+                                "${contentHealth.unhealthyComponents} components and " +
+                                    "${contentHealth.unhealthyRuntimeAssets} files need attention"
                             }
                     },
                     style = MaterialTheme.typography.bodySmall,
