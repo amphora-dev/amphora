@@ -205,22 +205,37 @@ constructor(
         if (paths.isEmpty() || _uiState.value.deletingStorage) return
         viewModelScope.launch {
             _uiState.update { it.copy(deletingStorage = true, storageMessage = null) }
-            val freed =
-                withContext(dispatchers.io) {
-                    StorageUsageScanner.deleteUnusedGuestData(context, paths)
+            try {
+                val result =
+                    withContext(dispatchers.io) {
+                        StorageUsageScanner.deleteUnusedGuestData(context, paths)
+                    }
+                _uiState.update {
+                    it.copy(
+                        deletingStorage = false,
+                        storageMessage =
+                            when {
+                                result.failedPaths.isNotEmpty() && result.bytesFreed > 0 ->
+                                    "Freed ${formatStorageSize(result.bytesFreed)}, but some temporary " +
+                                        "items could not be removed."
+                                result.failedPaths.isNotEmpty() ->
+                                    "Could not remove the selected temporary items."
+                                result.bytesFreed > 0 ->
+                                    "Freed ${formatStorageSize(result.bytesFreed)}."
+                                else -> "Nothing was removed."
+                            },
+                    )
                 }
-            _uiState.update {
-                it.copy(
-                    deletingStorage = false,
-                    storageMessage =
-                    if (freed > 0) {
-                        "Freed ${formatStorageSize(freed)}."
-                    } else {
-                        "Nothing was removed."
-                    },
-                )
+                refreshStorageUsage()
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                _uiState.update {
+                    it.copy(
+                        deletingStorage = false,
+                        storageMessage = "Could not remove temporary items: ${error.message}",
+                    )
+                }
             }
-            refreshStorageUsage()
         }
     }
 
