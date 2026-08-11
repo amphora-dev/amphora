@@ -10,6 +10,7 @@ WinNative **不在仓库内编译** `wrapper.tzst`，只 vendoring 预编译包�
 | 驱动 | `-Dvulkan-drivers=wrapper` |
 | 平台 | `-Dplatforms=x11` + `-Dandroid-stub=true` + `-D__TERMUX__` |
 | 工具链 | Android NDK aarch64（推荐 r26d+） |
+| Android API | 默认 API 30，与 `build-logic` 的 `SDK_MIN=30` 一致；可用 `API_LEVEL` 显式覆盖 |
 | 链接库 | WinNative `imagefs.tzst` 内 aarch64 X11/drm/sysvshm |
 | 头文件 | Termux `libxcb`（需 `xcb_present_pixmap_synced` / dri3 syncobj） |
 

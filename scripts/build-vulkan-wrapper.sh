@@ -17,6 +17,7 @@
 #   ./scripts/build-vulkan-wrapper.sh
 #
 # Optional env: MESA_SRC MESA_REF ANDROID_NDK_HOME SYSROOT WORKDIR OUT_DIR API_LEVEL
+# API_LEVEL defaults to Amphora's minSdk (SDK_MIN=30 in build-logic).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,7 +30,7 @@ ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-${ANDROID_NDK:-/home/ubuntu/android-ndk/an
 SYSROOT="${SYSROOT:-/tmp/wn-sysroot}"
 WORKDIR="${WORKDIR:-/tmp/wrapper-build}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/build/vulkan-wrapper}"
-API_LEVEL="${API_LEVEL:-34}"
+API_LEVEL="${API_LEVEL:-30}"
 PREFIX_FAKE="/data/data/com.winlator.cmod/files/imagefs/usr"
 
 NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
