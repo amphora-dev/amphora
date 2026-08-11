@@ -121,11 +121,17 @@ public class VulkanRenderer
     private final float[] sceneXform = XForm.getInstance();
 
     private final AtomicBoolean destroyed = new AtomicBoolean(false);
+    private volatile Choreographer mainChoreographer;
+    private final Choreographer.FrameCallback coalescedRenderCallback;
 
     public VulkanRenderer(XServerSurfaceView view, XServer xServer) {
         this.xServerView = view;
         this.xServer = xServer;
         this.rootCursorDrawable = createRootCursorDrawable();
+        this.coalescedRenderCallback = frameTimeNanos -> {
+            renderRequested.set(false);
+            if (!destroyed.get()) xServerView.requestRender();
+        };
     }
 
     public void destroy() {
@@ -161,11 +167,18 @@ public class VulkanRenderer
 
     public void requestRenderCoalesced() {
         if (renderRequested.compareAndSet(false, true)) {
-            mainHandler.post(() ->
-                    Choreographer.getInstance().postFrameCallback(frameTimeNanos -> {
-                        renderRequested.set(false);
-                        xServerView.requestRender();
-                    }));
+            // Choreographer accepts callbacks from any thread. Once initialized,
+            // post directly so a main-handler hop cannot miss the upcoming frame
+            // and halve the visible cursor update rate on 60 Hz displays.
+            Choreographer choreographer = mainChoreographer;
+            if (choreographer != null) {
+                choreographer.postFrameCallback(coalescedRenderCallback);
+            } else {
+                mainHandler.post(() -> {
+                    mainChoreographer = Choreographer.getInstance();
+                    mainChoreographer.postFrameCallback(coalescedRenderCallback);
+                });
+            }
         }
     }
 
