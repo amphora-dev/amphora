@@ -55,15 +55,17 @@ class ContentReconcilerTest {
     fun reconcileFailurePreservesPackageCache() {
         val packageRoot = temporaryFolder.newFolder("packages")
         val stalePackage = File(packageRoot, "stale.wcp").apply { writeText("rollback") }
-        val installer = FakeInstaller(failOn = ContentComponent.WINE)
+        val manifest = ContentManifest.parse(ContentManifestTest.SAMPLE)
+        val failOn = manifest.all().first { it.kind != ManifestEntry.Kind.ROOTFS }.component
+        val installer = FakeInstaller(failOn = failOn)
         val reconciler = ContentReconciler(packageRoot, installer)
 
         assertThrows(IllegalStateException::class.java) {
-            reconciler.reconcile(ContentManifest.parse(ContentManifestTest.SAMPLE))
+            reconciler.reconcile(manifest)
         }
 
         assertTrue(stalePackage.isFile)
-        assertEquals(listOf(ContentComponent.WINE), installer.reconciled.map { it.component })
+        assertEquals(failOn, installer.reconciled.last().component)
     }
 
     private class FakeInstaller(private val siblingsRemoved: Int = 0, private val failOn: ContentComponent? = null) :
