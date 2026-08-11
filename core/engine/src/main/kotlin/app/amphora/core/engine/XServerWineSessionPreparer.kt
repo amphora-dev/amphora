@@ -1489,6 +1489,7 @@ class XServerWineSessionPreparer @Inject constructor(
         /** Wine dlopens this SONAME; present only once mesa-gl builds the EGL frontend. */
         private const val LIBEGL_SONAME = "usr/lib/libEGL.so.1"
         private const val CNC_DDRAW_CONFIG_ASSET = "cnc-ddraw/ddraw.ini"
+
         /** Mesa's opt-in to kopper on an X server without a DRI3 render device. */
         private const val KOPPER_DRI2 = "LIBGL_KOPPER_DRI2"
         private val GRAPHICS_TEST_ASSETS = arrayOf(

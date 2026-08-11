@@ -257,10 +257,7 @@ object SharedContainerFonts {
             UI_FAMILY_SUBSTITUTES
         }
 
-    internal fun fontLinkFallback(
-        locale: String?,
-        useNativeWindowsFonts: Boolean,
-    ): String {
+    internal fun fontLinkFallback(locale: String?, useNativeWindowsFonts: Boolean): String {
         val cnFamily = cnFamilyForLocale(locale)
         return when {
             languageForLocale(locale) == "ja" -> "$JP_REGULAR,$FONT_FAMILY_JP"
