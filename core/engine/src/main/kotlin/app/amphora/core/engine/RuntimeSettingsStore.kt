@@ -2,6 +2,7 @@ package app.amphora.core.engine
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -43,24 +44,23 @@ class RuntimeSettingsStore private constructor(private val preferences: SharedPr
     }
 
     fun setResolutionName(value: String) {
-        preferences.edit().putString(KEY_RESOLUTION_NAME, value).apply()
+        preferences.edit { putString(KEY_RESOLUTION_NAME, value) }
     }
 
     fun setGraphicsDriverId(value: String) {
-        preferences.edit().putString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, value).apply()
+        preferences.edit { putString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, value) }
     }
 
     fun setDirectDrawWrapperId(value: String) {
-        preferences.edit().putString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, value).apply()
+        preferences.edit { putString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, value) }
     }
 
     fun clearLaunchSettings() {
-        preferences
-            .edit()
-            .remove(KEY_RESOLUTION_NAME)
-            .remove(GraphicsDriverIds.PREFS_KEY_DRIVER_ID)
-            .remove(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID)
-            .apply()
+        preferences.edit {
+            remove(KEY_RESOLUTION_NAME)
+            remove(GraphicsDriverIds.PREFS_KEY_DRIVER_ID)
+            remove(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID)
+        }
     }
 
     private fun readSettings(): LaunchRuntimeSettings = LaunchRuntimeSettings(

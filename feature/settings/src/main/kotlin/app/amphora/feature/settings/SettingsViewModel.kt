@@ -43,7 +43,7 @@ import kotlinx.coroutines.withContext
 class SettingsViewModel
 @Inject
 constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
     private val catalog: ContentCatalog,
     private val contentReconciler: ContentReconciler,
