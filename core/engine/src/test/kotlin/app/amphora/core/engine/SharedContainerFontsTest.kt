@@ -11,7 +11,7 @@ import org.junit.Test
 class SharedContainerFontsTest {
     @Test
     fun registrySchema_includesWindowsLanguageProfiles() {
-        assertEquals(8, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
+        assertEquals(9, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
     }
 
     @Test
@@ -127,7 +127,10 @@ class SharedContainerFontsTest {
 
         assertTrue("Microsoft YaHei" !in substitutes)
         assertTrue("SimHei" !in substitutes)
-        assertEquals("Microsoft YaHei", substitutes["Microsoft YaHei Bold"])
+        assertEquals(
+            SharedContainerFonts.FONT_FAMILY_CN,
+            substitutes["Microsoft YaHei Bold"],
+        )
         assertEquals("PMingLiU", substitutes["MingLiU"])
         assertEquals(
             SharedContainerFonts.MICROSOFT_YAHEI,
@@ -138,6 +141,60 @@ class SharedContainerFontsTest {
             registrations["Microsoft Sans Serif (TrueType)"],
         )
         assertEquals(SharedContainerFonts.TAHOMA, registrations["Tahoma (TrueType)"])
+        assertEquals(
+            SharedContainerFonts.CN_BOLD,
+            registrations["Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)"],
+        )
+    }
+
+    @Test
+    fun japaneseProfileUsesJapaneseFontLinkFallback() {
+        assertEquals(
+            "${SharedContainerFonts.JP_REGULAR},${SharedContainerFonts.FONT_FAMILY_JP}",
+            SharedContainerFonts.fontLinkFallback(
+                "ja_JP.UTF-8",
+                useNativeWindowsFonts = true,
+            ),
+        )
+    }
+
+    @Test
+    fun fallbackProfileRemovesNativeOnlyManagedLinks() {
+        val fontsDir = Files.createTempDirectory("amphora-managed-font-links").toFile()
+        try {
+            val source = fontsDir.resolve("source.ttf").apply { writeText("font") }
+            val nativeOnly = fontsDir.resolve(SharedContainerFonts.TAHOMA)
+            val desired = fontsDir.resolve(SharedContainerFonts.CN_REGULAR)
+            Files.createSymbolicLink(nativeOnly.toPath(), source.toPath())
+            Files.createSymbolicLink(desired.toPath(), source.toPath())
+
+            assertEquals(
+                1,
+                SharedContainerFonts.removeObsoleteManagedLinks(
+                    fontsDir,
+                    SharedContainerFonts.WINDOWS_FONT_LINKS.keys,
+                ),
+            )
+            assertFalse(Files.isSymbolicLink(nativeOnly.toPath()))
+            assertTrue(Files.isSymbolicLink(desired.toPath()))
+        } finally {
+            fontsDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun fontCacheRequiresCompletionMarkerMatchingSha() {
+        val cache = Files.createTempDirectory("amphora-font-complete").toFile()
+        try {
+            SharedContainerFonts.PACK_FACES.forEach { cache.resolve(it).writeText(it) }
+            assertFalse(SharedContainerFonts.packComplete(cache, "abc"))
+            cache.resolve(SharedContainerFonts.PACK_COMPLETE_MARKER).writeText("wrong\n")
+            assertFalse(SharedContainerFonts.packComplete(cache, "abc"))
+            cache.resolve(SharedContainerFonts.PACK_COMPLETE_MARKER).writeText("abc\n")
+            assertTrue(SharedContainerFonts.packComplete(cache, "abc"))
+        } finally {
+            cache.deleteRecursively()
+        }
     }
 
     @Test
@@ -245,10 +302,41 @@ class SharedContainerFontsTest {
 
             WineRegistryEditor(prefix.resolve("system.reg")).use {
                 assertNull(it.getStringValue(substitutesKey, "Microsoft YaHei"))
+                assertNull(it.getStringValue(substitutesKey, "msyh"))
                 assertEquals(
                     SharedContainerFonts.MICROSOFT_YAHEI,
                     it.getStringValue(
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts",
+                        "Microsoft YaHei & Microsoft YaHei UI (TrueType)",
+                    ),
+                )
+                assertEquals(
+                    SharedContainerFonts.CN_BOLD,
+                    it.getStringValue(
+                        "Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts",
+                        "Microsoft YaHei Bold & Microsoft YaHei UI Bold (TrueType)",
+                    ),
+                )
+            }
+
+            assertTrue(
+                SharedContainerFonts.applyRegistry(
+                    container,
+                    "zh_CN.UTF-8",
+                    useNativeWindowsFonts = false,
+                ),
+            )
+            WineRegistryEditor(prefix.resolve("system.reg")).use {
+                val fontsKey = "Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts"
+                assertEquals(
+                    SharedContainerFonts.FONT_FAMILY_CN_LOCALIZED,
+                    it.getStringValue(substitutesKey, "msyh"),
+                )
+                assertNull(it.getStringValue(fontsKey, "Tahoma (TrueType)"))
+                assertEquals(
+                    SharedContainerFonts.CN_REGULAR,
+                    it.getStringValue(
+                        fontsKey,
                         "Microsoft YaHei & Microsoft YaHei UI (TrueType)",
                     ),
                 )
