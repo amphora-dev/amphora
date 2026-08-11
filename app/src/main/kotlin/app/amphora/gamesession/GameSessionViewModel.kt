@@ -61,7 +61,7 @@ constructor(
     private val _launchError = MutableStateFlow<String?>(null)
     val launchError: StateFlow<String?> = _launchError.asStateFlow()
 
-    private var handle: SessionHandle? = null
+    private val sessionActions = PendingSessionActions()
 
     // Outlives viewModelScope so onCleared() can still run the suspend teardown.
     private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -109,9 +109,14 @@ constructor(
                         env = diagEnv,
                     )
                 val h = wineEngine.launch(spec)
-                handle = h
+                val pendingAction = sessionActions.attach(h)
                 // Forward handle state to the screen.
                 viewModelScope.launch { h.state.collect { _sessionState.value = it } }
+                when (pendingAction) {
+                    PendingSessionAction.STOP -> h.stop()
+                    PendingSessionAction.PAUSE -> h.pause()
+                    PendingSessionAction.NONE -> Unit
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -124,21 +129,25 @@ constructor(
 
     fun stop() {
         // Teardown joins native X connector threads — never block Main (ANR).
-        viewModelScope.launch(Dispatchers.IO) { handle?.stop() }
+        val current = sessionActions.requestStop()
+        if (current != null) viewModelScope.launch(Dispatchers.IO) { current.stop() }
     }
 
     fun resume() {
-        viewModelScope.launch(Dispatchers.IO) { handle?.resume() }
+        val current = sessionActions.requestResume()
+        if (current != null) viewModelScope.launch(Dispatchers.IO) { current.resume() }
     }
 
     fun pause() {
-        viewModelScope.launch(Dispatchers.IO) { handle?.pause() }
+        val current = sessionActions.requestPause()
+        if (current != null) viewModelScope.launch(Dispatchers.IO) { current.pause() }
     }
 
     override fun onCleared() {
         // ViewModel.onCleared() is empty; viewModelScope is already cancelled here,
         // so teardown runs on a scope that outlives it.
-        cleanupScope.launch { handle?.stop() }
+        val current = sessionActions.requestStop()
+        if (current != null) cleanupScope.launch { current.stop() }
     }
 
     private companion object {
@@ -149,5 +158,59 @@ constructor(
         const val GRAPHICS_DIAG_ARG = "graphicsDiag"
         const val DEFAULT_WIDTH = 1280
         const val DEFAULT_HEIGHT = 720
+    }
+}
+
+internal enum class PendingSessionAction {
+    NONE,
+    PAUSE,
+    STOP,
+}
+
+/**
+ * Records lifecycle requests before [WineEngine.launch] has returned its handle.
+ *
+ * Calls are synchronized because UI events race the launch coroutine. STOP is
+ * terminal and takes precedence over a queued PAUSE.
+ */
+internal class PendingSessionActions {
+    private var handle: SessionHandle? = null
+    private var pausePending = false
+    private var stopRequested = false
+
+    @Synchronized
+    fun attach(newHandle: SessionHandle): PendingSessionAction {
+        handle = newHandle
+        return when {
+            stopRequested -> PendingSessionAction.STOP
+            pausePending -> {
+                pausePending = false
+                PendingSessionAction.PAUSE
+            }
+            else -> PendingSessionAction.NONE
+        }
+    }
+
+    @Synchronized
+    fun requestStop(): SessionHandle? {
+        stopRequested = true
+        pausePending = false
+        return handle
+    }
+
+    @Synchronized
+    fun requestPause(): SessionHandle? {
+        if (stopRequested) return null
+        val current = handle
+        if (current == null) pausePending = true
+        return current
+    }
+
+    @Synchronized
+    fun requestResume(): SessionHandle? {
+        if (stopRequested) return null
+        val current = handle
+        if (current == null) pausePending = false
+        return current
     }
 }

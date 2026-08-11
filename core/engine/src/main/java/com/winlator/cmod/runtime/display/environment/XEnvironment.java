@@ -8,6 +8,9 @@ import com.winlator.cmod.shared.io.FileUtils;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -17,6 +20,7 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
   private Context context;
   private final ImageFs imageFs;
   private final ArrayList<EnvironmentComponent> components = new ArrayList<>();
+  private final Set<EnvironmentComponent> startedComponents = ConcurrentHashMap.newKeySet();
 
   public XEnvironment(Context context, ImageFs imageFs) {
     this.context = context;
@@ -79,34 +83,96 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
       }
     }
 
+    Set<EnvironmentComponent> attempted = ConcurrentHashMap.newKeySet();
+    Throwable startFailure = null;
     if (parallelStart.size() <= 1) {
       for (EnvironmentComponent c : parallelStart) {
-        Log.d(TAG, "Starting component " + c.getClass().getSimpleName());
-        c.start();
+        try {
+          attempted.add(c);
+          Log.d(TAG, "Starting component " + c.getClass().getSimpleName());
+          c.start();
+          startedComponents.add(c);
+        } catch (Throwable t) {
+          startFailure = t;
+          break;
+        }
       }
     } else {
       ExecutorService pool = Executors.newFixedThreadPool(parallelStart.size());
       ArrayList<Future<?>> futures = new ArrayList<>(parallelStart.size());
       for (EnvironmentComponent c : parallelStart) {
         final EnvironmentComponent comp = c;
-        futures.add(pool.submit(() -> {
-          Log.d(TAG, "Starting component " + comp.getClass().getSimpleName());
-          comp.start();
-        }));
+        futures.add(
+            pool.submit(
+                () -> {
+                  attempted.add(comp);
+                  Log.d(TAG, "Starting component " + comp.getClass().getSimpleName());
+                  comp.start();
+                  startedComponents.add(comp);
+                }));
       }
       pool.shutdown();
+      boolean interrupted = false;
       for (Future<?> f : futures) {
-        try { f.get(); } catch (Throwable t) {
-          Log.e(TAG, "Component start failed", t);
+        boolean complete = false;
+        while (!complete) {
+          try {
+            f.get();
+            complete = true;
+          } catch (InterruptedException e) {
+            interrupted = true;
+            if (startFailure == null) startFailure = e;
+          } catch (ExecutionException e) {
+            complete = true;
+            if (startFailure == null) startFailure = e.getCause();
+          }
         }
       }
+      if (interrupted) Thread.currentThread().interrupt();
+    }
+
+    if (startFailure != null) {
+      rollbackStartedComponents(attempted, startFailure);
+      throwStartFailure(startFailure);
     }
 
     if (launcher != null) {
-      Log.d(TAG, "Starting component " + launcher.getClass().getSimpleName());
-      launcher.start();
+      try {
+        attempted.add(launcher);
+        Log.d(TAG, "Starting component " + launcher.getClass().getSimpleName());
+        launcher.start();
+        startedComponents.add(launcher);
+      } catch (Throwable t) {
+        rollbackStartedComponents(attempted, t);
+        throwStartFailure(t);
+      }
     }
     Log.d(TAG, "Environment component startup finished");
+  }
+
+  private void rollbackStartedComponents(
+      Set<EnvironmentComponent> attempted, Throwable startFailure) {
+    Log.e(TAG, "Environment startup failed; rolling back started components", startFailure);
+    for (int i = components.size() - 1; i >= 0; i--) {
+      EnvironmentComponent component = components.get(i);
+      if (!attempted.contains(component)) continue;
+      try {
+        component.stop();
+        startedComponents.remove(component);
+      } catch (Throwable stopFailure) {
+        startFailure.addSuppressed(stopFailure);
+        Log.e(
+            TAG,
+            "Component rollback failed for " + component.getClass().getSimpleName(),
+            stopFailure);
+      }
+    }
+  }
+
+  private static void throwStartFailure(Throwable failure) {
+    if (failure instanceof RuntimeException) throw (RuntimeException) failure;
+    if (failure instanceof Error) throw (Error) failure;
+    throw new IllegalStateException("Environment component startup failed", failure);
   }
 
   public void stopEnvironmentComponents() {
@@ -116,10 +182,12 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
     RuntimeException firstFailure = null;
     for (int i = components.size() - 1; i >= 0; i--) {
       EnvironmentComponent component = components.get(i);
+      if (!startedComponents.contains(component)) continue;
       String name = component.getClass().getSimpleName();
       try {
         Log.d(TAG, "Stopping component " + name);
         component.stop();
+        startedComponents.remove(component);
         Log.d(TAG, "Stopped component " + name);
       } catch (RuntimeException e) {
         Log.e(TAG, "Component stop failed for " + name, e);

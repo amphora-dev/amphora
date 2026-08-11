@@ -50,19 +50,34 @@ internal class XServerSessionHandle(
 
     /** Called by [WineEngineImpl] just before `startEnvironmentComponents()`. */
     fun markStarting() {
-        _state.value = SessionState.STARTING
+        _state.compareAndSet(SessionState.CREATED, SessionState.STARTING)
     }
 
     /** Called by [WineEngineImpl] once the environment components have started. */
     fun markRunning() {
-        _state.value = SessionState.RUNNING
-        readiness.complete(Unit)
+        // stop() may win while native startup is still returning. Never resurrect
+        // STOPPING/STOPPED/FAILED into RUNNING after that terminal transition.
+        if (_state.compareAndSet(SessionState.STARTING, SessionState.RUNNING)) {
+            readiness.complete(Unit)
+        }
     }
 
     /** Called by [WineEngineImpl] if launch fails before running. */
     fun markFailed(cause: Throwable) {
-        _state.value = SessionState.FAILED
-        readiness.completeExceptionally(cause)
+        while (true) {
+            val current = _state.value
+            if (
+                current == SessionState.STOPPING ||
+                    current == SessionState.STOPPED ||
+                    current == SessionState.FAILED
+            ) {
+                return
+            }
+            if (_state.compareAndSet(current, SessionState.FAILED)) {
+                readiness.completeExceptionally(cause)
+                return
+            }
+        }
     }
 
     /** Guest exit requests teardown; STOPPED is published only after the full barrier. */
