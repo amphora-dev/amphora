@@ -12,6 +12,7 @@ import com.winlator.cmod.runtime.wine.WineUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import java.io.File
 import java.nio.file.Files
+import java.util.Locale
 
 /**
  * Shared CJK font pack: Adobe Source Han Sans **CN + JP** (Regular + Bold),
@@ -30,7 +31,7 @@ import java.nio.file.Files
  */
 object SharedContainerFonts {
     const val ASSET_PATH = "fonts.tzst"
-    const val REGISTRY_SCHEMA_VERSION = 2
+    const val REGISTRY_SCHEMA_VERSION = 3
 
     const val CN_REGULAR = "SourceHanSansCN-Regular.otf"
     const val CN_BOLD = "SourceHanSansCN-Bold.otf"
@@ -41,10 +42,14 @@ object SharedContainerFonts {
     const val FONT_FILE_NAME = CN_REGULAR
 
     const val FONT_FAMILY_CN = "Source Han Sans CN"
+    const val FONT_FAMILY_CN_LOCALIZED = "思源黑体 CN"
     const val FONT_FAMILY_JP = "Source Han Sans JP"
 
     /** @deprecated use [FONT_FAMILY_CN] */
     const val FONT_FAMILY = FONT_FAMILY_CN
+
+    internal fun cnFamilyForLanguage(language: String?): String =
+        if (language.equals("zh", ignoreCase = true)) FONT_FAMILY_CN_LOCALIZED else FONT_FAMILY_CN
 
     private const val TAG = "SharedContainerFonts"
     private const val CONTENTS_TYPE = "FONTS"
@@ -249,7 +254,8 @@ object SharedContainerFonts {
             }
         }
 
-        val registryOk = !applyRegistry || applyRegistry(containerRoot)
+        val cnFamily = cnFamilyForLanguage(Locale.getDefault().language)
+        val registryOk = !applyRegistry || applyRegistry(containerRoot, cnFamily)
 
         val primary = File(fontsDir, CN_REGULAR)
         val primaryOk = primary.isFile || Files.isSymbolicLink(primary.toPath())
@@ -263,7 +269,7 @@ object SharedContainerFonts {
         Log.i(
             TAG,
             "CJK fonts: linked=$linked/${WINDOWS_FONT_LINKS.size} primary=$primaryOk " +
-                "registry=$registryOk fontconfig=$fontconfigOk cache=$cacheDir",
+                "registry=$registryOk cnFamily=$cnFamily fontconfig=$fontconfigOk cache=$cacheDir",
         )
         return ok
     }
@@ -384,7 +390,7 @@ object SharedContainerFonts {
     /**
      * Mimic a Windows CJK install: FontSubstitutes (HKLM) + Wine Replacements (HKCU).
      */
-    fun applyRegistry(containerRoot: File): Boolean {
+    fun applyRegistry(containerRoot: File, cnFamily: String = FONT_FAMILY_CN): Boolean {
         val prefix = File(containerRoot, ".wine")
         val systemReg = File(prefix, "system.reg")
         val userReg = File(prefix, "user.reg")
@@ -397,18 +403,22 @@ object SharedContainerFonts {
                     val substitutesKey =
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes"
                     for ((from, to) in FAMILY_SUBSTITUTES) {
-                        reg.setStringValue(substitutesKey, from, to)
+                        reg.setStringValue(
+                            substitutesKey,
+                            from,
+                            if (to == FONT_FAMILY_CN) cnFamily else to,
+                        )
                     }
-                    reg.setStringValue(substitutesKey, "msyh", FONT_FAMILY_CN)
-                    reg.setStringValue(substitutesKey, "simsun", FONT_FAMILY_CN)
-                    reg.setStringValue(substitutesKey, "simhei", FONT_FAMILY_CN)
+                    reg.setStringValue(substitutesKey, "msyh", cnFamily)
+                    reg.setStringValue(substitutesKey, "simsun", cnFamily)
+                    reg.setStringValue(substitutesKey, "simhei", cnFamily)
                     reg.setStringValue(substitutesKey, "msgothic", FONT_FAMILY_JP)
                     reg.setStringValue(substitutesKey, "meiryo", FONT_FAMILY_JP)
                     reg.setStringValue(substitutesKey, "yugothic", FONT_FAMILY_JP)
 
                     val linksKey =
                         "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontLink\\SystemLink"
-                    val chineseFallback = "$CN_REGULAR,$FONT_FAMILY_CN"
+                    val chineseFallback = "$CN_REGULAR,$cnFamily"
                     for (family in SYSTEM_FONT_LINKS) {
                         reg.setMultiStringValue(linksKey, family, chineseFallback)
                     }
@@ -433,7 +443,11 @@ object SharedContainerFonts {
                 WineRegistryEditor(userReg).use { reg ->
                     val key = "Software\\Wine\\Fonts\\Replacements"
                     for ((from, to) in FAMILY_SUBSTITUTES) {
-                        reg.setStringValue(key, from, to)
+                        reg.setStringValue(
+                            key,
+                            from,
+                            if (to == FONT_FAMILY_CN) cnFamily else to,
+                        )
                     }
                 }
                 userOk = true

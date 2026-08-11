@@ -9,7 +9,19 @@ import org.junit.Test
 class SharedContainerFontsTest {
     @Test
     fun registrySchema_includesFontconfigSynchronization() {
-        assertEquals(2, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
+        assertEquals(3, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
+    }
+
+    @Test
+    fun chineseLocale_usesWinePrimaryLocalizedFamilyName() {
+        assertEquals(
+            SharedContainerFonts.FONT_FAMILY_CN_LOCALIZED,
+            SharedContainerFonts.cnFamilyForLanguage("zh"),
+        )
+        assertEquals(
+            SharedContainerFonts.FONT_FAMILY_CN,
+            SharedContainerFonts.cnFamilyForLanguage("en"),
+        )
     }
 
     @Test
