@@ -59,7 +59,7 @@ class WineServiceStartupProfileTest {
                 assertEquals(
                     "$controlSet/$service",
                     expected,
-                    editor.getDwordValue("$controlSet\\Services\\$service"),
+                    editor.getDwordValue("$controlSet\\Services\\$service", "Start"),
                 )
             }
         }
