@@ -50,6 +50,7 @@ keys = (
     "libc++", "android-shmem", "pkgconfig", "libffi", "libandroid-support",
 )
 def keep(name: str) -> bool:
+    name = name.removeprefix("./")
     if not name.startswith("usr/lib/"):
         return False
     if "/gconv/" in name or "/locale/" in name:
