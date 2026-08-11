@@ -14,18 +14,13 @@ import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.LaunchTarget
-import app.amphora.core.engine.model.SessionHandle
-import app.amphora.core.engine.model.SessionState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 
 /**
  * Orchestrates the Wine session lifecycle for the GameSession screen (RFC §6 / D9).
@@ -55,13 +50,37 @@ constructor(
     val hostPerformanceHudEnabled =
         AdvancedRuntimePreferences.hostPerformanceHudEnabled(appContext)
 
-    private val _sessionState = MutableStateFlow<SessionState?>(null)
-    val sessionState: StateFlow<SessionState?> = _sessionState.asStateFlow()
+    private val coordinator =
+        GameSessionCoordinator(
+            scope = viewModelScope,
+            actionDispatcher = Dispatchers.IO,
+            launchSession = { request ->
+                val diagEnv =
+                    if (request.graphicsDiag) {
+                        GraphicsDiag.clearStateCache(appContext)
+                        val env = GraphicsDiag.launchEnv(appContext)
+                        Log.i(
+                            GraphicsDiag.TAG,
+                            "Graphics diag ON; DXVK logs → ${env["DXVK_LOG_PATH"]}",
+                        )
+                        env
+                    } else {
+                        emptyMap()
+                    }
+                wineEngine.launch(
+                    LaunchSpec(
+                        exePath = request.exePath,
+                        containerId = DEFAULT_CONTAINER_ID,
+                        displaySize = DisplaySize(request.width, request.height),
+                        target = request.target,
+                        env = diagEnv,
+                    ),
+                )
+            },
+        )
 
-    private val _launchError = MutableStateFlow<String?>(null)
-    val launchError: StateFlow<String?> = _launchError.asStateFlow()
-
-    private val sessionActions = PendingSessionActions()
+    val sessionState = coordinator.sessionState
+    val launchError = coordinator.launchError
 
     // Outlives viewModelScope so onCleared() can still run the suspend teardown.
     private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -76,78 +95,33 @@ constructor(
                 ?.let { runCatching { LaunchTarget.valueOf(it) }.getOrNull() }
                 ?: LaunchTarget.PROGRAM
         val graphicsDiag = savedStateHandle.get<Boolean>(GRAPHICS_DIAG_ARG) == true
-        if (target == LaunchTarget.PROGRAM && exePath.isEmpty()) {
-            _launchError.value = "No game selected"
-            _sessionState.value = SessionState.FAILED
-        } else {
-            launch(exePath, width, height, target, graphicsDiag)
-        }
-    }
-
-    private fun launch(exePath: String, width: Int, height: Int, target: LaunchTarget, graphicsDiag: Boolean) {
-        viewModelScope.launch {
-            _sessionState.value = SessionState.STARTING
-            try {
-                val diagEnv =
-                    if (graphicsDiag) {
-                        GraphicsDiag.clearStateCache(appContext)
-                        val env = GraphicsDiag.launchEnv(appContext)
-                        Log.i(
-                            GraphicsDiag.TAG,
-                            "Graphics diag ON; DXVK logs → ${env["DXVK_LOG_PATH"]}",
-                        )
-                        env
-                    } else {
-                        emptyMap()
-                    }
-                val spec =
-                    LaunchSpec(
-                        exePath = exePath,
-                        containerId = DEFAULT_CONTAINER_ID,
-                        displaySize = DisplaySize(width, height),
-                        target = target,
-                        env = diagEnv,
-                    )
-                val h = wineEngine.launch(spec)
-                val pendingAction = sessionActions.attach(h)
-                // Forward handle state to the screen.
-                viewModelScope.launch { h.state.collect { _sessionState.value = it } }
-                when (pendingAction) {
-                    PendingSessionAction.STOP -> h.stop()
-                    PendingSessionAction.PAUSE -> h.pause()
-                    PendingSessionAction.NONE -> Unit
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                // Launch boundary: never let a session-start failure crash the app - surface it.
-                _launchError.value = e.message ?: e.javaClass.simpleName
-                _sessionState.value = SessionState.FAILED
-            }
-        }
+        coordinator.start(
+            GameSessionLaunchRequest(
+                exePath = exePath,
+                width = width,
+                height = height,
+                target = target,
+                graphicsDiag = graphicsDiag,
+            ),
+        )
     }
 
     fun stop() {
-        // Teardown joins native X connector threads — never block Main (ANR).
-        val current = sessionActions.requestStop()
-        if (current != null) viewModelScope.launch(Dispatchers.IO) { current.stop() }
+        coordinator.stop()
     }
 
     fun resume() {
-        val current = sessionActions.requestResume()
-        if (current != null) viewModelScope.launch(Dispatchers.IO) { current.resume() }
+        coordinator.resume()
     }
 
     fun pause() {
-        val current = sessionActions.requestPause()
-        if (current != null) viewModelScope.launch(Dispatchers.IO) { current.pause() }
+        coordinator.pause()
     }
 
     override fun onCleared() {
         // ViewModel.onCleared() is empty; viewModelScope is already cancelled here,
         // so teardown runs on a scope that outlives it.
-        val current = sessionActions.requestStop()
-        if (current != null) cleanupScope.launch { current.stop() }
+        coordinator.clear(cleanupScope)
     }
 
     private companion object {
@@ -158,59 +132,5 @@ constructor(
         const val GRAPHICS_DIAG_ARG = "graphicsDiag"
         const val DEFAULT_WIDTH = 1280
         const val DEFAULT_HEIGHT = 720
-    }
-}
-
-internal enum class PendingSessionAction {
-    NONE,
-    PAUSE,
-    STOP,
-}
-
-/**
- * Records lifecycle requests before [WineEngine.launch] has returned its handle.
- *
- * Calls are synchronized because UI events race the launch coroutine. STOP is
- * terminal and takes precedence over a queued PAUSE.
- */
-internal class PendingSessionActions {
-    private var handle: SessionHandle? = null
-    private var pausePending = false
-    private var stopRequested = false
-
-    @Synchronized
-    fun attach(newHandle: SessionHandle): PendingSessionAction {
-        handle = newHandle
-        return when {
-            stopRequested -> PendingSessionAction.STOP
-            pausePending -> {
-                pausePending = false
-                PendingSessionAction.PAUSE
-            }
-            else -> PendingSessionAction.NONE
-        }
-    }
-
-    @Synchronized
-    fun requestStop(): SessionHandle? {
-        stopRequested = true
-        pausePending = false
-        return handle
-    }
-
-    @Synchronized
-    fun requestPause(): SessionHandle? {
-        if (stopRequested) return null
-        val current = handle
-        if (current == null) pausePending = true
-        return current
-    }
-
-    @Synchronized
-    fun requestResume(): SessionHandle? {
-        if (stopRequested) return null
-        val current = handle
-        if (current == null) pausePending = false
-        return current
     }
 }
