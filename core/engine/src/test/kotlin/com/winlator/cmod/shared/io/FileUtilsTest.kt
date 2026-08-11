@@ -30,4 +30,24 @@ class FileUtilsTest {
 
         assertFalse(FileUtils.contentEquals(first, second))
     }
+
+    @Test
+    fun fileCopyReportsDestinationIoFailure() {
+        val source = temporaryFolder.newFile("source.bin").apply { writeText("payload") }
+        val destinationDirectory = temporaryFolder.newFolder("destination")
+
+        assertFalse(FileUtils.copy(source, destinationDirectory))
+    }
+
+    @Test
+    fun directoryCopyPropagatesChildFailure() {
+        val source = temporaryFolder.newFolder("source").apply {
+            resolve("game.exe").writeText("new executable")
+        }
+        val destination = temporaryFolder.newFolder("destination").apply {
+            resolve("game.exe").mkdir()
+        }
+
+        assertFalse(FileUtils.copy(source, destination))
+    }
 }

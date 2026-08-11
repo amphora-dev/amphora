@@ -180,12 +180,11 @@ public abstract class FileUtils {
       if (callback != null) callback.call(dstFile);
 
       String[] filenames = srcFile.list();
-      if (filenames != null) {
-        for (String filename : filenames) {
-          if (!copy(new File(srcFile, filename), new File(dstFile, filename), callback)) {
-            Log.e(TAG, "Failed to copy directory: " + srcFile.getAbsolutePath());
-            // Continue copying other files even if one fails
-          }
+      if (filenames == null) return false;
+      for (String filename : filenames) {
+        if (!copy(new File(srcFile, filename), new File(dstFile, filename), callback)) {
+          Log.e(TAG, "Failed to copy directory: " + srcFile.getAbsolutePath());
+          return false;
         }
       }
     } else {
@@ -195,12 +194,18 @@ public abstract class FileUtils {
 
       try (FileChannel inChannel = (new FileInputStream(srcFile)).getChannel();
           FileChannel outChannel = (new FileOutputStream(dstFile)).getChannel()) {
-        inChannel.transferTo(0, inChannel.size(), outChannel);
+        long size = inChannel.size();
+        long position = 0;
+        while (position < size) {
+          long transferred = inChannel.transferTo(position, size - position, outChannel);
+          if (transferred <= 0) return false;
+          position += transferred;
+        }
+        outChannel.force(true);
 
         if (callback != null) callback.call(dstFile);
-        return dstFile.exists();
+        return dstFile.isFile() && dstFile.length() == size;
       } catch (IOException e) {
-        e.printStackTrace();
         Log.e(
             TAG,
             "Failed to copy file: "
@@ -208,8 +213,7 @@ public abstract class FileUtils {
                 + " to "
                 + dstFile.getAbsolutePath(),
             e);
-        // Log error but don't return false, so we skip this file and continue with others
-        return true;
+        return false;
       }
     }
     return true;
@@ -225,12 +229,11 @@ public abstract class FileUtils {
         if (callback != null) callback.call(dstFile);
 
         String[] filenames = sourceFile.list();
-        if (filenames != null) {
-          for (String filename : filenames) {
-            if (!copy(
-                context, new File(sourceFile, filename), new File(dstFile, filename), callback)) {
-              return false;
-            }
+        if (filenames == null) return false;
+        for (String filename : filenames) {
+          if (!copy(
+              context, new File(sourceFile, filename), new File(dstFile, filename), callback)) {
+            return false;
           }
         }
       } else {
@@ -240,12 +243,19 @@ public abstract class FileUtils {
 
         try (FileChannel inChannel = (new FileInputStream(sourceFile)).getChannel();
             FileChannel outChannel = (new FileOutputStream(dstFile)).getChannel()) {
-          inChannel.transferTo(0, inChannel.size(), outChannel);
+          long size = inChannel.size();
+          long position = 0;
+          while (position < size) {
+            long transferred = inChannel.transferTo(position, size - position, outChannel);
+            if (transferred <= 0) return false;
+            position += transferred;
+          }
+          outChannel.force(true);
 
           if (callback != null) callback.call(dstFile);
-          return dstFile.exists();
+          return dstFile.isFile() && dstFile.length() == size;
         } catch (IOException e) {
-          e.printStackTrace();
+          Log.e(TAG, "Failed to copy file: " + sourceFile + " to " + dstFile, e);
           return false;
         }
       }
@@ -255,8 +265,11 @@ public abstract class FileUtils {
         throw new IllegalArgumentException("Context is required for Uri to File copying");
       }
       Uri srcUri = (Uri) src;
+      File parent = dstFile.getParentFile();
+      if (parent != null && !parent.isDirectory() && !parent.mkdirs()) return false;
       try (InputStream inputStream = context.getContentResolver().openInputStream(srcUri);
           OutputStream outputStream = new FileOutputStream(dstFile)) {
+        if (inputStream == null) return false;
         byte[] buffer = new byte[1024];
         int length;
 
@@ -276,41 +289,49 @@ public abstract class FileUtils {
     return false;
   }
 
-  public static void copy(Context context, String assetFile, File dstFile) {
+  public static boolean copy(Context context, String assetFile, File dstFile) {
     File downloaded = downloadedAsset(context, assetFile);
     if (downloaded.isFile()) {
       if (dstFile.isDirectory()) dstFile = new File(dstFile, getName(assetFile));
-      copy(downloaded, dstFile);
-      return;
+      return copy(downloaded, dstFile);
     }
     if (isDirectory(context, assetFile)) {
-      if (!dstFile.isDirectory()) dstFile.mkdirs();
+      if (!dstFile.isDirectory() && !dstFile.mkdirs()) return false;
       try {
         String[] filenames = context.getAssets().list(assetFile);
+        if (filenames == null) return false;
         for (String filename : filenames) {
           String relativePath = StringUtils.addEndSlash(assetFile) + filename;
           if (isDirectory(context, relativePath)) {
-            copy(context, relativePath, new File(dstFile, filename));
-          } else copy(context, relativePath, dstFile);
+            if (!copy(context, relativePath, new File(dstFile, filename))) return false;
+          } else if (!copy(context, relativePath, dstFile)) return false;
         }
       } catch (IOException e) {
+        Log.e(TAG, "Failed to list asset directory: " + assetFile, e);
+        return false;
       }
     } else {
       if (dstFile.isDirectory()) dstFile = new File(dstFile, FileUtils.getName(assetFile));
       File parent = dstFile.getParentFile();
-      if (!parent.isDirectory()) parent.mkdirs();
+      if (parent != null && !parent.isDirectory() && !parent.mkdirs()) return false;
       try (InputStream inStream = context.getAssets().open(assetFile);
           BufferedOutputStream outStream =
               new BufferedOutputStream(new FileOutputStream(dstFile), StreamUtils.BUFFER_SIZE)) {
         StreamUtils.copy(inStream, outStream);
       } catch (IOException e) {
+        Log.e(TAG, "Failed to copy asset: " + assetFile + " to " + dstFile, e);
+        return false;
       }
     }
+    return true;
   }
 
   public static boolean copy(Context context, Uri uri, File dest) {
+    File parent = dest.getParentFile();
+    if (parent != null && !parent.isDirectory() && !parent.mkdirs()) return false;
     try (InputStream inputStream = context.getContentResolver().openInputStream(uri);
         OutputStream outputStream = new FileOutputStream(dest)) {
+      if (inputStream == null) return false;
       byte[] buffer = new byte[1024];
       int length;
 

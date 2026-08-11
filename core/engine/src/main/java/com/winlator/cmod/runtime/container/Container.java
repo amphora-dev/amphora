@@ -1,10 +1,10 @@
 package com.winlator.cmod.runtime.container;
 
 import android.os.Environment;
+import android.util.Log;
 
 import com.winlator.cmod.runtime.compat.box64.Box64Preset;
 import com.winlator.cmod.runtime.wine.EnvVars;
-import com.winlator.cmod.shared.io.FileUtils;
 import com.winlator.cmod.shared.util.KeyValueSet;
 import com.winlator.cmod.runtime.wine.WineInfo;
 import com.winlator.cmod.runtime.compat.fexcore.FEXCorePreset;
@@ -14,10 +14,25 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Container {
+    private static final String TAG = "Container";
+    private static final ConcurrentHashMap<String, Object> SAVE_LOCKS = new ConcurrentHashMap<>();
     public static final String DEFAULT_ENV_VARS = "WRAPPER_MAX_IMAGE_COUNT=0 VKD3D_SHADER_MODEL=6_6 ZINK_DESCRIPTORS=lazy ZINK_DEBUG=compact MESA_SHADER_CACHE_DISABLE=false MESA_SHADER_CACHE_MAX_SIZE=512MB mesa_glthread=true TU_DEBUG=noconform,sysmem";
     public static final String DEFAULT_SCREEN_SIZE = "1280x720";
     public static final String DEFAULT_GRAPHICS_DRIVER = "wrapper";
@@ -33,7 +48,7 @@ public class Container {
     public static final String DEFAULT_DDRAWRAPPER = "dd7to9";
     public static final String DEFAULT_WINCOMPONENTS = "direct3d=1,directsound=0,directmusic=0,directshow=0,directplay=0,xaudio=0,dinput8=1,vcrun2010=1";
     public static final String FALLBACK_WINCOMPONENTS = "direct3d=1,directsound=1,directmusic=1,directshow=1,directplay=1,xaudio=1,dinput8=1,vcrun2010=1";
-    public static final String DEFAULT_DRIVES = "D:" + Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath() + "F:" + Environment.getExternalStorageDirectory().getAbsolutePath();
+    public static final String DEFAULT_DRIVES = buildDefaultDrives();
     public static final byte STARTUP_SELECTION_NORMAL = 0;
     public static final byte STARTUP_SELECTION_ESSENTIAL = 1;
     public static final byte STARTUP_SELECTION_AGGRESSIVE = 2;
@@ -83,12 +98,24 @@ public class Container {
     private boolean runtimePatcher = false;
 
     private ContainerManager containerManager;
+    /** Local object state at the last load/save, used to merge non-conflicting external edits. */
+    private JSONObject savedState;
 
 
 
     public Container(int id) {
         this.id = id;
         this.name = "Container-"+id;
+    }
+
+    private static String buildDefaultDrives() {
+        File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        File primary = Environment.getExternalStorageDirectory();
+        String downloadsPath =
+                downloads != null ? downloads.getAbsolutePath() : "/storage/emulated/0/Download";
+        String primaryPath =
+                primary != null ? primary.getAbsolutePath() : "/storage/emulated/0";
+        return "D:" + downloadsPath + "F:" + primaryPath;
     }
 
     public Container(int id, ContainerManager containerManager) {
@@ -416,52 +443,173 @@ public class Container {
         };
     }
 
-    public void saveData() {
+    public synchronized boolean saveData() {
+        final JSONObject desired;
         try {
-            JSONObject data = new JSONObject();
-            data.put("id", id);
-            data.put("name", name);
-            data.put("screenSize", screenSize);
-            data.put("envVars", envVars);
-            data.put("cpuList", cpuList);
-            data.put("cpuListWoW64", cpuListWoW64);
-            data.put("graphicsDriver", graphicsDriver);
-            data.put("graphicsDriverConfig", graphicsDriverConfig);
-            data.put("emulator", emulator);
-            data.put("emulator64", emulator64);
-            data.put("executablePath", executablePath);
-            data.put("execArgs", execArgs);
-            data.put("dxwrapper", dxwrapper);
-            if (!dxwrapperConfig.isEmpty()) data.put("dxwrapperConfig", dxwrapperConfig);
-            data.put("audioDriver", audioDriver);
-            data.put("wincomponents", wincomponents);
-            data.put("drives", drives);
-            data.put("fullscreenStretched", fullscreenStretched);
-            data.put("useUnixLibs", useUnixLibs);
-            data.put("inputType", inputType);
-            data.put("exclusiveXInput", exclusiveXInput);
-            data.put("startupSelection", startupSelection);
-            data.put("box64Version", box64Version);
-            data.put("fexcorePreset", fexcorePreset);
-            data.put("fexcoreVersion", fexcoreVersion);
-            data.put("box64Preset", box64Preset);
-            data.put("desktopTheme", desktopTheme);
-            data.put("extraData", extraData);
-            data.put("midiSoundFont", midiSoundFont);
-            data.put("lc_all", lc_all);
-            data.put("launchBionicSteam", launchBionicSteam);
-            data.put("useColdClient", useColdClient);
-            data.put("coldClientMigrated", true);
-            data.put("allowSteamUpdates", allowSteamUpdates);
-            data.put("needsUnpacking", needsUnpacking);
-            data.put("steamOfflineMode", steamOfflineMode);
-            data.put("unpackFiles", unpackFiles);
-            data.put("runtimePatcher", runtimePatcher);
-
-            if (!WineInfo.isMainWineVersion(wineVersion)) data.put("wineVersion", wineVersion);
-            FileUtils.writeString(getConfigFile(), data.toString());
+            desired = buildData();
         }
-        catch (JSONException e) {}
+        catch (JSONException e) {
+            Log.e(TAG, "Cannot serialize container " + id, e);
+            return false;
+        }
+
+        File configFile = getConfigFile();
+        File parent = configFile.getParentFile();
+        if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) return false;
+        File lockFile = new File(parent, configFile.getName() + ".lock");
+        Object processLock = SAVE_LOCKS.computeIfAbsent(lockFile.getAbsolutePath(), key -> new Object());
+
+        synchronized (processLock) {
+            try (RandomAccessFile lockAccess = new RandomAccessFile(lockFile, "rw");
+                 FileChannel lockChannel = lockAccess.getChannel();
+                 FileLock ignored = lockChannel.lock()) {
+                JSONObject merged = mergeWithCurrent(configFile, desired);
+                if (merged == null || !atomicWrite(configFile, merged.toString())) return false;
+                savedState = copyJson(desired);
+                return true;
+            }
+            catch (IOException | JSONException e) {
+                Log.e(TAG, "Cannot save container " + id + " to " + configFile, e);
+                return false;
+            }
+        }
+    }
+
+    private JSONObject buildData() throws JSONException {
+        JSONObject data = new JSONObject();
+        data.put("id", id);
+        data.put("name", name);
+        data.put("screenSize", screenSize);
+        data.put("envVars", envVars);
+        data.put("cpuList", cpuList);
+        data.put("cpuListWoW64", cpuListWoW64);
+        data.put("graphicsDriver", graphicsDriver);
+        data.put("graphicsDriverConfig", graphicsDriverConfig);
+        data.put("emulator", emulator);
+        data.put("emulator64", emulator64);
+        data.put("executablePath", executablePath);
+        data.put("execArgs", execArgs);
+        data.put("dxwrapper", dxwrapper);
+        if (!dxwrapperConfig.isEmpty()) data.put("dxwrapperConfig", dxwrapperConfig);
+        data.put("audioDriver", audioDriver);
+        data.put("wincomponents", wincomponents);
+        data.put("drives", drives);
+        data.put("fullscreenStretched", fullscreenStretched);
+        data.put("useUnixLibs", useUnixLibs);
+        data.put("inputType", inputType);
+        data.put("exclusiveXInput", exclusiveXInput);
+        data.put("startupSelection", startupSelection);
+        data.put("box64Version", box64Version);
+        data.put("fexcorePreset", fexcorePreset);
+        data.put("fexcoreVersion", fexcoreVersion);
+        data.put("box64Preset", box64Preset);
+        data.put("desktopTheme", desktopTheme);
+        data.put("extraData", extraData);
+        data.put("midiSoundFont", midiSoundFont);
+        data.put("lc_all", lc_all);
+        data.put("launchBionicSteam", launchBionicSteam);
+        data.put("useColdClient", useColdClient);
+        data.put("coldClientMigrated", true);
+        data.put("allowSteamUpdates", allowSteamUpdates);
+        data.put("needsUnpacking", needsUnpacking);
+        data.put("steamOfflineMode", steamOfflineMode);
+        data.put("unpackFiles", unpackFiles);
+        data.put("runtimePatcher", runtimePatcher);
+        if (!WineInfo.isMainWineVersion(wineVersion)) data.put("wineVersion", wineVersion);
+        return data;
+    }
+
+    /**
+     * Merge only fields changed on this object since it was loaded. A second process may have
+     * updated unrelated fields in the meantime; those values must survive this save. If both
+     * writers changed the same field, preserve the value already on disk and reject the stale save.
+     */
+    private JSONObject mergeWithCurrent(File configFile, JSONObject desired)
+            throws IOException, JSONException {
+        if (!configFile.exists()) return copyJson(desired);
+
+        String currentText = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
+        if (currentText.trim().isEmpty()) {
+            Log.e(TAG, "Refusing to replace empty or unreadable container config " + configFile);
+            return null;
+        }
+        JSONObject current = new JSONObject(currentText);
+        if (savedState == null) return copyJson(desired);
+
+        JSONObject merged = copyJson(current);
+        Set<String> keys = new HashSet<>();
+        savedState.keys().forEachRemaining(keys::add);
+        desired.keys().forEachRemaining(keys::add);
+        for (String key : keys) {
+            boolean baselineHas = savedState.has(key);
+            boolean desiredHas = desired.has(key);
+            if (jsonValuesEqual(baselineHas, savedState.opt(key), desiredHas, desired.opt(key))) {
+                continue;
+            }
+            boolean currentHas = current.has(key);
+            if (!jsonValuesEqual(baselineHas, savedState.opt(key), currentHas, current.opt(key))) {
+                Log.w(TAG, "Rejecting stale container " + id + " update for field " + key);
+                return null;
+            }
+            if (desiredHas) merged.put(key, desired.get(key));
+            else merged.remove(key);
+        }
+        return merged;
+    }
+
+    private static boolean jsonValuesEqual(
+            boolean firstHas, Object first, boolean secondHas, Object second) {
+        if (firstHas != secondHas) return false;
+        if (!firstHas) return true;
+        if (first == second) return true;
+        if (first == null || second == null) return false;
+        return first.toString().equals(second.toString());
+    }
+
+    private static JSONObject copyJson(JSONObject source) throws JSONException {
+        return new JSONObject(source.toString());
+    }
+
+    private static boolean atomicWrite(File target, String contents) throws IOException {
+        File parent = target.getParentFile();
+        if (parent == null) return false;
+        File temp = File.createTempFile(target.getName() + ".", ".tmp", parent);
+        try {
+            byte[] bytes = contents.getBytes(StandardCharsets.UTF_8);
+            try (FileOutputStream output = new FileOutputStream(temp)) {
+                output.write(bytes);
+                output.flush();
+                output.getFD().sync();
+            }
+            try {
+                Files.move(
+                        temp.toPath(),
+                        target.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            }
+            catch (AtomicMoveNotSupportedException e) {
+                Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+            syncDirectory(parent);
+            return target.isFile() && target.length() == bytes.length;
+        }
+        finally {
+            if (temp.exists() && !temp.delete()) {
+                Log.w(TAG, "Could not remove abandoned container temp file " + temp);
+            }
+        }
+    }
+
+    private static void syncDirectory(File directory) {
+        try (FileChannel channel = FileChannel.open(directory.toPath(), StandardOpenOption.READ)) {
+            channel.force(true);
+        }
+        catch (IOException | UnsupportedOperationException e) {
+            // The data file itself is already fsynced. Some Android filesystems do not expose
+            // directory fsync through java.nio, so retain the atomic rename and log the limitation.
+            Log.w(TAG, "Directory fsync unavailable for " + directory, e);
+        }
     }
 
 
@@ -601,6 +749,7 @@ public class Container {
         }
 
         normalizeEmulatorFieldsForArch();
+        savedState = buildData();
     }
 
     // Coerce emulator/emulator64 to values that are valid for the prefix's arch.

@@ -99,38 +99,39 @@ public class ContainerManager {
     File driveC = new File(containerDir, ".wine/drive_c");
     if (driveC.isDirectory()) FileUtils.chmod(driveC, 0771);
 
-    // Replace the real "xuser" dir with a symlink to the active container. Best-effort
-    // migrate of legacy winhandler/wfm if present (Amphora no longer installs them).
+    // Replace a legacy real "xuser" dir with a symlink to the active container. The
+    // legacy tree can contain saves, so move it intact to a recovery backup and never
+    // delete it as part of automatic activation.
+    File legacyBackup = null;
     if (file.exists() && !FileUtils.isSymlink(file)) {
       Log.w(
           "ContainerManager",
           "activateContainer: xuser is real dir, migrating essential files to container "
               + container.id);
       migrateEssentialFiles(file, containerDir);
-      boolean deleted = FileUtils.delete(file);
-      Log.d("ContainerManager", "activateContainer: real xuser dir delete=" + deleted);
-      if (!deleted && file.exists()) {
-        File backup = new File(homeDir, ImageFs.USER + ".inactive-" + System.currentTimeMillis());
-        boolean renamed = file.renameTo(backup);
-        Log.w(
+      legacyBackup = nextLegacyBackup();
+      if (!file.renameTo(legacyBackup)) {
+        Log.e(
             "ContainerManager",
-            "activateContainer: real xuser delete failed, rename to "
-                + backup.getName()
-                + "="
-                + renamed);
-        if (!renamed && file.exists()) {
-          Log.e("ContainerManager", "activateContainer: unable to replace real xuser directory");
-          return false;
-        }
+            "activateContainer: unable to preserve legacy xuser at " + legacyBackup);
+        return false;
       }
+      Log.w(
+          "ContainerManager",
+          "activateContainer: preserved legacy xuser at " + legacyBackup.getName());
     } else {
-      boolean deleted = file.delete();
+      boolean wasLink = FileUtils.isSymlink(file);
+      boolean deleted = !wasLink || file.delete();
       Log.d(
           "ContainerManager",
           "activateContainer: xuser symlink/missing delete="
               + deleted
               + " existed="
               + file.exists());
+      if (wasLink && (!deleted || FileUtils.isSymlink(file))) {
+        Log.e("ContainerManager", "activateContainer: unable to remove previous xuser symlink");
+        return false;
+      }
     }
     FileUtils.symlink(linkTarget, file.getPath());
     boolean symlinkReady = FileUtils.isSymlink(file) && linkTarget.equals(FileUtils.readSymlink(file));
@@ -145,8 +146,29 @@ public class ContainerManager {
           "ContainerManager",
           "activateContainer: active xuser does not point to selected container "
               + container.id);
+      if (legacyBackup != null && legacyBackup.exists()) {
+        if (FileUtils.isSymlink(file)) file.delete();
+        if (!legacyBackup.renameTo(file)) {
+          Log.e(
+              "ContainerManager",
+              "activateContainer: CRITICAL — legacy xuser remains recoverable at "
+                  + legacyBackup
+                  + " but could not be restored");
+        }
+      }
     }
     return symlinkReady;
+  }
+
+  private File nextLegacyBackup() {
+    long timestamp = System.currentTimeMillis();
+    File candidate = new File(homeDir, ImageFs.USER + ".legacy-backup-" + timestamp);
+    int suffix = 1;
+    while (candidate.exists()) {
+      candidate =
+          new File(homeDir, ImageFs.USER + ".legacy-backup-" + timestamp + "-" + suffix++);
+    }
+    return candidate;
   }
 
   private void migrateEssentialFiles(File sourceDir, File destDir) {

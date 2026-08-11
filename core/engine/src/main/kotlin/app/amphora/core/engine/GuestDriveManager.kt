@@ -18,9 +18,10 @@ import kotlinx.coroutines.withContext
  * Reconciles Android storage volumes with the persistent Wine drive list.
  *
  * A removable volume can appear after the container was created, so relying on
- * [Container.DEFAULT_DRIVES] leaves it invisible forever. Refreshing adds every
- * currently browsable volume and persists the result for all containers; launch
- * performs the same reconciliation again before creating dosdevices symlinks.
+ * [Container.DEFAULT_DRIVES] leaves it invisible forever. Refresh is deliberately
+ * read-only: the UI process must not rewrite a whole container document that the
+ * isolated session process may be updating. Launch performs the authoritative
+ * reconciliation before creating dosdevices symlinks.
  */
 @Singleton
 class GuestDriveManager
@@ -37,10 +38,6 @@ constructor(
 
         containers.forEach { container ->
             val normalized = WineUtils.normalizePersistentDrives(context, container.drives, true)
-            if (normalized != container.drives) {
-                container.drives = normalized
-                container.saveData()
-            }
             if (representativeDrives == null) representativeDrives = normalized
         }
 
