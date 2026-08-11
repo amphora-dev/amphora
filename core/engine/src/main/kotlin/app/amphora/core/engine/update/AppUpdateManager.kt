@@ -11,8 +11,11 @@ import app.amphora.core.engine.ShizukuInstallResult
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,8 +36,7 @@ constructor(
     private val shizuku: ShizukuEmergencyStopper,
     private val dispatchers: DispatcherProvider,
 ) {
-    private val installMutex = Mutex()
-    private var inFlightInstall: Pair<String, CompletableDeferred<AppUpdateInstallResult>>? = null
+    private val installs = SingleFlightCoordinator<AppUpdateInstallResult>()
 
     val installStatus: StateFlow<ShizukuCleanupStatus> = shizuku.status
 
@@ -48,35 +50,10 @@ constructor(
 
     fun requestInstallPermission(): Boolean = shizuku.requestPermission()
 
-    suspend fun downloadAndInstall(manifest: AppUpdateManifest): AppUpdateInstallResult {
-        val installKey = "${manifest.versionCode}:${manifest.sha256.lowercase()}"
-        val (result, ownsInstall) =
-            installMutex.withLock {
-                val existing = inFlightInstall?.takeIf { it.first == installKey }?.second
-                if (existing != null) {
-                    existing to false
-                } else {
-                    CompletableDeferred<AppUpdateInstallResult>()
-                        .also { inFlightInstall = installKey to it } to true
-                }
-            }
-        if (!ownsInstall) return result.await()
-
-        try {
-            val installResult = performDownloadAndInstall(manifest)
-            result.complete(installResult)
-            return installResult
-        } catch (failure: Throwable) {
-            result.completeExceptionally(failure)
-            throw failure
-        } finally {
-            withContext(NonCancellable) {
-                installMutex.withLock {
-                    if (inFlightInstall?.second === result) inFlightInstall = null
-                }
-            }
+    suspend fun downloadAndInstall(manifest: AppUpdateManifest): AppUpdateInstallResult =
+        installs.run("${manifest.versionCode}:${manifest.sha256.lowercase()}") {
+            performDownloadAndInstall(manifest)
         }
-    }
 
     private suspend fun performDownloadAndInstall(manifest: AppUpdateManifest): AppUpdateInstallResult {
         val apk = appUpdater.download(manifest)
@@ -103,6 +80,61 @@ constructor(
     fun installPermissionSettingsIntent(): Intent = appUpdater.installPermissionSettingsIntent()
 
     fun systemInstallerIntent(apk: File): Intent = appUpdater.installIntent(apk)
+}
+
+internal class SingleFlightCoordinator<T> {
+    private val mutex = Mutex()
+    private var inFlight: Pair<String, CompletableDeferred<T>>? = null
+
+    suspend fun run(key: String, operation: suspend () -> T): T {
+        while (true) {
+            val claim =
+                mutex.withLock {
+                    val existing = inFlight
+                    if (existing != null) {
+                        InstallClaim(existing.first, existing.second, ownsInstall = false)
+                    } else {
+                        val created = CompletableDeferred<T>()
+                        inFlight = key to created
+                        InstallClaim(key, created, ownsInstall = true)
+                    }
+                }
+            if (!claim.ownsInstall) {
+                if (claim.key == key) return claim.result.await()
+                try {
+                    claim.result.await()
+                } catch (_: CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                } catch (_: Throwable) {
+                    // A failed older update must not prevent this newer request.
+                }
+                continue
+            }
+
+            try {
+                val result = operation()
+                clearInFlight(claim.result)
+                claim.result.complete(result)
+                return result
+            } catch (failure: Throwable) {
+                clearInFlight(claim.result)
+                claim.result.completeExceptionally(failure)
+                throw failure
+            }
+        }
+    }
+
+    private suspend fun clearInFlight(result: CompletableDeferred<T>) {
+        withContext(NonCancellable) {
+            mutex.withLock {
+                if (inFlight?.second === result) {
+                    inFlight = null
+                }
+            }
+        }
+    }
+
+    private data class InstallClaim<T>(val key: String, val result: CompletableDeferred<T>, val ownsInstall: Boolean)
 }
 
 sealed interface AppUpdateInstallResult {

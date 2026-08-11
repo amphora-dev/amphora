@@ -243,8 +243,18 @@ constructor(
         if (_uiState.value.storageScanning) return
         viewModelScope.launch {
             _uiState.update { it.copy(storageScanning = true) }
-            val usage = withContext(dispatchers.io) { StorageUsageScanner.scan(context) }
-            _uiState.update { it.copy(storageScanning = false, storageUsage = usage) }
+            try {
+                val usage = withContext(dispatchers.io) { StorageUsageScanner.scan(context) }
+                _uiState.update { it.copy(storageScanning = false, storageUsage = usage) }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                _uiState.update {
+                    it.copy(
+                        storageScanning = false,
+                        storageMessage = "Could not scan storage usage: ${error.message}",
+                    )
+                }
+            }
         }
     }
 
