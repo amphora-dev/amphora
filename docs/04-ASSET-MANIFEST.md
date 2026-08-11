@@ -525,7 +525,7 @@ CI 重建后 SHA 会变：更新本表与 `content_manifest.json` 即可。
 ## 4. 待办 (资产侧)
 
 - [x] `:core:content` `BundledContentSource` (2026-07-13): `content_manifest.json` (本表派生) + SHA-256 流式校验 + ARCHIVE(`TarCompressorUtils`)/WCP(`ContentsManager.extraContentFile`) 双路径。`.wcp` SHA 已锁 ✅ (2026-07-14, gap #1)。详见 03-TRACKING §P2 #8。
-- [x] build 时资产 staging `:app:stageBundledContent` (2026-07-14): manifest 驱动; ARCHIVE 从 WinNative 拷 (SHA 校验) + WCP 从 nicholasx417 GitHub releases 下载, 入 `app/src/main/assets/` (git-ignored)。Best-effort (不破构建), standalone (不 wire preBuild -- 避免 160M Proton 膨胀每次 debug APK)。`.wcp` SHA 已锁 ✅ (2026-07-14, gap #1; wine=`e61d29be8c736abe13f662d33ff4b14fae2b7294b011283be53c8e33665d2b48` / box64=`eec659650ff31df151c13d2a522330b1636b98cd82dbf60ba3ff522759f528fd`)。详见 03-TRACKING §P2 #9。
+- [x] build 时资产 staging `:app:stageBundledContent`：每次按远程 manifest 精确同步非 ROOTFS `components` + 全部 `runtimeAssets` 到 `app/build/generated/assets/bundledContent/`，并由 Android main assets source set 打包；优先使用 WinNative 本地同路径文件，缺失时按 `remoteUrl`（WCP 可回落 catalog）下载。源文件、缓存和生成文件必须同时匹配 manifest `size` 与 SHA-256，否则任务失败；临时目录完整验证后才替换输出，不再写入或污染 `app/src/main/assets/`。任务仍保持 standalone，不挂 `preBuild`。
 - [x] 真机 preparer 验证: `RemoteContentSource` 下载 Proton/Box64 `.wcp` + `createContainer` + `extractGraphicsDriverFiles`
 - [x] `RemoteContentSource`: Kotlin HTTPS 下载、续传、SHA/大小校验和设备缓存；`nativeDownloadFile` 保持非生产 stub
 

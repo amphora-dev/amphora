@@ -57,6 +57,7 @@
 - ✅ **资产供应链已切自建主通道** (2026-08): 默认 wine = `amphora-dev/proton-wine` **Proton-11.0-amphora**；rootfs / Box64 / wrapper = `amphora-dev/imagefs`；pin 面 = `content_manifest`（GitHub Contents API，raw 回退）。`amphora-assets` Private **不再阻塞**。部分 wincomponents / pattern / DXVK 仍可 pin 上游。
 - ✅ **`extra_libs.tzst` 已废止 / Mesa GL 自建并入 imagefs** (2026-08-01)。
 - 🩹 **Wine 全白窗口 / libpng patchelf** (2026-08-01): 已在 imagefs 配方侧修（链接期 SONAME + LOAD 同余断言）；见 imagefs `ELF-PITFALLS.md`。
+- ✅ **staging 可靠性收敛** (2026-08-11): `stageBundledContent` 不再写 `app/src/main/assets`，改为精确同步到已接入 Android source set 的 `build/generated/assets/bundledContent`；遍历非 ROOTFS components + runtimeAssets，本地缺项按 manifest URL 下载，size/SHA 任一不符即失败。本文 P2 #9 的 best-effort/旧输出路径仅为历史记录，以当前插件和 `05-ARCHITECTURE.md` §5 为准。
 - ⏭ 下一步: 键盘手柄 / Pulse·FEX 扩展；WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |

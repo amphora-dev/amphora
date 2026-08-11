@@ -130,8 +130,10 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
   - `WCP` → `ContentsManager.extraContentFile` + `finishInstallContent` → `filesDir/contents/...`
   - `ARCHIVE` → `TarCompressorUtils` → `filesDir/amphora-content/<component>/<version>/`
 - **构建 staging**：`./gradlew :app:stageBundledContent`（**不**挂 preBuild；Proton ~160MB 避免每次 debug APK 膨胀）
-  - 读同一份远程 manifest，WCP 用其 `remoteUrl`（缺失时回落 manifest 自带的 `wcpCatalogUrl`）下载到 `build/content-cache/`；`-Pamphora.contentManifest.file=<path>` 可离线
-  - kernel-direct 资产（imagefs.tzst / wincomponents/* 等）从相邻 `WinNative` checkout 拷贝并校验 SHA
+  - 每次重新读取同一份远程 manifest，遍历非 ROOTFS `components` 与全部 `runtimeAssets`；`-Pamphora.contentManifest.file=<path>` 可离线
+  - 优先使用相邻 `WinNative` checkout 中的同路径文件；缺失时用条目的 `remoteUrl` 下载（WCP 可回落 `wcpCatalogUrl`）
+  - 本地文件、下载缓存和最终生成文件都同时校验 `size` 与 SHA-256，任一不匹配即失败
+  - 先完整写临时目录，成功后精确替换 `app/build/generated/assets/bundledContent/`，不会污染 `app/src/main/assets/`；该目录已接入 main Android assets source set
 
 无资产时 `assembleDebug` 仍绿；端到端运行/instrumented 测试需先 staging。
 
