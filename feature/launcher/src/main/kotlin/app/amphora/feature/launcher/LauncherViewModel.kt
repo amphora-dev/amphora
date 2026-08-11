@@ -131,16 +131,18 @@ constructor(
 
     private fun loadContentInfo(forceRefresh: Boolean, showBusy: Boolean) {
         viewModelScope.launch {
-            if (showBusy) {
-                _uiState.update { it.copy(contentBusy = true, stageError = null) }
-            }
+            val refreshMode =
+                if (showBusy) {
+                    ContentRefreshMode.BLOCKING
+                } else {
+                    ContentRefreshMode.BACKGROUND
+                }
+            _uiState.update { LauncherStateReducer.contentRefreshStarted(it, refreshMode) }
             try {
                 val manifest = if (forceRefresh) catalog.refresh() else catalog.require()
-                val loadedFromDisk =
-                    !forceRefresh &&
-                        (catalog.status.value as? ContentCatalog.Status.Ready)
-                            ?.sourceUrl
-                            ?.startsWith("file:") == true
+                val sourceUrl = (catalog.status.value as? ContentCatalog.Status.Ready)?.sourceUrl
+                val refreshInBackground =
+                    LauncherStateEvaluator.shouldRefreshInBackground(forceRefresh, sourceUrl)
                 val components =
                     withContext(dispatchers.io) {
                         contentReconciler.reconcile(manifest)
@@ -152,29 +154,26 @@ constructor(
                         File(context.filesDir, "imagefs.olddead").exists()
                     }
                 _uiState.update {
-                    it.copy(
-                        contentBusy = if (showBusy) false else it.contentBusy,
-                        components = components,
-                        runtimeAssets = runtimeAssets,
-                        imagefsResidue = residue,
+                    LauncherStateReducer.contentRefreshSucceeded(
+                        state = it,
+                        mode = refreshMode,
+                        snapshot =
+                        ContentSnapshot(
+                            components = components,
+                            runtimeAssets = runtimeAssets,
+                            imagefsResidue = residue,
+                        ),
                     )
                 }
                 // Make the cached state launchable immediately, then refresh pins
                 // without returning the launcher to a blocking Loading state.
-                if (loadedFromDisk) {
+                if (refreshInBackground) {
                     loadContentInfo(forceRefresh = true, showBusy = false)
                 }
             } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 _uiState.update {
-                    if (showBusy) {
-                        it.copy(
-                            contentBusy = false,
-                            stageError = "Manifest: ${e.message ?: e.javaClass.simpleName}",
-                        )
-                    } else {
-                        it
-                    }
+                    LauncherStateReducer.contentRefreshFailed(it, refreshMode, e)
                 }
             }
         }
@@ -203,8 +202,7 @@ constructor(
     }
 
     fun selectProgram(path: String) {
-        if (_uiState.value.recentPrograms.none { it.path == path }) return
-        _uiState.update { it.copy(stagedExePath = path) }
+        _uiState.update { LauncherStateReducer.selectProgram(it, path) }
     }
 
     fun markProgramLaunched() {
