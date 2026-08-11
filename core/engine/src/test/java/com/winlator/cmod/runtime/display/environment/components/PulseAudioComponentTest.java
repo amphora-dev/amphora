@@ -19,13 +19,11 @@ public class PulseAudioComponentTest {
   public void parsesLatencyAndLowLatencyModeFromEnvironment() {
     EnvVars envVars = new EnvVars();
     envVars.put("PULSE_LATENCY_MSEC", "24");
-    envVars.put("WINNATIVE_PULSE_FRAGMENT_MS", "6");
     envVars.put("WINNATIVE_PULSE_AAUDIO_PERFORMANCE_MODE", "low_latency");
 
     PulseAudioComponent.Options options = PulseAudioComponent.Options.fromEnvVars(envVars);
 
     assertEquals(24, options.latencyMillis);
-    assertEquals(6, options.fragmentMillis);
     assertEquals(PulseAudioComponent.Options.PERFORMANCE_MODE_LOW_LATENCY, options.performanceMode);
   }
 
@@ -39,6 +37,36 @@ public class PulseAudioComponentTest {
 
     assertEquals(2, options.channels);
     assertEquals(PulseAudioComponent.Options.MAX_VOLUME, options.volume, 0.0f);
+  }
+
+  @Test
+  public void mapsPerformanceModesToAAudioConstants() {
+    assertEquals(
+        PulseAudioComponent.Options.PERFORMANCE_MODE_LOW_LATENCY,
+        PulseAudioComponent.Options.fromEnvVars(new EnvVars()).performanceMode);
+    assertEquals(
+        0,
+        PulseAudioComponent.performanceModeValue(
+            PulseAudioComponent.Options.PERFORMANCE_MODE_NONE));
+    assertEquals(
+        1,
+        PulseAudioComponent.performanceModeValue(
+            PulseAudioComponent.Options.PERFORMANCE_MODE_LOW_LATENCY));
+    assertEquals(
+        2,
+        PulseAudioComponent.performanceModeValue(
+            PulseAudioComponent.Options.PERFORMANCE_MODE_POWER_SAVING));
+  }
+
+  @Test
+  public void detectsOnlyTheConfiguredAAudioSink() {
+    assertTrue(
+        PulseAudioComponent.containsSink(
+            "0\tAAudioSink\tmodule-aaudio-sink.c\ts16le 2ch 48000Hz", "AAudioSink"));
+    assertFalse(
+        PulseAudioComponent.containsSink(
+            "0\tAAudio_sink\tmodule-aaudio-sink.c\ts16le 2ch 48000Hz", "AAudioSink"));
+    assertFalse(PulseAudioComponent.containsSink("", "AAudioSink"));
   }
 
   @Test

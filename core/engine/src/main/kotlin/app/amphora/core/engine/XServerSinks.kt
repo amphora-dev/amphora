@@ -48,13 +48,20 @@ internal class XServerAudioSink : AudioSink {
         get() = _volume.value
 
     @Volatile
+    var currentMuted: Boolean = false
+        private set
+
+    @Volatile
     private var pulseAudio: PulseAudioComponent? = null
 
     fun useAlsa() {
         pulseAudio = null
+        ALSAClient.setMasterVolume(currentVolume)
+        ALSAClient.setMuted(currentMuted)
     }
 
     fun usePulseAudio(component: PulseAudioComponent) {
+        component.initializeSinkState(currentVolume, currentMuted)
         pulseAudio = component
     }
 
@@ -64,6 +71,7 @@ internal class XServerAudioSink : AudioSink {
     }
 
     override suspend fun setMuted(muted: Boolean) {
+        currentMuted = muted
         pulseAudio?.setMuted(muted) ?: ALSAClient.setMuted(muted)
     }
 }

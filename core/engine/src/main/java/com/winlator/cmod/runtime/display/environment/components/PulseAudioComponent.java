@@ -37,11 +37,15 @@ import java.util.ArrayList;
 public class PulseAudioComponent extends EnvironmentComponent {
   private static final String TAG = "PulseAudioComponent";
   private static final String SINK_NAME = "AAudioSink";
+  private static final long START_TIMEOUT_MILLIS = 5000;
+  private static final long START_POLL_INTERVAL_MILLIS = 100;
 
   private final UnixSocketConfig socketConfig;
   private final Options options;
   private static final Object lock = new Object();
   private boolean isPaused = false;
+  private float volume;
+  private boolean muted;
 
   public PulseAudioComponent(UnixSocketConfig socketConfig) {
     this(socketConfig, new Options());
@@ -50,29 +54,26 @@ public class PulseAudioComponent extends EnvironmentComponent {
   public PulseAudioComponent(UnixSocketConfig socketConfig, Options options) {
     this.socketConfig = socketConfig;
     this.options = options != null ? options : new Options();
+    this.volume = clampVolume(this.options.volume);
+    this.options.volume = this.volume;
   }
 
   public static class Options {
     public static final int DEFAULT_LATENCY_MILLIS = 40;
-    public static final int DEFAULT_FRAGMENT_MILLIS = 10;
     public static final int DEFAULT_SAMPLE_RATE = 48000;
-    public static final int DEFAULT_ALTERNATE_SAMPLE_RATE = 44100;
     public static final int DEFAULT_CHANNELS = 2;
     public static final float DEFAULT_VOLUME = 1.0f;
-    public static final float MAX_VOLUME = 2.0f;
+    public static final float MAX_VOLUME = 1.0f;
     public static final String PERFORMANCE_MODE_NONE = "none";
     public static final String PERFORMANCE_MODE_POWER_SAVING = "power_saving";
     public static final String PERFORMANCE_MODE_LOW_LATENCY = "low_latency";
 
     public int latencyMillis = DEFAULT_LATENCY_MILLIS;
-    public int fragmentMillis = DEFAULT_FRAGMENT_MILLIS;
     public int sampleRate = DEFAULT_SAMPLE_RATE;
-    public int alternateSampleRate = DEFAULT_ALTERNATE_SAMPLE_RATE;
     public int channels = DEFAULT_CHANNELS;
     public float volume = DEFAULT_VOLUME;
-    public String performanceMode = PERFORMANCE_MODE_NONE;
+    public String performanceMode = PERFORMANCE_MODE_LOW_LATENCY;
     public boolean sampleRateOverridden = false;
-    public boolean alternateSampleRateOverridden = false;
 
     public static Options fromEnvVars(EnvVars envVars) {
       Options options = new Options();
@@ -86,14 +87,6 @@ public class PulseAudioComponent extends EnvironmentComponent {
                       envVars.get("WINNATIVE_PULSE_LATENCY_MS"),
                       envVars.get("PULSE_LATENCY_MSEC")),
                   DEFAULT_LATENCY_MILLIS));
-      options.fragmentMillis =
-          Math.max(
-              1,
-              parseInt(
-                  firstNonEmpty(
-                      envVars.get("WINNATIVE_PULSE_FRAGMENT_MS"),
-                      envVars.get("ANDROID_PULSE_FRAGMENT_MS")),
-                  DEFAULT_FRAGMENT_MILLIS));
       String sampleRate =
           firstNonEmpty(
               envVars.get("WINNATIVE_PULSE_SAMPLE_RATE"),
@@ -103,16 +96,6 @@ public class PulseAudioComponent extends EnvironmentComponent {
           Math.max(
               8000,
               parseInt(sampleRate, DEFAULT_SAMPLE_RATE));
-
-      String alternateSampleRate =
-          firstNonEmpty(
-              envVars.get("WINNATIVE_PULSE_ALTERNATE_SAMPLE_RATE"),
-              envVars.get("ANDROID_PULSE_ALTERNATE_SAMPLE_RATE"));
-      options.alternateSampleRateOverridden = !alternateSampleRate.isEmpty();
-      options.alternateSampleRate =
-          Math.max(
-              8000,
-              parseInt(alternateSampleRate, DEFAULT_ALTERNATE_SAMPLE_RATE));
       options.channels =
           Math.max(
               1,
@@ -176,11 +159,16 @@ public class PulseAudioComponent extends EnvironmentComponent {
   public void start() {
     synchronized (lock) {
       PulseAudioRuntimeSupport.ensureInstalled(environment.getContext());
-      if (!isServerRunning()) {
+      if (!isSinkReady()) {
         killAllPulseAudioProcesses();
         startPulseAudio();
-        isPaused = false;
+        if (!waitForSinkReady()) {
+          killAllPulseAudioProcesses();
+          throw new IllegalStateException("PulseAudio started without the required AAudio sink");
+        }
       }
+      isPaused = false;
+      applySinkState();
     }
   }
 
@@ -195,9 +183,9 @@ public class PulseAudioComponent extends EnvironmentComponent {
 
   public void suspend() {
     synchronized (lock) {
-      if (!isPaused && isServerRunning()) {
-        isPaused = true;
+      if (!isPaused && isSinkReady()) {
         updateSink(true);
+        isPaused = true;
       }
     }
   }
@@ -205,9 +193,10 @@ public class PulseAudioComponent extends EnvironmentComponent {
   public void resume() {
     synchronized (lock) {
       if (isPaused) {
-        if (isServerRunning()) {
+        if (isSinkReady()) {
           isPaused = false;
           updateSink(false);
+          applySinkState();
         } else {
           // Daemon died while backgrounded; relaunch it. default.pa re-creates the sink.
           start();
@@ -217,12 +206,26 @@ public class PulseAudioComponent extends EnvironmentComponent {
   }
 
   public void setVolume(float volume) {
-    float clamped = Math.max(0.0f, Math.min(volume, 1.0f));
-    execPactlCommand("set-sink-volume " + SINK_NAME + " " + Math.round(clamped * 100.0f) + "%");
+    synchronized (lock) {
+      this.volume = clampVolume(volume);
+      options.volume = this.volume;
+      if (isSinkReady()) applyVolume();
+    }
   }
 
   public void setMuted(boolean muted) {
-    execPactlCommand("set-sink-mute " + SINK_NAME + " " + (muted ? "true" : "false"));
+    synchronized (lock) {
+      this.muted = muted;
+      if (isSinkReady()) applyMuted();
+    }
+  }
+
+  public void initializeSinkState(float volume, boolean muted) {
+    synchronized (lock) {
+      this.volume = clampVolume(volume);
+      options.volume = this.volume;
+      this.muted = muted;
+    }
   }
 
   public boolean isServerRunning() {
@@ -230,8 +233,53 @@ public class PulseAudioComponent extends EnvironmentComponent {
     return info.contains("server name:") && !info.contains("connection failure");
   }
 
+  private boolean isSinkReady() {
+    return containsSink(execPactlCommand("list short sinks"), SINK_NAME);
+  }
+
+  static boolean containsSink(String output, String sinkName) {
+    if (output == null || sinkName == null || sinkName.isEmpty()) return false;
+    for (String line : output.split("\\R")) {
+      for (String field : line.trim().split("\\s+")) {
+        if (sinkName.equals(field)) return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean waitForSinkReady() {
+    long deadline = System.nanoTime() + START_TIMEOUT_MILLIS * 1_000_000L;
+    do {
+      if (isSinkReady()) return true;
+      try {
+        Thread.sleep(START_POLL_INTERVAL_MILLIS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    } while (System.nanoTime() < deadline);
+    return false;
+  }
+
   private void updateSink(boolean suspend) {
     execPactlCommand("suspend-sink " + SINK_NAME + " " + (suspend ? "true" : "false"));
+  }
+
+  private void applySinkState() {
+    applyVolume();
+    applyMuted();
+  }
+
+  private void applyVolume() {
+    execPactlCommand("set-sink-volume " + SINK_NAME + " " + Math.round(volume * 100.0f) + "%");
+  }
+
+  private void applyMuted() {
+    execPactlCommand("set-sink-mute " + SINK_NAME + " " + (muted ? "true" : "false"));
+  }
+
+  private static float clampVolume(float volume) {
+    return Math.max(0.0f, Math.min(volume, 1.0f));
   }
 
   private void killAllPulseAudioProcesses() {
@@ -279,8 +327,18 @@ public class PulseAudioComponent extends EnvironmentComponent {
     if (configDir.exists()) FileUtils.delete(configDir);
 
     boolean lowLatency = Options.PERFORMANCE_MODE_LOW_LATENCY.equals(options.performanceMode);
-    String sinkParams = "volume=" + options.volume + " performance_mode=1";
-    if (lowLatency) sinkParams += " low_latency=true";
+    String sinkParams =
+        "sink_name="
+            + SINK_NAME
+            + " volume="
+            + volume
+            + " channels="
+            + options.channels
+            + " performance_mode="
+            + performanceModeValue(options.performanceMode)
+            + " low_latency="
+            + lowLatency;
+    if (options.sampleRateOverridden) sinkParams += " rate=" + options.sampleRate;
 
     File configFile = new File(workingDir, "default.pa");
     FileUtils.writeString(
@@ -303,13 +361,19 @@ public class PulseAudioComponent extends EnvironmentComponent {
     String command = nativeLibraryDir + "/libpulseaudio.so";
     command += " --system=false";
     command += " --disable-shm=true";
-    command += " --fail=false";
+    command += " --fail=true";
     command += " -n --file=default.pa";
     command += " --daemonize=true";
     command += " --use-pid-file=false";
     command += " --exit-idle-time=-1";
 
     ProcessHelper.exec(command, envVars.toArray(new String[0]), workingDir);
+  }
+
+  static int performanceModeValue(String performanceMode) {
+    if (Options.PERFORMANCE_MODE_LOW_LATENCY.equals(performanceMode)) return 1;
+    if (Options.PERFORMANCE_MODE_POWER_SAVING.equals(performanceMode)) return 2;
+    return 0;
   }
 
   private String execPactlCommand(String command) {

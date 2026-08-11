@@ -634,12 +634,13 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     envVars.put("USER", ImageFs.USER);
     envVars.put("TMPDIR", rootDir.getPath() + "/usr/tmp");
     envVars.put("XDG_DATA_DIRS", rootDir.getPath() + "/usr/share");
-    envVars.put(
-        "LD_LIBRARY_PATH",
-        rootDir.getPath()
-            + "/usr/lib:"
-            + context.getApplicationInfo().nativeLibraryDir
-            + ":/system/lib64");
+    StringBuilder libraryPath = new StringBuilder(rootDir.getPath()).append("/usr/lib");
+    if (envVars.has("PULSE_SERVER")) {
+      // Box64 wraps libpulse and resolves the matching AArch64 client from the APK.
+      libraryPath.append(':').append(context.getApplicationInfo().nativeLibraryDir);
+    }
+    libraryPath.append(":/system/lib64");
+    envVars.put("LD_LIBRARY_PATH", libraryPath.toString());
     envVars.put("XDG_CONFIG_DIRS", rootDir.getPath() + "/usr/etc/xdg");
     envVars.put("GST_PLUGIN_PATH", rootDir.getPath() + "/usr/lib/gstreamer-1.0");
     envVars.put("FONTCONFIG_PATH", rootDir.getPath() + "/usr/etc/fonts");
