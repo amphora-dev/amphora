@@ -1,172 +1,86 @@
 package app.amphora.feature.launcher
 
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import app.amphora.core.engine.GuestFiles
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
-import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Owns the Android and file boundaries for programs shown by the launcher.
- *
- * Methods perform blocking I/O. Callers are responsible for invoking them on an I/O dispatcher.
- */
+/** Blocking Android/file operations for programs shown by the launcher. */
 @Singleton
 class LauncherProgramLibrary internal constructor(
-    private val boundary: LauncherProgramAndroidBoundary,
-    private val nowMillis: () -> Long = System::currentTimeMillis,
-    private val updateTimestamp: (File, Long) -> Boolean = { file, timestamp ->
-        file.setLastModified(timestamp)
-    },
+    private val programDirectory: File,
+    private val uris: LauncherProgramUris,
 ) {
     @Inject
     constructor(
         @ApplicationContext context: Context,
-    ) : this(ContextLauncherProgramAndroidBoundary(context))
+    ) : this(
+        GuestFiles.exeDir(context),
+        ContentResolverLauncherProgramUris(context),
+    )
 
-    /**
-     * Copies one SAF document into the app-private guest program directory.
-     *
-     * A provider name is reduced to one Windows-safe `.exe` filename. The copy is written to a
-     * temporary sibling first, so an empty or failed stream never truncates an existing program.
-     */
-    @Throws(IOException::class)
-    fun stageExe(uri: Uri): String {
-        val directory = requireProgramDirectory()
-        val fileName = sanitizeExeFileName(boundary.queryDisplayName(uri))
-        val destination = safeChild(directory, fileName)
-        val input =
-            boundary.openInputStream(uri)
-                ?: throw IOException("Cannot open picked file: $uri")
-        var temporary: File? = null
+    /** Copies a picked document through a temporary sibling before replacing its destination. */
+    fun stage(uri: Uri): String {
+        programDirectory.mkdirs()
+        val root = programDirectory.canonicalFile
+        val displayName = uris.displayName(uri)
+        val fileName =
+            displayName
+                ?.substringAfterLast('/')
+                ?.substringAfterLast('\\')
+                ?.takeIf(String::isNotBlank)
+                ?: FALLBACK_FILE_NAME
+        val destination = File(root, fileName).canonicalFile
+        if (destination.parentFile != root) throw IOException("Unsafe program filename: $displayName")
+        val input = uris.openInputStream(uri) ?: throw IOException("Cannot open picked file: $uri")
+        val temporary = File.createTempFile(".program-", ".tmp", root)
 
         try {
-            input.use {
-                val stagingFile = File.createTempFile(".program-", ".tmp", directory)
-                temporary = stagingFile
-                val copiedBytes =
-                    FileOutputStream(stagingFile).use { output ->
-                        val copied = it.copyTo(output)
-                        output.fd.sync()
-                        copied
-                    }
-                if (copiedBytes == 0L) {
-                    throw IOException("Picked file is empty: $uri")
-                }
+            input.use { source ->
+                temporary.outputStream().use { output -> source.copyTo(output) }
             }
-
-            val staged = checkNotNull(temporary)
-            val timestamp = nowMillis()
-            if (!updateTimestamp(staged, timestamp)) {
-                throw IOException("Cannot update program timestamp: ${destination.absolutePath}")
-            }
-            moveReplacing(staged, destination)
-            temporary = null
+            temporary.setLastModified(System.currentTimeMillis())
+            moveReplacing(temporary, destination)
             return destination.absolutePath
         } finally {
-            temporary?.delete()
+            temporary.delete()
         }
     }
 
-    /** Returns direct, regular `.exe` files, newest launch first. */
-    fun scanRecentPrograms(): List<RecentProgram> {
-        val directory = existingProgramDirectory() ?: return emptyList()
-        return directory
-            .listFiles()
-            .orEmpty()
-            .asSequence()
-            .filter { isDirectExecutable(it, directory) }
-            .sortedWith(
-                compareByDescending<File>(File::lastModified)
-                    .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
-                    .thenBy(File::getName),
-            ).map {
-                RecentProgram(
-                    path = it.absolutePath,
-                    name = it.name,
-                    lastUsedAt = it.lastModified(),
-                )
-            }.toList()
-    }
+    /** Lists direct regular `.exe` files, newest modification time first. */
+    fun listRecent(): List<RecentProgram> = programDirectory.canonicalFile
+        .listFiles()
+        .orEmpty()
+        .asSequence()
+        .filter {
+            Files.isRegularFile(it.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                it.extension.equals("exe", ignoreCase = true)
+        }.sortedByDescending(File::lastModified)
+        .map { RecentProgram(it.absolutePath, it.name, it.lastModified()) }
+        .toList()
 
-    /**
-     * Marks a staged program as most recently launched.
-     *
-     * Paths outside the configured program directory, symlinks, missing files, and timestamp
-     * update failures are rejected rather than silently changing launcher ordering.
-     */
-    @Throws(IOException::class)
-    fun markProgramLaunched(path: String) {
-        val directory =
-            existingProgramDirectory()
-                ?: throw IOException("Program directory does not exist")
-        val program = requireManagedExecutable(path, directory)
-        if (!updateTimestamp(program, nowMillis())) {
-            throw IOException("Cannot update program timestamp: ${program.absolutePath}")
-        }
-    }
-
-    fun readAppVersion(): String = boundary.readAppVersion().ifBlank { UNKNOWN_VERSION }
-
-    private fun requireProgramDirectory(): File {
-        val configured = boundary.programDirectory
-        if (configured.exists()) {
-            if (!configured.isDirectory) {
-                throw IOException("Program directory is not a directory: ${configured.absolutePath}")
-            }
-        } else if (!configured.mkdirs()) {
-            throw IOException("Cannot create program directory: ${configured.absolutePath}")
-        }
-        return configured.canonicalFile
-    }
-
-    private fun existingProgramDirectory(): File? {
-        val configured = boundary.programDirectory
-        if (!configured.exists()) return null
-        if (!configured.isDirectory) {
-            throw IOException("Program directory is not a directory: ${configured.absolutePath}")
-        }
-        return configured.canonicalFile
-    }
-
-    private fun safeChild(directory: File, fileName: String): File {
-        val child = File(directory, fileName).canonicalFile
-        if (child.parentFile != directory) {
-            throw IOException("Unsafe program filename: $fileName")
-        }
-        return child
-    }
-
-    private fun isDirectExecutable(file: File, directory: File): Boolean = file.isFile &&
-        file.extension.equals(EXE_EXTENSION, ignoreCase = true) &&
-        !Files.isSymbolicLink(file.toPath()) &&
-        runCatching { file.canonicalFile.parentFile == directory }.getOrDefault(false)
-
-    private fun requireManagedExecutable(path: String, directory: File): File {
+    /** Updates launch ordering for a regular file contained directly by the program directory. */
+    fun markLaunched(path: String) {
+        val root = programDirectory.canonicalFile
         val supplied = File(path)
-        val canonical = supplied.canonicalFile
+        val program = supplied.canonicalFile
         if (
-            canonical.parentFile != directory ||
-            Files.isSymbolicLink(supplied.toPath()) ||
-            !canonical.extension.equals(EXE_EXTENSION, ignoreCase = true)
+            program.parentFile != root ||
+            !Files.isRegularFile(supplied.toPath(), LinkOption.NOFOLLOW_LINKS)
         ) {
-            throw IOException("Program path is outside the managed directory: $path")
+            throw IOException("Program is outside the managed directory: $path")
         }
-        if (!canonical.isFile) {
-            throw IOException("Program does not exist: $path")
-        }
-        return canonical
+        program.setLastModified(System.currentTimeMillis())
     }
 
     private fun moveReplacing(source: File, destination: File) {
@@ -186,95 +100,22 @@ class LauncherProgramLibrary internal constructor(
         }
     }
 
-    companion object {
-        private const val EXE_EXTENSION = "exe"
-        private const val FALLBACK_FILE_NAME = "game.exe"
-        private const val MAX_STEM_UTF8_BYTES = 240
-        private const val UNKNOWN_VERSION = "unknown"
-        private val invalidWindowsFileNameCharacters = setOf('<', '>', ':', '"', '/', '\\', '|', '?', '*')
-        private val reservedWindowsFileNames =
-            setOf("CON", "PRN", "AUX", "NUL") +
-                (1..9).flatMap { listOf("COM$it", "LPT$it") }
-
-        @Throws(IOException::class)
-        internal fun sanitizeExeFileName(displayName: String?): String {
-            if (displayName.isNullOrBlank()) return FALLBACK_FILE_NAME
-
-            val leaf = displayName.substringAfterLast('/').substringAfterLast('\\').trim()
-            val cleaned =
-                leaf
-                    .map { character ->
-                        when {
-                            character.code < 32 || character in invalidWindowsFileNameCharacters -> '_'
-                            else -> character
-                        }
-                    }.joinToString("")
-                    .trimEnd(' ', '.')
-            if (cleaned.isBlank()) return FALLBACK_FILE_NAME
-            if (!cleaned.endsWith(".$EXE_EXTENSION", ignoreCase = true)) {
-                throw IOException("Picked file name must end in .exe: $displayName")
-            }
-
-            val extension = cleaned.takeLast(EXE_EXTENSION.length + 1)
-            var stem = cleaned.dropLast(extension.length).trimEnd(' ', '.')
-            if (stem.isBlank()) return FALLBACK_FILE_NAME
-            stem = truncateUtf8(stem, MAX_STEM_UTF8_BYTES).trimEnd(' ', '.')
-            if (stem.isBlank()) return FALLBACK_FILE_NAME
-            if (stem.substringBefore('.').uppercase(Locale.ROOT) in reservedWindowsFileNames) {
-                stem = "_$stem"
-            }
-            return stem + extension
-        }
-
-        private fun truncateUtf8(value: String, maximumBytes: Int): String {
-            val result = StringBuilder()
-            var offset = 0
-            var bytes = 0
-            while (offset < value.length) {
-                val codePoint = value.codePointAt(offset)
-                val characters = String(Character.toChars(codePoint))
-                val codePointBytes = characters.toByteArray(Charsets.UTF_8).size
-                if (bytes + codePointBytes > maximumBytes) break
-                result.append(characters)
-                bytes += codePointBytes
-                offset += Character.charCount(codePoint)
-            }
-            return result.toString()
-        }
+    private companion object {
+        const val FALLBACK_FILE_NAME = "game.exe"
     }
 }
 
-/** Only the Android APIs needed by [LauncherProgramLibrary], not a general filesystem facade. */
-internal interface LauncherProgramAndroidBoundary {
-    val programDirectory: File
-
-    fun queryDisplayName(uri: Uri): String?
+/** The narrow SAF boundary used by [LauncherProgramLibrary]. */
+internal interface LauncherProgramUris {
+    fun displayName(uri: Uri): String?
 
     fun openInputStream(uri: Uri): InputStream?
-
-    fun readAppVersion(): String
 }
 
-private class ContextLauncherProgramAndroidBoundary(private val context: Context) : LauncherProgramAndroidBoundary {
-    override val programDirectory: File
-        get() = GuestFiles.exeDir(context)
-
-    override fun queryDisplayName(uri: Uri): String? = context.contentResolver
+private class ContentResolverLauncherProgramUris(private val context: Context) : LauncherProgramUris {
+    override fun displayName(uri: Uri): String? = context.contentResolver
         .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-        ?.use { cursor ->
-            val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (column >= 0 && cursor.moveToFirst() && !cursor.isNull(column)) {
-                cursor.getString(column)
-            } else {
-                null
-            }
-        }
+        ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
 
     override fun openInputStream(uri: Uri): InputStream? = context.contentResolver.openInputStream(uri)
-
-    override fun readAppVersion(): String = try {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
-    } catch (_: PackageManager.NameNotFoundException) {
-        "unknown"
-    }
 }

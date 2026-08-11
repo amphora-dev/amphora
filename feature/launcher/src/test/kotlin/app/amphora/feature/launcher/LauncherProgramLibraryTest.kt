@@ -8,7 +8,6 @@ import java.io.IOException
 import java.io.InputStream
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -22,115 +21,79 @@ class LauncherProgramLibraryTest {
     private val uri = mockk<Uri>(relaxed = true)
 
     @Test
-    fun `stageExe confines and sanitizes a provider filename`() {
+    fun `stage uses the provider leaf name and copies inside the program directory`() {
         val directory = temporaryFolder.newFolder("programs")
-        val boundary =
-            FakeBoundary(
-                programDirectory = directory,
-                displayName = "../../folder\\CON.exe",
-                input = ByteArrayInputStream("portable executable".toByteArray()),
-            )
-        var timestamp: Long? = null
         val library =
-            LauncherProgramLibrary(
-                boundary = boundary,
-                nowMillis = { 4_242L },
-                updateTimestamp = { file, value ->
-                    timestamp = value
-                    file.setLastModified(value)
-                },
+            library(
+                directory,
+                displayName = "../../folder\\game.exe",
+                input = ByteArrayInputStream("program".toByteArray()),
             )
 
-        val stagedPath = library.stageExe(uri)
+        val staged = File(library.stage(uri))
 
-        val staged = File(stagedPath)
         assertEquals(directory.canonicalFile, staged.parentFile)
-        assertEquals("_CON.exe", staged.name)
-        assertEquals("portable executable", staged.readText())
-        assertEquals(4_242L, timestamp)
-        assertFalse(File(temporaryFolder.root, "CON.exe").exists())
+        assertEquals("game.exe", staged.name)
+        assertEquals("program", staged.readText())
     }
 
     @Test
-    fun `stageExe rejects a provider filename without an exe extension`() {
+    fun `stage falls back to game exe when display name is unavailable`() {
         val directory = temporaryFolder.newFolder("programs")
         val library =
-            LauncherProgramLibrary(
-                FakeBoundary(
-                    programDirectory = directory,
-                    displayName = "installer.zip",
-                    input = ByteArrayInputStream(byteArrayOf(1)),
-                ),
+            library(
+                directory,
+                displayName = null,
+                input = ByteArrayInputStream(byteArrayOf(1, 2)),
             )
 
-        val error = assertThrows(IOException::class.java) { library.stageExe(uri) }
+        val staged = File(library.stage(uri))
 
-        assertEquals("Picked file name must end in .exe: installer.zip", error.message)
-        assertTrue(directory.listFiles().orEmpty().isEmpty())
+        assertEquals("game.exe", staged.name)
+        assertTrue(staged.readBytes().contentEquals(byteArrayOf(1, 2)))
     }
 
     @Test
-    fun `stageExe reports a null input stream without creating a file`() {
+    fun `stage reports a null input stream without creating a file`() {
         val directory = temporaryFolder.newFolder("programs")
-        val library =
-            LauncherProgramLibrary(
-                FakeBoundary(
-                    programDirectory = directory,
-                    displayName = "game.exe",
-                    input = null,
-                ),
-            )
+        val library = library(directory, displayName = "game.exe", input = null)
 
-        val error = assertThrows(IOException::class.java) { library.stageExe(uri) }
+        val error = assertThrows(IOException::class.java) { library.stage(uri) }
 
         assertTrue(error.message.orEmpty().startsWith("Cannot open picked file:"))
         assertTrue(directory.listFiles().orEmpty().isEmpty())
     }
 
     @Test
-    fun `stageExe rejects an empty stream without replacing an existing program`() {
+    fun `stage accepts an empty non-exe document like the existing flow`() {
         val directory = temporaryFolder.newFolder("programs")
-        val existing = File(directory, "game.exe").apply { writeText("old") }
         val library =
-            LauncherProgramLibrary(
-                FakeBoundary(
-                    programDirectory = directory,
-                    displayName = "game.exe",
-                    input = ByteArrayInputStream(byteArrayOf()),
-                ),
+            library(
+                directory,
+                displayName = "setup.bin",
+                input = ByteArrayInputStream(byteArrayOf()),
             )
 
-        val error = assertThrows(IOException::class.java) { library.stageExe(uri) }
+        val staged = File(library.stage(uri))
 
-        assertTrue(error.message.orEmpty().startsWith("Picked file is empty:"))
+        assertEquals("setup.bin", staged.name)
+        assertEquals(0L, staged.length())
+    }
+
+    @Test
+    fun `stage leaves an existing destination intact when copying fails`() {
+        val directory = temporaryFolder.newFolder("programs")
+        val existing = File(directory, "game.exe").apply { writeText("old") }
+        val library = library(directory, displayName = "game.exe", input = FailingInputStream())
+
+        assertThrows(IOException::class.java) { library.stage(uri) }
+
         assertEquals("old", existing.readText())
         assertEquals(listOf("game.exe"), directory.list().orEmpty().sorted())
     }
 
     @Test
-    fun `stageExe keeps an existing program when the timestamp update fails`() {
-        val directory = temporaryFolder.newFolder("programs")
-        val existing = File(directory, "game.exe").apply { writeText("old") }
-        val library =
-            LauncherProgramLibrary(
-                boundary =
-                FakeBoundary(
-                    programDirectory = directory,
-                    displayName = "game.exe",
-                    input = ByteArrayInputStream("new".toByteArray()),
-                ),
-                updateTimestamp = { _, _ -> false },
-            )
-
-        val error = assertThrows(IOException::class.java) { library.stageExe(uri) }
-
-        assertEquals("Cannot update program timestamp: ${existing.absolutePath}", error.message)
-        assertEquals("old", existing.readText())
-        assertEquals(listOf("game.exe"), directory.list().orEmpty().sorted())
-    }
-
-    @Test
-    fun `scanRecentPrograms returns only direct regular executables newest first`() {
+    fun `listRecent returns only direct regular executables ordered by mtime`() {
         val directory = temporaryFolder.newFolder("programs")
         val older = File(directory, "older.EXE").apply { writeText("old") }
         val newer = File(directory, "newer.exe").apply { writeText("new") }
@@ -140,105 +103,49 @@ class LauncherProgramLibraryTest {
         Files.createSymbolicLink(File(directory, "linked.exe").toPath(), outside.toPath())
         assertTrue(older.setLastModified(1_000L))
         assertTrue(newer.setLastModified(2_000L))
-        val library = LauncherProgramLibrary(FakeBoundary(programDirectory = directory))
 
-        val programs = library.scanRecentPrograms()
+        val programs = library(directory).listRecent()
 
         assertEquals(listOf("newer.exe", "older.EXE"), programs.map(RecentProgram::name))
         assertEquals(listOf(2_000L, 1_000L), programs.map(RecentProgram::lastUsedAt))
     }
 
     @Test
-    fun `markProgramLaunched updates a managed executable`() {
+    fun `markLaunched updates a direct program and rejects an outside path`() {
         val directory = temporaryFolder.newFolder("programs")
-        val program = File(directory, "game.exe").apply { writeText("game") }
-        var updated: Pair<File, Long>? = null
-        val library =
-            LauncherProgramLibrary(
-                boundary = FakeBoundary(programDirectory = directory),
-                nowMillis = { 9_999L },
-                updateTimestamp = { file, value ->
-                    updated = file to value
-                    true
-                },
-            )
-
-        library.markProgramLaunched(program.absolutePath)
-
-        assertEquals(program.canonicalFile to 9_999L, updated)
-    }
-
-    @Test
-    fun `markProgramLaunched rejects a path outside the managed directory`() {
-        val directory = temporaryFolder.newFolder("programs")
+        val program = File(directory, "game.exe").apply {
+            writeText("game")
+            assertTrue(setLastModified(1_000L))
+        }
         val outside = temporaryFolder.newFile("outside.exe")
-        val library = LauncherProgramLibrary(FakeBoundary(programDirectory = directory))
+        val library = library(directory)
 
-        val error =
-            assertThrows(IOException::class.java) {
-                library.markProgramLaunched(outside.absolutePath)
-            }
+        library.markLaunched(program.absolutePath)
 
-        assertEquals(
-            "Program path is outside the managed directory: ${outside.absolutePath}",
-            error.message,
+        assertTrue(program.lastModified() > 1_000L)
+        assertThrows(IOException::class.java) { library.markLaunched(outside.absolutePath) }
+    }
+
+    private fun library(directory: File, displayName: String? = null, input: InputStream? = null) =
+        LauncherProgramLibrary(
+            directory,
+            FakeUris(displayName, input),
         )
-    }
 
-    @Test
-    fun `markProgramLaunched reports timestamp failure`() {
-        val directory = temporaryFolder.newFolder("programs")
-        val program = File(directory, "game.exe").apply { writeText("game") }
-        val library =
-            LauncherProgramLibrary(
-                boundary = FakeBoundary(programDirectory = directory),
-                updateTimestamp = { _, _ -> false },
-            )
-
-        val error =
-            assertThrows(IOException::class.java) {
-                library.markProgramLaunched(program.absolutePath)
-            }
-
-        assertEquals("Cannot update program timestamp: ${program.absolutePath}", error.message)
-    }
-
-    @Test
-    fun `readAppVersion preserves a version and normalizes blank metadata`() {
-        val directory = temporaryFolder.newFolder("programs")
-
-        assertEquals(
-            "2.4.0",
-            LauncherProgramLibrary(
-                FakeBoundary(programDirectory = directory, appVersion = "2.4.0"),
-            ).readAppVersion(),
-        )
-        assertEquals(
-            "unknown",
-            LauncherProgramLibrary(
-                FakeBoundary(programDirectory = directory, appVersion = ""),
-            ).readAppVersion(),
-        )
-    }
-
-    @Test
-    fun `sanitizeExeFileName bounds UTF-8 length while preserving extension`() {
-        val sanitized = LauncherProgramLibrary.sanitizeExeFileName("${"游".repeat(200)}.exe")
-
-        assertTrue(sanitized.endsWith(".exe"))
-        assertTrue(sanitized.toByteArray(Charsets.UTF_8).size <= 244)
-    }
-
-    private class FakeBoundary(
-        override val programDirectory: File,
-        private val displayName: String? = null,
-        private val input: InputStream? = null,
-        private val appVersion: String = "1.0",
-    ) : LauncherProgramAndroidBoundary {
-        override fun queryDisplayName(uri: Uri): String? = displayName
+    private class FakeUris(private val displayName: String?, private val input: InputStream?) : LauncherProgramUris {
+        override fun displayName(uri: Uri): String? = displayName
 
         override fun openInputStream(uri: Uri): InputStream? = input
+    }
 
-        override fun readAppVersion(): String = appVersion
+    private class FailingInputStream : InputStream() {
+        private var firstRead = true
+
+        override fun read(): Int = if (firstRead) {
+            firstRead = false
+            1
+        } else {
+            throw IOException("copy failed")
+        }
     }
 }
