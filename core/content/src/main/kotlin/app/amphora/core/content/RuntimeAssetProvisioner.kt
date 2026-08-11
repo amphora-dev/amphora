@@ -92,14 +92,7 @@ class RuntimeAssetProvisioner(
                 Log.w(TAG, "APK asset SHA mismatch for ${entry.assetPath}")
                 return false
             }
-            if (destination.exists() && !destination.delete()) {
-                partial.delete()
-                return false
-            }
-            if (!partial.renameTo(destination)) {
-                partial.copyTo(destination, overwrite = true)
-                partial.delete()
-            }
+            AtomicFilePublisher.replace(partial, destination)
             AssetDigest.writePin(destination, entry.sha256)
             Log.i(TAG, "Installed ${entry.assetPath} from APK assets")
             true
