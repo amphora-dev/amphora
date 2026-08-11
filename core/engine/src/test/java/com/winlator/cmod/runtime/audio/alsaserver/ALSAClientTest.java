@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import android.media.AudioFormat;
+import com.winlator.cmod.runtime.wine.EnvVars;
 import org.junit.Test;
 
 public class ALSAClientTest {
@@ -46,6 +47,34 @@ public class ALSAClientTest {
     client.setBufferSize(0);
 
     assertFalse(client.prepare());
+  }
+
+  @Test
+  public void standardAlsaEnvironmentVariablesConfigureClientOptions() {
+    EnvVars envVars =
+        new EnvVars(
+            "ALSA_LATENCY_MS=25 ALSA_VOLUME=0.75 ALSA_BASS_BOOST=0.5"
+                + " ALSA_PERFORMANCE_MODE=low_latency");
+
+    ALSAClient.Options options = ALSAClient.Options.fromEnvVars(envVars);
+
+    assertEquals(25, options.latencyMillis);
+    assertEquals(0.75f, options.volume, 0.0f);
+    assertEquals(0.5f, options.bassBoost, 0.0f);
+    assertEquals(android.media.AudioTrack.PERFORMANCE_MODE_LOW_LATENCY, options.performanceMode);
+  }
+
+  @Test
+  public void standardAlsaEnvironmentVariablesTakePrecedenceOverLegacyAliases() {
+    EnvVars envVars =
+        new EnvVars(
+            "ALSA_LATENCY_MS=20 ANDROID_ALSA_LATENCY_MS=40 WINNATIVE_ALSA_LATENCY_MS=60"
+                + " ALSA_VOLUME=0.5 ANDROID_ALSA_VOLUME=0.8 WINNATIVE_ALSA_VOLUME=0.9");
+
+    ALSAClient.Options options = ALSAClient.Options.fromEnvVars(envVars);
+
+    assertEquals(20, options.latencyMillis);
+    assertEquals(0.5f, options.volume, 0.0f);
   }
 
   private static ALSAClient validClient() {
