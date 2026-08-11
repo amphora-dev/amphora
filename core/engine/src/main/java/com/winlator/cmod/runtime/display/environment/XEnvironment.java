@@ -89,9 +89,9 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
       for (EnvironmentComponent c : parallelStart) {
         try {
           attempted.add(c);
+          startedComponents.add(c);
           Log.d(TAG, "Starting component " + c.getClass().getSimpleName());
           c.start();
-          startedComponents.add(c);
         } catch (Throwable t) {
           startFailure = t;
           break;
@@ -106,9 +106,9 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
             pool.submit(
                 () -> {
                   attempted.add(comp);
+                  startedComponents.add(comp);
                   Log.d(TAG, "Starting component " + comp.getClass().getSimpleName());
                   comp.start();
-                  startedComponents.add(comp);
                 }));
       }
       pool.shutdown();
@@ -139,9 +139,9 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
     if (launcher != null) {
       try {
         attempted.add(launcher);
+        startedComponents.add(launcher);
         Log.d(TAG, "Starting component " + launcher.getClass().getSimpleName());
         launcher.start();
-        startedComponents.add(launcher);
       } catch (Throwable t) {
         rollbackStartedComponents(attempted, t);
         throwStartFailure(t);
