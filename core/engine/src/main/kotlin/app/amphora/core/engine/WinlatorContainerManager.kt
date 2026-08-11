@@ -209,7 +209,7 @@ constructor(
                 // Turnip ids remain aligned between host and guest through adrenotools.
                 put(
                     "graphicsDriverConfig",
-                    "vulkanVersion=1.3;version=wrapper;blacklistedExtensions=;maxDeviceMemory=0;presentMode=mailbox;syncFrame=0;disablePresentWait=1;resourceType=auto;bcnEmulation=auto;bcnEmulationType=compute;bcnEmulationCache=0;gpuName=Device",
+                    "vulkanVersion=1.4;version=wrapper;blacklistedExtensions=;maxDeviceMemory=0;presentMode=mailbox;syncFrame=0;disablePresentWait=0;resourceType=auto;bcnEmulation=auto;bcnEmulationType=compute;bcnEmulationCache=0;gpuName=Device",
                 )
                 put("wincomponents", wincomponents)
             }

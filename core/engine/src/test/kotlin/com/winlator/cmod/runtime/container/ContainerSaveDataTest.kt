@@ -11,6 +11,14 @@ import org.junit.Test
 
 class ContainerSaveDataTest {
     @Test
+    fun newContainersEnablePresentWaitAndRequestVulkan14() {
+        val config = Container.DEFAULT_GRAPHICSDRIVERCONFIG
+
+        assertTrue(config.contains("vulkanVersion=1.4"))
+        assertTrue(config.contains("disablePresentWait=0"))
+    }
+
+    @Test
     fun staleWritersMergeIndependentFields() {
         val root = Files.createTempDirectory("container-save-").toFile()
         try {

@@ -103,9 +103,6 @@ internal fun directDrawInstallComplete(selectedDdraw: String, syswow64Dir: File)
  * `VulkanRenderer` and guest ICD share the same driver. Skips only when both
  * `meta.json` and the driver `.so` are already present.
  *
- * **Stubbed (deferred):**
- * - `getDxvkFrameRateOverride` returns 0 (shortcut/preferences-driven).
- *
  * **Status:** prep path verified on device (P2 §P2 #7) and wired into the live
  * launch chain (RFC §8). Self-calls `syncContents()` in [resolveState].
  *
@@ -1115,8 +1112,7 @@ class XServerWineSessionPreparer @Inject constructor(
             )
         }
 
-        var vulkanVersion = graphicsDriverConfig["vulkanVersion"]
-        if (vulkanVersion == null) vulkanVersion = "1.3"
+        var vulkanVersion = graphicsDriverConfig["vulkanVersion"] ?: "1.4"
         try {
             // The wrapper is an ICD around the platform driver, not an HMI-exporting
             // Android HAL. Probe its underlying system driver just like the host
@@ -1129,7 +1125,18 @@ class XServerWineSessionPreparer @Inject constructor(
             val fullVkVersion = GPUInformation.getVulkanVersion(probeDriver, context)
             if (fullVkVersion != null && fullVkVersion.contains(".")) {
                 val parts = fullVkVersion.split("\\.".toRegex())
-                if (parts.size >= 3) vulkanVersion = "$vulkanVersion.${parts[2]}"
+                if (parts.size >= 3) {
+                    val driverMinor = parts[1].toIntOrNull()
+                    val requestedMinor = vulkanVersion.substringAfter('.', "").toIntOrNull()
+                    if (driverMinor != null && requestedMinor != null && driverMinor < requestedMinor) {
+                        Log.i(
+                            TAG,
+                            "Clamping Vulkan $vulkanVersion to driver-supported ${parts[0]}.${parts[1]}",
+                        )
+                        vulkanVersion = "${parts[0]}.${parts[1]}"
+                    }
+                    vulkanVersion = "$vulkanVersion.${parts[2]}"
+                }
             }
         } catch (e: Throwable) {
             Log.w(TAG, "Error getting Vulkan version patch", e)
@@ -1338,13 +1345,8 @@ class XServerWineSessionPreparer @Inject constructor(
         }
     }
 
-    /**
-     * getDxvkFrameRateOverride (XSDA L627) -- stubbed to 0. The XSDA version reads
-     * per-game/global refresh-rate overrides from the shortcut + SharedPreferences;
-     * Amphora has neither (D9: no shortcuts). Wire to container/user prefs when
-     * frame-rate limiting lands.
-     */
-    private fun getDxvkFrameRateOverride(): Int = 0
+    /** Amphora has no per-shortcut override; the global session limit is authoritative. */
+    private fun getDxvkFrameRateOverride(): Int = AdvancedRuntimePreferences.frameRateLimit(context)
 
     /**
      * Migrate old physical copies and repair deleted/broken component links.

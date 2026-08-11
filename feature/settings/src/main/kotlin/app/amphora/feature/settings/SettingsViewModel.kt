@@ -72,7 +72,7 @@ constructor(
                 Box64Mode.fromId(
                     prefs.getString(AdvancedRuntimePreferences.KEY_BOX64_PRESET, null),
                 ),
-                dxvkAsync = prefs.getBoolean(AdvancedRuntimePreferences.KEY_DXVK_ASYNC, false),
+                dxvkAsync = prefs.getBoolean(AdvancedRuntimePreferences.KEY_DXVK_ASYNC, true),
                 frameLimit =
                 FrameLimit.fromValue(
                     prefs.getString(AdvancedRuntimePreferences.KEY_FRAME_RATE, null),
@@ -314,7 +314,7 @@ constructor(
                 directDrawWrapper = DirectDrawSetting.DXWRAPPER,
                 wineLocale = WineLocaleOption.AUTO,
                 box64Mode = Box64Mode.PERFORMANCE,
-                dxvkAsync = false,
+                dxvkAsync = true,
                 frameLimit = FrameLimit.OFF,
                 presentMode = PresentMode.AUTO,
                 bcnMode = BcnMode.DEFAULT,
@@ -573,7 +573,7 @@ data class SettingsUiState(
     val directDrawWrapper: DirectDrawSetting = DirectDrawSetting.DXWRAPPER,
     val wineLocale: WineLocaleOption = WineLocaleOption.AUTO,
     val box64Mode: Box64Mode = Box64Mode.PERFORMANCE,
-    val dxvkAsync: Boolean = false,
+    val dxvkAsync: Boolean = true,
     val frameLimit: FrameLimit = FrameLimit.OFF,
     val presentMode: PresentMode = PresentMode.AUTO,
     val bcnMode: BcnMode = BcnMode.DEFAULT,

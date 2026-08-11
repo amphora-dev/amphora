@@ -5,6 +5,15 @@ import org.junit.Test
 
 class AdvancedRuntimePreferencesTest {
     @Test
+    fun acceptsOnlySupportedFrameRateLimits() {
+        assertEquals(30, AdvancedRuntimePreferences.frameRateLimit("30"))
+        assertEquals(120, AdvancedRuntimePreferences.frameRateLimit("120"))
+        assertEquals(0, AdvancedRuntimePreferences.frameRateLimit("off"))
+        assertEquals(0, AdvancedRuntimePreferences.frameRateLimit("144"))
+        assertEquals(0, AdvancedRuntimePreferences.frameRateLimit(null))
+    }
+
+    @Test
     fun parsesValidCustomEnvironmentLines() {
         assertEquals(
             mapOf(
