@@ -12,9 +12,21 @@ enum class WineLocaleOption(val preferenceValue: String, val locale: String?, va
     ENGLISH("en", "en_US.UTF-8", "English"),
     ;
 
-    fun resolve(deviceLocale: String): String = locale ?: deviceLocale
+    fun resolve(deviceLocale: String): String =
+        locale ?: deviceLocale.takeIf { languageOf(it) in SUPPORTED_WINDOWS_LANGUAGES }
+            ?: ENGLISH.locale!!
 
     companion object {
+        private val SUPPORTED_WINDOWS_LANGUAGES =
+            setOf(
+                "ar", "cs", "da", "de", "el", "en", "es", "fi", "fr", "he",
+                "it", "ja", "ko", "nl", "no", "pl", "pt", "ru", "sv", "th",
+                "tr", "uk", "vi", "zh",
+            )
+
+        private fun languageOf(locale: String): String =
+            locale.substringBefore('.').substringBefore('_').substringBefore('-').lowercase()
+
         fun fromPreference(value: String?): WineLocaleOption =
             entries.firstOrNull { it.preferenceValue == value } ?: AUTO
     }

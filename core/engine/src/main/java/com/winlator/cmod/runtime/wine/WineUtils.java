@@ -776,8 +776,6 @@ public abstract class WineUtils {
       setWindowMetrics(registryEditor);
     }
 
-    applyLocaleToRegistry(systemRegFile, userRegFile, LocaleEnv.deriveFromDevice());
-
     // Copy critical DLLs from wine installation to container
     copyWineDllsToContainer(rootDir, wineInfo);
   }
@@ -851,7 +849,7 @@ public abstract class WineUtils {
         }
         reg.setStringValue(internationalKey, "sCountry", countryNameFor(lang, country));
         reg.setStringValue(internationalKey, "iCountry", iCountryFor(lang, country));
-        reg.setStringValue(internationalKey, "Locale", lcid);
+        reg.setStringValue(internationalKey, "Locale", "0000" + lcid);
         reg.setStringValue(internationalKey, "LocaleName", locale.toLanguageTag());
       }
       return true;
@@ -925,18 +923,42 @@ public abstract class WineUtils {
   private static String windowsLangIdFor(String lang, String country) {
     switch (lang) {
       case "zh":
-        return ("TW".equals(country) || "HK".equals(country) || "MO".equals(country))
-            ? "0404" : "0804";
-      case "en": return "0409";
+        switch (country) {
+          case "TW": return "0404";
+          case "HK": return "0C04";
+          case "SG": return "1004";
+          case "MO": return "1404";
+          default: return "0804";
+        }
+      case "en":
+        switch (country) {
+          case "GB": return "0809";
+          case "AU": return "0C09";
+          case "CA": return "1009";
+          case "NZ": return "1409";
+          case "IE": return "1809";
+          case "ZA": return "1C09";
+          case "IN": return "4009";
+          default: return "0409";
+        }
       case "ja": return "0411";
       case "ko": return "0412";
-      case "de": return "0407";
-      case "fr": return "040C";
-      case "es": return "040A";
-      case "it": return "0410";
+      case "de":
+        if ("CH".equals(country)) return "0807";
+        if ("AT".equals(country)) return "0C07";
+        return "0407";
+      case "fr":
+        if ("BE".equals(country)) return "080C";
+        if ("CA".equals(country)) return "0C0C";
+        if ("CH".equals(country)) return "100C";
+        return "040C";
+      case "es":
+        if ("MX".equals(country)) return "080A";
+        return "0C0A";
+      case "it": return "CH".equals(country) ? "0810" : "0410";
       case "ru": return "0419";
-      case "pt": return "0416";
-      case "nl": return "0413";
+      case "pt": return "PT".equals(country) ? "0816" : "0416";
+      case "nl": return "BE".equals(country) ? "0813" : "0413";
       case "sv": return "041D";
       case "da": return "0406";
       case "fi": return "040B";

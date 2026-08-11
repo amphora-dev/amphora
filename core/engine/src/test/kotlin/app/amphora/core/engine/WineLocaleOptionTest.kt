@@ -10,6 +10,13 @@ class WineLocaleOptionTest {
     }
 
     @Test
+    fun automaticUnsupportedLocaleFallsBackCompletelyToEnglish() {
+        assertEquals("en_US.UTF-8", WineLocaleOption.AUTO.resolve("hi_IN.UTF-8"))
+        assertEquals("en_US.UTF-8", WineLocaleOption.AUTO.resolve("C.UTF-8"))
+        assertEquals("en_US.UTF-8", WineLocaleOption.AUTO.resolve(""))
+    }
+
+    @Test
     fun explicitLocaleOverridesDeviceLocale() {
         assertEquals("ja_JP.UTF-8", WineLocaleOption.JAPANESE.resolve("zh_CN.UTF-8"))
     }
