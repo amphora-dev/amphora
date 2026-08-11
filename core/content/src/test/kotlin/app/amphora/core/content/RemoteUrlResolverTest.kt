@@ -28,12 +28,12 @@ class RemoteUrlResolverTest {
     fun resolvesWcpFilenameFromStableCatalog() {
         val resolver =
             RemoteUrlResolver {
-            """
+                """
             [
               {"remoteUrl":"https://cdn.example/releases/Proton-10.0-4-x86_64.wcp"},
               {"remoteUrl":"https://cdn.example/releases/other.wcp"}
             ]
-            """.trimIndent()
+                """.trimIndent()
             }
         val manifest = catalogManifest(CATALOG_A, "Proton-10.0-4-x86_64.wcp")
         val resolved = resolver.resolve(manifest.entry(ContentComponent.WINE)!!, manifest.wcpCatalogUrl)
@@ -88,11 +88,7 @@ class RemoteUrlResolverTest {
         assertEquals(listOf(CATALOG_A, CATALOG_B, CATALOG_A), fetches)
     }
 
-    private fun catalogManifest(
-        catalogUrl: String,
-        assetPath: String,
-        directUrl: String? = null,
-    ): ContentManifest {
+    private fun catalogManifest(catalogUrl: String, assetPath: String, directUrl: String? = null): ContentManifest {
         val root = JSONObject(ContentManifestTest.SAMPLE)
         root.put("wcpCatalogUrl", catalogUrl)
         root.getJSONObject("components").getJSONObject("wine").apply {

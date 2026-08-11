@@ -104,11 +104,7 @@ class ContentManifest private constructor(
             )
         }
 
-        private fun parseEntry(
-            component: ContentComponent,
-            obj: JSONObject,
-            wcpCatalogUrl: String?,
-        ): ManifestEntry {
+        private fun parseEntry(component: ContentComponent, obj: JSONObject, wcpCatalogUrl: String?): ManifestEntry {
             val kind = ManifestEntry.Kind.valueOf(obj.getString("kind").uppercase())
             val compression =
                 if (obj.has("compression") && !obj.isNull("compression")) {
