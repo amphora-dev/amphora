@@ -55,7 +55,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 | `imagefs.txz` | xz | 12.2 MB | 以当前 Release 为准 | 自建精简 rootfs 本体 | `RootfsInstaller` | **imagefs**（生产基线） |
 | `extra_libs.tzst` | zstd | 21.1 MB | 14 | `usr/lib` 的 Mesa `libGL`+`libglapi` / Turnip / vkBasalt / bcn_layer，`usr/share/vulkan` 的 ICD + 隐式层 JSON | — | ⛔ **已废止**（2026-08-01）；GL 改由 imagefs 自建（§0.6） |
 | `layers.tzst` | zstd | 4.4 MB | 3 | `usr/lib/libVkLayer_khronos_validation.so` | `TarCompressorUtils` | **可选调试**（§0.6） |
-| `wrapper.tzst` | zstd | 3.8 MB | 12 | `usr/lib` 的 `libadrenotools` + `libvulkan_wrapper` +（历史）4 个 hook，`usr/share/vulkan/icd.d/wrapper_icd.aarch64.json` | `TarCompressorUtils` | **wrapper+hooks（独立）** |
+| `wrapper.tzst`（WinNative 历史样本） | zstd | 3.8 MB | 12 | `usr/lib` 的 `libadrenotools` + `libvulkan_wrapper` + 4 个 hook，`usr/share/vulkan/icd.d/wrapper_icd.aarch64.json` | `TarCompressorUtils` | 已由当前约 0.67 MB 自建 pin 替代，见 §0.6 |
 
 ### B. 模拟器 / Wine 运行时 — WCP，落 imagefs
 

@@ -31,7 +31,8 @@
 
 ### v0.1 (MVP) 目标
 - 启动一个 Windows .exe，有画面（Vulkan 渲染）、有触屏映射、有音频
-- 捆绑固定一套 rootfs + box64 + Wine + Turnip + DXVK（版本锁死）
+- 通过远程 manifest 固定 rootfs、Box64、Wine、图形组件的 URL/大小/SHA，
+  安装后复用；常规 APK 不捆绑大型运行时
 - 极简 UI：选 exe → 分辨率 → 启动
 
 ### v0.1 非目标
@@ -59,7 +60,7 @@
 
 - Kotlin 2.x + Jetpack Compose + Material3
 - Gradle Kotlin DSL + version catalog (`libs.versions.toml`) + `build-logic` convention plugins
-- Hilt (DI) + Coroutines/Flow + Room + Navigation-Compose
+- Hilt (DI) + Coroutines/Flow + Navigation-Compose；Room 仅保留在版本目录，当前业务未使用
 - NDK r27/r29 + CMake
 - 单元测试 (JUnit) + instrumentation 测试骨架
 
@@ -106,7 +107,7 @@ interface WineEngine {
 | 资产 | 来源 | 处理 |
 |------|------|------|
 | **winlator native lib** (9.6k，含 `vk_renderer.c` 3.2k) | WinNative `cpp/winlator/` | **整块移植到 `:core:native`** - 技术核心，绝不重写。JNI 复用策略见下 |
-| winlator JNI 调用类（12 个 Java 类，48 个 JNI 函数） | WinNative `runtime/` | **保留 `com.winlator.cmod` 包名原样拷贝** -> C 代码零修改（JNI 函数名硬编码该包前缀）。`:core:engine` 的 `WineEngine` 接口作 facade 包装这 12 个类 |
+| winlator JNI 调用类（当前保留 11 个运行时绑定类） | WinNative `runtime/` | **保留 `com.winlator.cmod` 包名**，由 `:core:engine` 的 `WineEngine` facade 隔离；导出符号数由 native 构建门禁核对，不再把早期清点值当契约 |
 | fakeinput + adrenotools | WinNative `cpp/` | 移植：fakeinput 是独立 `.so`（LD_PRELOAD shim，无 JNI，完全解耦）；adrenotools 是 submodule，静态链入 `libwinlator.so`（Turnip 驱动加载）|
 | audio_plugin (`module_pcm_android_aserver.c`) | WinNative `audio_plugin/` | **随 winlator-imagefs 的 `alsa-android-aserver` 包进 rootfs**（`usr/lib/alsa-lib/` + `usr/etc/alsa/conf.d/`），非独立 native 移植项。构建期核实该包产物 = 此插件 |
 | ~~proot (18k)~~ | WinNative `cpp/proot/` | **不移植** - 死代码，Bionic 不需 proot |
@@ -122,7 +123,7 @@ interface WineEngine {
 
 | 层 | 语言 | 策略 | 理由 |
 |---|---|---|---|
-| `runtime/` 内核 ~32k 行（含 audio/xserver/renderer...） | **Java 原样** | 整块复用，零改 | 12 个 JNI 调用类必须保 `com.winlator.cmod` 包名（绑定 C）；delicate 逻辑（epoll/AudioTrack/SHM）转语言只增风险；Kotlin 调 Java 无障碍，无需转 |
+| `runtime/` 内核 ~32k 行（含 audio/xserver/renderer...） | **Java 为主，按边界裁剪** | 保留核心包名 | 当前 11 个 JNI 绑定类保留 `com.winlator.cmod`；epoll/AudioTrack/SHM 等核心逻辑继续使用 Java/C，feature/UI 已拆出 |
 | `WineEngine` facade + app 壳（Activity/Compose UI/导航/DI） | **Kotlin** | 全新写 | facade 委托给复用的 Java 类，上层 feature 只见 `WineEngine` 接口 |
 | `XServerDisplayActivity`（11k 行） | Kotlin/Compose | **拆解重写** | 与 Activity 生命周期/UI/Steam 深度耦合，无法整块搬；抽取启动编排逻辑重写薄壳 |
 | `wine`/`content` | Java | 精简（删分支） | 不转语言，只删下载/多版本分支，保留单版本路径 |
@@ -132,8 +133,12 @@ interface WineEngine {
 
 ### winlator native 复用细则（D5 配套）
 
-- **JNI 面**: 48 个导出函数（基于名称绑定 `Java_com_winlator_cmod_...`，无 `RegisterNatives`），分布 9 个源文件，分 7 组：VulkanRenderer(16)、Texture(4)、GPUImage(5)、Drawable/Pixmap(8)、XConnectorEpoll/ClientSocket(13)、SyncFenceFd(6)、SysVSharedMemory(4)、ProcessHelper(2+JNI_OnLoad)、NativeContentIO(4)。Java 侧 12 个类 `System.loadLibrary("winlator")`。
-- **复用策略**: 保留 `com.winlator.cmod` 包名 -> C 代码零修改，原样拷贝 12 个 Java 调用类到 `:core:native`（或 `:core:engine`）。`:core:engine` 的 `WineEngine` Kotlin 接口作 facade 包装，上层 feature 只见 `WineEngine`，碰不到 native 内部。
+- **JNI 面**: 使用名称绑定 `Java_com_winlator_cmod_...`（无 `RegisterNatives`）。
+  NativeContentIO 恢复后导出面已超过立项时的 48 个估算；精确集合由构建产物检查，
+  不在 RFC 手工维护数字。
+- **复用策略**: 保留 `com.winlator.cmod` 包名，11 个当前绑定类放在
+  `:core:engine`；`:core:engine` 的 `WineEngine` Kotlin facade 使上层 feature
+  不接触 native 内部。
 - **C-to-Java 回调**: `vulkan.c` 运行时 `FindClass("com/winlator/cmod/runtime/content/AdrenotoolsManager")` 回调解驱动名 -> 必须提供该类（构造器 `(Context)` + `getLibraryName(String)`）。
 - **进程级副作用**: `JNI_OnLoad` 调 `prctl(PR_SET_CHILD_SUBREAPER,1)`（整个 app 进程成为 subreaper），无 SIGCHLD handler。
 - **CMake 自含**: 单 `CMakeLists.txt` 出 `libwinlator.so`+`libfakeinput.so`；FetchContent zstd v1.5.6 / xz v5.4.6 静态链入；adrenotools submodule `add_subdirectory` 静态链入；19 个 GLSL shader 经 NDK `glslc` + `bin2c.cmake` 编入。
@@ -324,7 +329,11 @@ GameSessionViewModel.launch(LaunchSpec)
 - **Proton Wine**: fork `WinNative-Emu/proton-wine`，基于 `build-proton-sdk35.yml`（matrix `[x86_64]`）CI 自建，产 `proton-11.0-1-x86_64.wcp`。termuxfs + prefixPack 复用上游预编译（SHA 锁定）。详见 D7 + [`RESEARCH-proton-wine-selfbuild.md`](RESEARCH-proton-wine-selfbuild.md)。
 - **box64**: `nicholasx417/WinNative-Components` CI 产物（开源）或自建，SHA256 校验。
 - **Turnip/DXVK**: `WinNative-Emu/Drivers` / `doitsujin/dxvk` 开放构建，版本锁 + SHA256 校验。**MVP 固定单 Turnip 驱动**（见 D8），不做多驱动切换。
-- **native**: 单 `CMakeLists.txt` 编 `libwinlator.so`+`libfakeinput.so`。**保留 `com.winlator.cmod` 包名** -> C 代码零修改，原样拷贝 12 个 Java 调用类。FetchContent zstd v1.5.6 / xz v5.4.6 静态链入；adrenotools submodule `add_subdirectory` 静态链入；19 GLSL shader 经 NDK `glslc`+`bin2c.cmake` 编入。可选排除 `NativeContentIO` 省 curl/OpenSSL Prefab AAR。audio_plugin 随 imagefs `alsa-android-aserver` 包构建（非本项目 CMake）。
+- **native（as-built）**: 单 `CMakeLists.txt` 编 `libwinlator.so`；
+  `libfakeinput.so` 已停编。保留 `com.winlator.cmod` 包名及 11 个绑定类。
+  zstd/xz 静态链入用于内容提取；native curl 下载保持 stub，网络下载由 Kotlin
+  `VerifiedAssetDownloader` 完成。adrenotools 静态链入，19 个 GLSL shader 随 native
+  构建；ALSA aserver 由 imagefs 提供。
 - **APK**: 单 standard flavor。assets 用 `noCompress` 保留 tzst/txz/xz。
 - **不可复现部分** (Steam 客户端 / 微软 DLL): MVP **不含**（不做 Steam 集成）；v1.x+ 加 Steam 时按 WinNative 模式从 redist 抽取并声明来源。
 
