@@ -54,11 +54,16 @@
 - ✅ **AIO DX8/DX9 / OpenGL·DX7 黑屏** (2026-07-26 记档 → 后续已关闭): DX8 CreateDevice（IMMEDIATE→DEFAULT）+ DXVK d3d8/d3d10 trust-augment；OpenGL/DX7 靠容器 env 合并 + 不再误钉 `GALLIUM_DRIVER=zink` / `LIBGL_KOPPER_DISABLE`。真机路径已可用；文档不再当开放项。
 - ✅ **adrenotools hooks 收敛为单份** (2026-08-05): guest / host 都用 `wrapper.tzst` → `imagefs/usr/lib`（CI pin `8483dfd`）。APK **不建** SHARED hooks（只静链 `adrenotools`；hooks 由 imagefs wrapper CI 产出）；host `vulkan.c` 读 `ImageFs.getLibDir()`。
 - 🗑 **删除空壳 `:core:ui`** (2026-08-05)。
-- ✅ **资产供应链已切自建主通道** (2026-08): 默认 wine = `amphora-dev/proton-wine` **Proton-11.0-amphora**；rootfs / Box64 / wrapper = `amphora-dev/imagefs`；pin 面 = `content_manifest`（GitHub Contents API，raw 回退）。`amphora-assets` Private **不再阻塞**。部分 wincomponents / pattern / DXVK 仍可 pin 上游。
+- ✅ **资产供应链已切自建主通道** (2026-08): rootfs / Proton / Box64 / DXVK / VKD3D /
+  wrapper 当前均由 `amphora-dev/imagefs` Release 提供；唯一生产 pin 面 =
+  `amphora-dev/content_manifest`（GitHub Contents API，raw 回退）。部分 wincomponents /
+  ddraw / metadata 仍 pin 到 WinNative raw，后续逐步自有化。
 - ✅ **`extra_libs.tzst` 已废止 / Mesa GL 自建并入 imagefs** (2026-08-01)。
 - 🩹 **Wine 全白窗口 / libpng patchelf** (2026-08-01): 已在 imagefs 配方侧修（链接期 SONAME + LOAD 同余断言）；见 imagefs `ELF-PITFALLS.md`。
 - ✅ **staging 可靠性收敛** (2026-08-11): `stageBundledContent` 不再写 `app/src/main/assets`，改为精确同步到已接入 Android source set 的 `build/generated/assets/bundledContent`；遍历非 ROOTFS components + runtimeAssets，本地缺项按 manifest URL 下载，size/SHA 任一不符即失败。本文 P2 #9 的 best-effort/旧输出路径仅为历史记录，以当前插件和 `05-ARCHITECTURE.md` §5 为准。
-- ⏭ 下一步: 键盘手柄 / Pulse·FEX 扩展；WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。详见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
+- ⏭ 下一步: 手柄 / FEX 等明确扩展项；WinNative raw runtimeAssets 逐步自有化；
+  wrapper/hooks ABI 自动校验；Exit 真机连点回归。详见
+  [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
 |---|---|

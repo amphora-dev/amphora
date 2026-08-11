@@ -9,11 +9,11 @@
 # Prerequisites:
 #   - Android NDK r26d+ (set ANDROID_NDK_HOME)
 #   - meson, ninja, cmake, zstd, patchelf, flex, bison, python3-mako
-#   - SYSROOT with aarch64 X11/drm libs (from WinNative imagefs.tzst) + Termux
+#   - SYSROOT with aarch64 X11/drm libs (from production imagefs.txz) + Termux
 #     libxcb headers (xcb_present_pixmap_synced / dri3 syncobj)
 #
 # Quick start:
-#   ./scripts/prepare-wrapper-sysroot.sh /path/to/imagefs.tzst
+#   ./scripts/prepare-wrapper-sysroot.sh /path/to/imagefs.txz
 #   ./scripts/build-vulkan-wrapper.sh
 #
 # Optional env: MESA_SRC MESA_REF ANDROID_NDK_HOME SYSROOT WORKDIR OUT_DIR API_LEVEL

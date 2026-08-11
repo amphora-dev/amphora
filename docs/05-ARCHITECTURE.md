@@ -58,7 +58,7 @@ MainActivity → AmphoraNavHost
 
 GameSessionViewModel
   → WineEngine.launch(LaunchSpec)   // MVP 容器 id = "1"
-       1. RootfsInstaller.ensureInstalled()          // imagefs.tzst
+       1. RootfsInstaller.ensureInstalled()          // manifest-pinned imagefs.txz
        2. WinlatorContainerManager.getOrCreate()     // WINE/BOX64/DXVK/VKD3D .wcp + prefix
        3. XServerWineSessionPreparer                 // prefix 修复 / DXVK+VKD3D DLL / Turnip env
        4. XServer + GameSessionSurface               // 暴露给 UI

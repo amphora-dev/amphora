@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # Build /tmp/wn-sysroot (or $SYSROOT) for scripts/build-vulkan-wrapper.sh:
-#   1) aarch64 X11/drm/sysvshm libs from WinNative imagefs.tzst
+#   1) aarch64 X11/drm/sysvshm libs from production imagefs.txz or legacy imagefs.tzst
 #   2) Termux libxcb/X11 headers (need xcb_present_pixmap_synced / dri3 syncobj)
 #   3) host zstd/zlib/drm flat headers + android_sysvshm shm.h
 #
 # Usage:
-#   ./scripts/prepare-wrapper-sysroot.sh /path/to/imagefs.tzst
-#   IMAGEFS_TZST=... ANDROID_SYSVSHM_H=... ./scripts/prepare-wrapper-sysroot.sh
+#   ./scripts/prepare-wrapper-sysroot.sh /path/to/imagefs.txz
+#   IMAGEFS_ARCHIVE=... ANDROID_SYSVSHM_H=... ./scripts/prepare-wrapper-sysroot.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SYSROOT="${SYSROOT:-/tmp/wn-sysroot}"
-IMAGEFS_TZST="${1:-${IMAGEFS_TZST:-}}"
+IMAGEFS_ARCHIVE="${1:-${IMAGEFS_ARCHIVE:-${IMAGEFS_TZST:-}}}"
 TERMUX_ROOT="${TERMUX_ROOT:-/tmp/termux-root}"
 TERMUX_DEB_DIR="${TERMUX_DEB_DIR:-/tmp/termux-debs}"
 ANDROID_SYSVSHM_H="${ANDROID_SYSVSHM_H:-}"
@@ -21,20 +21,29 @@ ANDROID_SYSVSHM_H="${ANDROID_SYSVSHM_H:-}"
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 log() { printf '==> %s\n' "$*"; }
 
-[[ -n "$IMAGEFS_TZST" ]] || die "pass imagefs.tzst path (WinNative app/src/main/assets/imagefs.tzst)"
-[[ -f "$IMAGEFS_TZST" ]] || die "not found: $IMAGEFS_TZST"
+[[ -n "$IMAGEFS_ARCHIVE" ]] || die "pass production imagefs.txz or legacy imagefs.tzst"
+[[ -f "$IMAGEFS_ARCHIVE" ]] || die "not found: $IMAGEFS_ARCHIVE"
 command -v python3 >/dev/null
 command -v dpkg-deb >/dev/null || die "dpkg-deb required"
-python3 -c 'import zstandard' 2>/dev/null || die "python3-zstandard required (pip install zstandard)"
+case "$IMAGEFS_ARCHIVE" in
+  *.tzst|*.zst)
+    python3 -c 'import zstandard' 2>/dev/null || die "python3-zstandard required for zstd archives"
+    ;;
+  *.txz|*.xz) ;;
+  *) die "unsupported imagefs archive: $IMAGEFS_ARCHIVE (expected .txz/.xz/.tzst/.zst)" ;;
+esac
 
 rm -rf "$SYSROOT"
 mkdir -p "$SYSROOT"
 
 log "Extracting link libs from imagefs..."
-python3 - <<PY
-import tarfile, os, zstandard as zstd
-src = "$IMAGEFS_TZST"
-dst = "$SYSROOT"
+python3 - "$IMAGEFS_ARCHIVE" "$SYSROOT" <<'PY'
+import contextlib
+import os
+import sys
+import tarfile
+
+src, dst = sys.argv[1:3]
 keys = (
     "libX11", "libxcb", "libdrm", "sysvshm", "adrenotools", "xshmfence",
     "libXext", "libXfixes", "libXrandr", "libexpat", "libz.", "libzstd",
@@ -47,14 +56,21 @@ def keep(name: str) -> bool:
         return False
     return any(k in name for k in keys)
 count = 0
-with open(src, "rb") as f:
-    dctx = zstd.ZstdDecompressor()
-    with dctx.stream_reader(f) as reader:
-        with tarfile.open(fileobj=reader, mode="r|") as tf:
-            for m in tf:
-                if m.isfile() and keep(m.name):
-                    tf.extract(m, dst, filter="data")
-                    count += 1
+with open(src, "rb") as archive:
+    if src.endswith((".tzst", ".zst")):
+        import zstandard as zstd
+        stream = zstd.ZstdDecompressor().stream_reader(archive)
+        mode = "r|"
+    else:
+        stream = contextlib.nullcontext(archive)
+        mode = "r|*"
+    with stream as reader, tarfile.open(fileobj=reader, mode=mode) as tf:
+        for member in tf:
+            if member.isfile() and keep(member.name):
+                tf.extract(member, dst, filter="data")
+                count += 1
+if count == 0:
+    raise SystemExit("no wrapper link libraries found in imagefs archive")
 print("extracted", count, "libs/pc")
 PY
 
