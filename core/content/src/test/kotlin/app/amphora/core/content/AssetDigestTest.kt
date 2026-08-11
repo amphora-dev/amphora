@@ -43,7 +43,21 @@ class AssetDigestTest {
         val asset = tmp.newFile("asset.bin")
         AssetDigest.writePin(asset, emptySha.uppercase())
         assertEquals(emptySha, AssetDigest.pinnedSha(asset))
+        assertEquals(0L, AssetDigest.pinnedSize(asset))
         assertTrue("pin comparison must be case-insensitive", AssetDigest.matchesPin(asset, emptySha.uppercase()))
+    }
+
+    @Test fun fastPinCheckRequiresExistingTargetAndRecordedSize() {
+        val asset = tmp.newFile("sized.bin").apply { writeText("known") }
+        val sha = AssetDigest.of(asset)
+        AssetDigest.writePin(asset, sha)
+        assertTrue(AssetDigest.matchesPin(asset, sha))
+
+        asset.appendText(" changed")
+        assertFalse("size change must invalidate sidecar fast path", AssetDigest.matchesPin(asset, sha))
+
+        asset.delete()
+        assertFalse("missing destination must invalidate sidecar", AssetDigest.matchesPin(asset, sha))
     }
 
     @Test fun absentPinIsNullNotEmpty() {

@@ -1,9 +1,11 @@
 package app.amphora.core.content
 
 import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
+import java.io.IOException
 import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -24,7 +26,7 @@ class VerifiedAssetDownloaderTest {
         val asset = root.resolve("nested/runtime.bin")
         asset.parentFile.mkdirs()
         asset.writeBytes(payload)
-        root.resolve("nested/runtime.bin.sha256").writeText(sha)
+        AssetDigest.writePin(asset, sha)
 
         val resolved =
             VerifiedAssetDownloader(DefaultDispatcherProvider()).acquire(
@@ -37,6 +39,35 @@ class VerifiedAssetDownloaderTest {
 
         assertEquals(asset.canonicalFile, resolved.canonicalFile)
         assertEquals(payload.toList(), resolved.readBytes().toList())
+    }
+
+    @Test
+    fun offlinePinUpdatePreservesLastKnownGoodDestination() = runBlocking {
+        val root = temporaryFolder.newFolder("offline-update")
+        val oldPayload = "last known good".toByteArray()
+        val newPayload = "new release".toByteArray()
+        val oldSha = sha256(oldPayload)
+        val newSha = sha256(newPayload)
+        val asset = root.resolve("runtime.bin")
+        asset.writeBytes(oldPayload)
+        AssetDigest.writePin(asset, oldSha)
+
+        try {
+            VerifiedAssetDownloader(DefaultDispatcherProvider()).acquire(
+                root = root,
+                relativePath = "runtime.bin",
+                remoteUrl = "https://127.0.0.1:1/unreachable",
+                expectedSha256 = newSha,
+                expectedSize = newPayload.size.toLong(),
+            )
+            throw AssertionError("offline download unexpectedly succeeded")
+        } catch (_: IOException) {
+            // Expected after bounded retries.
+        }
+
+        assertEquals(oldPayload.toList(), asset.readBytes().toList())
+        assertEquals(oldSha, AssetDigest.pinnedSha(asset))
+        assertTrue(AssetDigest.hasCurrentRecord(asset))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -62,4 +93,10 @@ class VerifiedAssetDownloaderTest {
             )
         }
     }
+
+    private fun sha256(payload: ByteArray): String =
+        MessageDigest
+            .getInstance("SHA-256")
+            .digest(payload)
+            .joinToString("") { "%02x".format(it) }
 }
