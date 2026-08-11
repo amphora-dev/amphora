@@ -51,23 +51,20 @@ constructor(private val updateManager: AppUpdateManager) {
         is SettingsUpdateEffect.DownloadAndInstall -> install(effect.update)
     }
 
-    private suspend fun install(
-        update: AppUpdateManifest,
-    ): SettingsUpdateEvent<Nothing, File> =
-        try {
-            when (val result = updateManager.downloadAndInstall(update)) {
-                AppUpdateInstallResult.Started -> SettingsUpdateEvent.InstallStarted
-                is AppUpdateInstallResult.SystemInstallerRequired ->
-                    SettingsUpdateEvent.SystemInstallerRequired(
-                        artifact = result.apk,
-                        reason = result.reason,
-                    )
-            }
-        } catch (failure: CancellationException) {
-            throw failure
-        } catch (failure: Throwable) {
-            SettingsUpdateEvent.InstallFailed(failure.message ?: failure.toString())
+    private suspend fun install(update: AppUpdateManifest): SettingsUpdateEvent<Nothing, File> = try {
+        when (val result = updateManager.downloadAndInstall(update)) {
+            AppUpdateInstallResult.Started -> SettingsUpdateEvent.InstallStarted
+            is AppUpdateInstallResult.SystemInstallerRequired ->
+                SettingsUpdateEvent.SystemInstallerRequired(
+                    artifact = result.apk,
+                    reason = result.reason,
+                )
         }
+    } catch (failure: CancellationException) {
+        throw failure
+    } catch (failure: Throwable) {
+        SettingsUpdateEvent.InstallFailed(failure.message ?: failure.toString())
+    }
 
     private fun AppUpdateCheckResult.toOutcome(): UpdateCheckOutcome<AppUpdateManifest> = when (this) {
         is AppUpdateCheckResult.UpToDate -> UpdateCheckOutcome.UpToDate(remote.versionName)

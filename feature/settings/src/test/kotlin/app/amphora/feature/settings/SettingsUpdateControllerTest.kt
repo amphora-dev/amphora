@@ -258,10 +258,7 @@ class SettingsUpdateControllerTest {
         return SettingsUpdateController(manager)
     }
 
-    private suspend fun assertCancellationPropagates(
-        expected: CancellationException,
-        block: suspend () -> Unit,
-    ) {
+    private suspend fun assertCancellationPropagates(expected: CancellationException, block: suspend () -> Unit) {
         try {
             block()
             fail("Expected CancellationException")
