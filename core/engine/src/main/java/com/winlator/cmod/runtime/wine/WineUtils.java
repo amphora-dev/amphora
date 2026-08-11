@@ -778,7 +778,7 @@ public abstract class WineUtils {
       setWindowMetrics(registryEditor);
     }
 
-    applyLocaleToPrefix(systemRegFile, userRegFile);
+    applyLocaleToRegistry(systemRegFile, userRegFile, LocaleEnv.deriveFromDevice());
 
     // Copy critical DLLs from wine installation to container
     copyWineDllsToContainer(rootDir, wineInfo);
@@ -790,44 +790,67 @@ public abstract class WineUtils {
    * {@code LANG}. Wine cannot derive a Windows locale from that string, falls
    * back to en-US, and leaves {@code ACP=1252} / {@code OEMCP=437} — so CJK text
    * renders as {@code ?}. Patch the registry directly so Wine uses the codepage
-   * matching the device locale. The prefix template ships en-US defaults; we
-   * overwrite them here. Wine reads these values at runtime without clobbering
-   * them, so the registry is the right layer for this fix.
+   * matching the selected Windows language profile. The prefix template ships
+   * en-US defaults; we overwrite them here. Wine reads these values at runtime
+   * without clobbering them, so the registry is the right layer for this fix.
    */
-  private static void applyLocaleToPrefix(File systemRegFile, File userRegFile) {
-    Locale locale = Locale.getDefault();
+  public static boolean applyLocaleToPrefix(File containerRoot, String localeName) {
+    if (containerRoot == null || localeName == null || localeName.isEmpty()) return false;
+    File prefixDir = new File(containerRoot, ".wine");
+    File systemRegFile = new File(prefixDir, "system.reg");
+    File userRegFile = new File(prefixDir, "user.reg");
+    if (!systemRegFile.isFile() || !userRegFile.isFile()) return false;
+    return applyLocaleToRegistry(systemRegFile, userRegFile, localeName);
+  }
+
+  private static boolean applyLocaleToRegistry(
+      File systemRegFile, File userRegFile, String localeName) {
+    String localeId = localeName;
+    int encoding = localeId.indexOf('.');
+    if (encoding >= 0) localeId = localeId.substring(0, encoding);
+    Locale locale = Locale.forLanguageTag(localeId.replace('_', '-'));
     String lang = locale.getLanguage();
     String country = locale.getCountry();
     if (country == null || country.isEmpty()) country = LocaleEnv.defaultCountryFor(lang);
-    if (lang == null || lang.isEmpty() || country == null || country.isEmpty()) return;
+    if (lang == null || lang.isEmpty() || country == null || country.isEmpty()) return false;
 
     String acp = codePageFor(lang, country);
     String oemcp = acp;
     String lcid = windowsLangIdFor(lang, country);
-    if (acp == null || lcid == null) return;
+    if (acp == null || lcid == null) return false;
 
     Log.i("WineUtils", "applyLocaleToPrefix: lang=" + lang + " country=" + country
         + " ACP=" + acp + " LCID=" + lcid);
 
-    try (WineRegistryEditor reg = new WineRegistryEditor(systemRegFile)) {
-      reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Codepage", "ACP", acp);
-      reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Codepage", "OEMCP", oemcp);
-      reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Codepage", "ACP", acp);
-      reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Codepage", "OEMCP", oemcp);
-      reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Language", "Default", lcid);
-      reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Language", "InstallLanguage", lcid);
-      reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Language", "Default", lcid);
-      reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Language", "InstallLanguage", lcid);
-    }
-
-    try (WineRegistryEditor reg = new WineRegistryEditor(userRegFile)) {
-      String sLanguage = windowsSlangFor(lang, country);
-      if (sLanguage != null) {
-        reg.setStringValue("Control Panel\\International", "sLanguage", sLanguage);
+    try {
+      try (WineRegistryEditor reg = new WineRegistryEditor(systemRegFile)) {
+        reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Codepage", "ACP", acp);
+        reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Codepage", "OEMCP", oemcp);
+        reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Codepage", "ACP", acp);
+        reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Codepage", "OEMCP", oemcp);
+        reg.setStringValue("System\\CurrentControlSet\\Control\\Nls\\Language", "Default", lcid);
+        reg.setStringValue(
+            "System\\CurrentControlSet\\Control\\Nls\\Language", "InstallLanguage", lcid);
+        reg.setStringValue("System\\ControlSet001\\Control\\Nls\\Language", "Default", lcid);
+        reg.setStringValue(
+            "System\\ControlSet001\\Control\\Nls\\Language", "InstallLanguage", lcid);
       }
-      reg.setStringValue("Control Panel\\International", "sCountry", countryNameFor(lang, country));
-      reg.setStringValue("Control Panel\\International", "iCountry", iCountryFor(lang, country));
-      reg.setStringValue("Control Panel\\International", "Locale", lcid);
+
+      try (WineRegistryEditor reg = new WineRegistryEditor(userRegFile)) {
+        String internationalKey = "Control Panel\\International";
+        String sLanguage = windowsSlangFor(lang, country);
+        if (sLanguage != null) {
+          reg.setStringValue(internationalKey, "sLanguage", sLanguage);
+        }
+        reg.setStringValue(internationalKey, "sCountry", countryNameFor(lang, country));
+        reg.setStringValue(internationalKey, "iCountry", iCountryFor(lang, country));
+        reg.setStringValue(internationalKey, "Locale", lcid);
+        reg.setStringValue(internationalKey, "LocaleName", locale.toLanguageTag());
+      }
+      return true;
+    } catch (RuntimeException error) {
+      Log.w("WineUtils", "Could not apply Windows locale " + localeName, error);
+      return false;
     }
   }
 

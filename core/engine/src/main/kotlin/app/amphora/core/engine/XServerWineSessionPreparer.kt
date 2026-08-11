@@ -513,11 +513,15 @@ class XServerWineSessionPreparer @Inject constructor(
                 applyRegistry = registryNeedsApply,
                 registryLocale = registryLocale,
             )
+        val localeOk =
+            !registryNeedsApply ||
+                WineUtils.applyLocaleToPrefix(c.getRootDir(), registryLocale)
         Log.d(
             TAG,
-            "ensureWinePrefixEssentialFiles: sharedFonts=$fontsOk registryApplied=$registryNeedsApply",
+            "ensureWinePrefixEssentialFiles: sharedFonts=$fontsOk locale=$localeOk " +
+                "registryApplied=$registryNeedsApply",
         )
-        if (fontsOk && registryNeedsApply) {
+        if (fontsOk && localeOk && registryNeedsApply) {
             AppliedMarks.markFonts(c, fontState)
             return true
         }
