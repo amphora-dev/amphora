@@ -117,7 +117,7 @@ object EngineModule {
     fun provideContentReconciler(
         @ApplicationContext context: Context,
         installer: ContentAssetInstaller,
-    ): ContentReconciler = ContentReconciler(context, installer)
+    ): ContentReconciler = ContentReconciler(ContentPackageCache.root(context), installer)
 
     @Provides
     @Singleton

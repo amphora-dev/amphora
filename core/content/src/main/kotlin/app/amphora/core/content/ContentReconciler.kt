@@ -1,6 +1,5 @@
 package app.amphora.core.content
 
-import android.content.Context
 import android.util.Log
 import app.amphora.core.content.model.ManifestEntry
 import java.io.File
@@ -13,7 +12,10 @@ import java.io.File
  *    garbage collection can prove they are no longer rollback targets.
  * 2. [ContentPackageCache.pruneToPins] for superseded download filenames
  */
-class ContentReconciler(private val context: Context, private val installer: ContentAssetInstaller) {
+class ContentReconciler(
+    private val packageRoot: File,
+    private val installer: ContentAssetInstaller,
+) {
     data class Report(val siblingDirsRemoved: Int, val packageFilesRemoved: Int) {
         val changed: Boolean get() = siblingDirsRemoved > 0 || packageFilesRemoved > 0
     }
@@ -39,7 +41,7 @@ class ContentReconciler(private val context: Context, private val installer: Con
                     add(asset.assetPath.substringAfterLast('/'))
                 }
             }
-        val packages = ContentPackageCache.pruneToPins(ContentPackageCache.root(context), keep)
+        val packages = ContentPackageCache.pruneToPins(packageRoot, keep)
         if (siblings > 0 || packages > 0) {
             Log.i(TAG, "Reconciled content: removed $siblings sibling dir(s), $packages cache file(s)")
         }
