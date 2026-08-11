@@ -110,19 +110,18 @@ class ContainerRuntimePinSynchronizerTest {
     private fun currentContainer(
         wineContentApplied: Boolean = true,
         trustAugmentApplied: Boolean = true,
-    ): RecordingContainer =
-        RecordingContainer().apply {
-            wineVersion = WINE_VERSION
-            box64Version = BOX64_VERSION
-            dxWrapper = DXWRAPPER
-            winComponents = WINCOMPONENTS
-            if (wineContentApplied) {
-                AppliedMarks.markWineContent(this, "$WINE_VERSION|sha=$WINE_SHA")
-            }
-            if (trustAugmentApplied) {
-                putExtra(DXVK_TRUST_AUGMENT_EXTRA, "1")
-            }
+    ): RecordingContainer = RecordingContainer().apply {
+        wineVersion = WINE_VERSION
+        box64Version = BOX64_VERSION
+        dxWrapper = DXWRAPPER
+        winComponents = WINCOMPONENTS
+        if (wineContentApplied) {
+            AppliedMarks.markWineContent(this, "$WINE_VERSION|sha=$WINE_SHA")
         }
+        if (trustAugmentApplied) {
+            putExtra(DXVK_TRUST_AUGMENT_EXTRA, "1")
+        }
+    }
 
     private fun synchronize(container: Container, newlyCreated: Boolean = false) {
         synchronizer.syncRuntimePins(

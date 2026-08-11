@@ -36,12 +36,7 @@ internal class ContainerRuntimePinSynchronizer {
      * `wineprefixNeedsUpdate` (`repairContainerWinePrefix` carries saves) and
      * clears the dxwrapper gate so DXVK/VKD3D DLLs land in the fresh prefix.
      */
-    private fun ensurePinnedWineVersion(
-        container: Container,
-        desired: String,
-        sha256: String,
-        newlyCreated: Boolean,
-    ) {
+    private fun ensurePinnedWineVersion(container: Container, desired: String, sha256: String, newlyCreated: Boolean) {
         val current = container.getWineVersion() ?: ""
         val desiredContent = "$desired|sha=$sha256"
         val versionChanged = current != desired

@@ -305,5 +305,4 @@ constructor(
         // The Wine prefix lives directly under the container root (home/xuser-<id>/.wine).
         winePrefixPath = File(rootDir, ".wine").absolutePath,
     )
-
 }
