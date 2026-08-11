@@ -460,7 +460,6 @@ object SharedContainerFonts {
                     for ((name, file) in FONT_REGISTRATIONS) {
                         reg.setStringValue(fontsKey, name, file)
                     }
-
                 }
                 systemOk = true
                 Log.d(TAG, "Wrote Windows font substitutes, links, and registrations into $systemReg")
