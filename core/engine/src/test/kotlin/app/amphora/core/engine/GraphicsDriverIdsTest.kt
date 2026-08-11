@@ -43,6 +43,33 @@ class GraphicsDriverIdsTest {
     }
 
     @Test
+    fun nonAdrenoForcesOneSystemDriverForHostAndGuest() {
+        for (configured in listOf(GraphicsDriverIds.WRAPPER, GraphicsDriverIds.TURNIP_BALANCED)) {
+            val effective = GraphicsDriverIds.resolveEffectiveDriver(configured, isAdreno = false)
+            assertEquals(GraphicsDriverIds.SYSTEM, effective)
+            assertEquals(
+                GraphicsDriverIds.SYSTEM,
+                GraphicsDriverIds.resolveHostDriver(effective, isAdreno = false),
+            )
+        }
+    }
+
+    @Test
+    fun adrenoPreservesGuestSelectionBeforeHostResolution() {
+        assertEquals(
+            GraphicsDriverIds.WRAPPER,
+            GraphicsDriverIds.resolveEffectiveDriver(GraphicsDriverIds.WRAPPER, isAdreno = true),
+        )
+        assertEquals(
+            GraphicsDriverIds.TURNIP_BALANCED,
+            GraphicsDriverIds.resolveEffectiveDriver(
+                GraphicsDriverIds.TURNIP_BALANCED,
+                isAdreno = true,
+            ),
+        )
+    }
+
+    @Test
     fun systemAndUnknownDriversUseSystemVulkan() {
         assertEquals(
             GraphicsDriverIds.SYSTEM,

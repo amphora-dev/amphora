@@ -790,6 +790,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
     // Preserve launcher-owned LD_PRELOAD while merging upstream env (driver/DXVK/wrapper).
     mergeExternalEnvVars(envVars, envVars.get("LD_PRELOAD"));
+    if (wineInfo == null || !wineInfo.isArm64EC()) {
+      configureBox64RcEnv(envVars, rootDir);
+    }
     if (wineInfo != null && wineInfo.isArm64EC()) {
       FEXCorePresetManager.normalizeSmcChecksEnvVars(envVars, this.envVars);
     }
@@ -892,12 +895,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     // its first real GLX request. It existed for the old xlib-GLX libGL; OpenGL now
     // goes through EGL, which never asks about GLX.
     envVars.put("BOX64_X11GLX", "0");
-    // Load ONLY our custom rc file (per-game Steam overrides, ZINK_CONTEXT_THREADED, etc.)
-    // BOX64_NORCFILES=1 skips default system rc files to avoid conflicts,
-    // BOX64_RCFILE points to our custom file so it still gets loaded.
-    envVars.put("BOX64_NORCFILES", "1");
-    ImageFs imageFs = ImageFs.find(environment.getContext());
-    envVars.put("BOX64_RCFILE", imageFs.getRootDir().getPath() + "/etc/config.box64rc");
+    configureBox64RcEnv(envVars, ImageFs.find(environment.getContext()).getRootDir());
 
     if (container != null) {
       String cpuList = container.getCPUList(true);
@@ -906,6 +904,13 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         envVars.put("BOX86_CPULIST", cpuList);
       }
     }
+  }
+
+  static void configureBox64RcEnv(EnvVars envVars, File rootDir) {
+    // BOX64_NORCFILES disables every rc file, including an explicit BOX64_RCFILE.
+    // Keep the launcher-owned rc path authoritative after external env merging.
+    envVars.remove("BOX64_NORCFILES");
+    envVars.put("BOX64_RCFILE", new File(rootDir, "etc/config.box64rc").getPath());
   }
 
   private void repairRuntimeExecutablePermissions(Context context, ImageFs imageFs) {

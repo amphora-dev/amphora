@@ -162,19 +162,25 @@ constructor(
                 )
             val configuredHostDriver =
                 GraphicsDriverIds.normalize(driverConfig["version"])
+            val effectiveDriver =
+                GraphicsDriverIds.resolveEffectiveDriver(
+                    configuredHostDriver,
+                    GPUInformation.isAdrenoGPU(context),
+                )
             // WinNative's default wrapper is a Vulkan ICD, not an Android HAL:
             // guest wrapper -> system Adreno, host compositor -> system Vulkan.
             // Only downloaded Turnip packages have an HMI entry point suitable
             // for host adrenotools loading, and those remain Adreno-only.
             val hostDriver =
                 GraphicsDriverIds.resolveHostDriver(
-                    configuredHostDriver,
-                    GPUInformation.isAdrenoGPU(context),
+                    effectiveDriver,
+                    isAdreno = true,
                 )
-            if (hostDriver != configuredHostDriver) {
+            if (effectiveDriver != configuredHostDriver || hostDriver != effectiveDriver) {
                 Log.i(
                     "WineEngineImpl",
-                    "Host Vulkan renderer resolved '$configuredHostDriver' -> '$hostDriver'",
+                    "Vulkan driver resolved configured='$configuredHostDriver' " +
+                        "effective='$effectiveDriver' host='$hostDriver'",
                 )
             }
             _surface.value =
