@@ -315,6 +315,31 @@ class ContentStagingPluginTest {
         assertFalse(cache.walkTopDown().any { it.name.contains(".part-") })
     }
 
+    @Test
+    fun syncRejectsEscapingPathEvenWhenParserIsBypassed() {
+        val root = temporaryFolder.newFolder("sync-path-escape")
+        val output = File(root, "generated").apply {
+            mkdirs()
+            resolve("previous.txt").writeText("keep")
+        }
+        val bytes = "payload".toByteArray()
+        val unsafe = asset("../escape.bin", bytes)
+
+        val failure =
+            assertThrows(GradleException::class.java) {
+                ExactContentStager(
+                    winnativeDir = File(root, "winnative"),
+                    outputDir = output,
+                    cacheDir = File(root, "cache"),
+                    downloader = AssetDownloader { _, _ -> error("unexpected download") },
+                ).sync(listOf(unsafe))
+            }
+
+        assertTrue(failure.message.orEmpty().contains("path escapes staging root"))
+        assertEquals("keep", File(output, "previous.txt").readText())
+        assertFalse(File(root, "escape.bin").exists())
+    }
+
     private fun stager(localRoot: File?, output: File, cache: File) = ExactContentStager(
         winnativeDir = localRoot,
         outputDir = output,
