@@ -29,7 +29,11 @@ public final class PulseAudioRuntimeSupport {
    * ALSA backend on 16 KB devices instead of attempting an ELF load the platform will reject.
    */
   public static boolean isSupportedPlatform() {
-    return Os.sysconf(OsConstants._SC_PAGESIZE) <= 4096;
+    return isSupportedPageSize(Os.sysconf(OsConstants._SC_PAGESIZE));
+  }
+
+  static boolean isSupportedPageSize(long pageSize) {
+    return pageSize > 0 && pageSize <= 4096;
   }
 
   public static File ensureInstalled(Context context) {

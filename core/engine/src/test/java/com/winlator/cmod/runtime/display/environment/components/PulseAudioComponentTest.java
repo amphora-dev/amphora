@@ -42,6 +42,13 @@ public class PulseAudioComponentTest {
   }
 
   @Test
+  public void supportsOnlyKnownPageSizesUpToFourKilobytes() {
+    assertTrue(PulseAudioRuntimeSupport.isSupportedPageSize(4096));
+    assertFalse(PulseAudioRuntimeSupport.isSupportedPageSize(16384));
+    assertFalse(PulseAudioRuntimeSupport.isSupportedPageSize(-1));
+  }
+
+  @Test
   public void runtimeIsCurrentOnlyWithMatchedMarkerAndCompletePayload() throws Exception {
     File runtime = temporaryFolder.newFolder("pulseaudio");
     assertFalse(PulseAudioRuntimeSupport.isCurrent(runtime));
