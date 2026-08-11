@@ -25,12 +25,13 @@ abstract class AggregateJvmCoverageTask : DefaultTask() {
         check(reportFiles.isNotEmpty()) { "No JVM coverage reports were configured" }
         reportFiles.forEach { report ->
             check(report.isFile) { "Missing JVM coverage report: $report" }
-            val root =
-                javax.xml.parsers.DocumentBuilderFactory
-                    .newInstance()
-                    .newDocumentBuilder()
-                    .parse(report)
-                    .documentElement
+            val parserFactory =
+                javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
+                    setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+                    setFeature("http://xml.org/sax/features/external-general-entities", false)
+                    setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                }
+            val root = parserFactory.newDocumentBuilder().parse(report).documentElement
             val children = root.childNodes
             for (index in 0 until children.length) {
                 val counter = children.item(index)
