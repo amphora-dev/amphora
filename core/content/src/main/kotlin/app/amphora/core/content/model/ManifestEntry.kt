@@ -13,9 +13,7 @@ package app.amphora.core.content.model
  * @property version Display/compatibility version encoded into the resolved
  *   path. For [Kind.WCP] this is the ContentsManager entry name
  *   (`type-verName-verCode`) and **must** match the embedded `profile.json`.
- *   Sibling versions of the same type are removed by
- *   [app.amphora.core.content.ContentAssetInstaller.reconcileToPin] once the
- *   new pin is present (update replaces; stale dirs are not left orphaned).
+ *   WCP sibling versions remain available for container rollback.
  * @property kind How the asset is provisioned (see [Kind]).
  * @property compression Archive compression for [Kind.ARCHIVE] (default ZSTD).
  * @property contentType / verName / verCode [Kind.WCP]-only: reconstruct a
