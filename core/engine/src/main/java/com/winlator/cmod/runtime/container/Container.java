@@ -528,7 +528,8 @@ public class Container {
             throws IOException, JSONException {
         if (!configFile.exists()) return copyJson(desired);
 
-        String currentText = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
+        String currentText =
+                new String(Files.readAllBytes(configFile.toPath()), StandardCharsets.UTF_8);
         if (currentText.trim().isEmpty()) {
             Log.e(TAG, "Refusing to replace empty or unreadable container config " + configFile);
             return null;
