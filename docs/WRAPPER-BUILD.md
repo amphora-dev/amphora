@@ -30,6 +30,9 @@ export ANDROID_NDK_HOME=/path/to/android-ndk-r26d
 ## 说明
 
 - 二进制 NEEDED 可能比官方包多 `libcutils`/`liblog`/`libsync`（NDK android-stub）；脚本会把 stub `.so` 打进 tzst。
+- 脚本中的 `PREFIX_FAKE=/data/data/com.winlator.cmod/...` 只用于生成兼容上游布局的
+  Meson prefix/RPATH，不是 Amphora 的 Android 包名；运行时依靠 imagefs
+  `LD_LIBRARY_PATH` 解析同包库。
 - `prepare-wrapper-sysroot.sh` 根据后缀读取 xz 或 zstd tar；生产构建应优先使用远程
   `content_manifest.json` 中 `components.rootfs` 指向的归档，避免与设备运行库版本漂移。
 - 本机已验证编出 aarch64 `libvulkan_wrapper.so`（Pipetto `7eae644` / Mesa 25.0.0-devel）。上机替换前建议先备份原 wrapper，并确认 imagefs 内 X11 库版本匹配。
