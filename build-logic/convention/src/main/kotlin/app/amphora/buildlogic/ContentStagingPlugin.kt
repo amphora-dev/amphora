@@ -460,7 +460,10 @@ class ContentStagingConventionPlugin : Plugin<Project> {
 
         plugins.withId("com.android.application") {
             extensions.configure<ApplicationExtension> {
-                sourceSets.getByName("main").assets.directories.add(extension.stagedAssetsDir.get().asFile)
+                sourceSets
+                    .getByName("main")
+                    .assets.directories
+                    .add(extension.stagedAssetsDir.get().asFile.absolutePath)
             }
         }
 
