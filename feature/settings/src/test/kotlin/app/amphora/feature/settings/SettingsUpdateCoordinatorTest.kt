@@ -230,33 +230,30 @@ class SettingsUpdateCoordinatorTest {
         assertEquals("signature mismatch", transition.state.message)
     }
 
-    private fun waitingForPermission(): Coordinator =
-        coordinatorWithAvailable().also { coordinator ->
-            coordinator.dispatch(SettingsUpdateEvent.InstallRequested(permissionRequired = true))
-            coordinator.dispatch(
-                SettingsUpdateEvent.PermissionRequestCompleted(requestStarted = true),
-            )
-        }
+    private fun waitingForPermission(): Coordinator = coordinatorWithAvailable().also { coordinator ->
+        coordinator.dispatch(SettingsUpdateEvent.InstallRequested(permissionRequired = true))
+        coordinator.dispatch(
+            SettingsUpdateEvent.PermissionRequestCompleted(requestStarted = true),
+        )
+    }
 
-    private fun installingUpdate(): Coordinator =
-        coordinatorWithAvailable().also {
-            it.dispatch(SettingsUpdateEvent.InstallRequested(permissionRequired = false))
-        }
+    private fun installingUpdate(): Coordinator = coordinatorWithAvailable().also {
+        it.dispatch(SettingsUpdateEvent.InstallRequested(permissionRequired = false))
+    }
 
-    private fun coordinatorWithAvailable(): Coordinator =
-        coordinator().also { coordinator ->
-            coordinator.dispatch(SettingsUpdateEvent.CheckRequested)
-            coordinator.dispatch(
-                SettingsUpdateEvent.CheckCompleted(
-                    UpdateCheckOutcome.UpdateAvailable(
-                        update = UPDATE,
-                        installedVersionCode = 20_000_000,
-                        remoteVersionCode = 20_000_001,
-                        remoteVersionName = VERSION_NAME,
-                    ),
+    private fun coordinatorWithAvailable(): Coordinator = coordinator().also { coordinator ->
+        coordinator.dispatch(SettingsUpdateEvent.CheckRequested)
+        coordinator.dispatch(
+            SettingsUpdateEvent.CheckCompleted(
+                UpdateCheckOutcome.UpdateAvailable(
+                    update = UPDATE,
+                    installedVersionCode = 20_000_000,
+                    remoteVersionCode = 20_000_001,
+                    remoteVersionName = VERSION_NAME,
                 ),
-            )
-        }
+            ),
+        )
+    }
 
     private fun coordinator(): Coordinator = SettingsUpdateCoordinator()
 
