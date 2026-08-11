@@ -26,7 +26,7 @@ class VerifiedAssetDownloaderTest {
         val asset = root.resolve("nested/runtime.bin")
         asset.parentFile.mkdirs()
         asset.writeBytes(payload)
-        AssetDigest.writePin(asset, sha)
+        AssetDigest.markerFor(asset).writeText(sha)
 
         val resolved =
             VerifiedAssetDownloader(DefaultDispatcherProvider()).acquire(
@@ -39,6 +39,7 @@ class VerifiedAssetDownloaderTest {
 
         assertEquals(asset.canonicalFile, resolved.canonicalFile)
         assertEquals(payload.toList(), resolved.readBytes().toList())
+        assertEquals(payload.size.toLong(), AssetDigest.pinnedSize(resolved))
     }
 
     @Test
