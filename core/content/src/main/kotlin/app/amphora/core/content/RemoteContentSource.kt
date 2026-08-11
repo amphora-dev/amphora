@@ -14,8 +14,7 @@ import kotlinx.coroutines.sync.withLock
  *
  * Installed components are returned without network access. Cache misses use a
  * resumable verified download, then hand the archive to [ContentAssetInstaller].
- * After a hit or install, [ContentAssetInstaller.reconcileToPin] drops sibling
- * installs so pin bumps replace rather than accumulate.
+ * Reconciliation is installer-specific; WCP installs retain rollback versions.
  */
 class RemoteContentSource(
     private val context: Context,

@@ -6,10 +6,11 @@ import app.amphora.core.content.model.ManifestEntry
 import java.io.File
 
 /**
- * Global content reconcile: after a manifest refresh (or a successful install),
- * make on-disk state match the **current** pins — update replaces, not orphans.
+ * Global content reconcile after a manifest refresh or successful install.
  *
- * 1. [ContentAssetInstaller.reconcileToPin] per non-ROOTFS component
+ * 1. [ContentAssetInstaller.reconcileToPin] per non-ROOTFS component. The
+ *    Winlator installer intentionally retains WCP siblings until container-aware
+ *    garbage collection can prove they are no longer rollback targets.
  * 2. [ContentPackageCache.pruneToPins] for superseded download filenames
  */
 class ContentReconciler(private val context: Context, private val installer: ContentAssetInstaller) {
