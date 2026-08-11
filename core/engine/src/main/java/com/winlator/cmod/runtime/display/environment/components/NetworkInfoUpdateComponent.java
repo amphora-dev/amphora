@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.ConnectivityManager;
+import android.os.Build;
 import android.util.Log;
 
 import com.winlator.cmod.runtime.display.environment.EnvironmentComponent;
@@ -28,18 +29,20 @@ public class NetworkInfoUpdateComponent extends EnvironmentComponent {
         Context context = environment.getContext();
         final NetworkHelper networkHelper = new NetworkHelper(context);
         updateIFAddrsFile(networkHelper.getIFAddresses());
-        updateEtcHostsFile(networkHelper.getIPv4Address());
 
         broadcastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context ctx, Intent intent) {
                 updateIFAddrsFile(networkHelper.getIFAddresses());
-                updateEtcHostsFile(networkHelper.getIPv4Address());
             }
         };
         IntentFilter filter = new IntentFilter();
         filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
-        context.registerReceiver(broadcastReceiver, filter);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(broadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiverCompat(context, filter);
+        }
     }
 
     @Override
@@ -69,9 +72,8 @@ public class NetworkInfoUpdateComponent extends EnvironmentComponent {
         FileUtils.writeString(file, content.toString());
     }
 
-    public void updateEtcHostsFile(String ipAddress) {
-        String ip = ipAddress != null ? ipAddress : "127.0.0.1";
-        File file = new File(environment.getImageFs().getRootDir(), "etc/hosts");
-        FileUtils.writeString(file, ip + "\tlocalhost\n");
+    @SuppressWarnings("deprecation")
+    private void registerReceiverCompat(Context context, IntentFilter filter) {
+        context.registerReceiver(broadcastReceiver, filter);
     }
 }
