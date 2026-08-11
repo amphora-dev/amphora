@@ -47,8 +47,7 @@ object GraphicsDriverIds {
      * sides; letting only the host fall back leaves the guest pointing at an
      * unusable wrapper ICD.
      */
-    fun resolveEffectiveDriver(id: String?, isAdreno: Boolean): String =
-        if (isAdreno) normalize(id) else SYSTEM
+    fun resolveEffectiveDriver(id: String?, isAdreno: Boolean): String = if (isAdreno) normalize(id) else SYSTEM
 
     /**
      * Resolves the Vulkan backend used by the Android host compositor.
