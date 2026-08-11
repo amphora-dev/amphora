@@ -20,7 +20,11 @@ abstract class AggregateJvmCoverageTask : DefaultTask() {
     @TaskAction
     fun aggregate() {
         val counterTypes = listOf("INSTRUCTION", "BRANCH", "LINE", "METHOD", "CLASS")
-        val totals = counterTypes.associateWith { longArrayOf(0L, 0L) }.toMutableMap()
+        val scopeOrder = listOf("Amphora authored", "Ported Winlator", "Generated", "Other", "All measured")
+        val totals =
+            scopeOrder.associateWith {
+                counterTypes.associateWith { longArrayOf(0L, 0L) }.toMutableMap()
+            }
         val reportFiles = reports.files.sortedBy { it.absolutePath }
         check(reportFiles.isNotEmpty()) { "No JVM coverage reports were configured" }
         reportFiles.forEach { report ->
@@ -32,38 +36,80 @@ abstract class AggregateJvmCoverageTask : DefaultTask() {
                     setFeature("http://xml.org/sax/features/external-parameter-entities", false)
                 }
             val root = parserFactory.newDocumentBuilder().parse(report).documentElement
-            val children = root.childNodes
-            for (index in 0 until children.length) {
-                val counter = children.item(index)
-                if (counter.nodeName != "counter") continue
-                val attributes = counter.attributes
-                val type = attributes.getNamedItem("type").nodeValue
-                val total = totals[type] ?: continue
-                total[0] += attributes.getNamedItem("missed").nodeValue.toLong()
-                total[1] += attributes.getNamedItem("covered").nodeValue.toLong()
+            val classes = root.getElementsByTagName("class")
+            for (classIndex in 0 until classes.length) {
+                val classNode = classes.item(classIndex)
+                val className = classNode.attributes.getNamedItem("name").nodeValue
+                val scope =
+                    when {
+                        isGeneratedClass(className) -> "Generated"
+                        className.startsWith("app/amphora/") -> "Amphora authored"
+                        className.startsWith("com/winlator/") -> "Ported Winlator"
+                        else -> "Other"
+                    }
+                val counters = classNode.childNodes
+                for (counterIndex in 0 until counters.length) {
+                    val counter = counters.item(counterIndex)
+                    if (counter.nodeName != "counter") continue
+                    val attributes = counter.attributes
+                    val type = attributes.getNamedItem("type").nodeValue
+                    val missed = attributes.getNamedItem("missed").nodeValue.toLong()
+                    val covered = attributes.getNamedItem("covered").nodeValue.toLong()
+                    listOf(scope, "All measured").forEach { targetScope ->
+                        val total = totals.getValue(targetScope)[type] ?: return@forEach
+                        total[0] += missed
+                        total[1] += covered
+                    }
+                }
             }
         }
         val summary =
             buildString {
                 appendLine("JVM coverage across ${reportFiles.size} tested Android modules")
-                counterTypes.forEach { type ->
-                    val (missed, covered) = requireNotNull(totals[type])
-                    val percentage = if (missed + covered == 0L) 0.0 else covered * 100.0 / (missed + covered)
-                    appendLine(
-                        "%-11s %6.2f%% (%d/%d)".format(
-                            java.util.Locale.ROOT,
-                            type.lowercase().replaceFirstChar(Char::uppercase),
-                            percentage,
-                            covered,
-                            missed + covered,
-                        ),
-                    )
+                appendLine(
+                    "Generated code is reported separately; Compose-transformed authored methods remain authored.",
+                )
+                scopeOrder.forEach { scope ->
+                    val scopeTotals = totals.getValue(scope)
+                    val measuredClasses = scopeTotals.getValue("CLASS").sum()
+                    if (scope != "All measured" && measuredClasses == 0L) return@forEach
+                    appendLine()
+                    appendLine(scope)
+                    counterTypes.forEach { type ->
+                        val (missed, covered) = scopeTotals.getValue(type)
+                        val percentage =
+                            if (missed + covered == 0L) 0.0 else covered * 100.0 / (missed + covered)
+                        appendLine(
+                            "  %-11s %6.2f%% (%d/%d)".format(
+                                java.util.Locale.ROOT,
+                                type.lowercase().replaceFirstChar(Char::uppercase),
+                                percentage,
+                                covered,
+                                missed + covered,
+                            ),
+                        )
+                    }
                 }
             }
         val output = summaryFile.get().asFile
         output.parentFile.mkdirs()
         output.writeText(summary)
         logger.lifecycle("\n$summary")
+    }
+
+    private fun isGeneratedClass(className: String): Boolean {
+        val simpleName = className.substringAfterLast('/')
+        return simpleName == "BuildConfig" ||
+            simpleName == "R" ||
+            simpleName.startsWith("R$") ||
+            simpleName.startsWith("Hilt_") ||
+            simpleName.startsWith("Dagger") ||
+            simpleName.startsWith("ComposableSingletons$") ||
+            "_HiltModules" in simpleName ||
+            "_Factory" in simpleName ||
+            "_MembersInjector" in simpleName ||
+            "_GeneratedInjector" in simpleName ||
+            "_ComponentTreeDeps" in simpleName
     }
 }
 
@@ -128,7 +174,7 @@ tasks.register("jvmTest") {
 
 tasks.register<AggregateJvmCoverageTask>("jvmCoverage") {
     group = "verification"
-    description = "Run JVM tests and aggregate JaCoCo counters for Android modules that contain tests."
+    description = "Run JVM tests and aggregate scoped JaCoCo counters for authored, ported, and generated code."
     val coverageTasks = androidProjectsWithJvmTests.map { "${it.path}:createDebugUnitTestCoverageReport" }
     dependsOn(coverageTasks)
     reports.from(
