@@ -86,12 +86,10 @@ class ContainerSaveDataTest {
         }
     }
 
-    private fun newContainer(root: java.io.File): Container =
-        Container(1).apply { rootDir = root }
+    private fun newContainer(root: java.io.File): Container = Container(1).apply { rootDir = root }
 
-    private fun loadContainer(root: java.io.File): Container =
-        Container(1).apply {
-            rootDir = root
-            loadData(JSONObject(root.resolve(".container").readText()))
-        }
+    private fun loadContainer(root: java.io.File): Container = Container(1).apply {
+        rootDir = root
+        loadData(JSONObject(root.resolve(".container").readText()))
+    }
 }

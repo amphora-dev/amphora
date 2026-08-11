@@ -68,8 +68,8 @@ internal class XServerSessionHandle(
             val current = _state.value
             if (
                 current == SessionState.STOPPING ||
-                    current == SessionState.STOPPED ||
-                    current == SessionState.FAILED
+                current == SessionState.STOPPED ||
+                current == SessionState.FAILED
             ) {
                 return
             }

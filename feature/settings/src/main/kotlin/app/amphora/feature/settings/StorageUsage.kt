@@ -28,10 +28,7 @@ data class StorageUsage(
     val reclaimableBytes: Long = 0,
 )
 
-data class StorageCleanupResult(
-    val bytesFreed: Long = 0,
-    val failedPaths: List<String> = emptyList(),
-)
+data class StorageCleanupResult(val bytesFreed: Long = 0, val failedPaths: List<String> = emptyList())
 
 /**
  * Measures what Amphora occupies in app-private storage.
@@ -133,11 +130,11 @@ object StorageUsageScanner {
                         StorageEntry(
                             label = container.name,
                             detail =
-                                if (container.name.startsWith("${ImageFs.USER}.legacy-backup-")) {
-                                    "Legacy home recovery backup · preserved"
-                                } else {
-                                    "Inactive container · preserved"
-                                },
+                            if (container.name.startsWith("${ImageFs.USER}.legacy-backup-")) {
+                                "Legacy home recovery backup · preserved"
+                            } else {
+                                "Inactive container · preserved"
+                            },
                             bytes = sizeOf(container),
                         ),
                     )

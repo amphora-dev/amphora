@@ -214,16 +214,16 @@ constructor(
                     it.copy(
                         deletingStorage = false,
                         storageMessage =
-                            when {
-                                result.failedPaths.isNotEmpty() && result.bytesFreed > 0 ->
-                                    "Freed ${formatStorageSize(result.bytesFreed)}, but some temporary " +
-                                        "items could not be removed."
-                                result.failedPaths.isNotEmpty() ->
-                                    "Could not remove the selected temporary items."
-                                result.bytesFreed > 0 ->
-                                    "Freed ${formatStorageSize(result.bytesFreed)}."
-                                else -> "Nothing was removed."
-                            },
+                        when {
+                            result.failedPaths.isNotEmpty() && result.bytesFreed > 0 ->
+                                "Freed ${formatStorageSize(result.bytesFreed)}, but some temporary " +
+                                    "items could not be removed."
+                            result.failedPaths.isNotEmpty() ->
+                                "Could not remove the selected temporary items."
+                            result.bytesFreed > 0 ->
+                                "Freed ${formatStorageSize(result.bytesFreed)}."
+                            else -> "Nothing was removed."
+                        },
                     )
                 }
                 refreshStorageUsage()
