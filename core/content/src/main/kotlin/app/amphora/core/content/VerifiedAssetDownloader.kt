@@ -131,8 +131,23 @@ class VerifiedAssetDownloader(
         // Do not hash or delete it before its replacement has downloaded and verified.
         if (AssetDigest.hasCurrentRecord(file)) return false
 
-        // Legacy digest-only markers are upgraded once. This is the only startup path
-        // that hashes the destination; current markers remain O(1).
+        // Preserve the trust semantics of deployed digest-only markers while
+        // upgrading them with a size. This avoids hashing an old multi-hundred-MB
+        // asset on every offline launch after the manifest pin advances.
+        val legacyPin = AssetDigest.pinnedSha(file)
+        if (legacyPin != null) {
+            if (!legacyPin.equals(expectedSha256, ignoreCase = true)) {
+                AssetDigest.writePin(file, legacyPin)
+                return false
+            }
+            if (expectedSize == null || file.length() == expectedSize) {
+                AssetDigest.writePin(file, legacyPin)
+                return true
+            }
+        }
+
+        // Missing/malformed markers are not trusted. Hash only this recovery path,
+        // then record metadata so later startup checks remain O(1).
         val valid = AssetDigest.of(file).equals(expectedSha256, ignoreCase = true)
         if (valid) {
             warnIfSizePinDiffers(file, expectedSize)
