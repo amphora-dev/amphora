@@ -99,9 +99,9 @@ class StorageUsageScannerTest {
             val temporary = cache.resolve("restore_interrupted.tmp").apply {
                 mkdirs()
                 resolve("payload").writeText("remove")
-                setLastModified(System.currentTimeMillis() - TWO_DAYS_MS)
             }
             Files.createSymbolicLink(temporary.resolve("external").toPath(), external.toPath())
+            temporary.setLastModified(System.currentTimeMillis() - TWO_DAYS_MS)
             val context = mockk<Context>()
             every { context.cacheDir } returns cache
 

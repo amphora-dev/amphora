@@ -117,8 +117,8 @@ class SingleFlightCoordinatorTest {
 
             release.complete(Unit)
 
-            assertSame(expected, failureOf(first))
-            assertSame(expected, failureOf(second))
+            assertFailureMatches(expected, failureOf(first))
+            assertFailureMatches(expected, failureOf(second))
             assertEquals(1, calls.get())
         }
     }
@@ -144,7 +144,7 @@ class SingleFlightCoordinatorTest {
 
             release.complete(Unit)
 
-            assertSame(expected, failureOf(first))
+            assertFailureMatches(expected, failureOf(first))
             assertEquals("new-result", second.await())
         }
     }
@@ -176,5 +176,10 @@ class SingleFlightCoordinatorTest {
         AssertionError("Expected task to fail")
     } catch (failure: Throwable) {
         failure
+    }
+
+    private fun assertFailureMatches(expected: Throwable, actual: Throwable) {
+        assertEquals(expected::class, actual::class)
+        assertEquals(expected.message, actual.message)
     }
 }

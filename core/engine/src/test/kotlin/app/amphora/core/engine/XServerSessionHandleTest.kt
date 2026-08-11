@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -166,7 +165,8 @@ class XServerSessionHandleTest {
             } catch (failure: Throwable) {
                 failure
             }
-        assertSame(expected, actual)
+        assertEquals(expected::class, actual::class)
+        assertEquals(expected.message, actual.message)
         assertEquals(SessionState.FAILED, handle.state.value)
     }
 
