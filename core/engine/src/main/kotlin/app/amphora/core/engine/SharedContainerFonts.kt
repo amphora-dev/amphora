@@ -31,12 +31,16 @@ import java.util.Locale
  */
 object SharedContainerFonts {
     const val ASSET_PATH = "fonts.tzst"
-    const val REGISTRY_SCHEMA_VERSION = 4
+    const val REGISTRY_SCHEMA_VERSION = 5
 
     const val CN_REGULAR = "SourceHanSansCN-Regular.otf"
     const val CN_BOLD = "SourceHanSansCN-Bold.otf"
     const val JP_REGULAR = "SourceHanSansJP-Regular.otf"
     const val JP_BOLD = "SourceHanSansJP-Bold.otf"
+
+    internal const val SYSTEM_FONT_FILE = "tahoma.ttf"
+    internal const val SYSTEM_FONT_SETTINGS_KEY =
+        "System\\ControlSet001\\Hardware Profiles\\Current\\Software\\Fonts"
 
     /** Primary face kept for callers that only know the old single-file name. */
     const val FONT_FILE_NAME = CN_REGULAR
@@ -444,6 +448,13 @@ object SharedContainerFonts {
                     for ((name, file) in FONT_REGISTRATIONS) {
                         reg.setStringValue(fontsKey, name, file)
                     }
+
+                    // Wine normally backs the Win32 SYSTEM_FONT stock object with
+                    // svgasys.fon. Legacy rich-text controls request scalable
+                    // outlines from that object; the bitmap face can then render
+                    // formatted scores as empty glyphs. Tahoma is bundled with
+                    // Wine and preserves the expected compact Windows UI metrics.
+                    reg.setStringValue(SYSTEM_FONT_SETTINGS_KEY, "FONTS.FON", SYSTEM_FONT_FILE)
                 }
                 systemOk = true
                 Log.d(TAG, "Wrote Windows font substitutes, links, and registrations into $systemReg")

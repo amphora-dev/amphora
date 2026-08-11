@@ -8,8 +8,8 @@ import org.junit.Test
 
 class SharedContainerFontsTest {
     @Test
-    fun registrySchema_includesFontconfigSynchronization() {
-        assertEquals(4, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
+    fun registrySchema_includesScalableSystemFont() {
+        assertEquals(5, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
     }
 
     @Test
@@ -101,6 +101,28 @@ class SharedContainerFontsTest {
         )
         assertEquals(SharedContainerFonts.CN_REGULAR, fonts["SimSun & NSimSun (TrueType)"])
         assertEquals(SharedContainerFonts.CN_REGULAR, fonts["DengXian (TrueType)"])
+    }
+
+    @Test
+    fun applyRegistry_replacesBitmapSystemFontWithTahoma() {
+        val container = Files.createTempDirectory("amphora-system-font").toFile()
+        val prefix = container.resolve(".wine")
+        try {
+            assertTrue(prefix.mkdirs())
+            prefix.resolve("system.reg").writeText("WINE REGISTRY Version 2\n")
+            prefix.resolve("user.reg").writeText("WINE REGISTRY Version 2\n")
+
+            assertTrue(SharedContainerFonts.applyRegistry(container))
+
+            WineRegistryEditor(prefix.resolve("system.reg")).use {
+                assertEquals(
+                    SharedContainerFonts.SYSTEM_FONT_FILE,
+                    it.getStringValue(SharedContainerFonts.SYSTEM_FONT_SETTINGS_KEY, "FONTS.FON"),
+                )
+            }
+        } finally {
+            container.deleteRecursively()
+        }
     }
 
     @Test
