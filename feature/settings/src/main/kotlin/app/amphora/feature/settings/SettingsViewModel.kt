@@ -68,6 +68,7 @@ constructor(
     private val initialCustomEnv =
         prefs.getString(AdvancedRuntimePreferences.KEY_CUSTOM_ENV, "").orEmpty()
     private val initialWindowsComponents = WindowsComponentPreferences.selections(context)
+    private val updateCoordinator = SettingsUpdateCoordinator<AppUpdateManifest, File>()
 
     private val _uiState =
         MutableStateFlow(
@@ -144,16 +145,8 @@ constructor(
         viewModelScope.launch {
             shizukuEmergencyStopper.status.collect { status ->
                 _uiState.update { it.copy(shizukuCleanupStatus = status) }
-                if (status == ShizukuCleanupStatus.READY &&
-                    _uiState.value.waitingForUpdatePermission
-                ) {
-                    _uiState.update {
-                        it.copy(
-                            waitingForUpdatePermission = false,
-                            updateMessage = "Shizuku authorized. Starting update…",
-                        )
-                    }
-                    downloadAndInstallUpdate()
+                if (status == ShizukuCleanupStatus.READY) {
+                    dispatchUpdate(SettingsUpdateEvent.PermissionReady)
                 }
             }
         }
@@ -577,122 +570,95 @@ constructor(
     }
 
     fun checkForUpdate() {
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    updateBusy = true,
-                    updateMessage = null,
-                    pendingApk = null,
-                    waitingForUpdatePermission = false,
-                )
-            }
-            when (val result = updateManager.check()) {
-                is AppUpdateCheckResult.UpToDate ->
-                    _uiState.update {
-                        it.copy(
-                            updateBusy = false,
-                            availableUpdate = null,
-                            updateMessage = "Up to date (${result.remote.versionName})",
-                        )
-                    }
-                is AppUpdateCheckResult.UpdateAvailable ->
-                    _uiState.update {
-                        it.copy(
-                            updateBusy = false,
-                            availableUpdate = result.remote,
-                            updateMessage =
-                            "Update available: ${result.remote.versionName} " +
-                                "(${result.installedVersionCode} → ${result.remote.versionCode})",
-                        )
-                    }
-                is AppUpdateCheckResult.Unavailable ->
-                    _uiState.update {
-                        it.copy(updateBusy = false, availableUpdate = null, updateMessage = result.reason)
-                    }
-                is AppUpdateCheckResult.Failed ->
-                    _uiState.update {
-                        it.copy(
-                            updateBusy = false,
-                            availableUpdate = null,
-                            updateMessage = result.error.message ?: result.error.toString(),
-                        )
-                    }
-            }
-        }
+        dispatchUpdate(SettingsUpdateEvent.CheckRequested)
     }
 
     fun installUpdate() {
-        if (_uiState.value.updateBusy) return
-        if (updateManager.installStatus.value == ShizukuCleanupStatus.PERMISSION_REQUIRED) {
-            if (updateManager.requestInstallPermission()) {
-                _uiState.update {
-                    it.copy(
-                        waitingForUpdatePermission = true,
-                        updateMessage = "Grant Shizuku access to install automatically.",
-                    )
-                }
-                viewModelScope.launch {
-                    delay(SHIZUKU_PERMISSION_WAIT_MS)
-                    if (_uiState.value.waitingForUpdatePermission) {
-                        _uiState.update {
-                            it.copy(
-                                waitingForUpdatePermission = false,
-                                updateMessage = "Shizuku authorization was not completed; using fallback.",
-                            )
-                        }
-                        downloadAndInstallUpdate()
-                    }
-                }
-            } else {
-                downloadAndInstallUpdate()
-            }
-            return
-        }
-        downloadAndInstallUpdate()
+        dispatchUpdate(
+            SettingsUpdateEvent.InstallRequested(
+                permissionRequired =
+                updateManager.installStatus.value == ShizukuCleanupStatus.PERMISSION_REQUIRED,
+            ),
+        )
     }
 
-    private fun downloadAndInstallUpdate() {
-        var claimedUpdate: AppUpdateManifest? = null
-        while (claimedUpdate == null) {
-            val current = _uiState.value
-            val available = current.availableUpdate ?: return
-            if (current.updateBusy) return
-            val downloading =
-                current.copy(
-                    updateBusy = true,
-                    updateMessage = "Downloading and verifying ${available.versionName}…",
-                    pendingApk = null,
-                )
-            if (_uiState.compareAndSet(current, downloading)) claimedUpdate = available
+    private fun dispatchUpdate(event: SettingsUpdateEvent<AppUpdateManifest, File>) {
+        val transition = updateCoordinator.dispatch(event)
+        _uiState.update {
+            it.copy(
+                updateBusy = transition.state.busy,
+                availableUpdate = transition.state.availableUpdate,
+                pendingApk = transition.state.pendingArtifact,
+                waitingForUpdatePermission = transition.state.waitingForPermission,
+                updateMessage = transition.state.message,
+            )
         }
-        val remote = requireNotNull(claimedUpdate)
-        viewModelScope.launch {
-            try {
-                when (val result = updateManager.downloadAndInstall(remote)) {
-                    AppUpdateInstallResult.Started ->
-                        _uiState.update {
-                            it.copy(updateMessage = "Install started. Amphora will reopen automatically.")
+        transition.effects.forEach(::executeUpdateEffect)
+    }
+
+    private fun executeUpdateEffect(effect: SettingsUpdateEffect<AppUpdateManifest>) {
+        when (effect) {
+            SettingsUpdateEffect.CheckForUpdate ->
+                viewModelScope.launch {
+                    val outcome =
+                        when (val result = updateManager.check()) {
+                            is AppUpdateCheckResult.UpToDate ->
+                                UpdateCheckOutcome.UpToDate(result.remote.versionName)
+                            is AppUpdateCheckResult.UpdateAvailable ->
+                                UpdateCheckOutcome.UpdateAvailable(
+                                    update = result.remote,
+                                    installedVersionCode = result.installedVersionCode,
+                                    remoteVersionCode = result.remote.versionCode.toLong(),
+                                    remoteVersionName = result.remote.versionName,
+                                )
+                            is AppUpdateCheckResult.Unavailable ->
+                                UpdateCheckOutcome.Unavailable(result.reason)
+                            is AppUpdateCheckResult.Failed ->
+                                UpdateCheckOutcome.Failed(
+                                    result.error.message ?: result.error.toString(),
+                                )
                         }
-                    is AppUpdateInstallResult.SystemInstallerRequired ->
-                        _uiState.update {
-                            it.copy(
-                                updateBusy = false,
-                                pendingApk = result.apk,
-                                updateMessage = result.reason,
-                            )
-                        }
+                    dispatchUpdate(SettingsUpdateEvent.CheckCompleted(outcome))
                 }
-            } catch (failure: CancellationException) {
-                throw failure
-            } catch (failure: Throwable) {
-                _uiState.update {
-                    it.copy(
-                        updateBusy = false,
-                        pendingApk = null,
-                        updateMessage = failure.message ?: failure.toString(),
-                    )
-                }
+            SettingsUpdateEffect.RequestPermission -> {
+                val requestStarted = updateManager.requestInstallPermission()
+                dispatchUpdate(
+                    SettingsUpdateEvent.PermissionRequestCompleted(
+                        requestStarted = requestStarted,
+                        permissionReady =
+                        updateManager.installStatus.value == ShizukuCleanupStatus.READY,
+                    ),
+                )
             }
+            SettingsUpdateEffect.SchedulePermissionTimeout ->
+                viewModelScope.launch {
+                    delay(SHIZUKU_PERMISSION_WAIT_MS)
+                    dispatchUpdate(SettingsUpdateEvent.PermissionWaitExpired)
+                }
+            is SettingsUpdateEffect.DownloadAndInstall ->
+                viewModelScope.launch {
+                    try {
+                        when (val result = updateManager.downloadAndInstall(effect.update)) {
+                            AppUpdateInstallResult.Started ->
+                                dispatchUpdate(SettingsUpdateEvent.InstallStarted)
+                            is AppUpdateInstallResult.SystemInstallerRequired ->
+                                dispatchUpdate(
+                                    SettingsUpdateEvent.SystemInstallerRequired(
+                                        artifact = result.apk,
+                                        reason = result.reason,
+                                    ),
+                                )
+                        }
+                    } catch (failure: CancellationException) {
+                        throw failure
+                    } catch (failure: Throwable) {
+                        dispatchUpdate(
+                            SettingsUpdateEvent.InstallFailed(
+                                failure.message ?: failure.toString(),
+                            ),
+                        )
+                    }
+                }
         }
     }
 
