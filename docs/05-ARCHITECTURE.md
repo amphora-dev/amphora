@@ -1,13 +1,13 @@
 # 05 - As-Built 架构
 
 > 当前实现的架构真源。决议见 [`01-RFC.md`](01-RFC.md)；进度手账见 [`03-TRACKING.md`](03-TRACKING.md)；资产锁见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)。
-> 最后更新: 2026-08-05 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
+> 最后更新: 2026-08-11 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
 
 ---
 
 ## 1. 一句话
 
-Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 WinNative 的运行时内核；app/feature 只通过 `WineEngine` 等稳定接口启动会话；运行时二进制由 `RemoteContentSource` 按 `content_manifest.json` 的 SHA pin 在设备上下载安装，不进 APK。
+Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 WinNative 的运行时内核；app/feature 只通过 `WineEngine` 等稳定接口启动会话；Wine、Box64 和图形组件由 `RemoteContentSource` 按 `content_manifest.json` 的 SHA pin 在设备上下载安装，PulseAudio 的 Android native 库和运行时压缩包则随 APK 交付。
 
 ---
 
@@ -117,8 +117,9 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 | Native | `vk_renderer.c` + adrenotools | swapchain / AHB 导入 / Turnip 或系统 `libvulkan.so` |
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
 | Guest 图形 | Wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw→DxWrapper Dd7to9 或 cnc-ddraw→D3D9/DXVK；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | 默认 wrapper 包装系统 Adreno，host 直接用同一系统 Vulkan；显式 Turnip 才由 host/guest 共用 adrenotools driver |
+| 音频 | ALSA aserver 或 Wine PulseAudio | 默认 ALSA；可选 `winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`，16 KB 页或驱动不完整时保留 ALSA |
 
-已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；音频 `setVolume` 未接真实 `AudioTrack`；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
+已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 
 ---
 
@@ -181,7 +182,7 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 ## 9. 当前缺口（v0.2+ 候选）
 
-- `:feature:settings` 续增强；键盘/手柄；音频音量接线
+- `:feature:settings` 续增强；键盘/手柄；PulseAudio 真机延迟、切换与来电中断回归
 - Present/DRI3 完善；多容器/prefix
 - 部分 runtime 资产仍 pin 自 WinNative raw（wincomponents / ddrawrapper / meta）；`container_pattern_common` / `layers` 已从默认路径拆除；共享 `fonts.tzst` 提供真实 Microsoft YaHei、SimHei、PMingLiU、Tahoma、Microsoft Sans Serif，并保留 Source Han CN+JP 处理未打包字体；每容器通过 `Fonts/` symlink + FontLink / `FontSubstitutes` / Wine `Fonts\Replacements` 注册。Wine 会直接扫描 `C:\windows\Fonts`，不再向 imagefs `/usr/share/fonts` 重复建链或强制运行 `fc-cache`
 - Exit 真机连点 / FD 泄漏回归

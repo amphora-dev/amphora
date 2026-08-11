@@ -1,7 +1,7 @@
 # 08 - 盖世游戏 (egggame) 逆向对比
 
 > 对 `com.xiaoji.egggame` (盖世游戏) APK 的逆向分析，与 Amphora 架构对比。
-> 最后更新: 2026-08-10 · 验证设备: Lenovo TB322FC, Android 16 (API 36)。
+> 最后更新: 2026-08-11 · 验证设备: Lenovo TB322FC, Android 16 (API 36)。
 
 ---
 
@@ -187,7 +187,25 @@ egggame 不使用 adrenotools，而是用 Mesa 标准 ICD 发现机制 + 自定�
 
 ## 7. 音频系统
 
-### 盖世游戏 6.1.2：双音频后端
+### 先说结论：三者的 Pulse 主链路相同
+
+盖世游戏 6.1.2、WinNative 与 Amphora 的 Pulse 后端都不是 Wine 直接调用 AAudio，
+而是同一类四层结构：
+
+```text
+Windows 程序
+  → Wine winepulse.drv
+  → PulseAudio（Unix socket + 混音）
+  → module-aaudio-sink
+  → Android AAudio
+```
+
+因此这条链路与 WinNative **没有架构级差异**；盖世游戏当前版本也确实采用这种方式。
+三者的区别主要在运行核来源、资产交付、启动管理、失败回退和构建验证，而不是音频数据
+最终经过哪几层。逆向样本中没有发现 `wineaaudio.drv`，不能把盖世 6.1.2 描述成
+“Wine 直连 AAudio”。
+
+### 盖世游戏 6.1.2：插件内双音频后端
 
 6.1.0 起运行核位于独立 `com.xiaoji.egggame.plugin.pcengine` 插件。对 6.1.2 主 APK
 及插件版本 `100-1` 的复核只确认了 `Alsa` / `Pulse` 两个枚举值；当前插件中没有
@@ -205,7 +223,22 @@ egggame 不使用 adrenotools，而是用 Mesa 标准 ICD 发现机制 + 自定�
 - `default.pa` 加载 `module-native-protocol-unix` 与 `module-aaudio-sink`
 - 数据流：Wine winepulse.drv → PulseAudio Unix socket → module-aaudio-sink → AAudio
 
-### Amphora：ALSA 保底 + 可选 PulseAudio/AAudio
+盖世的 Java/Smali 调度、Pulse 配置和 native 模块均随闭源 `pcengine` 插件交付，主 APK
+只负责选择与配置。它同时服务 arm64x/FEX 主路线和 x86_64/Box64 备用路线。
+
+### WinNative：Amphora 的可维护实现基线
+
+- 同样提供 ALSA 与 PulseAudio 两种容器音频驱动。
+- `PulseAudioComponent` 安装并启动预编译 PulseAudio 运行库，通过 `default.pa` 加载
+  `module-native-protocol-unix` 和 `module-aaudio-sink`。
+- Wine 会话设置 `PULSE_SERVER` / `PULSE_LATENCY_MSEC`，生命周期暂停和恢复通过
+  `pactl suspend-sink` 管理 AAudio stream。
+- AAudio sink 具备断开后的错误恢复逻辑。
+
+WinNative 与盖世在这里是**同路线的两套实现**。现有证据不能证明两者二进制同源；
+可以确认的是组件边界、Pulse 配置和最终 AAudio sink 路径一致。
+
+### Amphora：沿用 WinNative 基线并补齐工程门禁
 
 - 默认仍为 ALSA，避免未验机前改变既有容器行为。
 - 设置可选择 PulseAudio；下次启动同步 Wine 注册表为 `Audio=pulse`。
@@ -215,11 +248,31 @@ egggame 不使用 adrenotools，而是用 Mesa 标准 ICD 发现机制 + 自定�
   Android linker 拒绝加载。
 - 暂停/恢复通过 `pactl suspend-sink` 关闭并重开 AAudio stream；native sink 的错误回调
   负责处理电话或设备切换造成的 AAudio disconnect。
+- 启动时等待并确认 `AAudioSink` 真正出现；模块加载失败会清理 Pulse 进程并明确失败，
+  不把“守护进程存在”误判成“音频可用”。
+- `pactl` 和守护进程使用适配 targetSdk 36 的独立启动环境，避免 app-private ELF
+  执行包装或全局 `LD_PRELOAD` 污染 Pulse 进程。
+- 音量和静音状态在 ALSA/Pulse 切换、暂停与恢复后保持一致。
+- 自构建 Proton WCP 含 `winepulse.so` 及 x64/x86 `winepulse.drv`；编译头文件、
+  native `libpulse` 与 APK 运行时统一为 PulseAudio 13。
+- BuildStream 门禁正向验证 `winepulse.so` 的 x86_64 架构和
+  `DT_NEEDED=libpulse.so`，并禁止 guest `libpulse` 绕过 Box64 native wrapper。
 
-### 关键差异
+### 三方差异
 
-PulseAudio 路径仍多一层混音服务，但可使用 AAudio 低延迟路径，同时保留成熟的 Wine
-Pulse 驱动兼容性。直接实现新的 Wine AAudio 驱动不属于本次移植范围。
+| 项目 | 盖世游戏 6.1.2 | WinNative | Amphora |
+|---|---|---|---|
+| Pulse 数据路径 | winepulse → Pulse → AAudio | winepulse → Pulse → AAudio | winepulse → Pulse → AAudio |
+| ALSA 回退 | 有 | 有 | 有；Pulse 不可用时保留 ALSA |
+| 运行核交付 | 闭源 `pcengine` 插件 APK | 仓库内预编译资产 | APK Pulse 资产 + 自构建 Proton WCP |
+| 会话实现 | 混淆插件代码 | `PulseAudioComponent` | 基于该组件并增加就绪、状态和启动隔离 |
+| Wine/PA ABI | 插件整体配套 | 依赖上游预编译 WCP | PA13 对齐并由 CI 断言 |
+| 16 KB 页设备 | 当前样本未确认策略 | 当前基线未确认门禁 | 4 KB 模块不可加载时不启用 Pulse |
+| 可复现验证 | 无公开构建链 | 主要依赖预编译资产 | BuildStream 构建及 ELF/ABI 门禁 |
+
+PulseAudio 路径比直接 Wine 音频驱动多一层混音服务，但能复用成熟的 Wine Pulse
+兼容性并由 AAudio 输出。直接实现新的 `wineaaudio.drv` 不属于本次工作，也不是盖世
+6.1.2 已采用的方案。
 
 ---
 
