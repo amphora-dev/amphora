@@ -65,11 +65,7 @@ class WineServiceStartupProfileTest {
         }
     }
 
-    private data class Fixture(
-        val root: File,
-        val systemReg: File,
-        val container: Container,
-    )
+    private data class Fixture(val root: File, val systemReg: File, val container: Container)
 
     private companion object {
         val CONTROL_SETS =

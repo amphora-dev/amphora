@@ -143,8 +143,7 @@ object AdvancedRuntimePreferences {
 
     fun hostPerformanceHudEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_HOST_PERF_HUD, false)
 
-    fun frameRateLimit(context: Context): Int =
-        frameRateLimit(prefs(context).getString(KEY_FRAME_RATE, "off"))
+    fun frameRateLimit(context: Context): Int = frameRateLimit(prefs(context).getString(KEY_FRAME_RATE, "off"))
 
     internal fun frameRateLimit(value: String?): Int =
         value?.toIntOrNull()?.takeIf { it in setOf(30, 45, 60, 90, 120) } ?: 0
