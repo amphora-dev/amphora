@@ -217,11 +217,11 @@ class SharedContainerFontsTest {
         try {
             val sharedFonts = root.resolve("contents/FONTS").apply { mkdirs() }
             val sharedFace = sharedFonts.resolve("sha/msyh.ttc").apply {
-                parentFile.mkdirs()
+                requireNotNull(parentFile).mkdirs()
                 writeText("font")
             }
             val externalFace = root.resolve("external/custom.ttf").apply {
-                parentFile.mkdirs()
+                requireNotNull(parentFile).mkdirs()
                 writeText("font")
             }
             val fontconfigDir = root.resolve("imagefs/usr/share/fonts").apply { mkdirs() }

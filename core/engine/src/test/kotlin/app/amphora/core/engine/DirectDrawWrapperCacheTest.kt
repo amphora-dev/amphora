@@ -56,7 +56,7 @@ class DirectDrawWrapperCacheTest {
             syswow64.resolve("ddraw.ini").writeText("ini")
             CNC_DDRAW_SHADER_SIDECARS.forEach {
                 syswow64.resolve(it).apply {
-                    parentFile.mkdirs()
+                    requireNotNull(parentFile).mkdirs()
                     writeText("shader")
                 }
             }
