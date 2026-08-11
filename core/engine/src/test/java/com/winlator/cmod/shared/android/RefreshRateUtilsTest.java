@@ -28,4 +28,9 @@ public class RefreshRateUtilsTest {
     assertFalse(RefreshRateUtils.isFrameCadenceCompatible(60f, 90));
     assertFalse(RefreshRateUtils.isFrameCadenceCompatible(120f, 0));
   }
+
+  @Test
+  public void explicitRefreshRateIsNotRedirectedByTheFpsLimit() {
+    assertEquals(90, RefreshRateUtils.resolveFramePacedRefreshRate(null, 90, 60));
+  }
 }

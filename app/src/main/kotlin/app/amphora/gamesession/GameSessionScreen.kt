@@ -162,6 +162,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                         if (!manuallyPaused) viewModel.resume()
                     }
                     Lifecycle.Event.ON_PAUSE -> {
+                        touchpadView?.resetInputState()
                         rendererView?.onPause()
                         if (!manuallyPaused) viewModel.pause()
                     }

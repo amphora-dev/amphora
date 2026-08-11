@@ -138,6 +138,7 @@ public final class RefreshRateUtils {
 
     Display.Mode bestMode = null;
     float bestModeRate = 0f;
+    boolean bestIsExact = false;
     float closestDelta = Float.MAX_VALUE;
 
     for (Display.Mode mode : modes) {
@@ -155,15 +156,16 @@ public final class RefreshRateUtils {
       }
 
       if (Math.round(refreshRate) == requestedHz) {
-        if (bestMode == null || refreshRate > bestModeRate) {
+        if (!bestIsExact || refreshRate > bestModeRate) {
           bestMode = mode;
           bestModeRate = refreshRate;
+          bestIsExact = true;
           closestDelta = 0f;
         }
         continue;
       }
 
-      if (bestMode != null && closestDelta == 0f) continue;
+      if (bestIsExact) continue;
 
       float delta = Math.abs(refreshRate - requestedHz);
       if (bestMode == null
@@ -182,7 +184,8 @@ public final class RefreshRateUtils {
   }
 
   public static int resolveFramePacedRefreshRate(Activity activity, int requestedHz, int fpsLimit) {
-    if (fpsLimit <= 0) {
+    // An explicit rate is the user's choice; only auto is steered to fit the cap's cadence.
+    if (fpsLimit <= 0 || requestedHz > 0) {
       return requestedHz;
     }
 
@@ -296,13 +299,15 @@ public final class RefreshRateUtils {
   /** Applies the preferred display mode and returns the effective refresh rate in Hz (0 on early-out). */
   public static float applyPreferredRefreshRate(Activity activity, int requestedHz, int fpsLimit) {
     if (activity.isFinishing() || activity.isDestroyed()) return 0f;
+    // A window has no display until it is attached. Let resume/focus/display-change retry.
+    if (getDisplay(activity) == null) return 0f;
 
     int effectiveRequestedHz = resolveFramePacedRefreshRate(activity, requestedHz, fpsLimit);
     WindowManager.LayoutParams params = activity.getWindow().getAttributes();
     int modeId = resolvePreferredDisplayModeId(activity, effectiveRequestedHz);
     float refreshRate = resolvePreferredRefreshRate(activity, effectiveRequestedHz);
     params.preferredDisplayModeId = modeId;
-    params.preferredRefreshRate = refreshRate;
+    params.preferredRefreshRate = modeId != 0 ? 0f : refreshRate;
     activity.getWindow().setAttributes(params);
     Log.d(
         TAG,
