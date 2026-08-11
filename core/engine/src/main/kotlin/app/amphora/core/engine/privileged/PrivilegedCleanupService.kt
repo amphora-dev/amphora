@@ -2,7 +2,7 @@ package app.amphora.core.engine.privileged
 
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import app.amphora.core.engine.SessionProcessCleaner
+import app.amphora.core.engine.SessionProcessController
 import java.io.FileInputStream
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
@@ -12,7 +12,7 @@ import kotlin.system.exitProcess
  *
  * This runs as Shizuku's shell/root identity, outside Amphora's process. Its
  * only operation is an explicit emergency force-stop of Amphora itself; normal
- * Wine cleanup remains an own-UID operation in [SessionProcessCleaner].
+ * Wine cleanup remains an own-UID operation in [SessionProcessController].
  */
 class PrivilegedCleanupService : IPrivilegedCleanupService.Stub() {
     override fun scheduleForceStop(packageName: String, delayMillis: Int) {

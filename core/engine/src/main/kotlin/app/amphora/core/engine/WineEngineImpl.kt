@@ -117,7 +117,7 @@ constructor(
         // interrupted teardown. Stop the previous handle first, then sweep any
         // own-UID Wine/Box64 processes that survived before creating new ones.
         currentHandle?.stop()
-        DefaultSessionProcessCleaner.terminateAndWait(PRELAUNCH_CLEANUP_TIMEOUT_MS)
+        DefaultSessionProcessController.terminateAndWait(PRELAUNCH_CLEANUP_TIMEOUT_MS)
 
         // Clear any prior session state before starting a new one.
         _surface.value = null

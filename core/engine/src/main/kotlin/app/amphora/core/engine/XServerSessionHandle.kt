@@ -5,7 +5,6 @@ import app.amphora.core.engine.model.SessionHandle
 import app.amphora.core.engine.model.SessionState
 import com.winlator.cmod.runtime.display.environment.XEnvironment
 import com.winlator.cmod.runtime.display.xserver.XServer
-import com.winlator.cmod.runtime.system.ProcessHelper
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -22,12 +21,11 @@ import kotlinx.coroutines.sync.withLock
  * Lifecycle mapping (mirrors WinNative `XServerDisplayActivity` onPause/onResume/onDestroy
  * + `performForcedSessionCleanup`):
  * - [pause] -> `XEnvironment.onPause()` (suspends ALSA output / PulseAudio) and
- *   `ProcessHelper.pauseAllWineProcesses()`. The render thread and input pause are owned
+ *   [SessionProcessController.pause]. The render thread and input pause are owned
  *   by the GameSession UI.
- * - [resume] -> `XEnvironment.onResume()` + `ProcessHelper.resumeAllWineProcesses()`.
+ * - [resume] -> `XEnvironment.onResume()` + [SessionProcessController.resume].
  * - [stop] -> `XEnvironment.stopEnvironmentComponents()` (reverse-order teardown: guest
- *   launcher first, then audio / XServer / shm) + `ProcessHelper.terminateAllWineProcesses()`
- *   with a `forceKillAllWineProcesses()` fallback.
+ *   launcher first, then audio / XServer / shm) + [SessionProcessController.terminateAndWait].
  *
  * [awaitReady] completes once [markRunning] is called (after `startEnvironmentComponents()`
  * returns). State transitions are guarded by [mutex] so a concurrent [stop] during launch
@@ -37,7 +35,7 @@ internal class XServerSessionHandle(
     private val environment: XEnvironment,
     private val xServer: XServer,
     private val dispatchers: DispatcherProvider,
-    private val processCleaner: SessionProcessCleaner = DefaultSessionProcessCleaner,
+    private val processController: SessionProcessController = DefaultSessionProcessController,
     private val onStopped: () -> Unit = {},
 ) : SessionHandle {
     private val mutex = Mutex()
@@ -90,7 +88,7 @@ internal class XServerSessionHandle(
     override suspend fun pause() = mutex.withLock {
         if (_state.value == SessionState.RUNNING) {
             environment.onPause()
-            ProcessHelper.pauseAllWineProcesses()
+            processController.pause()
             _state.value = SessionState.PAUSED
         }
     }
@@ -98,7 +96,7 @@ internal class XServerSessionHandle(
     override suspend fun resume() = mutex.withLock {
         if (_state.value == SessionState.PAUSED) {
             environment.onResume()
-            ProcessHelper.resumeAllWineProcesses()
+            processController.resume()
             _state.value = SessionState.RUNNING
         }
     }
@@ -121,7 +119,7 @@ internal class XServerSessionHandle(
             // a belt-and-braces guard so a teardown exception never escapes stop().
         }
         try {
-            processCleaner.terminateAndWait(PROCESS_EXIT_TIMEOUT_MS)
+            processController.terminateAndWait(PROCESS_EXIT_TIMEOUT_MS)
         } catch (e: Exception) {
             // The dedicated :session process performs a final defensive sweep before exit.
         }

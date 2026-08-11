@@ -22,14 +22,14 @@ class XServerSessionHandleTest {
     fun stopUsesBoundedProcessCleanupExactlyOnce(): Unit = runBlocking {
         val environment = mockk<XEnvironment>(relaxed = true)
         val xServer = mockk<XServer>(relaxed = true)
-        val processCleaner = mockk<SessionProcessCleaner>()
-        every { processCleaner.terminateAndWait(any()) } returns emptyList()
+        val processController = mockk<SessionProcessController>(relaxed = true)
+        every { processController.terminateAndWait(any()) } returns emptyList()
         val handle =
             XServerSessionHandle(
                 environment,
                 xServer,
                 DefaultDispatcherProvider(),
-                processCleaner,
+                processController,
             )
         handle.markStarting()
         handle.markRunning()
@@ -38,28 +38,89 @@ class XServerSessionHandleTest {
         handle.stop()
 
         verify(exactly = 1) { environment.stopEnvironmentComponents() }
-        verify(exactly = 1) { processCleaner.terminateAndWait(2_000L) }
+        verify(exactly = 1) { processController.terminateAndWait(2_000L) }
         verify(exactly = 1) { xServer.stop() }
         verifyOrder {
             environment.stopEnvironmentComponents()
-            processCleaner.terminateAndWait(2_000L)
+            processController.terminateAndWait(2_000L)
             xServer.stop()
         }
         assertEquals(SessionState.STOPPED, handle.state.value)
     }
 
     @Test
+    fun pauseAndResumeCoordinateEnvironmentAndGuestProcesses(): Unit = runBlocking {
+        val environment = mockk<XEnvironment>(relaxed = true)
+        val processController = mockk<SessionProcessController>(relaxed = true)
+        val handle =
+            XServerSessionHandle(
+                environment,
+                mockk(relaxed = true),
+                DefaultDispatcherProvider(),
+                processController,
+            )
+        handle.markStarting()
+        handle.markRunning()
+
+        handle.pause()
+        handle.pause()
+
+        assertEquals(SessionState.PAUSED, handle.state.value)
+        verify(exactly = 1) { environment.onPause() }
+        verify(exactly = 1) { processController.pause() }
+        verifyOrder {
+            environment.onPause()
+            processController.pause()
+        }
+
+        handle.resume()
+        handle.resume()
+
+        assertEquals(SessionState.RUNNING, handle.state.value)
+        verify(exactly = 1) { environment.onResume() }
+        verify(exactly = 1) { processController.resume() }
+        verifyOrder {
+            environment.onResume()
+            processController.resume()
+        }
+    }
+
+    @Test
+    fun pauseAndResumeIgnoreInapplicableStates(): Unit = runBlocking {
+        val environment = mockk<XEnvironment>(relaxed = true)
+        val processController = mockk<SessionProcessController>(relaxed = true)
+        val handle =
+            XServerSessionHandle(
+                environment,
+                mockk(relaxed = true),
+                DefaultDispatcherProvider(),
+                processController,
+            )
+
+        handle.pause()
+        handle.resume()
+        handle.stop()
+        handle.pause()
+        handle.resume()
+
+        verify(exactly = 0) { environment.onPause() }
+        verify(exactly = 0) { environment.onResume() }
+        verify(exactly = 0) { processController.pause() }
+        verify(exactly = 0) { processController.resume() }
+    }
+
+    @Test
     fun guestExitRequestsCleanupBeforePublishingStopped(): Unit = runBlocking {
         val environment = mockk<XEnvironment>(relaxed = true)
         val xServer = mockk<XServer>(relaxed = true)
-        val processCleaner = mockk<SessionProcessCleaner>()
-        every { processCleaner.terminateAndWait(any()) } returns emptyList()
+        val processController = mockk<SessionProcessController>(relaxed = true)
+        every { processController.terminateAndWait(any()) } returns emptyList()
         val handle =
             XServerSessionHandle(
                 environment,
                 xServer,
                 DefaultDispatcherProvider(),
-                processCleaner,
+                processController,
             )
         handle.markStarting()
         handle.markRunning()
@@ -71,7 +132,7 @@ class XServerSessionHandleTest {
 
         verifyOrder {
             environment.stopEnvironmentComponents()
-            processCleaner.terminateAndWait(2_000L)
+            processController.terminateAndWait(2_000L)
             xServer.stop()
         }
     }
@@ -80,8 +141,8 @@ class XServerSessionHandleTest {
     fun guestExitPublishesStoppingBeforeProcessCleanupCompletes(): Unit = runBlocking {
         val cleanupStarted = CountDownLatch(1)
         val releaseCleanup = CountDownLatch(1)
-        val processCleaner = mockk<SessionProcessCleaner>()
-        every { processCleaner.terminateAndWait(any()) } answers {
+        val processController = mockk<SessionProcessController>(relaxed = true)
+        every { processController.terminateAndWait(any()) } answers {
             cleanupStarted.countDown()
             releaseCleanup.await(5, TimeUnit.SECONDS)
             emptyList()
@@ -91,7 +152,7 @@ class XServerSessionHandleTest {
                 mockk(relaxed = true),
                 mockk(relaxed = true),
                 DefaultDispatcherProvider(),
-                processCleaner,
+                processController,
             )
         handle.markStarting()
         handle.markRunning()
@@ -108,33 +169,33 @@ class XServerSessionHandleTest {
 
     @Test
     fun failedLaunchKeepsFailedStateAfterTeardown(): Unit = runBlocking {
-        val processCleaner = mockk<SessionProcessCleaner>()
-        every { processCleaner.terminateAndWait(any()) } returns emptyList()
+        val processController = mockk<SessionProcessController>(relaxed = true)
+        every { processController.terminateAndWait(any()) } returns emptyList()
         val handle =
             XServerSessionHandle(
                 mockk(relaxed = true),
                 mockk(relaxed = true),
                 DefaultDispatcherProvider(),
-                processCleaner,
+                processController,
             )
 
         handle.markFailed(IllegalStateException("component failed"))
         handle.stop()
 
         assertEquals(SessionState.FAILED, handle.state.value)
-        verify(exactly = 1) { processCleaner.terminateAndWait(2_000L) }
+        verify(exactly = 1) { processController.terminateAndWait(2_000L) }
     }
 
     @Test
     fun markRunningCannotReviveStoppedSession(): Unit = runBlocking {
-        val processCleaner = mockk<SessionProcessCleaner>()
-        every { processCleaner.terminateAndWait(any()) } returns emptyList()
+        val processController = mockk<SessionProcessController>(relaxed = true)
+        every { processController.terminateAndWait(any()) } returns emptyList()
         val handle =
             XServerSessionHandle(
                 mockk(relaxed = true),
                 mockk(relaxed = true),
                 DefaultDispatcherProvider(),
-                processCleaner,
+                processController,
             )
         handle.markStarting()
 
@@ -172,14 +233,14 @@ class XServerSessionHandleTest {
 
     @Test
     fun stopBeforeRunningReleasesReadinessWithoutResurrection(): Unit = runBlocking {
-        val processCleaner = mockk<SessionProcessCleaner>()
-        every { processCleaner.terminateAndWait(any()) } returns emptyList()
+        val processController = mockk<SessionProcessController>(relaxed = true)
+        every { processController.terminateAndWait(any()) } returns emptyList()
         val handle =
             XServerSessionHandle(
                 mockk(relaxed = true),
                 mockk(relaxed = true),
                 DefaultDispatcherProvider(),
-                processCleaner,
+                processController,
             )
         handle.markStarting()
 
@@ -193,10 +254,10 @@ class XServerSessionHandleTest {
     @Test
     fun teardownExceptionsStillPublishStoppedAndInvokeCallback(): Unit = runBlocking {
         val environment = mockk<XEnvironment>()
-        val processCleaner = mockk<SessionProcessCleaner>()
+        val processController = mockk<SessionProcessController>(relaxed = true)
         val xServer = mockk<XServer>()
         every { environment.stopEnvironmentComponents() } throws IllegalStateException("component stop")
-        every { processCleaner.terminateAndWait(any()) } throws IllegalStateException("process stop")
+        every { processController.terminateAndWait(any()) } throws IllegalStateException("process stop")
         every { xServer.stop() } throws IllegalStateException("xserver stop")
         var stoppedCallbacks = 0
         val handle =
@@ -204,7 +265,7 @@ class XServerSessionHandleTest {
                 environment,
                 xServer,
                 DefaultDispatcherProvider(),
-                processCleaner,
+                processController,
                 onStopped = { stoppedCallbacks++ },
             )
         handle.markStarting()
