@@ -19,6 +19,7 @@ import javax.inject.Inject
  */
 interface GameSessionHostEnvironment {
     val hostPerformanceHudEnabled: Boolean
+    val sessionFrameRateLimit: Int
 
     fun prepareGraphicsDiagnostics(): Map<String, String>
 }
@@ -30,6 +31,9 @@ constructor(
 ) : GameSessionHostEnvironment {
     override val hostPerformanceHudEnabled: Boolean
         get() = AdvancedRuntimePreferences.hostPerformanceHudEnabled(appContext)
+
+    override val sessionFrameRateLimit: Int
+        get() = AdvancedRuntimePreferences.frameRateLimit(appContext)
 
     override fun prepareGraphicsDiagnostics(): Map<String, String> {
         GraphicsDiag.clearStateCache(appContext)

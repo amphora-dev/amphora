@@ -992,8 +992,7 @@ class XServerWineSessionPreparer @Inject constructor(
         val rootDir = imageFs.getRootDir()
 
         if (dxwrapper.contains("dxvk")) {
-            val refreshRateOverride = getDxvkFrameRateOverride()
-            DXVKConfigUtils.setEnvVars(context, dxwrapperConfig, envState, refreshRateOverride)
+            DXVKConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
             val version = dxwrapperConfig.get("version")
             if (version == "1.11.1-sarek") {
                 Log.d(TAG, "Disabling Wrapper PATCH_OPCONSTCOMP SPIR-V pass")
@@ -1344,9 +1343,6 @@ class XServerWineSessionPreparer @Inject constructor(
             }
         }
     }
-
-    /** Amphora has no per-shortcut override; the global session limit is authoritative. */
-    private fun getDxvkFrameRateOverride(): Int = AdvancedRuntimePreferences.frameRateLimit(context)
 
     /**
      * Migrate old physical copies and repair deleted/broken component links.

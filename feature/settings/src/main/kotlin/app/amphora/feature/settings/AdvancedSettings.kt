@@ -204,9 +204,9 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
             ChoiceSetting(
                 title = "Frame limit",
                 description =
-                "Limits DXVK presentation rate. This can reduce heat and power use; it does " +
-                    "not affect WineD3D or software renderers.",
-                impact = "Environment: DXVK_FRAME_RATE · DXVK only",
+                "Limits presentation through the session pacer. This avoids stacking a guest " +
+                    "DXVK limiter with host-side frame pacing.",
+                impact = "Session: PresentPacer · next launch",
                 selected = state.frameLimit,
                 defaultValue = FrameLimit.OFF,
                 values = FrameLimit.entries,

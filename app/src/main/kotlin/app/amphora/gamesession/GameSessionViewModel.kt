@@ -45,6 +45,7 @@ constructor(
     val surface: StateFlow<GameSessionSurface?> = surfaceProvider.surface
     val provisionProgress = wineEngine.provisionProgress
     val hostPerformanceHudEnabled = hostEnvironment.hostPerformanceHudEnabled
+    val initialFpsLimit = hostEnvironment.sessionFrameRateLimit
     private val audioSink = wineEngine.audioSink()
     val audioVolume = audioSink.volume
 

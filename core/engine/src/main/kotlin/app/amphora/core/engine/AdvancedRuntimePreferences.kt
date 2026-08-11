@@ -66,8 +66,6 @@ object AdvancedRuntimePreferences {
             env.put("DXVK_GPLASYNCCACHE", enabled)
         }
 
-        env.put("DXVK_FRAME_RATE", frameRateLimit(prefs.getString(KEY_FRAME_RATE, "off")).toString())
-
         when (val mode = prefs.getString(KEY_PRESENT_MODE, "auto")) {
             "mailbox", "fifo", "immediate" -> {
                 env.put("MESA_VK_WSI_PRESENT_MODE", mode)
