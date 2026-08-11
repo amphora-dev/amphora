@@ -11,6 +11,7 @@ import io.mockk.every
 import io.mockk.mockk
 import java.io.File
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceTimeBy
@@ -23,6 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SettingsUpdateControllerTest {
     @Test
     fun versionStatusAndIntentOperationsDelegateToManager() {
