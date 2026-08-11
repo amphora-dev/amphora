@@ -627,16 +627,21 @@ constructor(
     }
 
     private fun downloadAndInstallUpdate() {
-        val remote = _uiState.value.availableUpdate ?: return
-        if (_uiState.value.updateBusy) return
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
+        var claimedUpdate: AppUpdateManifest? = null
+        while (claimedUpdate == null) {
+            val current = _uiState.value
+            val available = current.availableUpdate ?: return
+            if (current.updateBusy) return
+            val downloading =
+                current.copy(
                     updateBusy = true,
-                    updateMessage = "Downloading and verifying ${remote.versionName}…",
+                    updateMessage = "Downloading and verifying ${available.versionName}…",
                     pendingApk = null,
                 )
-            }
+            if (_uiState.compareAndSet(current, downloading)) claimedUpdate = available
+        }
+        val remote = requireNotNull(claimedUpdate)
+        viewModelScope.launch {
             try {
                 when (val result = updateManager.downloadAndInstall(remote)) {
                     AppUpdateInstallResult.Started ->

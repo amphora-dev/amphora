@@ -87,15 +87,20 @@ constructor(private val updateManager: AppUpdateManager) : ViewModel() {
     }
 
     private fun downloadAndInstall() {
-        val update = _state.value.available ?: return
-        if (_state.value.busy) return
-        viewModelScope.launch {
-            _state.update {
-                it.copy(
+        var claimedUpdate: AppUpdateManifest? = null
+        while (claimedUpdate == null) {
+            val current = _state.value
+            val available = current.available ?: return
+            if (current.busy) return
+            val downloading =
+                current.copy(
                     busy = true,
-                    message = "Downloading and verifying ${update.versionName}…",
+                    message = "Downloading and verifying ${available.versionName}…",
                 )
-            }
+            if (_state.compareAndSet(current, downloading)) claimedUpdate = available
+        }
+        val update = requireNotNull(claimedUpdate)
+        viewModelScope.launch {
             try {
                 when (val result = updateManager.downloadAndInstall(update)) {
                     AppUpdateInstallResult.Started ->
