@@ -469,7 +469,7 @@ class ContentStagingConventionPlugin : Plugin<Project> {
 
         plugins.withId("com.android.application") {
             extensions.configure<ApplicationExtension> {
-                sourceSets.getByName("main").assets.srcDir(extension.stagedAssetsDir)
+                sourceSets.getByName("main").assets.srcDir(extension.stagedAssetsDir.get().asFile)
             }
         }
 
