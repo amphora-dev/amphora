@@ -149,6 +149,11 @@ Wine → X11 Pixmap (DRI3 AHB fd)
 
 egggame 不使用 adrenotools，而是用 Mesa 标准 ICD 发现机制 + 自定义 `WINEMU_REPLACED_DRIVER` 环境变量替换驱动。这更简单但需要完整 Mesa 安装。
 
+GameHub 另随 imagefs 交付闭源 `libGameScopeVK.so` 插帧 ICD。当前样本确认它使用自带
+SPIR-V compute 管线；没有 `VK_NV_optical_flow` 或通用 ML runtime 的依赖证据，也
+不能从二进制确定模型来源。WinNative 与开源候选的独立审计见
+[`09-FRAME-GENERATION-RESEARCH.md`](09-FRAME-GENERATION-RESEARCH.md)。
+
 ---
 
 ## 6. 输入系统
@@ -557,3 +562,7 @@ Task 3 依赖 Task 1/2 完成并发布新 WCP 后。Task 1/2 相互独立，可�
 5. **C X server**：egggame 的 libxserver.so 功能更完整（触控所有权、手势），但 Amphora 的 Java X server 已满足鼠标/键盘需求，迁移成本极高。
 
 6. **插件化 APK**：egggame 的运行时插件下载对商业产品有意义，但 Amphora 作为开源项目不需要。
+
+7. **GameScope 插帧二进制**：闭源组件和权重来源不可验证，不直接复用。仅保留独立
+   Vulkan 实验价值；在多代 Adreno 上证明真实帧率、p95、功耗和画质收益前不进入产品。
+   详见 [`09-FRAME-GENERATION-RESEARCH.md`](09-FRAME-GENERATION-RESEARCH.md)。

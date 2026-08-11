@@ -16,6 +16,30 @@ sysroot 作为构建依赖，WCP 打包 Wine、`prefixPack.txz` 和 profile；�
 imagefs 提供。Pulse 路径另外用 PA13 开发输入构建 `winepulse.so`，运行时由 Box64
 包装到 APK 内同 ABI 的 native `libpulse.so`。
 
+### 0.1 为什么是 PulseAudio 13
+
+这里不是为了功能而把一个已运行的 PA17 daemon “降级”。最初接入 Wine Pulse 驱动时
+误用了 Termux PA17 开发包，而 APK 已交付的 daemon、`libpulsecore/common`、
+`module-aaudio-sink` 和 Box64 native wrapper 全部属于 PA13 套件。Pulse 的
+`libpulsecore`/`libpulsecommon` 是版本绑定的私有 ABI，混用开发输入会让
+`winepulse.so` 获得 PA17 符号或依赖，不能由 PA13 运行时可靠满足。
+
+因此构建输入改为 hash-pinned `pulseaudio_13.0-1_x86_64.deb`，并验证：
+
+- 头文件 `PA_MAJOR == 13`、协议版本为 33；
+- 开发库依赖 `libpulsecommon-13.0.so`；
+- 最终 WCP 的 `winepulse.so` 只保留 `DT_NEEDED=libpulse.so`；
+- WCP/imagefs 不携带 guest `libpulse`，运行时只能由 Box64 包装到 APK 的匹配实现。
+
+旧 Termux 包当前**只作为 x86_64 交叉编译 SDK**，不会进入 WCP 或 imagefs。APK 内的
+AArch64 PA13 二进制来自 WinNative 的匹配资产，因为当前仓库没有
+`module-aaudio-sink` 的可追溯源码和完整构建配方。它能快速恢复端到端功能，但不是理想
+终态：后续应在拿到许可与来源清晰的 sink 源码后，把 PA daemon、client、modules 和
+依赖放入同一条 BuildStream 源码构建图，并增加 16 KB ELF 门禁。
+
+imagefs 对“源码构建还是消费预构建”的完整原则和组件矩阵见
+[`amphora-dev/imagefs/docs/BUILD-SOURCE-POLICY.md`](https://github.com/amphora-dev/imagefs/blob/main/docs/BUILD-SOURCE-POLICY.md)。
+
 ---
 
 ## 1. 构建工作流全貌
@@ -262,6 +286,8 @@ LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"   # 运行期从设备 /data/
    `libpulsecommon` 或 Termux 绝对路径。
 4. Box64 native wrapper、APK PA13 与 Wine Pulse 驱动应成对回归。
 5. 发布后由 content manifest 更新 URL、大小与 SHA，应用仓库不硬编码版本。
+6. PA13 Termux 开发包是过渡 SDK，不是运行时来源；若重建 Pulse，必须把
+   `module-aaudio-sink` 与 daemon/core/client 作为同一 ABI 单元一起重建。
 
 ---
 

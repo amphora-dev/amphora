@@ -95,6 +95,7 @@ Device instrumented coverage stays on Tailscale ADB - see
 | [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) | Cloud build, Tailscale ADB and physical-device testing |
 | [`docs/07-TARGETSDK-SELINUX.md`](docs/07-TARGETSDK-SELINUX.md) | targetSdk 36 app-private ELF execution |
 | [`docs/08-EGGGAME-COMPARISON.md`](docs/08-EGGGAME-COMPARISON.md) | GameHub / WinNative / Amphora comparison |
+| [`docs/09-FRAME-GENERATION-RESEARCH.md`](docs/09-FRAME-GENERATION-RESEARCH.md) | GameHub、WinNative 与开源插帧方案审计 |
 | [`docs/RESEARCH-proton-wine-selfbuild.md`](docs/RESEARCH-proton-wine-selfbuild.md) | Proton source-build research and current BuildStream result |
 | [`docs/WRAPPER-BUILD.md`](docs/WRAPPER-BUILD.md) | Rebuilding the Vulkan wrapper |
 | [`docs/02-SCAFFOLD.md`](docs/02-SCAFFOLD.md) | Scaffold-era stack & pitfalls |
