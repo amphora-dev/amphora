@@ -110,10 +110,10 @@ class ContentStagingPluginTest {
             outputDir = output,
             cacheDir = File(root, "cache"),
             downloader =
-                AssetDownloader { url, destination ->
-                    requestedUrls += url
-                    destination.writeBytes(bytes)
-                },
+            AssetDownloader { url, destination ->
+                requestedUrls += url
+                destination.writeBytes(bytes)
+            },
         ).sync(listOf(remoteAsset))
 
         assertEquals(listOf(remoteAsset.remoteUrl), requestedUrls)
@@ -156,25 +156,23 @@ class ContentStagingPluginTest {
         assertTrue(failure.message.orEmpty().contains("has no verified remote URL"))
     }
 
-    private fun stager(localRoot: File?, output: File, cache: File) =
-        ExactContentStager(
-            winnativeDir = localRoot,
-            outputDir = output,
-            cacheDir = cache,
-            downloader = AssetDownloader { _, _ -> error("unexpected download") },
-        )
+    private fun stager(localRoot: File?, output: File, cache: File) = ExactContentStager(
+        winnativeDir = localRoot,
+        outputDir = output,
+        cacheDir = cache,
+        downloader = AssetDownloader { _, _ -> error("unexpected download") },
+    )
 
-    private fun asset(path: String, bytes: ByteArray) =
-        StagingAsset(
-            id = "test:$path",
-            assetPath = path,
-            sha256 =
-                temporaryFolder.newFile().run {
-                    writeBytes(bytes)
-                    sha256(this)
-                },
-            size = bytes.size.toLong(),
-            remoteUrl = null,
-            catalogEligible = false,
-        )
+    private fun asset(path: String, bytes: ByteArray) = StagingAsset(
+        id = "test:$path",
+        assetPath = path,
+        sha256 =
+        temporaryFolder.newFile().run {
+            writeBytes(bytes)
+            sha256(this)
+        },
+        size = bytes.size.toLong(),
+        remoteUrl = null,
+        catalogEligible = false,
+    )
 }

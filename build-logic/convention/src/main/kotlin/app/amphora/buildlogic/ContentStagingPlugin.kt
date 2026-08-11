@@ -59,10 +59,7 @@ internal data class StagingAsset(
     val catalogEligible: Boolean,
 )
 
-internal data class StagingManifest(
-    val assets: List<StagingAsset>,
-    val wcpCatalogUrl: String?,
-)
+internal data class StagingManifest(val assets: List<StagingAsset>, val wcpCatalogUrl: String?)
 
 internal fun parseStagingManifest(json: String): StagingManifest {
     val root = JsonSlurper().parseText(json) as? Map<*, *>
@@ -113,11 +110,7 @@ internal fun parseStagingManifest(json: String): StagingManifest {
     )
 }
 
-private fun parseAsset(
-    id: String,
-    entry: Map<*, *>,
-    catalogEligible: Boolean,
-): StagingAsset {
+private fun parseAsset(id: String, entry: Map<*, *>, catalogEligible: Boolean): StagingAsset {
     val assetPath = requiredString(entry, "assetPath", id)
     validateAssetPath(assetPath, id)
     val sha = requiredString(entry, "sha256", id).lowercase()
@@ -140,12 +133,10 @@ private fun parseAsset(
     )
 }
 
-private fun requiredString(entry: Map<*, *>, key: String, id: String): String =
-    optionalString(entry, key)
-        ?: throw GradleException("[stageBundledContent] $id must declare $key")
+private fun requiredString(entry: Map<*, *>, key: String, id: String): String = optionalString(entry, key)
+    ?: throw GradleException("[stageBundledContent] $id must declare $key")
 
-private fun optionalString(entry: Map<*, *>, key: String): String? =
-    (entry[key] as? String)?.takeIf { it.isNotBlank() }
+private fun optionalString(entry: Map<*, *>, key: String): String? = (entry[key] as? String)?.takeIf { it.isNotBlank() }
 
 private fun validateAssetPath(path: String, id: String) {
     val segments = path.split('/')
