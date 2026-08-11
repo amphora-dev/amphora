@@ -33,6 +33,7 @@ import app.amphora.core.engine.model.SessionState
 import app.amphora.gamesession.input.TouchpadView
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView
 import com.winlator.cmod.runtime.display.xserver.XServer
+import com.winlator.cmod.shared.android.RefreshRateUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -102,6 +103,19 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
+    // Keep the physical display cadence aligned with the guest FPS limiter. For
+    // example, 30 FPS prefers a 60/90/120 Hz mode instead of an incompatible
+    // cadence, while "Off" follows the configured global rate (maximum by default).
+    LaunchedEffect(activity, fpsLimit) {
+        activity?.let {
+            RefreshRateUtils.applyPreferredRefreshRate(
+                it,
+                RefreshRateUtils.getSavedGlobalRefreshRateOverride(it),
+                fpsLimit,
+            )
+        }
+    }
+
     // STOPPED is emitted only after Wine and XEnvironment teardown completes.
     LaunchedEffect(sessionState) {
         when (sessionState) {
@@ -130,11 +144,18 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     // ProcessHelper.resumeAllWineProcesses - the render-thread pause is handled by the
     // SurfaceView's own SurfaceHolder lifecycle).
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, rendererView, manuallyPaused) {
+    DisposableEffect(lifecycleOwner, rendererView, manuallyPaused, activity, fpsLimit) {
         val observer =
             LifecycleEventObserver { _, event ->
                 when (event) {
                     Lifecycle.Event.ON_RESUME -> {
+                        activity?.let {
+                            RefreshRateUtils.applyPreferredRefreshRate(
+                                it,
+                                RefreshRateUtils.getSavedGlobalRefreshRateOverride(it),
+                                fpsLimit,
+                            )
+                        }
                         rendererView?.onResume()
                         if (!manuallyPaused) viewModel.resume()
                     }
