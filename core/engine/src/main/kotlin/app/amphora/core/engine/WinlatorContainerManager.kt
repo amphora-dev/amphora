@@ -121,7 +121,9 @@ constructor(
         // Optional adrenotools driver (wrapper default, Turnip when selected).
         ensureAdrenotoolsDriver(wnContainer)
         // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
-        wnContainerManager.activateContainer(wnContainer)
+        check(wnContainerManager.activateContainer(wnContainer)) {
+            "Could not activate Wine container ${wnContainer.id}; guest launch aborted"
+        }
         wnContainer.toAmphora()
     }
 

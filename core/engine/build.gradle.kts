@@ -27,4 +27,5 @@ dependencies {
     implementation(variantOf(libs.zstd.jni) { artifactType("aar") })
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+    testImplementation(libs.org.json)
 }
