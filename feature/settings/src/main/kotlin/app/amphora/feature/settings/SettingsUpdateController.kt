@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
  * Shizuku status remains externally observed so the owner can dispatch [SettingsUpdateEvent.PermissionReady]
  * only when its own state machine is waiting for that event.
  */
-internal class SettingsUpdateController
+class SettingsUpdateController
 @Inject
 constructor(private val updateManager: AppUpdateManager) {
     val installStatus: StateFlow<ShizukuCleanupStatus>
@@ -34,7 +34,7 @@ constructor(private val updateManager: AppUpdateManager) {
 
     fun systemInstallerIntent(apk: File): Intent = updateManager.systemInstallerIntent(apk)
 
-    suspend fun execute(
+    internal suspend fun execute(
         effect: SettingsUpdateEffect<AppUpdateManifest>,
     ): SettingsUpdateEvent<AppUpdateManifest, File> = when (effect) {
         SettingsUpdateEffect.CheckForUpdate ->
