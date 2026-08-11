@@ -182,6 +182,8 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     LaunchedEffect(drawerState.currentValue) {
         if (drawerState.currentValue == DrawerValue.Open) {
             touchpadView?.resetInputState()
+        } else {
+            touchpadView?.requestFocus()
         }
     }
     LaunchedEffect(surface) {
