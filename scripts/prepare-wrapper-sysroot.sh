@@ -77,9 +77,8 @@ PY
 
 log "Downloading Termux X11/xcb headers..."
 mkdir -p "$TERMUX_DEB_DIR"
-BASE="https://packages.termux.dev/apt/termux-main"
-curl -fsSL "$BASE/dists/stable/main/binary-aarch64/Packages" -o "$TERMUX_DEB_DIR/Packages.aarch64"
-curl -fsSL "$BASE/dists/stable/main/binary-all/Packages" -o "$TERMUX_DEB_DIR/Packages.all"
+BASE="https://packages.termux.dev/apt/termux-x11"
+curl -fsSL "$BASE/dists/x11/main/binary-aarch64/Packages" -o "$TERMUX_DEB_DIR/Packages.aarch64"
 python3 - <<PY
 import os, re, urllib.request
 base = "$BASE"
@@ -91,7 +90,7 @@ want = {
 }
 seen = set()
 os.makedirs(root, exist_ok=True)
-for fname in ("Packages.aarch64", "Packages.all"):
+for fname in ("Packages.aarch64",):
     path = os.path.join(debdir, fname)
     if not os.path.exists(path):
         continue
