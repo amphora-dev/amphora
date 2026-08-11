@@ -1,24 +1,19 @@
 package app.amphora.gamesession
 
-import android.content.Context
-import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.model.DEFAULT_CONTAINER_ID
-import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.GameSessionSurfaceProvider
-import app.amphora.core.engine.GraphicsDiag
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.LaunchTarget
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
 
@@ -42,28 +37,22 @@ class GameSessionViewModel
 constructor(
     private val wineEngine: WineEngine,
     private val surfaceProvider: GameSessionSurfaceProvider,
-    @ApplicationContext private val appContext: Context,
+    private val hostEnvironment: GameSessionHostEnvironment,
+    private val dispatchers: DispatcherProvider,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     val surface: StateFlow<GameSessionSurface?> = surfaceProvider.surface
     val provisionProgress = wineEngine.provisionProgress
-    val hostPerformanceHudEnabled =
-        AdvancedRuntimePreferences.hostPerformanceHudEnabled(appContext)
+    val hostPerformanceHudEnabled = hostEnvironment.hostPerformanceHudEnabled
 
     private val coordinator =
         GameSessionCoordinator(
             scope = viewModelScope,
-            actionDispatcher = Dispatchers.IO,
+            actionDispatcher = dispatchers.io,
             launchSession = { request ->
                 val diagEnv =
                     if (request.graphicsDiag) {
-                        GraphicsDiag.clearStateCache(appContext)
-                        val env = GraphicsDiag.launchEnv(appContext)
-                        Log.i(
-                            GraphicsDiag.TAG,
-                            "Graphics diag ON; DXVK logs → ${env["DXVK_LOG_PATH"]}",
-                        )
-                        env
+                        hostEnvironment.prepareGraphicsDiagnostics()
                     } else {
                         emptyMap()
                     }
@@ -83,7 +72,7 @@ constructor(
     val launchError = coordinator.launchError
 
     // Outlives viewModelScope so onCleared() can still run the suspend teardown.
-    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val cleanupScope = CoroutineScope(SupervisorJob() + dispatchers.io)
 
     init {
         val exePath = savedStateHandle.get<String>(EXE_PATH_ARG).orEmpty()
