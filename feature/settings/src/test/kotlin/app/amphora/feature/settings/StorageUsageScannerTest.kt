@@ -87,6 +87,94 @@ class StorageUsageScannerTest {
         }
     }
 
+    @Test
+    fun cleanupDoesNotFollowLinksInsideManagedTemporaryTree() {
+        val root = Files.createTempDirectory("storage-symlink-").toFile()
+        try {
+            val cache = root.resolve("cache").apply { mkdirs() }
+            val external = root.resolve("user-data").apply {
+                mkdirs()
+                resolve("save.dat").writeText("keep")
+            }
+            val temporary = cache.resolve("restore_interrupted.tmp").apply {
+                mkdirs()
+                resolve("payload").writeText("remove")
+                setLastModified(System.currentTimeMillis() - TWO_DAYS_MS)
+            }
+            Files.createSymbolicLink(temporary.resolve("external").toPath(), external.toPath())
+            val context = mockk<Context>()
+            every { context.cacheDir } returns cache
+
+            val result =
+                StorageUsageScanner.deleteUnusedGuestData(
+                    context,
+                    listOf(temporary.absolutePath),
+                )
+
+            assertTrue(result.failedPaths.isEmpty())
+            assertFalse(temporary.exists())
+            assertEquals("keep", external.resolve("save.dat").readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun cleanupRejectsManagedLookingSymlink() {
+        val root = Files.createTempDirectory("storage-symlink-target-").toFile()
+        try {
+            val cache = root.resolve("cache").apply { mkdirs() }
+            val external = root.resolve("user-data").apply {
+                mkdirs()
+                resolve("save.dat").writeText("keep")
+            }
+            val link = cache.resolve("wineprefix-repair-deadbeef.tmp")
+            Files.createSymbolicLink(link.toPath(), external.toPath())
+            val context = mockk<Context>()
+            every { context.cacheDir } returns cache
+
+            val result =
+                StorageUsageScanner.deleteUnusedGuestData(
+                    context,
+                    listOf(link.absolutePath),
+                )
+
+            assertEquals(listOf(link.absolutePath), result.failedPaths)
+            assertTrue(link.exists())
+            assertEquals("keep", external.resolve("save.dat").readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun managedTemporaryDataIncludesOnlyValidArchiveStageNames() {
+        val root = Files.createTempDirectory("storage-archive-stage-").toFile()
+        try {
+            val cache = root.resolve("cache").apply { mkdirs() }
+            val stage = cache.resolve("native-archive-stage").apply { mkdirs() }
+            val old = System.currentTimeMillis() - TWO_DAYS_MS
+            val valid = stage.resolve("archive-fonts-deadbeef.tmp").apply {
+                writeText("valid")
+                setLastModified(old)
+            }
+            stage.resolve("fonts-deadbeef.tmp").apply {
+                writeText("lookalike")
+                setLastModified(old)
+            }
+            stage.resolve("archive-fonts-not-hex.tmp").apply {
+                writeText("lookalike")
+                setLastModified(old)
+            }
+
+            val listed = StorageUsageScanner.managedTemporaryData(cache)
+
+            assertEquals(listOf(valid.absolutePath), listed.mapNotNull(StorageEntry::removablePath))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     private companion object {
         const val TWO_DAYS_MS = 2L * 24L * 60L * 60L * 1_000L
     }

@@ -156,6 +156,165 @@ class ContentStagingPluginTest {
         assertTrue(failure.message.orEmpty().contains("has no verified remote URL"))
     }
 
+    @Test
+    fun manifestRejectsDuplicateAssetPathsAcrossSections() {
+        val duplicatePath = "runtime/shared.tzst"
+
+        val failure =
+            assertThrows(GradleException::class.java) {
+                parseStagingManifest(
+                    """
+                    {
+                      "components": {
+                        "wine": {
+                          "kind": "WCP",
+                          "assetPath": "$duplicatePath",
+                          "sha256": "${"0".repeat(64)}",
+                          "size": 1
+                        }
+                      },
+                      "runtimeAssets": [{
+                        "assetPath": "$duplicatePath",
+                        "sha256": "${"1".repeat(64)}",
+                        "size": 1,
+                        "remoteUrl": "https://example.test/shared.tzst"
+                      }]
+                    }
+                    """.trimIndent(),
+                )
+            }
+
+        assertTrue(failure.message.orEmpty().contains("assetPath must be unique"))
+    }
+
+    @Test
+    fun manifestRejectsUnsafeAssetPaths() {
+        listOf("../escape.tzst", "/absolute.tzst", "nested//empty.tzst", "nested/./dot.tzst").forEach { path ->
+            val failure =
+                assertThrows(GradleException::class.java) {
+                    parseStagingManifest(
+                        """
+                        {
+                          "components": {
+                            "wine": {
+                              "kind": "WCP",
+                              "assetPath": "$path",
+                              "sha256": "${"0".repeat(64)}",
+                              "size": 1
+                            }
+                          }
+                        }
+                        """.trimIndent(),
+                    )
+                }
+
+            assertTrue("$path should be rejected", failure.message.orEmpty().contains("unsafe assetPath"))
+        }
+    }
+
+    @Test
+    fun validCacheSkipsDownload() {
+        val root = temporaryFolder.newFolder("cache-hit")
+        val bytes = "cached".toByteArray()
+        val asset = asset("runtime/cached.bin", bytes).copy(remoteUrl = "https://example.test/cached.bin")
+        val cache = File(root, "cache")
+        File(cache, asset.assetPath).apply {
+            parentFile.mkdirs()
+            writeBytes(bytes)
+        }
+        var downloads = 0
+
+        ExactContentStager(
+            winnativeDir = null,
+            outputDir = File(root, "generated"),
+            cacheDir = cache,
+            downloader = AssetDownloader { _, _ -> downloads++ },
+        ).sync(listOf(asset))
+
+        assertEquals(0, downloads)
+        assertEquals(bytes.toList(), File(root, "generated/${asset.assetPath}").readBytes().toList())
+    }
+
+    @Test
+    fun staleCacheIsReplacedByVerifiedDownload() {
+        val root = temporaryFolder.newFolder("cache-refresh")
+        val bytes = "replacement".toByteArray()
+        val asset = asset("runtime/cached.bin", bytes).copy(remoteUrl = "https://example.test/cached.bin")
+        val cache = File(root, "cache")
+        val cached = File(cache, asset.assetPath).apply {
+            parentFile.mkdirs()
+            writeText("stale-value")
+        }
+        var downloads = 0
+
+        ExactContentStager(
+            winnativeDir = null,
+            outputDir = File(root, "generated"),
+            cacheDir = cache,
+            downloader =
+            AssetDownloader { _, destination ->
+                downloads++
+                destination.writeBytes(bytes)
+            },
+        ).sync(listOf(asset))
+
+        assertEquals(1, downloads)
+        assertEquals(bytes.toList(), cached.readBytes().toList())
+        assertEquals(bytes.toList(), File(root, "generated/${asset.assetPath}").readBytes().toList())
+    }
+
+    @Test
+    fun corruptLocalAssetDoesNotSilentlyFallBackToRemote() {
+        val root = temporaryFolder.newFolder("local-corrupt")
+        val bytes = "expected".toByteArray()
+        val local = File(root, "winnative").apply { mkdirs() }
+        File(local, "asset.bin").writeText("corrupt!")
+        val remoteAsset = asset("asset.bin", bytes).copy(remoteUrl = "https://example.test/asset.bin")
+        var downloads = 0
+
+        val failure =
+            assertThrows(GradleException::class.java) {
+                ExactContentStager(
+                    winnativeDir = local,
+                    outputDir = File(root, "generated"),
+                    cacheDir = File(root, "cache"),
+                    downloader = AssetDownloader { _, _ -> downloads++ },
+                ).sync(listOf(remoteAsset))
+            }
+
+        assertEquals(0, downloads)
+        assertTrue(failure.message.orEmpty().contains("SHA-256 mismatch"))
+        assertFalse(File(root, "generated").exists())
+    }
+
+    @Test
+    fun failedDownloadRemovesPartialAndPreservesPreviousOutput() {
+        val root = temporaryFolder.newFolder("download-failure")
+        val bytes = "expected".toByteArray()
+        val output = File(root, "generated").apply {
+            mkdirs()
+            resolve("previous.txt").writeText("keep")
+        }
+        val cache = File(root, "cache")
+        val remoteAsset = asset("runtime/asset.bin", bytes).copy(remoteUrl = "https://example.test/asset.bin")
+
+        assertThrows(IllegalStateException::class.java) {
+            ExactContentStager(
+                winnativeDir = null,
+                outputDir = output,
+                cacheDir = cache,
+                downloader =
+                AssetDownloader { _, destination ->
+                    destination.writeText("partial")
+                    error("network disconnected")
+                },
+            ).sync(listOf(remoteAsset))
+        }
+
+        assertEquals("keep", File(output, "previous.txt").readText())
+        assertFalse(cache.walkTopDown().any { it.name.contains(".part-") })
+    }
+
     private fun stager(localRoot: File?, output: File, cache: File) = ExactContentStager(
         winnativeDir = localRoot,
         outputDir = output,

@@ -86,6 +86,63 @@ class ContainerSaveDataTest {
         }
     }
 
+    @Test
+    fun savePreservesUnknownFieldsFromNewerSchema() {
+        val root = Files.createTempDirectory("container-forward-").toFile()
+        try {
+            assertTrue(newContainer(root).saveData())
+            val config = root.resolve(".container")
+            val futureData = JSONObject(config.readText()).put("futureSetting", "preserve-me")
+            config.writeText(futureData.toString())
+            val container = loadContainer(root)
+
+            container.name = "updated"
+            assertTrue(container.saveData())
+
+            val saved = JSONObject(config.readText())
+            assertEquals("updated", saved.getString("name"))
+            assertEquals("preserve-me", saved.getString("futureSetting"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun saveRefusesToReplaceEmptyConfig() {
+        val root = Files.createTempDirectory("container-empty-").toFile()
+        try {
+            assertTrue(newContainer(root).saveData())
+            val container = loadContainer(root)
+            val config = root.resolve(".container")
+            config.writeText("")
+
+            container.name = "must-not-replace"
+
+            assertFalse(container.saveData())
+            assertEquals("", config.readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun saveRefusesToReplaceMalformedConfig() {
+        val root = Files.createTempDirectory("container-malformed-").toFile()
+        try {
+            assertTrue(newContainer(root).saveData())
+            val container = loadContainer(root)
+            val config = root.resolve(".container")
+            config.writeText("{broken")
+
+            container.name = "must-not-replace"
+
+            assertFalse(container.saveData())
+            assertEquals("{broken", config.readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     private fun newContainer(root: java.io.File): Container = Container(1).apply { rootDir = root }
 
     private fun loadContainer(root: java.io.File): Container = Container(1).apply {

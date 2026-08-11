@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -141,6 +142,77 @@ class XServerSessionHandleTest {
         handle.stop()
         handle.markRunning()
 
+        assertEquals(SessionState.STOPPED, handle.state.value)
+    }
+
+    @Test
+    fun markFailedCompletesReadinessWithOriginalCause(): Unit = runBlocking {
+        val expected = IllegalStateException("startup failed")
+        val handle =
+            XServerSessionHandle(
+                mockk(relaxed = true),
+                mockk(relaxed = true),
+                DefaultDispatcherProvider(),
+                mockk(relaxed = true),
+            )
+
+        handle.markStarting()
+        handle.markFailed(expected)
+
+        val actual =
+            try {
+                handle.awaitReady()
+                AssertionError("Expected readiness to fail")
+            } catch (failure: Throwable) {
+                failure
+            }
+        assertSame(expected, actual)
+        assertEquals(SessionState.FAILED, handle.state.value)
+    }
+
+    @Test
+    fun stopBeforeRunningReleasesReadinessWithoutResurrection(): Unit = runBlocking {
+        val processCleaner = mockk<SessionProcessCleaner>()
+        every { processCleaner.terminateAndWait(any()) } returns emptyList()
+        val handle =
+            XServerSessionHandle(
+                mockk(relaxed = true),
+                mockk(relaxed = true),
+                DefaultDispatcherProvider(),
+                processCleaner,
+            )
+        handle.markStarting()
+
+        handle.stop()
+        handle.awaitReady()
+        handle.markRunning()
+
+        assertEquals(SessionState.STOPPED, handle.state.value)
+    }
+
+    @Test
+    fun teardownExceptionsStillPublishStoppedAndInvokeCallback(): Unit = runBlocking {
+        val environment = mockk<XEnvironment>()
+        val processCleaner = mockk<SessionProcessCleaner>()
+        val xServer = mockk<XServer>()
+        every { environment.stopEnvironmentComponents() } throws IllegalStateException("component stop")
+        every { processCleaner.terminateAndWait(any()) } throws IllegalStateException("process stop")
+        every { xServer.stop() } throws IllegalStateException("xserver stop")
+        var stoppedCallbacks = 0
+        val handle =
+            XServerSessionHandle(
+                environment,
+                xServer,
+                DefaultDispatcherProvider(),
+                processCleaner,
+                onStopped = { stoppedCallbacks++ },
+            )
+        handle.markStarting()
+        handle.markRunning()
+
+        handle.stop()
+
+        assertEquals(1, stoppedCallbacks)
         assertEquals(SessionState.STOPPED, handle.state.value)
     }
 }

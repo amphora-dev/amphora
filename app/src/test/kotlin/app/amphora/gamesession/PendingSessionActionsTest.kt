@@ -9,6 +9,13 @@ import org.junit.Test
 
 class PendingSessionActionsTest {
     @Test
+    fun attachWithoutPendingRequestReturnsNone() {
+        val actions = PendingSessionActions()
+
+        assertEquals(PendingSessionAction.NONE, actions.attach(mockk()))
+    }
+
+    @Test
     fun stopRequestedDuringStartingIsDeliveredOnAttach() {
         val actions = PendingSessionActions()
         val handle = mockk<SessionHandle>()
@@ -38,6 +45,36 @@ class PendingSessionActionsTest {
 
         assertEquals(PendingSessionAction.STOP, actions.attach(handle))
         assertNull(actions.requestResume())
+        assertSame(handle, actions.requestStop())
+    }
+
+    @Test
+    fun resumeBeforeAttachCancelsPendingPause() {
+        val actions = PendingSessionActions()
+
+        assertNull(actions.requestPause())
+        assertNull(actions.requestResume())
+
+        assertEquals(PendingSessionAction.NONE, actions.attach(mockk()))
+    }
+
+    @Test
+    fun pendingPauseIsConsumedOnlyOnce() {
+        val actions = PendingSessionActions()
+        actions.requestPause()
+
+        assertEquals(PendingSessionAction.PAUSE, actions.attach(mockk()))
+        assertEquals(PendingSessionAction.NONE, actions.attach(mockk()))
+    }
+
+    @Test
+    fun attachedHandleReceivesImmediatePauseResumeAndStopRequests() {
+        val actions = PendingSessionActions()
+        val handle = mockk<SessionHandle>()
+        actions.attach(handle)
+
+        assertSame(handle, actions.requestPause())
+        assertSame(handle, actions.requestResume())
         assertSame(handle, actions.requestStop())
     }
 }
