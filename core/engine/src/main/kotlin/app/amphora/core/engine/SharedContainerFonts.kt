@@ -12,7 +12,6 @@ import com.winlator.cmod.runtime.wine.WineUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import java.io.File
 import java.nio.file.Files
-import java.util.Locale
 
 /**
  * Shared CJK font pack: Adobe Source Han Sans **CN + JP** (Regular + Bold),
@@ -31,16 +30,17 @@ import java.util.Locale
  */
 object SharedContainerFonts {
     const val ASSET_PATH = "fonts.tzst"
-    const val REGISTRY_SCHEMA_VERSION = 5
+    const val REGISTRY_SCHEMA_VERSION = 6
 
     const val CN_REGULAR = "SourceHanSansCN-Regular.otf"
     const val CN_BOLD = "SourceHanSansCN-Bold.otf"
     const val JP_REGULAR = "SourceHanSansJP-Regular.otf"
     const val JP_BOLD = "SourceHanSansJP-Bold.otf"
 
-    internal const val SYSTEM_FONT_FILE = "tahoma.ttf"
     internal const val SYSTEM_FONT_SETTINGS_KEY =
         "System\\ControlSet001\\Hardware Profiles\\Current\\Software\\Fonts"
+    internal const val PREVIOUS_SYSTEM_FONT_OVERRIDE = "tahoma.ttf"
+    internal const val WINE_DEFAULT_SYSTEM_FONT = "svgasys.fon"
 
     /** Primary face kept for callers that only know the old single-file name. */
     const val FONT_FILE_NAME = CN_REGULAR
@@ -54,6 +54,17 @@ object SharedContainerFonts {
 
     internal fun cnFamilyForLanguage(language: String?): String =
         if (language.equals("zh", ignoreCase = true)) FONT_FAMILY_CN_LOCALIZED else FONT_FAMILY_CN
+
+    internal fun languageForLocale(locale: String?): String =
+        locale
+            ?.substringBefore('.')
+            ?.substringBefore('_')
+            ?.substringBefore('-')
+            ?.lowercase()
+            .orEmpty()
+
+    internal fun cnFamilyForLocale(locale: String?): String =
+        cnFamilyForLanguage(languageForLocale(locale))
 
     private const val TAG = "SharedContainerFonts"
     private const val CONTENTS_TYPE = "FONTS"
@@ -184,17 +195,19 @@ object SharedContainerFonts {
             "Batang" to FONT_FAMILY_JP,
         )
 
-    /**
-     * Preserve Wine's compact Latin UI metrics. Previous schemas replaced these
-     * aliases with Source Han, which can move large text outside tightly sized
-     * legacy controls. Tahoma keeps Windows-compatible metrics; [SYSTEM_FONT_LINKS]
-     * supplies CJK glyphs without replacing its Latin digits.
-     */
+    /** Windows NT-family logical shell font defaults. */
     val UI_FAMILY_SUBSTITUTES: Map<String, String> =
         linkedMapOf(
-            "MS Shell Dlg" to "Tahoma",
+            "MS Shell Dlg" to "Microsoft Sans Serif",
             "MS Shell Dlg 2" to "Tahoma",
         )
+
+    internal fun uiFamilySubstitutesForLocale(locale: String?): Map<String, String> =
+        if (languageForLocale(locale) == "ja") {
+            UI_FAMILY_SUBSTITUTES + ("MS Shell Dlg" to "MS UI Gothic")
+        } else {
+            UI_FAMILY_SUBSTITUTES
+        }
 
     /**
      * Windows' normal Latin UI fonts rely on FontLink for CJK glyphs. Replacing
@@ -243,7 +256,12 @@ object SharedContainerFonts {
      * Install shared font links + registry into [containerRoot] (the WinNative
      * container dir that contains `.wine/`).
      */
-    fun ensureInstalled(context: Context, containerRoot: File, applyRegistry: Boolean = true): Boolean {
+    fun ensureInstalled(
+        context: Context,
+        containerRoot: File,
+        applyRegistry: Boolean = true,
+        registryLocale: String = WineLocalePreferences.resolve(context),
+    ): Boolean {
         val cacheDir =
             ensureSharedPack(context) ?: run {
                 Log.w(TAG, "Shared font package missing; CJK may fall back to Wine defaults")
@@ -271,8 +289,7 @@ object SharedContainerFonts {
             }
         }
 
-        val cnFamily = cnFamilyForLanguage(Locale.getDefault().language)
-        val registryOk = !applyRegistry || applyRegistry(containerRoot, cnFamily)
+        val registryOk = !applyRegistry || applyRegistry(containerRoot, registryLocale)
 
         val primary = File(fontsDir, CN_REGULAR)
         val primaryOk = primary.isFile || Files.isSymbolicLink(primary.toPath())
@@ -286,7 +303,7 @@ object SharedContainerFonts {
         Log.i(
             TAG,
             "CJK fonts: linked=$linked/${WINDOWS_FONT_LINKS.size} primary=$primaryOk " +
-                "registry=$registryOk cnFamily=$cnFamily fontconfig=$fontconfigOk cache=$cacheDir",
+                "registry=$registryOk locale=$registryLocale fontconfig=$fontconfigOk cache=$cacheDir",
         )
         return ok
     }
@@ -407,10 +424,12 @@ object SharedContainerFonts {
     /**
      * Mimic a Windows CJK install: FontSubstitutes (HKLM) + Wine Replacements (HKCU).
      */
-    fun applyRegistry(containerRoot: File, cnFamily: String = FONT_FAMILY_CN): Boolean {
+    fun applyRegistry(containerRoot: File, registryLocale: String = "en_US.UTF-8"): Boolean {
         val prefix = File(containerRoot, ".wine")
         val systemReg = File(prefix, "system.reg")
         val userReg = File(prefix, "user.reg")
+        val cnFamily = cnFamilyForLocale(registryLocale)
+        val uiSubstitutes = uiFamilySubstitutesForLocale(registryLocale)
         var systemOk = false
         var userOk = false
 
@@ -426,7 +445,7 @@ object SharedContainerFonts {
                             if (to == FONT_FAMILY_CN) cnFamily else to,
                         )
                     }
-                    for ((from, to) in UI_FAMILY_SUBSTITUTES) {
+                    for ((from, to) in uiSubstitutes) {
                         reg.setStringValue(substitutesKey, from, to)
                     }
                     reg.setStringValue(substitutesKey, "msyh", cnFamily)
@@ -449,12 +468,18 @@ object SharedContainerFonts {
                         reg.setStringValue(fontsKey, name, file)
                     }
 
-                    // Wine normally backs the Win32 SYSTEM_FONT stock object with
-                    // svgasys.fon. Legacy rich-text controls request scalable
-                    // outlines from that object; the bitmap face can then render
-                    // formatted scores as empty glyphs. Tahoma is bundled with
-                    // Wine and preserves the expected compact Windows UI metrics.
-                    reg.setStringValue(SYSTEM_FONT_SETTINGS_KEY, "FONTS.FON", SYSTEM_FONT_FILE)
+                    // Schema 5 temporarily replaced Wine's SYSTEM_FONT bitmap face
+                    // with Tahoma. Restore only that value so custom user choices
+                    // remain untouched.
+                    val systemFont =
+                        reg.getStringValue(SYSTEM_FONT_SETTINGS_KEY, "FONTS.FON")
+                    if (systemFont.equals(PREVIOUS_SYSTEM_FONT_OVERRIDE, ignoreCase = true)) {
+                        reg.setStringValue(
+                            SYSTEM_FONT_SETTINGS_KEY,
+                            "FONTS.FON",
+                            WINE_DEFAULT_SYSTEM_FONT,
+                        )
+                    }
                 }
                 systemOk = true
                 Log.d(TAG, "Wrote Windows font substitutes, links, and registrations into $systemReg")
@@ -476,7 +501,7 @@ object SharedContainerFonts {
                             if (to == FONT_FAMILY_CN) cnFamily else to,
                         )
                     }
-                    for ((from, to) in UI_FAMILY_SUBSTITUTES) {
+                    for ((from, to) in uiSubstitutes) {
                         reg.setStringValue(key, from, to)
                     }
                 }

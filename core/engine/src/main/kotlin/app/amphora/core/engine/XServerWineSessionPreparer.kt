@@ -500,15 +500,18 @@ class XServerWineSessionPreparer @Inject constructor(
     private fun ensureWinePrefixEssentialFilesCore(): Boolean {
         val c = wnContainer ?: return false
         File(c.getRootDir(), ".wine/drive_c/windows").mkdirs()
+        val registryLocale = WineLocalePreferences.resolve(context)
         val fontState =
             "schema=${SharedContainerFonts.REGISTRY_SCHEMA_VERSION}|" +
-                "assets=${runtimeFingerprint(listOf(SharedContainerFonts.ASSET_PATH))}"
+                "assets=${runtimeFingerprint(listOf(SharedContainerFonts.ASSET_PATH))}|" +
+                "locale=$registryLocale"
         val registryNeedsApply = AppliedMarks.needsFonts(c, fontState)
         val fontsOk =
             SharedContainerFonts.ensureInstalled(
                 context,
                 c.getRootDir(),
                 applyRegistry = registryNeedsApply,
+                registryLocale = registryLocale,
             )
         Log.d(
             TAG,

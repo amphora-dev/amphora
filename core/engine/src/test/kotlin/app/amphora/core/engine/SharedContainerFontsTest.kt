@@ -8,8 +8,8 @@ import org.junit.Test
 
 class SharedContainerFontsTest {
     @Test
-    fun registrySchema_includesScalableSystemFont() {
-        assertEquals(5, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
+    fun registrySchema_includesWindowsLanguageProfiles() {
+        assertEquals(6, SharedContainerFonts.REGISTRY_SCHEMA_VERSION)
     }
 
     @Test
@@ -21,6 +21,10 @@ class SharedContainerFontsTest {
         assertEquals(
             SharedContainerFonts.FONT_FAMILY_CN,
             SharedContainerFonts.cnFamilyForLanguage("en"),
+        )
+        assertEquals(
+            SharedContainerFonts.FONT_FAMILY_CN_LOCALIZED,
+            SharedContainerFonts.cnFamilyForLocale("zh_CN.UTF-8"),
         )
     }
 
@@ -70,12 +74,23 @@ class SharedContainerFontsTest {
     }
 
     @Test
-    fun shellUiAliases_preserveCompactTahomaMetrics() {
+    fun shellUiAliases_matchWindowsNtDefaults() {
         val cjkSubstitutes = SharedContainerFonts.FAMILY_SUBSTITUTES.toMap()
         assertTrue("MS Shell Dlg" !in cjkSubstitutes)
         assertTrue("MS Shell Dlg 2" !in cjkSubstitutes)
-        assertEquals("Tahoma", SharedContainerFonts.UI_FAMILY_SUBSTITUTES["MS Shell Dlg"])
+        assertEquals(
+            "Microsoft Sans Serif",
+            SharedContainerFonts.UI_FAMILY_SUBSTITUTES["MS Shell Dlg"],
+        )
         assertEquals("Tahoma", SharedContainerFonts.UI_FAMILY_SUBSTITUTES["MS Shell Dlg 2"])
+        assertEquals(
+            "Microsoft Sans Serif",
+            SharedContainerFonts.uiFamilySubstitutesForLocale("zh_CN.UTF-8")["MS Shell Dlg"],
+        )
+        assertEquals(
+            "MS UI Gothic",
+            SharedContainerFonts.uiFamilySubstitutesForLocale("ja_JP.UTF-8")["MS Shell Dlg"],
+        )
     }
 
     @Test
@@ -104,20 +119,62 @@ class SharedContainerFontsTest {
     }
 
     @Test
-    fun applyRegistry_replacesBitmapSystemFontWithTahoma() {
+    fun applyRegistry_restoresPreviousSystemFontOverride() {
         val container = Files.createTempDirectory("amphora-system-font").toFile()
         val prefix = container.resolve(".wine")
         try {
             assertTrue(prefix.mkdirs())
             prefix.resolve("system.reg").writeText("WINE REGISTRY Version 2\n")
             prefix.resolve("user.reg").writeText("WINE REGISTRY Version 2\n")
+            WineRegistryEditor(prefix.resolve("system.reg")).use {
+                it.setStringValue(
+                    SharedContainerFonts.SYSTEM_FONT_SETTINGS_KEY,
+                    "FONTS.FON",
+                    SharedContainerFonts.PREVIOUS_SYSTEM_FONT_OVERRIDE,
+                )
+            }
 
             assertTrue(SharedContainerFonts.applyRegistry(container))
 
             WineRegistryEditor(prefix.resolve("system.reg")).use {
                 assertEquals(
-                    SharedContainerFonts.SYSTEM_FONT_FILE,
+                    SharedContainerFonts.WINE_DEFAULT_SYSTEM_FONT,
                     it.getStringValue(SharedContainerFonts.SYSTEM_FONT_SETTINGS_KEY, "FONTS.FON"),
+                )
+            }
+        } finally {
+            container.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun applyRegistry_switchesChineseAndEnglishFontProfiles() {
+        val container = Files.createTempDirectory("amphora-font-profile").toFile()
+        val prefix = container.resolve(".wine")
+        try {
+            assertTrue(prefix.mkdirs())
+            prefix.resolve("system.reg").writeText("WINE REGISTRY Version 2\n")
+            prefix.resolve("user.reg").writeText("WINE REGISTRY Version 2\n")
+            val key = "Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes"
+
+            assertTrue(SharedContainerFonts.applyRegistry(container, "zh_CN.UTF-8"))
+            WineRegistryEditor(prefix.resolve("system.reg")).use {
+                assertEquals(
+                    SharedContainerFonts.FONT_FAMILY_CN_LOCALIZED,
+                    it.getStringValue(key, "Microsoft YaHei"),
+                )
+                assertEquals("Tahoma", it.getStringValue(key, "MS Shell Dlg 2"))
+            }
+
+            assertTrue(SharedContainerFonts.applyRegistry(container, "en_US.UTF-8"))
+            WineRegistryEditor(prefix.resolve("system.reg")).use {
+                assertEquals(
+                    SharedContainerFonts.FONT_FAMILY_CN,
+                    it.getStringValue(key, "Microsoft YaHei"),
+                )
+                assertEquals(
+                    "Microsoft Sans Serif",
+                    it.getStringValue(key, "MS Shell Dlg"),
                 )
             }
         } finally {
