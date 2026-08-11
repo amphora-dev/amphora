@@ -1,7 +1,7 @@
 package app.amphora.core.engine
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.junit.Assert.assertEquals
+import org.junit.Test
 
 class SessionAudioDriverTest {
     @Test
