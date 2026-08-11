@@ -323,12 +323,11 @@ object SharedContainerFonts {
             "Tahoma Bold (TrueType)" to TAHOMA_BOLD,
         )
 
-    internal fun fontRegistrations(useNativeWindowsFonts: Boolean): Map<String, String> =
-        if (useNativeWindowsFonts) {
-            FONT_REGISTRATIONS + NATIVE_WINDOWS_FONT_REGISTRATIONS
-        } else {
-            FONT_REGISTRATIONS
-        }
+    internal fun fontRegistrations(useNativeWindowsFonts: Boolean): Map<String, String> = if (useNativeWindowsFonts) {
+        FONT_REGISTRATIONS + NATIVE_WINDOWS_FONT_REGISTRATIONS
+    } else {
+        FONT_REGISTRATIONS
+    }
 
     /**
      * Install shared font links + registry into [containerRoot] (the WinNative
