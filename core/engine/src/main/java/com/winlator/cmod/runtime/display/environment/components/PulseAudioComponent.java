@@ -355,21 +355,32 @@ public class PulseAudioComponent extends EnvironmentComponent {
 
     File modulesDir = new File(workingDir, "modules");
 
-    ArrayList<String> envVars = new ArrayList<>();
-    envVars.add("LD_LIBRARY_PATH=/system/lib64:" + nativeLibraryDir + ":" + modulesDir);
-    envVars.add("HOME=" + workingDir);
-    envVars.add("TMPDIR=" + environment.getTmpDir());
+    ArrayList<String> command = new ArrayList<>();
+    command.add(nativeLibraryDir + "/libpulseaudio.so");
+    command.add("--system=false");
+    command.add("--disable-shm=true");
+    command.add("--fail=true");
+    command.add("-n");
+    command.add("--file=default.pa");
+    command.add("--daemonize=true");
+    command.add("--use-pid-file=false");
+    command.add("--exit-idle-time=-1");
 
-    String command = nativeLibraryDir + "/libpulseaudio.so";
-    command += " --system=false";
-    command += " --disable-shm=true";
-    command += " --fail=true";
-    command += " -n --file=default.pa";
-    command += " --daemonize=true";
-    command += " --use-pid-file=false";
-    command += " --exit-idle-time=-1";
-
-    ProcessHelper.exec(command, envVars.toArray(new String[0]), workingDir);
+    ProcessBuilder processBuilder = new ProcessBuilder(command);
+    processBuilder.directory(workingDir);
+    processBuilder
+        .environment()
+        .put("LD_LIBRARY_PATH", "/system/lib64:" + nativeLibraryDir + ":" + modulesDir);
+    processBuilder.environment().put("HOME", workingDir.getAbsolutePath());
+    processBuilder.environment().put("TMPDIR", environment.getTmpDir().getAbsolutePath());
+    File nullFile = new File("/dev/null");
+    processBuilder.redirectOutput(nullFile);
+    processBuilder.redirectError(nullFile);
+    try {
+      processBuilder.start();
+    } catch (IOException e) {
+      throw new IllegalStateException("Cannot start PulseAudio daemon", e);
+    }
   }
 
   static int performanceModeValue(String performanceMode) {
