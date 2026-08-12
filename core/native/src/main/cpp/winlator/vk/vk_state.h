@@ -213,6 +213,7 @@ typedef struct VkRendererTelemetry {
     double      gpu_render_ms;
     uint64_t    gpu_sample_count;
     uint64_t    gpu_query_counter;
+    uint32_t    gpu_failure_count;
 
     bool        display_timing_enabled;
     PFN_vkGetPastPresentationTimingGOOGLE fn_get_past_presentation_timing;
@@ -220,6 +221,7 @@ typedef struct VkRendererTelemetry {
     uint32_t    next_present_id;
     uint32_t    last_collected_present_id;
     uint32_t    present_query_counter;
+    uint32_t    display_failure_count;
     uint64_t    actual_present_ns[VK_PRESENT_TIMING_SAMPLES];
     uint32_t    actual_present_ids[VK_PRESENT_TIMING_SAMPLES];
     uint32_t    actual_present_index;

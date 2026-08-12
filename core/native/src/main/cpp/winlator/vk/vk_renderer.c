@@ -47,6 +47,8 @@
 #include "shaders/effect_pixelate_frag.spv.h"
 #include "shaders/sgsr1_frag.spv.h"
 
+#define VK_TELEMETRY_FAILURE_LIMIT 3u
+
 // ============================================================
 // Forward decls
 // ============================================================
@@ -407,8 +409,24 @@ static bool create_device(VkRenderer* r) {
     dci.enabledExtensionCount = enable_n;
     dci.ppEnabledExtensionNames = enable;
 
-    if (vkCreateDevice(r->physical_device, &dci, NULL, &r->device) != VK_SUCCESS) {
-        VK_LOGE("vkCreateDevice failed");
+    VkResult device_result = vkCreateDevice(r->physical_device, &dci, NULL, &r->device);
+    if (device_result != VK_SUCCESS && has_display_timing) {
+        VK_LOGW("vkCreateDevice failed with optional VK_GOOGLE_display_timing (%d); retrying without it",
+                device_result);
+        for (uint32_t i = 0; i < enable_n; i++) {
+            if (strcmp(enable[i], VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) == 0) {
+                for (uint32_t j = i + 1; j < enable_n; j++) enable[j - 1] = enable[j];
+                enable_n--;
+                break;
+            }
+        }
+        dci.enabledExtensionCount = enable_n;
+        r->ext_display_timing = false;
+        r->device = VK_NULL_HANDLE;
+        device_result = vkCreateDevice(r->physical_device, &dci, NULL, &r->device);
+    }
+    if (device_result != VK_SUCCESS) {
+        VK_LOGE("vkCreateDevice failed after optional-extension fallback (%d)", device_result);
         return false;
     }
     vkGetDeviceQueue(r->device, r->graphics_queue_family, 0, &r->graphics_queue);
@@ -623,6 +641,42 @@ static void destroy_telemetry_resources(VkRenderer* r) {
     t->sampling_enabled = false;
 }
 
+static void record_gpu_timing_failure(VkRenderer* r, const char* reason) {
+    VkRendererTelemetry* t = &r->telemetry;
+    bool tripped = false;
+    pthread_mutex_lock(&t->mutex);
+    if (t->gpu_failure_count < UINT32_MAX) t->gpu_failure_count++;
+    if (t->gpu_failure_count >= VK_TELEMETRY_FAILURE_LIMIT && t->gpu_timing_enabled) {
+        t->gpu_timing_enabled = false;
+        tripped = true;
+    }
+    pthread_mutex_unlock(&t->mutex);
+    if (tripped) {
+        for (uint32_t i = 0; i < VK_FRAMES_IN_FLIGHT; i++) {
+            r->frames[i].telemetry_query_submitted = false;
+        }
+        VK_LOGW("GPU timestamp telemetry disabled after %u failures (%s)",
+                VK_TELEMETRY_FAILURE_LIMIT, reason);
+    }
+}
+
+static void record_display_timing_failure(VkRenderer* r, const char* reason) {
+    VkRendererTelemetry* t = &r->telemetry;
+    bool tripped = false;
+    pthread_mutex_lock(&t->mutex);
+    if (t->display_failure_count < UINT32_MAX) t->display_failure_count++;
+    if (t->display_failure_count >= VK_TELEMETRY_FAILURE_LIMIT
+        && t->display_timing_enabled) {
+        t->display_timing_enabled = false;
+        tripped = true;
+    }
+    pthread_mutex_unlock(&t->mutex);
+    if (tripped) {
+        VK_LOGW("Display timing telemetry disabled after %u failures (%s)",
+                VK_TELEMETRY_FAILURE_LIMIT, reason);
+    }
+}
+
 static void collect_gpu_timing(VkRenderer* r, VkFrame* f, uint32_t frame_index) {
     VkRendererTelemetry* t = &r->telemetry;
     if (!t->gpu_timing_enabled || !f->telemetry_query_submitted) return;
@@ -633,7 +687,10 @@ static void collect_gpu_timing(VkRenderer* r, VkFrame* f, uint32_t frame_index) 
     VkResult result = vkGetQueryPoolResults(
         r->device, t->timestamp_pool, first_query, 2,
         sizeof(timestamps), timestamps, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
-    if (result != VK_SUCCESS) return;
+    if (result != VK_SUCCESS) {
+        record_gpu_timing_failure(r, "query result");
+        return;
+    }
 
     uint64_t delta = timestamps[1] - timestamps[0];
     if (t->timestamp_valid_bits < 64u) {
@@ -641,9 +698,13 @@ static void collect_gpu_timing(VkRenderer* r, VkFrame* f, uint32_t frame_index) 
         delta &= mask;
     }
     double gpu_ms = (double)delta * t->timestamp_period_ns / 1000000.0;
-    if (gpu_ms < 0.0 || gpu_ms > 10000.0) return;
+    if (gpu_ms < 0.0 || gpu_ms > 10000.0) {
+        record_gpu_timing_failure(r, "invalid duration");
+        return;
+    }
 
     pthread_mutex_lock(&t->mutex);
+    t->gpu_failure_count = 0;
     t->gpu_render_ms = gpu_ms;
     t->gpu_sample_count++;
     pthread_mutex_unlock(&t->mutex);
@@ -657,6 +718,7 @@ static void reset_display_timing(VkRenderer* r) {
     t->next_present_id = 1;
     t->last_collected_present_id = 0;
     t->present_query_counter = 0;
+    t->display_failure_count = 0;
     t->actual_present_index = 0;
     t->actual_present_count = 0;
     t->display_fps = 0.0;
@@ -699,23 +761,34 @@ static void collect_display_timing(VkRenderer* r) {
         VkResult result =
             t->fn_get_past_presentation_timing(
                 r->device, r->swapchain, &count, &timings[total]);
-        if (result != VK_SUCCESS && result != VK_INCOMPLETE) return;
+        if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
+            record_display_timing_failure(r, "history query");
+            return;
+        }
         if (count > 16u) count = 16u;
         total += count;
         if (result != VK_INCOMPLETE) break;
     }
-    if (total == 0) return;
+    if (total == 0) {
+        pthread_mutex_lock(&t->mutex);
+        t->display_failure_count = 0;
+        pthread_mutex_unlock(&t->mutex);
+        return;
+    }
     qsort(timings, total, sizeof(timings[0]), compare_presentation_timing);
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     uint64_t now_ns = (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
 
+    uint32_t accepted = 0;
+    uint32_t invalid = 0;
     pthread_mutex_lock(&t->mutex);
     for (uint32_t i = 0; i < total; i++) {
         VkPastPresentationTimingGOOGLE* timing = &timings[i];
         if (timing->actualPresentTime == 0
             || timing->actualPresentTime > now_ns + 1000000000ULL
             || now_ns > timing->actualPresentTime + 30000000000ULL) {
+            invalid++;
             continue;
         }
 
@@ -737,7 +810,10 @@ static void collect_display_timing(VkRenderer* r) {
                 (t->actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u)
                 % VK_PRESENT_TIMING_SAMPLES;
             uint64_t previous = t->actual_present_ns[previous_index];
-            if (timing->actualPresentTime <= previous) continue;
+            if (timing->actualPresentTime <= previous) {
+                invalid++;
+                continue;
+            }
             t->present_interval_ms =
                 (double)(timing->actualPresentTime - previous) / 1000000.0;
         }
@@ -750,6 +826,7 @@ static void collect_display_timing(VkRenderer* r) {
         }
         t->present_margin_ms = (double)timing->presentMargin / 1000000.0;
         t->display_sample_count++;
+        accepted++;
     }
 
     if (t->actual_present_count >= 2) {
@@ -774,7 +851,11 @@ static void collect_display_timing(VkRenderer* r) {
                 (double)(samples - 1u) * 1000000000.0 / (double)(newest - oldest);
         }
     }
+    if (accepted > 0) t->display_failure_count = 0;
     pthread_mutex_unlock(&t->mutex);
+    if (accepted == 0 && invalid > 0) {
+        record_display_timing_failure(r, "invalid timestamps");
+    }
 }
 
 // ============================================================

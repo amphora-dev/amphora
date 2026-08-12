@@ -155,6 +155,11 @@ query，并在对应 fence 已完成后读取，不阻塞当前提交。HUD 隐�
 命令；首次开启时才懒创建 query pool，之后关闭仅保留这个很小的 Vulkan 对象以避免
 销毁仍在途 query。
 
+兼容性按 fail-open 处理：若驱动枚举了 `VK_GOOGLE_display_timing`，但带该可选扩展的
+`vkCreateDevice` 失败，会去掉它重试，不能让 HUD 能力阻止 Vulkan 启动。运行中 GPU
+query 或 display history 连续 3 次失败/返回异常值时，只熔断对应遥测层；HUD 依次回退到
+GPU timing 或 XServer Source FPS，渲染与 Present 路径继续运行。
+
 已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 
 ---
