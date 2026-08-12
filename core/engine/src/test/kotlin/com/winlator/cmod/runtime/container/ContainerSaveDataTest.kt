@@ -60,6 +60,22 @@ class ContainerSaveDataTest {
     }
 
     @Test
+    fun loadedContainerPersistsExtraDataChanges() {
+        val root = Files.createTempDirectory("container-extra-").toFile()
+        try {
+            assertTrue(newContainer(root).saveData())
+            val container = loadContainer(root)
+
+            container.putExtra("appliedAppVersion", "20000156")
+            assertTrue(container.saveData())
+
+            assertEquals("20000156", loadContainer(root).getExtra("appliedAppVersion"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun readersNeverObserveEmptyOrTruncatedConfig() {
         val root = Files.createTempDirectory("container-atomic-").toFile()
         try {

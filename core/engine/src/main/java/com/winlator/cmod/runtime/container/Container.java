@@ -750,7 +750,10 @@ public class Container {
         }
 
         normalizeEmulatorFieldsForArch();
-        savedState = buildData();
+        // buildData() embeds the mutable extraData JSONObject. Keep an
+        // independent baseline so putExtra() cannot mutate savedState and make
+        // mergeWithCurrent() incorrectly treat applied-marker changes as no-ops.
+        savedState = copyJson(buildData());
     }
 
     // Coerce emulator/emulator64 to values that are valid for the prefix's arch.
