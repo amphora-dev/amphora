@@ -30,7 +30,23 @@ class HostPerformanceParserTest {
     fun parsesGpuBusyPairsAndSinglePercentages() {
         assertEquals(25, HostPerformanceParser.parseGpuPercent("250 1000"))
         assertEquals(73, HostPerformanceParser.parseGpuPercent("73"))
+        assertEquals(
+            73,
+            HostPerformanceParser.parseGpuPercent(
+                "/sys/class/drm/card0/device/gpu_busy_percent",
+                "73 999",
+            ),
+        )
         assertNull(HostPerformanceParser.parseGpuPercent(""))
+    }
+
+    @Test
+    fun calculatesMaliCumulativeGpuLoadAcrossSamples() {
+        val sampler = GpuLoadSampler()
+        val path = "/sys/class/misc/mali0/device/gpuinfo"
+
+        assertNull(sampler.sample(path, "header\nbusy time 1000", nowMs = 2_000L))
+        assertEquals(25, sampler.sample(path, "header\nbusy time 1250", nowMs = 3_000L))
     }
 
     @Test
@@ -63,6 +79,8 @@ class HostPerformanceParserTest {
     @Test
     fun normalizesThermalZoneMilliCelsius() {
         assertEquals(58.5f, HostPerformanceParser.parseTemperatureC("58500"))
+        assertEquals(35f, HostPerformanceParser.parseTemperatureC("3500"))
+        assertEquals(35f, HostPerformanceParser.parseTemperatureC("350"))
         assertNull(HostPerformanceParser.parseTemperatureC("999999"))
     }
 

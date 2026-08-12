@@ -16,6 +16,7 @@ import android.os.health.SystemHealthManager
 import android.system.Os
 import android.system.OsConstants
 import androidx.annotation.RequiresApi
+import app.amphora.core.engine.HostMetricPathDiscovery
 import app.amphora.core.engine.PerformanceMetricsClient
 import app.amphora.core.engine.PrivilegedPerformanceSnapshot
 import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
@@ -71,7 +72,8 @@ internal class HostPerformanceMonitor(
     private var previousGuestCpuTicks: Map<Int, Long> = emptyMap()
     private var previousDetailWallMs = 0L
     private var lastDetailSampleMs = 0L
-    private var thermalSources: List<ThermalSource>? = null
+    private var thermalSources: List<HostMetricPathDiscovery.ThermalPath>? = null
+    private var lastThermalDiscoveryMs = 0L
     private var detailStats = DetailStats()
     private var lastHostPssSampleMs = 0L
     private var cachedHostMemoryMb = 0
@@ -81,21 +83,24 @@ internal class HostPerformanceMonitor(
     private var cachedCpuHeadroom: Float? = null
     private var cachedGpuHeadroom: Float? = null
     private var lastPrivilegedSampleMs = 0L
+    private var lastPrivilegedSuccessMs = 0L
     private var privilegedSnapshot: PrivilegedPerformanceSnapshot? = null
     private val telemetryBindingLock = Any()
     private var telemetryRenderer: VulkanRenderer? = null
-    private val inaccessibleStaticPaths = mutableSetOf<String>()
+    private val retryAfterMs = mutableMapOf<String, Long>()
+    private val gpuLoadSampler = GpuLoadSampler()
+    private var gpuPaths = HostMetricPathDiscovery.discoverGpuPaths()
+    private var lastGpuDiscoveryMs = SystemClock.elapsedRealtime()
 
     @Volatile private var detailsEnabled = false
 
     fun setDetailsEnabled(enabled: Boolean) {
         if (enabled && !detailsEnabled) {
-            previousCpuTimes = emptyMap()
             previousGuestCpuTicks = emptyMap()
             previousDetailWallMs = 0L
         }
         detailsEnabled = enabled
-        if (enabled) lastDetailSampleMs = 0L
+        lastDetailSampleMs = 0L
     }
 
     fun start() {
@@ -148,10 +153,16 @@ internal class HostPerformanceMonitor(
         val battery = readBattery()
         val frames = tracker.metrics()
         val rendererTelemetry = xServer.renderer?.performanceTelemetry
-        if (detailsEnabled && nowWall - lastPrivilegedSampleMs >= PRIVILEGED_SAMPLE_INTERVAL_MS) {
-            privilegedReader.read()?.let { privilegedSnapshot = it }
+        if (nowWall - lastPrivilegedSampleMs >= PRIVILEGED_SAMPLE_INTERVAL_MS) {
+            privilegedReader.read()?.let {
+                privilegedSnapshot = it
+                lastPrivilegedSuccessMs = nowWall
+            }
             lastPrivilegedSampleMs = nowWall
-        } else if (!detailsEnabled) {
+        }
+        if (lastPrivilegedSuccessMs > 0L &&
+            nowWall - lastPrivilegedSuccessMs >= PRIVILEGED_STALE_TIMEOUT_MS
+        ) {
             privilegedSnapshot = null
         }
         val compositorFps =
@@ -178,30 +189,43 @@ internal class HostPerformanceMonitor(
                     .finiteFloat()
                     ?.takeIf { telemetry.displaySampleCount > 1 }
             }
-        val localGpuLoad = readFirst(GPU_LOAD_PATHS)
+        val localGpuLoad = readFirstMetric(gpuPaths.load)
+        if (localGpuLoad == null && nowWall - lastGpuDiscoveryMs >= DISCOVERY_RETRY_INTERVAL_MS) {
+            gpuPaths = HostMetricPathDiscovery.discoverGpuPaths()
+            lastGpuDiscoveryMs = nowWall
+        }
+        val gpuLoadPath = localGpuLoad?.path ?: privilegedSnapshot?.gpuLoadPath
+        val gpuLoadRaw = localGpuLoad?.value ?: privilegedSnapshot?.gpuLoad
         val gpuPercent =
-            (localGpuLoad ?: privilegedSnapshot?.gpuLoad)
-                ?.let(HostPerformanceParser::parseGpuPercent)
+            if (gpuLoadPath != null && gpuLoadRaw != null) {
+                gpuLoadSampler.sample(gpuLoadPath, gpuLoadRaw, nowWall)
+            } else {
+                null
+            }
         if (nowWall - lastHostPssSampleMs >= PSS_SAMPLE_INTERVAL_MS) {
             cachedHostMemoryMb = (Debug.getPss() / 1024).toInt()
             lastHostPssSampleMs = nowWall
         }
 
-        if (detailsEnabled && nowWall - lastDetailSampleMs >= DETAIL_SAMPLE_INTERVAL_MS) {
-            detailStats = sampleDetails(nowWall)
+        if (nowWall - lastDetailSampleMs >= DETAIL_SAMPLE_INTERVAL_MS) {
+            detailStats = sampleDetails(nowWall, includeGuest = detailsEnabled)
             lastDetailSampleMs = nowWall
-        } else if (!detailsEnabled) {
-            detailStats = DetailStats()
         }
 
         return HostPerformanceStats(
             fps = compositorFps ?: frames.fps,
             frameTimeP95Ms =
-            frames.p95FrameTimeMs
-                ?: rendererTelemetry?.compositorFrameP95Ms?.finiteFloat(),
+            if (compositorFps != null) {
+                rendererTelemetry?.compositorFrameP95Ms?.finiteFloat()
+            } else {
+                frames.p95FrameTimeMs
+            },
             onePercentLowFps =
-            frames.onePercentLowFps
-                ?: rendererTelemetry?.compositorOnePercentLowFps?.finiteFloat(),
+            if (compositorFps != null) {
+                rendererTelemetry?.compositorOnePercentLowFps?.finiteFloat()
+            } else {
+                frames.onePercentLowFps
+            },
             compositorGpuMs = rendererTelemetry?.gpuRenderMs?.finiteFloat(),
             displayFps = actualDisplayFps ?: compositorFps,
             presentIntervalMs = actualPresentIntervalMs ?: compositorIntervalMs,
@@ -231,17 +255,7 @@ internal class HostPerformanceMonitor(
                     }
                 else -> MetricsAccess.RESTRICTED
             },
-            systemMetricsAccess =
-            when {
-                readText(PROC_STAT_PATH) != null -> MetricsAccess.APP
-                privilegedSnapshot?.cpuStat != null ->
-                    if (privilegedSnapshot?.hasRootAccess == true) {
-                        MetricsAccess.SHIZUKU_ROOT
-                    } else {
-                        MetricsAccess.SHIZUKU_SHELL
-                    }
-                else -> MetricsAccess.RESTRICTED
-            },
+            systemMetricsAccess = detailStats.systemMetricsAccess,
             gpuCurrentMhz = detailStats.gpuCurrentMhz,
             gpuMaxMhz = detailStats.gpuMaxMhz,
             ramPercent = ramPercent,
@@ -274,10 +288,11 @@ internal class HostPerformanceMonitor(
         }
     }
 
-    private fun sampleDetails(nowWall: Long): DetailStats {
+    private fun sampleDetails(nowWall: Long, includeGuest: Boolean): DetailStats {
+        val localCpuStat = readText(PROC_STAT_PATH)
         val currentCpuTimes =
             HostPerformanceParser.parseCpuTimes(
-                readText(PROC_STAT_PATH) ?: privilegedSnapshot?.cpuStat,
+                localCpuStat ?: privilegedSnapshot?.cpuStat,
             )
         val systemCpuPercent =
             HostPerformanceParser.usagePercent(previousCpuTimes[-1], currentCpuTimes[-1])
@@ -295,13 +310,28 @@ internal class HostPerformanceMonitor(
                         previousCpuTimes[index],
                         currentCpuTimes[index],
                     ),
-                    currentMhz = readCpuFrequency(index, maximum = false),
-                    maxMhz = readCpuFrequency(index, maximum = true),
+                    currentMhz =
+                    readCpuFrequency(index, maximum = false)
+                        ?: privilegedSnapshot
+                            ?.cpuCurrentFrequencies
+                            ?.get(index)
+                            ?.let(HostPerformanceParser::parseFrequencyMhz),
+                    maxMhz =
+                    readCpuFrequency(index, maximum = true)
+                        ?: privilegedSnapshot
+                            ?.cpuMaxFrequencies
+                            ?.get(index)
+                            ?.let(HostPerformanceParser::parseFrequencyMhz),
                 )
             }
         previousCpuTimes = currentCpuTimes
 
-        val guestPids = collectGuestProcesses(Process.myPid(), guestProcessId.value)
+        val guestPids =
+            if (includeGuest) {
+                collectGuestProcesses(Process.myPid(), guestProcessId.value)
+            } else {
+                emptyList()
+            }
         var guestMemoryKb = 0L
         var guestThreads = 0
         val currentGuestTicks = mutableMapOf<Int, Long>()
@@ -313,21 +343,27 @@ internal class HostPerformanceMonitor(
             HostPerformanceParser.parseProcessCpuTicks(readText("/proc/$pid/stat"))
                 ?.let { currentGuestTicks[pid] = it }
         }
-        val elapsedDetailMs = nowWall - previousDetailWallMs
-        val tickDelta =
-            currentGuestTicks.entries.sumOf { (pid, ticks) ->
-                (ticks - (previousGuestCpuTicks[pid] ?: ticks)).coerceAtLeast(0)
-            }
         val guestCpuPercent =
-            if (previousDetailWallMs > 0 && elapsedDetailMs > 0) {
-                (tickDelta * 100_000.0 / clockTicksPerSecond / elapsedDetailMs / coreCount)
-                    .roundToInt()
-                    .coerceIn(0, 100)
+            if (includeGuest) {
+                val elapsedDetailMs = nowWall - previousDetailWallMs
+                val tickDelta =
+                    currentGuestTicks.entries.sumOf { (pid, ticks) ->
+                        (ticks - (previousGuestCpuTicks[pid] ?: ticks)).coerceAtLeast(0)
+                    }
+                val result =
+                    if (previousDetailWallMs > 0 && elapsedDetailMs > 0) {
+                        (tickDelta * 100_000.0 / clockTicksPerSecond / elapsedDetailMs / coreCount)
+                            .roundToInt()
+                            .coerceIn(0, 100)
+                    } else {
+                        null
+                    }
+                previousGuestCpuTicks = currentGuestTicks
+                previousDetailWallMs = nowWall
+                result
             } else {
                 null
             }
-        previousGuestCpuTicks = currentGuestTicks
-        previousDetailWallMs = nowWall
         if (nowWall - lastThermalHeadroomSampleMs >= THERMAL_HEADROOM_INTERVAL_MS) {
             cachedThermalHeadroom =
                 runCatching { powerManager.getThermalHeadroom(THERMAL_FORECAST_SECONDS) }
@@ -339,23 +375,42 @@ internal class HostPerformanceMonitor(
 
         return DetailStats(
             systemCpuPercent = systemCpuPercent,
+            systemMetricsAccess =
+            when {
+                localCpuStat != null -> MetricsAccess.APP
+                privilegedSnapshot?.cpuStat != null ->
+                    if (privilegedSnapshot?.hasRootAccess == true) {
+                        MetricsAccess.SHIZUKU_ROOT
+                    } else {
+                        MetricsAccess.SHIZUKU_SHELL
+                    }
+                else -> MetricsAccess.RESTRICTED
+            },
             guestCpuPercent = guestCpuPercent,
             cpuCores = cpuCores,
             gpuCurrentMhz =
-            (readFirst(GPU_CURRENT_FREQUENCY_PATHS) ?: privilegedSnapshot?.gpuCurrentFrequency)
-                ?.let(HostPerformanceParser::parseFrequencyMhz),
+            (
+                readFirstMetric(gpuPaths.currentFrequency)?.value
+                    ?: privilegedSnapshot?.gpuCurrentFrequency
+                )?.let(HostPerformanceParser::parseFrequencyMhz),
             gpuMaxMhz =
-            (readFirst(GPU_MAX_FREQUENCY_PATHS) ?: privilegedSnapshot?.gpuMaxFrequency)
-                ?.let(HostPerformanceParser::parseMaxFrequencyMhz),
+            (
+                readFirstMetric(gpuPaths.maxFrequency)?.value
+                    ?: privilegedSnapshot?.gpuMaxFrequency
+                )?.let(HostPerformanceParser::parseMaxFrequencyMhz),
             guestMemoryMb = (guestMemoryKb / 1024).toInt(),
             guestProcessCount = guestPids.size,
             guestThreadCount = guestThreads,
-            socTemperatureC = readSocTemperature(),
+            socTemperatureC =
+            readSocTemperature()
+                ?: HostPerformanceParser.parseTemperatureC(privilegedSnapshot?.socTemperature),
             thermalStatus = runCatching { powerManager.currentThermalStatus }.getOrNull(),
             thermalHeadroom = cachedThermalHeadroom,
             cpuHeadroom = cachedCpuHeadroom,
             gpuHeadroom = cachedGpuHeadroom,
-            detectedBackend = detectWindowBackend() ?: detectGuestBackend(guestPids),
+            detectedBackend =
+            detectWindowBackend()
+                ?: if (includeGuest) detectGuestBackend(guestPids) else detailStats.detectedBackend,
         )
     }
 
@@ -444,36 +499,60 @@ internal class HostPerformanceMonitor(
             intent
                 ?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
                 ?.takeIf { it >= 0 }
-        val voltageMv =
+        val frameworkVoltageMv =
             intent
                 ?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
                 ?.takeIf { it > 0 }
-        val currentUa =
+        val frameworkCurrentUa =
             runCatching { batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) }
                 .getOrNull()
                 ?.takeIf { it != Int.MIN_VALUE && it != 0 }
+        val voltageMv =
+            frameworkVoltageMv
+                ?: readFirstMetric(BATTERY_VOLTAGE_PATHS)
+                    ?.value
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.let { abs(it) / 1_000L }
+                    ?.takeIf { it in 1_000L..20_000L }
+                    ?.toInt()
+        val currentUa =
+            frameworkCurrentUa
+                ?: readFirstMetric(BATTERY_CURRENT_PATHS)
+                    ?.value
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.let(::abs)
+                    ?.takeIf { it > 0L }
         val powerW =
             if (voltageMv != null && currentUa != null) {
                 abs(currentUa.toDouble()) * voltageMv / 1_000_000_000.0
             } else {
-                null
+                readFirstMetric(BATTERY_POWER_PATHS)
+                    ?.value
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.let { abs(it.toDouble()) / 1_000_000.0 }
             }
-        return BatteryStats(level, temperature, powerW?.toFloat())
+        return BatteryStats(level, temperature, powerW?.takeIf { it in 0.0..100.0 }?.toFloat())
     }
 
     private fun readSocTemperature(): Float? {
-        val sources = thermalSources ?: discoverThermalSources().also { thermalSources = it }
-        return sources.mapNotNull { HostPerformanceParser.parseTemperatureC(readText(it.path)) }.maxOrNull()
+        val now = SystemClock.elapsedRealtime()
+        val sources =
+            thermalSources
+                ?.takeIf { it.isNotEmpty() || now - lastThermalDiscoveryMs < DISCOVERY_RETRY_INTERVAL_MS }
+                ?: discoverThermalSources().also {
+                    thermalSources = it
+                    lastThermalDiscoveryMs = now
+                }
+        return sources
+            .mapNotNull { HostPerformanceParser.parseTemperatureC(readText(it.path)) }
+            .maxOrNull()
     }
 
-    private fun discoverThermalSources(): List<ThermalSource> = File(THERMAL_ROOT)
-        .listFiles { file -> file.isDirectory && file.name.startsWith("thermal_zone") }
-        .orEmpty()
-        .mapNotNull { zone ->
-            val type = readText(File(zone, "type").path)?.lowercase() ?: return@mapNotNull null
-            if (THERMAL_TYPE_HINTS.none { it in type }) return@mapNotNull null
-            ThermalSource(File(zone, "temp").path)
-        }
+    private fun discoverThermalSources(): List<HostMetricPathDiscovery.ThermalPath> =
+        HostMetricPathDiscovery.discoverThermalPaths()
 
     private fun detectWindowBackend(): String? {
         val values =
@@ -517,21 +596,26 @@ internal class HostPerformanceMonitor(
         return detected.takeIf { it.isNotEmpty() }?.joinToString(" + ")
     }
 
-    private fun readFirst(paths: List<String>): String? = paths.firstNotNullOfOrNull(::readText)
+    private fun readFirstMetric(paths: List<String>): MetricReading? =
+        paths.firstNotNullOfOrNull { path -> readText(path)?.let { MetricReading(path, it) } }
 
     private fun readText(path: String): String? = try {
-        if (path in inaccessibleStaticPaths) return null
+        val now = SystemClock.elapsedRealtime()
+        if ((retryAfterMs[path] ?: 0L) > now) return null
         val file = File(path)
         if (!file.isFile || !file.canRead()) {
             if (path == PROC_STAT_PATH || path.startsWith("/sys/")) {
-                inaccessibleStaticPaths += path
+                retryAfterMs[path] = now + PATH_RETRY_INTERVAL_MS
             }
             return null
         }
-        file.readText().trim()
+        file
+            .readText()
+            .trim()
+            .also { retryAfterMs.remove(path) }
     } catch (_: Exception) {
         if (path == PROC_STAT_PATH || path.startsWith("/sys/")) {
-            inaccessibleStaticPaths += path
+            retryAfterMs[path] = SystemClock.elapsedRealtime() + PATH_RETRY_INTERVAL_MS
         }
         null
     }
@@ -627,6 +711,7 @@ internal class HostPerformanceMonitor(
 
     private data class DetailStats(
         val systemCpuPercent: Int? = null,
+        val systemMetricsAccess: MetricsAccess = MetricsAccess.RESTRICTED,
         val guestCpuPercent: Int? = null,
         val cpuCores: List<CpuCoreStats> = emptyList(),
         val gpuCurrentMhz: Int? = null,
@@ -650,13 +735,16 @@ internal class HostPerformanceMonitor(
 
     private data class BatteryStats(val levelPercent: Int?, val temperatureC: Float?, val powerW: Float?)
 
-    private data class ThermalSource(val path: String)
+    private data class MetricReading(val path: String, val value: String)
 
     private companion object {
         const val SAMPLE_INTERVAL_MS = 500L
         const val DETAIL_SAMPLE_INTERVAL_MS = 1_000L
         const val PRIVILEGED_SAMPLE_INTERVAL_MS = 1_000L
+        const val PRIVILEGED_STALE_TIMEOUT_MS = 5_000L
         const val PSS_SAMPLE_INTERVAL_MS = 5_000L
+        const val PATH_RETRY_INTERVAL_MS = 30_000L
+        const val DISCOVERY_RETRY_INTERVAL_MS = 60_000L
         const val THERMAL_HEADROOM_INTERVAL_MS = 10_000L
         const val THERMAL_FORECAST_SECONDS = 10
         const val MIN_SYSTEM_HEADROOM_INTERVAL_MS = 2_000L
@@ -671,31 +759,24 @@ internal class HostPerformanceMonitor(
         const val MAX_MAP_LINES = 8_192
         const val DEFAULT_CLOCK_TICKS = 100L
         const val PROC_STAT_PATH = "/proc/stat"
-        const val THERMAL_ROOT = "/sys/class/thermal"
-
-        val GPU_LOAD_PATHS =
+        val BATTERY_CURRENT_PATHS =
             listOf(
-                "/sys/class/kgsl/kgsl-3d0/gpubusy",
-                "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
-                "/sys/class/kgsl/kgsl-3d0/devfreq/gpu_load",
-                "/sys/class/misc/mali0/device/utilisation",
-                "/sys/kernel/gpu/gpu_busy",
+                "/sys/class/power_supply/battery/current_now",
+                "/sys/class/power_supply/bms/current_now",
+                "/sys/class/power_supply/main/current_now",
             )
-        val GPU_CURRENT_FREQUENCY_PATHS =
+        val BATTERY_VOLTAGE_PATHS =
             listOf(
-                "/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq",
-                "/sys/class/kgsl/kgsl-3d0/gpuclk",
-                "/sys/class/devfreq/gpufreq/cur_freq",
-                "/sys/class/misc/mali0/device/devfreq/cur_freq",
+                "/sys/class/power_supply/battery/voltage_now",
+                "/sys/class/power_supply/bms/voltage_now",
+                "/sys/class/power_supply/main/voltage_now",
             )
-        val GPU_MAX_FREQUENCY_PATHS =
+        val BATTERY_POWER_PATHS =
             listOf(
-                "/sys/class/kgsl/kgsl-3d0/devfreq/max_freq",
-                "/sys/class/kgsl/kgsl-3d0/devfreq/available_frequencies",
-                "/sys/class/devfreq/gpufreq/max_freq",
-                "/sys/class/misc/mali0/device/devfreq/max_freq",
+                "/sys/class/power_supply/battery/power_now",
+                "/sys/class/power_supply/bms/power_now",
+                "/sys/class/power_supply/main/power_now",
             )
-        val THERMAL_TYPE_HINTS = listOf("soc", "cpu", "gpu", "ap", "skin")
     }
 }
 
