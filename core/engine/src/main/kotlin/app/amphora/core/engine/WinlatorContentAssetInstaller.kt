@@ -197,6 +197,7 @@ constructor(@ApplicationContext private val context: Context) :
         for (child in typeDir.listFiles().orEmpty()) {
             if (!child.isDirectory) continue
             if (child.canonicalFile == keep.canonicalFile) continue
+            if (shouldPreserveMaliSarek(profile.type, child)) continue
             val stale = profileFromInstallDir(profile.type, child) ?: continue
             try {
                 cm.removeContent(stale)
@@ -210,6 +211,15 @@ constructor(@ApplicationContext private val context: Context) :
             }
         }
         return removed
+    }
+
+    private fun shouldPreserveMaliSarek(type: ContentProfile.ContentType, installDir: File): Boolean {
+        if (type != ContentProfile.ContentType.CONTENT_TYPE_DXVK) return false
+        if (!installDir.name.contains("sarek", ignoreCase = true)) return false
+        val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+        return GraphicsDriverIds.normalize(
+            prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+        ) == GraphicsDriverIds.MALI_LEEGAO
     }
 
     private fun profileFromInstallDir(type: ContentProfile.ContentType, installDir: File): ContentProfile? {

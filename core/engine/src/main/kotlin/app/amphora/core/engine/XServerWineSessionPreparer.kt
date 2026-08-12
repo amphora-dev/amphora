@@ -2,6 +2,7 @@ package app.amphora.core.engine
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.core.content.pm.PackageInfoCompat
@@ -1030,7 +1031,7 @@ class XServerWineSessionPreparer @Inject constructor(
             val refreshRateOverride = getDxvkFrameRateOverride()
             DXVKConfigUtils.setEnvVars(context, dxwrapperConfig, envState, refreshRateOverride)
             val version = dxwrapperConfig.get("version")
-            if (version == "1.11.1-sarek") {
+            if (version?.contains("sarek", ignoreCase = true) == true) {
                 Log.d(TAG, "Disabling Wrapper PATCH_OPCONSTCOMP SPIR-V pass")
                 envState.put("WRAPPER_NO_PATCH_OPCONSTCOMP", "1")
             }
@@ -1069,16 +1070,19 @@ class XServerWineSessionPreparer @Inject constructor(
         // path is the wrapper ICD and full Turnip is the optional WN-Turnip zip.
         // D5: arm64ec zink_dlls branch stripped (wineInfo.isArm64EC() always false for x86_64).
 
-        val wantLeegao =
-            effectiveDriverId != GraphicsDriverIds.SYSTEM && "wrapper-leegao" == graphicsDriver
+        val wantLeegao = effectiveDriverId == GraphicsDriverIds.MALI_LEEGAO
         val leegaoMarker = File(rootDir, "usr/lib/.wrapper_leegao")
         if (wantLeegao) {
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD,
-                context,
-                "graphics_driver/wrapper-leegao.tzst",
-                rootDir,
-            )
+            check(
+                TarCompressorUtils.extract(
+                    TarCompressorUtils.Type.ZSTD,
+                    context,
+                    MALI_LEEGAO_ASSET,
+                    rootDir,
+                ),
+            ) {
+                "Cannot apply Mali Leegao wrapper asset: $MALI_LEEGAO_ASSET"
+            }
             try {
                 leegaoMarker.createNewFile()
             } catch (e: IOException) { /* ignored */ }
@@ -1087,7 +1091,9 @@ class XServerWineSessionPreparer @Inject constructor(
             leegaoMarker.delete()
         }
 
-        if (effectiveDriverId != GraphicsDriverIds.SYSTEM) {
+        if (wantLeegao) {
+            configureMaliLeegaoDriver(rootDir)
+        } else if (effectiveDriverId != GraphicsDriverIds.SYSTEM) {
             val adrenotoolsManager = AdrenotoolsManager(context)
             val driverLibrary = adrenotoolsManager.getLibraryName(effectiveDriverId)
             Log.i(TAG, "Loading graphics/Turnip driver: id='$effectiveDriverId' library='$driverLibrary'")
@@ -1183,7 +1189,8 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val gpuName = graphicsDriverConfig["gpuName"]
         val dxvkVersion = dxwrapperConfig.get("version")
-        if (gpuName != null && gpuName != "Device" && dxvkVersion != null && dxvkVersion != "1.11.1-sarek") {
+        val isSarek = dxvkVersion?.contains("sarek", ignoreCase = true) == true
+        if (gpuName != null && gpuName != "Device" && dxvkVersion != null && !isSarek) {
             envState.put("WRAPPER_DEVICE_NAME", gpuName)
             envState.put("WRAPPER_DEVICE_ID", WineD3DConfigUtils.getDeviceIdFromGPUName(context, gpuName))
             envState.put("WRAPPER_VENDOR_ID", WineD3DConfigUtils.getVendorIdFromGPUName(context, gpuName))
@@ -1233,6 +1240,48 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val bcnEmulationCache = graphicsDriverConfig["bcnEmulationCache"] ?: ""
         envState.put("WRAPPER_USE_BCN_CACHE", bcnEmulationCache)
+    }
+
+    /**
+     * Route Leegao's platform-Vulkan open through adrenotools with a clean hooks directory.
+     *
+     * Passing imagefs/usr/lib as ADRENOTOOLS_HOOKS_PATH would put libssl/libcrypto in the
+     * isolated driver's default search path and recreate the Huawei loader collision this
+     * path exists to avoid. Copy only the hook runtime (and libc++) into a dedicated dir.
+     */
+    private fun configureMaliLeegaoDriver(rootDir: File) {
+        val hardware = Build.HARDWARE.trim()
+        check(hardware.matches(HARDWARE_NAME)) { "Unsafe or empty Android hardware name: '$hardware'" }
+
+        val driverDir = File(MALI_HAL_DIR)
+        val driverName = "vulkan.$hardware.so"
+        val driverFile = File(driverDir, driverName)
+        check(driverFile.isFile) {
+            "Mali Vulkan HAL not found: ${driverFile.absolutePath}"
+        }
+
+        val sourceLibDir = File(rootDir, "usr/lib")
+        val cleanHooksDir = File(context.filesDir, MALI_HOOKS_DIR)
+        check(cleanHooksDir.isDirectory || cleanHooksDir.mkdirs()) {
+            "Cannot create clean Mali hooks directory: ${cleanHooksDir.absolutePath}"
+        }
+        for (name in MALI_HOOK_LIBS) {
+            val source = File(sourceLibDir, name)
+            val destination = File(cleanHooksDir, name)
+            check(source.isFile) { "Mali adrenotools dependency missing: ${source.absolutePath}" }
+            check(FileUtils.copy(source, destination)) {
+                "Cannot stage Mali adrenotools dependency: ${destination.absolutePath}"
+            }
+        }
+
+        envState.put("ADRENOTOOLS_DRIVER_PATH", driverDir.path + "/")
+        envState.put("ADRENOTOOLS_DRIVER_NAME", driverName)
+        envState.put("ADRENOTOOLS_HOOKS_PATH", cleanHooksDir.absolutePath)
+        envState.put("ADRENOTOOLS_DRIVER_CUSTOM", "1")
+        Log.i(
+            TAG,
+            "Mali Leegao backend: HAL=${driverFile.absolutePath} hooks=${cleanHooksDir.absolutePath}",
+        )
     }
 
     // --- helpers --------------------------------------------------------------
@@ -1499,6 +1548,18 @@ class XServerWineSessionPreparer @Inject constructor(
         private const val TAG = "WineSessionPreparer"
         private const val D8VK_ASSET_PATH = "dxwrapper/d8vk-1.0.tzst"
         private const val WRAPPER_ASSET = "graphics_driver/wrapper.tzst"
+        private const val MALI_LEEGAO_ASSET = "graphics_driver/wrapper-leegao.tzst"
+        private const val MALI_HAL_DIR = "/vendor/lib64/hw"
+        private const val MALI_HOOKS_DIR = "mali-vulkan-hooks"
+        private val HARDWARE_NAME = Regex("[A-Za-z0-9._-]+")
+        private val MALI_HOOK_LIBS =
+            listOf(
+                "libmain_hook.so",
+                "libhook_impl.so",
+                "libfile_redirect_hook.so",
+                "libgsl_alloc_hook.so",
+                "libc++_shared.so",
+            )
         private const val START_MENU_ASSET = "metadata/startmenu.json"
         private const val START_MENU_SCHEMA_VERSION = 1
         private val WINCOMPONENT_RUNTIME_ASSETS =

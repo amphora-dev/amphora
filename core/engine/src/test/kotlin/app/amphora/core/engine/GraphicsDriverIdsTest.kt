@@ -14,6 +14,7 @@ class GraphicsDriverIdsTest {
                 "system" to GraphicsDriverIds.SYSTEM,
                 GraphicsDriverIds.SYSTEM to GraphicsDriverIds.SYSTEM,
                 GraphicsDriverIds.TURNIP_BALANCED to GraphicsDriverIds.TURNIP_BALANCED,
+                GraphicsDriverIds.MALI_LEEGAO to GraphicsDriverIds.MALI_LEEGAO,
                 "unknown-driver" to GraphicsDriverIds.WRAPPER,
             )
 
@@ -52,6 +53,22 @@ class GraphicsDriverIdsTest {
                 GraphicsDriverIds.resolveHostDriver(effective, isAdreno = false),
             )
         }
+    }
+
+    @Test
+    fun maliLeegaoIsGuestOnlyAndFallsBackOnAdreno() {
+        assertEquals(
+            GraphicsDriverIds.MALI_LEEGAO,
+            GraphicsDriverIds.resolveEffectiveDriver(GraphicsDriverIds.MALI_LEEGAO, isAdreno = false),
+        )
+        assertEquals(
+            GraphicsDriverIds.SYSTEM,
+            GraphicsDriverIds.resolveHostDriver(GraphicsDriverIds.MALI_LEEGAO, isAdreno = false),
+        )
+        assertEquals(
+            GraphicsDriverIds.SYSTEM,
+            GraphicsDriverIds.resolveEffectiveDriver(GraphicsDriverIds.MALI_LEEGAO, isAdreno = true),
+        )
     }
 
     @Test

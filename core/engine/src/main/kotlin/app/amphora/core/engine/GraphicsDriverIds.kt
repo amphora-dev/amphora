@@ -18,6 +18,15 @@ object GraphicsDriverIds {
     const val SYSTEM = "System"
 
     /**
+     * Experimental Mali path: Leegao's guest wrapper around the platform Vulkan HAL.
+     *
+     * The Android host compositor still uses [SYSTEM]. The guest wrapper opens the
+     * vendor HAL through an isolated adrenotools namespace so imagefs libraries
+     * cannot shadow vendor dependencies such as Huawei's libssl/libcrypto pair.
+     */
+    const val MALI_LEEGAO = "Mali-Leegao"
+
+    /**
      * Optional open-source Turnip (Balanced). Folder name under adrenotools;
      * must match the unzip target used by [TurnipDriverProvisioner].
      */
@@ -30,12 +39,14 @@ object GraphicsDriverIds {
      */
     const val TURNIP_ZIP_RELATIVE = "adrenotools/WN-Turnip-1.06-b_Axxx.zip"
 
-    fun isKnown(id: String): Boolean = id == WRAPPER || id == SYSTEM || id == TURNIP_BALANCED
+    fun isKnown(id: String): Boolean =
+        id == WRAPPER || id == SYSTEM || id == TURNIP_BALANCED || id == MALI_LEEGAO
 
     fun normalize(id: String?): String = when {
         id.isNullOrBlank() -> WRAPPER
         id.equals(SYSTEM, ignoreCase = true) -> SYSTEM
         id == TURNIP_BALANCED -> TURNIP_BALANCED
+        id == MALI_LEEGAO -> MALI_LEEGAO
         else -> WRAPPER
     }
 
@@ -47,7 +58,14 @@ object GraphicsDriverIds {
      * sides; letting only the host fall back leaves the guest pointing at an
      * unusable wrapper ICD.
      */
-    fun resolveEffectiveDriver(id: String?, isAdreno: Boolean): String = if (isAdreno) normalize(id) else SYSTEM
+    fun resolveEffectiveDriver(id: String?, isAdreno: Boolean): String {
+        val normalized = normalize(id)
+        return when {
+            normalized == MALI_LEEGAO -> if (isAdreno) SYSTEM else MALI_LEEGAO
+            isAdreno -> normalized
+            else -> SYSTEM
+        }
+    }
 
     /**
      * Resolves the Vulkan backend used by the Android host compositor.

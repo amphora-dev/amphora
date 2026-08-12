@@ -85,11 +85,20 @@ constructor(
 
     override suspend fun getOrCreate(id: ContainerId): AmphoraContainer = withContext(dispatchers.io) {
         val manifest = catalog.require()
+        val useInstalledSarek =
+            if (selectedGraphicsDriver() == GraphicsDriverIds.MALI_LEEGAO) {
+                contentsManager.syncContents()
+                resolveInstalledSarekToken() != null
+            } else {
+                false
+            }
         // 1. Bundled Wine (Proton) + Box64 + DXVK + VKD3D must be installed
         //    before a container can be created / launched. Idempotent.
         contentSource.resolve(ContentComponent.WINE.id)
         contentSource.resolve(ContentComponent.BOX64.id)
-        contentSource.resolve(ContentComponent.DXVK.id)
+        if (!useInstalledSarek) {
+            contentSource.resolve(ContentComponent.DXVK.id)
+        }
         contentSource.resolve(ContentComponent.VKD3D.id)
         // 2. Load the installed profiles into this manager's ContentsManager.
         contentsManager.syncContents()
@@ -223,7 +232,11 @@ constructor(
      */
     private fun resolveDxwrapper(manifest: ContentManifest): String {
         val dxvk =
-            resolveWrapperToken(
+            if (selectedGraphicsDriver() == GraphicsDriverIds.MALI_LEEGAO) {
+                resolveInstalledSarekToken()
+            } else {
+                null
+            } ?: resolveWrapperToken(
                 manifest = manifest,
                 component = ContentComponent.DXVK,
                 type = ContentProfile.ContentType.CONTENT_TYPE_DXVK,
@@ -243,6 +256,44 @@ constructor(
                     .getString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, null),
             )
         return "$dxvk;$vkd3d;$ddraw"
+    }
+
+    private fun selectedGraphicsDriver(): String {
+        val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+        return GraphicsDriverIds.normalize(prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null))
+    }
+
+    private fun resolveInstalledSarekToken(): String? {
+        val installDir =
+            ContentsManager
+                .getContentTypeDir(context, ContentProfile.ContentType.CONTENT_TYPE_DXVK)
+                .listFiles()
+                ?.asSequence()
+                ?.filter {
+                    it.isDirectory &&
+                        it.name.contains("sarek", ignoreCase = true) &&
+                        File(it, "profile.json").isFile &&
+                        File(it, "system32/d3d11.dll").isFile
+                }?.maxByOrNull { it.name }
+        if (installDir != null) {
+            val token = "dxvk-${installDir.name}"
+            android.util.Log.i("WinlatorContainerManager", "Mali Leegao selected installed Sarek: $token")
+            return token
+        }
+
+        val profile =
+            contentsManager
+                .getProfiles(ContentProfile.ContentType.CONTENT_TYPE_DXVK)
+                ?.asSequence()
+                ?.filter { it.isInstalled && it.verName?.contains("sarek", ignoreCase = true) == true }
+                ?.maxWithOrNull(
+                    compareBy<ContentProfile> { it.verCode }
+                        .thenBy { it.verName.orEmpty() },
+                )
+                ?: return null
+        val token = ContentPinResolver.wrapperToken("dxvk", profile)
+        android.util.Log.i("WinlatorContainerManager", "Mali Leegao selected installed Sarek profile: $token")
+        return token
     }
 
     private fun resolveWrapperToken(
@@ -274,8 +325,7 @@ constructor(
      * 之后启动只读容器。
      */
     private suspend fun ensureAdrenotoolsDriver(container: WnContainer) {
-        val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
-        val desired = GraphicsDriverIds.normalize(prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null))
+        val desired = selectedGraphicsDriver()
         if (desired == GraphicsDriverIds.TURNIP_BALANCED) {
             turnipProvisioner.ensureInstalled()
         }
