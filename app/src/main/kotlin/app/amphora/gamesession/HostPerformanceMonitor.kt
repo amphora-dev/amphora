@@ -8,11 +8,15 @@ import android.os.BatteryManager
 import android.os.Debug
 import android.os.Process
 import android.os.SystemClock
+import android.system.Os
+import android.system.OsConstants
 import com.winlator.cmod.runtime.display.xserver.Window
 import com.winlator.cmod.runtime.display.xserver.WindowManager
 import com.winlator.cmod.runtime.display.xserver.XServer
+import com.winlator.cmod.runtime.system.ProcessHelper
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,22 +31,46 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * API-independent host performance sampler.
+ * Host-side performance sampler shared by every guest graphics API.
  *
- * FPS comes from X11 frame submissions, so it covers DXVK, VKD3D, Zink,
- * WineD3D and software blits without injecting a guest Vulkan layer.
+ * The compact HUD keeps the original low-cost 500 ms sample. Per-core CPU, frequencies, process
+ * RSS/maps and thermal-zone reads run only while details are expanded.
  */
-internal class HostPerformanceMonitor(context: Context, private val xServer: XServer) :
-    WindowManager.OnWindowModificationListener {
+internal class HostPerformanceMonitor(
+    context: Context,
+    private val xServer: XServer,
+    private val configuredBackend: String,
+) : WindowManager.OnWindowModificationListener {
     private val appContext = context.applicationContext
+    private val activityManager =
+        appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
     private val tracker = FrameTracker(xServer.screenInfo.width * xServer.screenInfo.height)
-    private val _stats = MutableStateFlow(HostPerformanceStats())
+    private val _stats = MutableStateFlow(HostPerformanceStats(configuredBackend = configuredBackend))
     val stats: StateFlow<HostPerformanceStats> = _stats.asStateFlow()
     private var samplingJob: Job? = null
-    private var previousCpuMs = Process.getElapsedCpuTime()
+    private var previousHostCpuMs = Process.getElapsedCpuTime()
     private var previousWallMs = SystemClock.elapsedRealtime()
+    private var previousCpuTimes: Map<Int, CpuTimes> = emptyMap()
+    private var previousGuestCpuTicks: Map<Int, Long> = emptyMap()
+    private var previousDetailWallMs = 0L
+    private var lastDetailSampleMs = 0L
+    private var thermalSources: List<ThermalSource>? = null
+    private var detailStats = DetailStats()
+
+    @Volatile private var detailsEnabled = false
+
+    fun setDetailsEnabled(enabled: Boolean) {
+        if (enabled && !detailsEnabled) {
+            previousCpuTimes = emptyMap()
+            previousGuestCpuTicks = emptyMap()
+            previousDetailWallMs = 0L
+        }
+        detailsEnabled = enabled
+        if (enabled) lastDetailSampleMs = 0L
+    }
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
@@ -69,18 +97,16 @@ internal class HostPerformanceMonitor(context: Context, private val xServer: XSe
 
     private fun sample(): HostPerformanceStats {
         val nowWall = SystemClock.elapsedRealtime()
-        val nowCpu = Process.getElapsedCpuTime()
+        val nowHostCpu = Process.getElapsedCpuTime()
         val elapsed = (nowWall - previousWallMs).coerceAtLeast(1)
-        val cpuDelta = (nowCpu - previousCpuMs).coerceAtLeast(0)
+        val hostCpuDelta = (nowHostCpu - previousHostCpuMs).coerceAtLeast(0)
         previousWallMs = nowWall
-        previousCpuMs = nowCpu
+        previousHostCpuMs = nowHostCpu
         val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
-        val cpuPercent = (cpuDelta * 100.0 / elapsed / cores).coerceIn(0.0, 100.0).roundToInt()
+        val hostCpuPercent =
+            (hostCpuDelta * 100.0 / elapsed / cores).coerceIn(0.0, 100.0).roundToInt()
 
-        val memoryInfo =
-            ActivityManager.MemoryInfo().also {
-                (appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(it)
-            }
+        val memoryInfo = ActivityManager.MemoryInfo().also(activityManager::getMemoryInfo)
         val ramPercent =
             if (memoryInfo.totalMem > 0) {
                 ((memoryInfo.totalMem - memoryInfo.availMem) * 100.0 / memoryInfo.totalMem)
@@ -89,46 +115,209 @@ internal class HostPerformanceMonitor(context: Context, private val xServer: XSe
             } else {
                 0
             }
+        val battery = readBattery()
+        val frames = tracker.metrics()
+
+        if (detailsEnabled && nowWall - lastDetailSampleMs >= DETAIL_SAMPLE_INTERVAL_MS) {
+            detailStats = sampleDetails(nowWall)
+            lastDetailSampleMs = nowWall
+        } else if (!detailsEnabled) {
+            detailStats = DetailStats()
+        }
 
         return HostPerformanceStats(
-            fps = tracker.fps(),
-            appCpuPercent = cpuPercent,
-            gpuPercent = readGpuPercent(),
+            fps = frames.fps,
+            frameTimeP95Ms = frames.p95FrameTimeMs,
+            onePercentLowFps = frames.onePercentLowFps,
+            hostCpuPercent = hostCpuPercent,
+            systemCpuPercent = detailStats.systemCpuPercent,
+            guestCpuPercent = detailStats.guestCpuPercent,
+            cpuCores = detailStats.cpuCores,
+            gpuPercent = readFirst(GPU_LOAD_PATHS)?.let(HostPerformanceParser::parseGpuPercent),
+            gpuCurrentMhz = detailStats.gpuCurrentMhz,
+            gpuMaxMhz = detailStats.gpuMaxMhz,
             ramPercent = ramPercent,
-            appMemoryMb = (Debug.getPss() / 1024).toInt(),
-            batteryTemperatureC = readBatteryTemperature(),
+            availableMemoryMb = memoryInfo.availMem.bytesToMb(),
+            totalMemoryMb = memoryInfo.totalMem.bytesToMb(),
+            hostMemoryMb = (Debug.getPss() / 1024).toInt(),
+            guestMemoryMb = detailStats.guestMemoryMb,
+            guestProcessCount = detailStats.guestProcessCount,
+            guestThreadCount = detailStats.guestThreadCount,
+            batteryLevelPercent = battery.levelPercent,
+            batteryTemperatureC = battery.temperatureC,
+            batteryPowerW = battery.powerW,
+            socTemperatureC = detailStats.socTemperatureC,
+            configuredBackend = configuredBackend,
+            detectedBackend = detailStats.detectedBackend,
         )
     }
 
-    private fun readGpuPercent(): Int? {
-        for (path in GPU_LOAD_PATHS) {
-            val raw =
-                try {
-                    File(path).takeIf { it.canRead() }?.readText()?.trim()
-                } catch (_: Exception) {
-                    null
-                } ?: continue
-            val values = Regex("\\d+").findAll(raw).mapNotNull { it.value.toLongOrNull() }.toList()
-            val percent =
-                when {
-                    values.size >= 2 && values[1] > 0 -> values[0] * 100.0 / values[1]
-                    values.isNotEmpty() -> values[0].toDouble()
-                    else -> continue
-                }
-            return percent.roundToInt().coerceIn(0, 100)
+    private fun sampleDetails(nowWall: Long): DetailStats {
+        val currentCpuTimes =
+            HostPerformanceParser.parseCpuTimes(readText(PROC_STAT_PATH))
+        val systemCpuPercent =
+            HostPerformanceParser.usagePercent(previousCpuTimes[-1], currentCpuTimes[-1])
+        val coreCount =
+            maxOf(
+                Runtime.getRuntime().availableProcessors(),
+                (currentCpuTimes.keys.filter { it >= 0 }.maxOrNull() ?: -1) + 1,
+            )
+        val cpuCores =
+            (0 until coreCount).map { index ->
+                CpuCoreStats(
+                    index = index,
+                    usagePercent =
+                    HostPerformanceParser.usagePercent(
+                        previousCpuTimes[index],
+                        currentCpuTimes[index],
+                    ),
+                    currentMhz = readCpuFrequency(index, maximum = false),
+                    maxMhz = readCpuFrequency(index, maximum = true),
+                )
+            }
+        previousCpuTimes = currentCpuTimes
+
+        val guestPids =
+            runCatching {
+                ProcessHelper.listRunningWineProcesses()
+                    .mapNotNull(String::toIntOrNull)
+                    .take(MAX_GUEST_PROCESSES)
+            }.getOrDefault(emptyList())
+        var guestMemoryKb = 0L
+        var guestThreads = 0
+        val currentGuestTicks = mutableMapOf<Int, Long>()
+        guestPids.forEach { pid ->
+            val status =
+                HostPerformanceParser.parseProcessStatus(readText("/proc/$pid/status"))
+            guestMemoryKb += status.residentMemoryKb
+            guestThreads += status.threads
+            HostPerformanceParser.parseProcessCpuTicks(readText("/proc/$pid/stat"))
+                ?.let { currentGuestTicks[pid] = it }
+        }
+        val elapsedDetailMs = nowWall - previousDetailWallMs
+        val tickDelta =
+            currentGuestTicks.entries.sumOf { (pid, ticks) ->
+                (ticks - (previousGuestCpuTicks[pid] ?: ticks)).coerceAtLeast(0)
+            }
+        val guestCpuPercent =
+            if (previousDetailWallMs > 0 && elapsedDetailMs > 0) {
+                (tickDelta * 100_000.0 / clockTicksPerSecond / elapsedDetailMs / coreCount)
+                    .roundToInt()
+                    .coerceIn(0, 100)
+            } else {
+                null
+            }
+        previousGuestCpuTicks = currentGuestTicks
+        previousDetailWallMs = nowWall
+
+        return DetailStats(
+            systemCpuPercent = systemCpuPercent,
+            guestCpuPercent = guestCpuPercent,
+            cpuCores = cpuCores,
+            gpuCurrentMhz =
+            readFirst(GPU_CURRENT_FREQUENCY_PATHS)
+                ?.let(HostPerformanceParser::parseFrequencyMhz),
+            gpuMaxMhz =
+            readFirst(GPU_MAX_FREQUENCY_PATHS)
+                ?.let(HostPerformanceParser::parseMaxFrequencyMhz),
+            guestMemoryMb = (guestMemoryKb / 1024).toInt(),
+            guestProcessCount = guestPids.size,
+            guestThreadCount = guestThreads,
+            socTemperatureC = readSocTemperature(),
+            detectedBackend = detectGuestBackend(guestPids),
+        )
+    }
+
+    private fun readCpuFrequency(index: Int, maximum: Boolean): Int? {
+        val names =
+            if (maximum) {
+                listOf("scaling_max_freq", "cpuinfo_max_freq")
+            } else {
+                listOf("scaling_cur_freq", "cpuinfo_cur_freq")
+            }
+        for (name in names) {
+            HostPerformanceParser.parseFrequencyMhz(
+                readText("/sys/devices/system/cpu/cpu$index/cpufreq/$name"),
+            )?.let { return it }
         }
         return null
     }
 
-    private fun readBatteryTemperature(): Float? {
-        val battery =
-            try {
+    private fun readBattery(): BatteryStats {
+        val intent =
+            runCatching {
                 appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            } catch (_: Exception) {
+            }.getOrNull()
+        val temperature =
+            intent
+                ?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+                ?.takeIf { it != Int.MIN_VALUE }
+                ?.div(10f)
+        val level =
+            intent
+                ?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                ?.takeIf { it >= 0 }
+        val voltageMv =
+            intent
+                ?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1)
+                ?.takeIf { it > 0 }
+        val currentUa =
+            runCatching { batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) }
+                .getOrNull()
+                ?.takeIf { it != Int.MIN_VALUE && it != 0 }
+        val powerW =
+            if (voltageMv != null && currentUa != null) {
+                abs(currentUa.toDouble()) * voltageMv / 1_000_000_000.0
+            } else {
                 null
-            } ?: return null
-        val tenths = battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
-        return if (tenths == Int.MIN_VALUE) null else tenths / 10f
+            }
+        return BatteryStats(level, temperature, powerW?.toFloat())
+    }
+
+    private fun readSocTemperature(): Float? {
+        val sources = thermalSources ?: discoverThermalSources().also { thermalSources = it }
+        return sources.mapNotNull { HostPerformanceParser.parseTemperatureC(readText(it.path)) }.maxOrNull()
+    }
+
+    private fun discoverThermalSources(): List<ThermalSource> = File(THERMAL_ROOT)
+        .listFiles { file -> file.isDirectory && file.name.startsWith("thermal_zone") }
+        .orEmpty()
+        .mapNotNull { zone ->
+            val type = readText(File(zone, "type").path)?.lowercase() ?: return@mapNotNull null
+            if (THERMAL_TYPE_HINTS.none { it in type }) return@mapNotNull null
+            ThermalSource(File(zone, "temp").path)
+        }
+
+    private fun detectGuestBackend(pids: List<Int>): String? {
+        val detected = linkedSetOf<String>()
+        pids.forEach { pid ->
+            runCatching {
+                File("/proc/$pid/maps").useLines { lines ->
+                    lines.take(MAX_MAP_LINES).forEach { line ->
+                        val mapping = line.lowercase()
+                        if ("vkd3d" in mapping) detected += "VKD3D"
+                        if ("dxvk" in mapping) detected += "DXVK"
+                        if ("d8vk" in mapping) detected += "D8VK"
+                        if ("wined3d" in mapping) detected += "WineD3D"
+                    }
+                }
+            }
+        }
+        return detected.takeIf { it.isNotEmpty() }?.joinToString(" + ")
+    }
+
+    private fun readFirst(paths: List<String>): String? = paths.firstNotNullOfOrNull(::readText)
+
+    private fun readText(path: String): String? = try {
+        File(path).takeIf { it.isFile && it.canRead() }?.readText()?.trim()
+    } catch (_: Exception) {
+        null
+    }
+
+    private val clockTicksPerSecond: Long by lazy {
+        runCatching { Os.sysconf(OsConstants._SC_CLK_TCK) }
+            .getOrDefault(DEFAULT_CLOCK_TICKS)
+            .coerceAtLeast(1L)
     }
 
     private class FrameTracker(private val screenArea: Int) {
@@ -163,33 +352,89 @@ internal class HostPerformanceMonitor(context: Context, private val xServer: XSe
         }
 
         @Synchronized
-        fun fps(): Float {
-            if (count < 2) return 0f
+        fun metrics(): FrameMetrics {
+            if (count < 2) return FrameMetrics()
             val now = System.nanoTime()
             val newest = timestamps[(writeIndex - 1 + timestamps.size) % timestamps.size]
-            if (now - newest > IDLE_TIMEOUT_NS) return 0f
-            val cutoff = now - FPS_WINDOW_NS
-            var samples = 0
-            var oldest = newest
-            for (offset in 0 until count) {
-                val index = (writeIndex - 1 - offset + timestamps.size) % timestamps.size
-                val timestamp = timestamps[index]
-                if (timestamp < cutoff) break
-                oldest = timestamp
-                samples++
-            }
-            if (samples < 2 || newest <= oldest) return 0f
-            return ((samples - 1) * 1_000_000_000.0 / (newest - oldest)).toFloat()
+            if (now - newest > IDLE_TIMEOUT_NS) return FrameMetrics()
+            val recent =
+                buildList {
+                    for (offset in 0 until count) {
+                        val index = (writeIndex - 1 - offset + timestamps.size) % timestamps.size
+                        val timestamp = timestamps[index]
+                        if (now - timestamp > FRAME_METRIC_WINDOW_NS) break
+                        add(timestamp)
+                    }
+                }.asReversed()
+            if (recent.size < 2) return FrameMetrics()
+
+            val fpsSamples = recent.filter { newest - it <= FPS_WINDOW_NS }
+            val fps =
+                if (fpsSamples.size >= 2) {
+                    (
+                        (fpsSamples.size - 1) * 1_000_000_000.0 /
+                            (fpsSamples.last() - fpsSamples.first())
+                        ).toFloat()
+                } else {
+                    0f
+                }
+            val intervalsMs =
+                recent.zipWithNext { first, second -> (second - first) / 1_000_000f }.sorted()
+            if (intervalsMs.size < MIN_PERCENTILE_SAMPLES) return FrameMetrics(fps = fps)
+            val p95 = percentile(intervalsMs, 0.95f)
+            val p99 = percentile(intervalsMs, 0.99f)
+            return FrameMetrics(
+                fps = fps,
+                p95FrameTimeMs = p95,
+                onePercentLowFps = if (p99 > 0f) 1_000f / p99 else null,
+            )
+        }
+
+        private fun percentile(sorted: List<Float>, percentile: Float): Float {
+            val index = ((sorted.lastIndex) * percentile).roundToInt().coerceIn(0, sorted.lastIndex)
+            return sorted[index]
         }
     }
 
+    private data class DetailStats(
+        val systemCpuPercent: Int? = null,
+        val guestCpuPercent: Int? = null,
+        val cpuCores: List<CpuCoreStats> = emptyList(),
+        val gpuCurrentMhz: Int? = null,
+        val gpuMaxMhz: Int? = null,
+        val guestMemoryMb: Int = 0,
+        val guestProcessCount: Int = 0,
+        val guestThreadCount: Int = 0,
+        val socTemperatureC: Float? = null,
+        val detectedBackend: String? = null,
+    )
+
+    private data class FrameMetrics(
+        val fps: Float = 0f,
+        val p95FrameTimeMs: Float? = null,
+        val onePercentLowFps: Float? = null,
+    )
+
+    private data class BatteryStats(val levelPercent: Int?, val temperatureC: Float?, val powerW: Float?)
+
+    private data class ThermalSource(val path: String)
+
     private companion object {
         const val SAMPLE_INTERVAL_MS = 500L
+        const val DETAIL_SAMPLE_INTERVAL_MS = 1_000L
         const val MAX_FRAME_SAMPLES = 512
+        const val MIN_PERCENTILE_SAMPLES = 8
         const val MIN_WINDOW_AREA_DIVISOR = 16
         const val FPS_WINDOW_NS = 1_000_000_000L
+        const val FRAME_METRIC_WINDOW_NS = 3_000_000_000L
         const val IDLE_TIMEOUT_NS = 1_500_000_000L
         const val FALLBACK_SUPPRESSION_NS = 2_000_000_000L
+        const val MAX_GUEST_PROCESSES = 32
+        const val MAX_MAP_LINES = 8_192
+        const val DEFAULT_CLOCK_TICKS = 100L
+        const val PROC_STAT_PATH = "/proc/stat"
+        const val THERMAL_ROOT = "/sys/class/thermal"
+
         val GPU_LOAD_PATHS =
             listOf(
                 "/sys/class/kgsl/kgsl-3d0/gpubusy",
@@ -198,14 +443,55 @@ internal class HostPerformanceMonitor(context: Context, private val xServer: XSe
                 "/sys/class/misc/mali0/device/utilisation",
                 "/sys/kernel/gpu/gpu_busy",
             )
+        val GPU_CURRENT_FREQUENCY_PATHS =
+            listOf(
+                "/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq",
+                "/sys/class/kgsl/kgsl-3d0/gpuclk",
+                "/sys/class/devfreq/gpufreq/cur_freq",
+                "/sys/class/misc/mali0/device/devfreq/cur_freq",
+            )
+        val GPU_MAX_FREQUENCY_PATHS =
+            listOf(
+                "/sys/class/kgsl/kgsl-3d0/devfreq/max_freq",
+                "/sys/class/kgsl/kgsl-3d0/devfreq/available_frequencies",
+                "/sys/class/devfreq/gpufreq/max_freq",
+                "/sys/class/misc/mali0/device/devfreq/max_freq",
+            )
+        val THERMAL_TYPE_HINTS = listOf("soc", "cpu", "gpu", "ap", "skin")
     }
 }
 
+internal data class CpuCoreStats(
+    val index: Int,
+    val usagePercent: Int? = null,
+    val currentMhz: Int? = null,
+    val maxMhz: Int? = null,
+)
+
 internal data class HostPerformanceStats(
     val fps: Float = 0f,
-    val appCpuPercent: Int = 0,
+    val frameTimeP95Ms: Float? = null,
+    val onePercentLowFps: Float? = null,
+    val hostCpuPercent: Int = 0,
+    val systemCpuPercent: Int? = null,
+    val guestCpuPercent: Int? = null,
+    val cpuCores: List<CpuCoreStats> = emptyList(),
     val gpuPercent: Int? = null,
+    val gpuCurrentMhz: Int? = null,
+    val gpuMaxMhz: Int? = null,
     val ramPercent: Int = 0,
-    val appMemoryMb: Int = 0,
+    val availableMemoryMb: Int = 0,
+    val totalMemoryMb: Int = 0,
+    val hostMemoryMb: Int = 0,
+    val guestMemoryMb: Int = 0,
+    val guestProcessCount: Int = 0,
+    val guestThreadCount: Int = 0,
+    val batteryLevelPercent: Int? = null,
     val batteryTemperatureC: Float? = null,
+    val batteryPowerW: Float? = null,
+    val socTemperatureC: Float? = null,
+    val configuredBackend: String = "WineD3D / auto",
+    val detectedBackend: String? = null,
 )
+
+private fun Long.bytesToMb(): Int = (this / (1024L * 1024L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()

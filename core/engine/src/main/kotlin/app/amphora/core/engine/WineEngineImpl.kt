@@ -193,6 +193,9 @@ constructor(
                     xServer = xServer,
                     graphicsDriver = hostDriver,
                     presentMode = driverConfig["presentMode"],
+                    guestGraphicsBackend =
+                    SessionGraphicsLabel.fromDxWrapper(wnContainer.getDXWrapper()),
+                    wineVersion = wineVersion,
                 )
             // 6. Launch env: container Zink/Turnip defaults + preparer + caller + ALSA.
             val envVars = buildLaunchEnvVars(spec, wnContainer)

@@ -134,9 +134,14 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
 | Guest 图形 | Wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw 在 Dd7to9 / cnc-ddraw / D7VK 中单选；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | 默认 wrapper 包装系统 Adreno，host 直接用同一系统 Vulkan；显式 Turnip 才由 host/guest 共用 adrenotools driver |
 | 音频 | ALSA aserver 或 Wine PulseAudio | 默认 ALSA；可选 `winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`，16 KB 页或驱动不完整时保留 ALSA |
+| 性能 HUD | `HostPerformanceMonitor` / `HostPerformanceOverlay` | API 无关的 X11 present FPS；可拖动、可展开。展开后按低频率读取每核 CPU/频率、GPU 负载/频率、帧时间 P95/1% low、guest RSS/进程/线程、温度/电池功耗，以及配置和实际映射中发现的 DXVK/VKD3D/WineD3D |
 
 Pulse 代码与配套 WCP 已在功能分支完成构建验证；生产 manifest 发布含
 `winepulse` 的新 WCP 前，完整性检查会继续选择 ALSA。
+
+HUD 的详细内核指标使用普通 app 可读的 `/proc`/`sysfs`，不可读时显示 `--`，不会为了
+500 ms 采样常驻 Shizuku shell 服务；Shizuku shell 同样可能受 OEM SELinux 限制。详细
+`/proc/<pid>` 与频率/thermal I/O 只在展开状态每秒执行一次，折叠时保留低开销主指标。
 
 已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 

@@ -203,7 +203,7 @@ internal fun RuntimeSessionDrawer(
                 )
                 RuntimeToggleRow(
                     title = "Performance overlay",
-                    subtitle = "FPS, CPU, GPU, memory and temperature",
+                    subtitle = "Draggable HUD with per-core CPU, clocks, frame pacing and graphics backend",
                     checked = performanceHudVisible,
                     enabled = controlsEnabled,
                     onCheckedChange = onPerformanceHudVisibleChange,

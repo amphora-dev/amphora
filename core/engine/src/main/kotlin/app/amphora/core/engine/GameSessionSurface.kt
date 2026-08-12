@@ -37,4 +37,8 @@ data class GameSessionSurface(
     val graphicsDriver: String = "wrapper",
     /** Optional compositor present mode (`mailbox` / `fifo` / …); null → renderer default. */
     val presentMode: String? = null,
+    /** Configured guest D3D translation stack, for example `DXVK 2.7 + VKD3D 2.14`. */
+    val guestGraphicsBackend: String = "WineD3D / auto",
+    /** Active Wine content identifier. */
+    val wineVersion: String? = null,
 )
