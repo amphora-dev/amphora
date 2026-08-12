@@ -1,5 +1,7 @@
 package app.amphora.gamesession
 
+import app.amphora.core.engine.HostMetricPathDiscovery
+import java.io.File
 import kotlin.math.roundToInt
 
 internal data class CpuTimes(val total: Long, val idle: Long)
@@ -41,24 +43,48 @@ internal object HostPerformanceParser {
             .coerceIn(0, 100)
     }
 
-    fun parseGpuPercent(raw: String?): Int? {
+    fun parseGpuPercent(raw: String?): Int? = parseGpuPercent("gpubusy", raw)
+
+    fun parseGpuPercent(path: String, raw: String?): Int? {
         val values =
             Regex("\\d+")
                 .findAll(raw.orEmpty())
                 .mapNotNull { it.value.toLongOrNull() }
                 .toList()
+        val fileName = File(path).name.lowercase()
         val percent =
             when {
-                values.size >= 2 && values[1] > 0 -> values[0] * 100.0 / values[1]
+                fileName == "gpubusy" && values.size >= 2 && values[1] > 0 ->
+                    values[0] * 100.0 / values[1]
                 values.isNotEmpty() -> values[0].toDouble()
                 else -> return null
             }
-        return percent.roundToInt().coerceIn(0, 100)
+        return percent.roundToInt().takeIf { it in 0..100 }
+    }
+
+    fun parseMaliGpuBusyMs(raw: String?): Long? {
+        val lines = raw.orEmpty().lineSequence().filter(String::isNotBlank).toList()
+        val preferred = lines.getOrNull(1) ?: lines.firstOrNull() ?: return null
+        return Regex("\\d+").findAll(preferred).lastOrNull()?.value?.toLongOrNull()
     }
 
     fun parseFrequencyMhz(raw: String?): Int? {
         val value = Regex("\\d+").find(raw.orEmpty())?.value?.toLongOrNull() ?: return null
         return frequencyToMhz(value)
+    }
+
+    fun parseFrequencyMhz(path: String, raw: String?): Int? {
+        val activeLine = raw.orEmpty().lineSequence().firstOrNull { '*' in it }
+        if (File(path).name == "pp_dpm_sclk" || activeLine != null) {
+            val value =
+                Regex("\\d+")
+                    .findAll(activeLine ?: raw.orEmpty())
+                    .mapNotNull { it.value.toLongOrNull() }
+                    .lastOrNull()
+                    ?: return null
+            return frequencyToMhz(value)
+        }
+        return parseFrequencyMhz(raw)
     }
 
     fun parseMaxFrequencyMhz(raw: String?): Int? = Regex("\\d+")
@@ -99,11 +125,7 @@ internal object HostPerformanceParser {
     fun selectSessionGuestPids(descendants: Collection<Int>, winePids: Set<Int>, launcherPid: Int?): List<Int> =
         descendants.filter { it in winePids || it == launcherPid }
 
-    fun parseTemperatureC(raw: String?): Float? {
-        val value = Regex("-?\\d+").find(raw.orEmpty())?.value?.toFloatOrNull() ?: return null
-        val celsius = if (kotlin.math.abs(value) >= 1_000f) value / 1_000f else value
-        return celsius.takeIf { it in -40f..150f }
-    }
+    fun parseTemperatureC(raw: String?): Float? = HostMetricPathDiscovery.normalizeTemperatureC(raw)
 
     private fun frequencyToMhz(value: Long): Int {
         val mhz =
@@ -113,5 +135,37 @@ internal object HostPerformanceParser {
                 else -> value.toDouble()
             }
         return mhz.roundToInt().takeIf { it > 0 } ?: 0
+    }
+}
+
+internal class GpuLoadSampler {
+    private var previousPath: String? = null
+    private var previousBusyMs: Long? = null
+    private var previousWallMs = 0L
+
+    fun sample(path: String, raw: String?, nowMs: Long): Int? {
+        if (File(path).name.lowercase() != "gpuinfo") {
+            resetCumulativeState()
+            return HostPerformanceParser.parseGpuPercent(path, raw)
+        }
+
+        val busyMs = HostPerformanceParser.parseMaliGpuBusyMs(raw) ?: return null
+        val oldPath = previousPath
+        val oldBusyMs = previousBusyMs
+        val oldWallMs = previousWallMs
+        previousPath = path
+        previousBusyMs = busyMs
+        previousWallMs = nowMs
+        if (oldPath != path || oldBusyMs == null || oldWallMs <= 0L) return null
+        val elapsedMs = nowMs - oldWallMs
+        val busyDelta = busyMs - oldBusyMs
+        if (elapsedMs <= 0L || busyDelta < 0L) return null
+        return (busyDelta * 100.0 / elapsedMs).roundToInt().coerceIn(0, 100)
+    }
+
+    private fun resetCumulativeState() {
+        previousPath = null
+        previousBusyMs = null
+        previousWallMs = 0L
     }
 }

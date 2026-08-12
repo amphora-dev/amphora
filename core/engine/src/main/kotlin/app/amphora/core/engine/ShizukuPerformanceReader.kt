@@ -160,8 +160,15 @@ private class ShizukuPerformanceReader(context: Context) : AutoCloseable {
             PrivilegedPerformanceSnapshot(
                 cpuStat = json.optionalString("cpuStat"),
                 gpuLoad = json.optionalString("gpuLoad"),
+                gpuLoadPath = json.optionalString("gpuLoadPath"),
                 gpuCurrentFrequency = json.optionalString("gpuCurrentFrequency"),
+                gpuCurrentFrequencyPath = json.optionalString("gpuCurrentFrequencyPath"),
                 gpuMaxFrequency = json.optionalString("gpuMaxFrequency"),
+                gpuMaxFrequencyPath = json.optionalString("gpuMaxFrequencyPath"),
+                cpuCurrentFrequencies = json.optionalStringMap("cpuCurrentFrequencies"),
+                cpuMaxFrequencies = json.optionalStringMap("cpuMaxFrequencies"),
+                socTemperature = json.optionalString("socTemperature"),
+                socTemperaturePath = json.optionalString("socTemperaturePath"),
                 privilegedUid = json.optInt("uid", -1),
             )
         } catch (error: Throwable) {
@@ -207,15 +214,22 @@ private class ShizukuPerformanceReader(context: Context) : AutoCloseable {
 
     private companion object {
         const val TAG = "ShizukuPerformance"
-        const val SERVICE_VERSION = 2
+        const val SERVICE_VERSION = 3
     }
 }
 
 data class PrivilegedPerformanceSnapshot(
     val cpuStat: String?,
     val gpuLoad: String?,
+    val gpuLoadPath: String?,
     val gpuCurrentFrequency: String?,
+    val gpuCurrentFrequencyPath: String?,
     val gpuMaxFrequency: String?,
+    val gpuMaxFrequencyPath: String?,
+    val cpuCurrentFrequencies: Map<Int, String>,
+    val cpuMaxFrequencies: Map<Int, String>,
+    val socTemperature: String?,
+    val socTemperaturePath: String?,
     val privilegedUid: Int,
 ) {
     val hasRootAccess: Boolean
@@ -227,8 +241,15 @@ private fun String.toPerformanceSnapshot(): PrivilegedPerformanceSnapshot {
     return PrivilegedPerformanceSnapshot(
         cpuStat = json.optionalString("cpuStat"),
         gpuLoad = json.optionalString("gpuLoad"),
+        gpuLoadPath = json.optionalString("gpuLoadPath"),
         gpuCurrentFrequency = json.optionalString("gpuCurrentFrequency"),
+        gpuCurrentFrequencyPath = json.optionalString("gpuCurrentFrequencyPath"),
         gpuMaxFrequency = json.optionalString("gpuMaxFrequency"),
+        gpuMaxFrequencyPath = json.optionalString("gpuMaxFrequencyPath"),
+        cpuCurrentFrequencies = json.optionalStringMap("cpuCurrentFrequencies"),
+        cpuMaxFrequencies = json.optionalStringMap("cpuMaxFrequencies"),
+        socTemperature = json.optionalString("socTemperature"),
+        socTemperaturePath = json.optionalString("socTemperaturePath"),
         privilegedUid = json.optInt("uid", -1),
     )
 }
@@ -236,9 +257,29 @@ private fun String.toPerformanceSnapshot(): PrivilegedPerformanceSnapshot {
 private fun PrivilegedPerformanceSnapshot.toJson(): String = JSONObject()
     .put("cpuStat", cpuStat)
     .put("gpuLoad", gpuLoad)
+    .put("gpuLoadPath", gpuLoadPath)
     .put("gpuCurrentFrequency", gpuCurrentFrequency)
+    .put("gpuCurrentFrequencyPath", gpuCurrentFrequencyPath)
     .put("gpuMaxFrequency", gpuMaxFrequency)
+    .put("gpuMaxFrequencyPath", gpuMaxFrequencyPath)
+    .put("cpuCurrentFrequencies", cpuCurrentFrequencies.toJson())
+    .put("cpuMaxFrequencies", cpuMaxFrequencies.toJson())
+    .put("socTemperature", socTemperature)
+    .put("socTemperaturePath", socTemperaturePath)
     .put("uid", privilegedUid)
     .toString()
 
 private fun JSONObject.optionalString(name: String): String? = optString(name).takeIf(String::isNotBlank)
+
+private fun JSONObject.optionalStringMap(name: String): Map<Int, String> {
+    val values = optJSONObject(name) ?: return emptyMap()
+    return buildMap {
+        values.keys().forEach { key ->
+            val index = key.toIntOrNull() ?: return@forEach
+            values.optString(key).takeIf(String::isNotBlank)?.let { put(index, it) }
+        }
+    }
+}
+
+private fun Map<Int, String>.toJson(): JSONObject =
+    JSONObject().also { result -> forEach { (key, value) -> result.put(key.toString(), value) } }

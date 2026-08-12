@@ -165,8 +165,15 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                 )
                 Text(
                     buildString {
-                        append("HOST CPU ${stats.hostCpuPercent}%")
-                        append("  GPU ${stats.gpuPercent?.let { "$it%" } ?: "restricted"}")
+                        append(
+                            stats.systemCpuPercent?.let { "SYS CPU $it%" }
+                                ?: "HOST CPU ${stats.hostCpuPercent}%",
+                        )
+                        append(
+                            "  GPU ${stats.gpuPercent?.let {
+                                "$it%"
+                            } ?: metricsAccessLabel(stats.gpuMetricsAccess)}",
+                        )
                         append("  RAM ${stats.ramPercent}%")
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -184,13 +191,18 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                 if (expanded) {
                     Spacer(modifier = Modifier.padding(top = 1.dp))
                     HudDivider()
-                    MetricLine(
-                        "FRAME",
-                        buildString {
-                            append("P95 ${stats.frameTimeP95Ms?.format(1) ?: "--"} ms")
-                            append(" · 1% LOW ${stats.onePercentLowFps?.roundToInt() ?: "--"} FPS")
-                        },
-                    )
+                    if (stats.frameTimeP95Ms != null || stats.onePercentLowFps != null) {
+                        MetricLine(
+                            "FRAME",
+                            buildString {
+                                stats.frameTimeP95Ms?.let { append("P95 ${it.format(1)} ms") }
+                                stats.onePercentLowFps?.let {
+                                    if (isNotEmpty()) append(" · ")
+                                    append("1% LOW ${it.roundToInt()} FPS")
+                                }
+                            },
+                        )
+                    }
                     MetricLine(
                         "COMPOSITOR",
                         if (stats.gpuTimingSupported) {
@@ -213,26 +225,28 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                         },
                     )
                     if (stats.displayTimingSupported) {
-                        MetricLine(
-                            "PRESENT",
-                            "margin ${stats.presentMarginMs?.format(2) ?: "--"} ms" +
-                                " · refresh ${stats.refreshCycleMs?.format(2) ?: "--"} ms",
-                        )
+                        val presentDetails =
+                            buildString {
+                                stats.presentMarginMs?.let { append("margin ${it.format(2)} ms") }
+                                stats.refreshCycleMs?.let {
+                                    if (isNotEmpty()) append(" · ")
+                                    append("refresh ${it.format(2)} ms")
+                                }
+                            }
+                        if (presentDetails.isNotEmpty()) MetricLine("PRESENT", presentDetails)
                     }
                     MetricLine(
                         "CPU",
                         buildString {
-                            append("SYS ${stats.systemCpuPercent ?: "--"}%")
-                            append(" · GUEST ${stats.guestCpuPercent ?: "--"}%")
+                            append(stats.systemCpuPercent?.let { "SYS $it%" } ?: "SYS unavailable")
+                            append(stats.guestCpuPercent?.let { " · GUEST $it%" } ?: " · GUEST sampling")
                             append(" · HOST ${stats.hostCpuPercent}%")
                         },
                     )
                     CpuCoreGrid(stats.cpuCores)
                     MetricLine(
                         "GPU",
-                        stats.gpuPercent?.let {
-                            "$it% · ${frequencyLabel(stats.gpuCurrentMhz, stats.gpuMaxMhz)}"
-                        } ?: "restricted by SELinux",
+                        gpuMetricLabel(stats),
                     )
                     if (stats.cpuHeadroom != null || stats.gpuHeadroom != null) {
                         MetricLine(
@@ -269,15 +283,12 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                     )
                     MetricLine(
                         "TEMP",
-                        buildString {
-                            append("SOC ${stats.socTemperatureC?.format(1) ?: "--"}°C")
-                            append(" · BAT ${stats.batteryTemperatureC?.format(1) ?: "--"}°C")
-                        },
+                        temperatureLabel(stats),
                     )
                     MetricLine(
                         "POWER",
                         buildString {
-                            append(stats.batteryLevelPercent?.let { "$it%" } ?: "--")
+                            append(stats.batteryLevelPercent?.let { "$it%" } ?: "battery unavailable")
                             stats.batteryPowerW?.let { append(" · ${it.format(2)} W") }
                         },
                     )
@@ -307,8 +318,10 @@ private fun CpuCoreGrid(cores: List<CpuCoreStats>) {
             row.forEach { core ->
                 Text(
                     buildString {
-                        append("C${core.index} ${core.usagePercent ?: "--"}%")
+                        append("C${core.index}")
+                        core.usagePercent?.let { append(" $it%") }
                         core.currentMhz?.let { append(" ${frequencyShort(it)}") }
+                        if (core.usagePercent == null && core.currentMhz == null) append(" unavailable")
                     },
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelSmall,
@@ -375,6 +388,24 @@ private fun metricsAccessLabel(access: MetricsAccess): String = when (access) {
     MetricsAccess.RESTRICTED -> "restricted"
 }
 
+private fun gpuMetricLabel(stats: HostPerformanceStats): String = buildString {
+    stats.gpuPercent?.let { append("$it%") }
+    if (stats.gpuCurrentMhz != null || stats.gpuMaxMhz != null) {
+        if (isNotEmpty()) append(" · ")
+        append(frequencyLabel(stats.gpuCurrentMhz, stats.gpuMaxMhz))
+    }
+    if (isEmpty()) append("${metricsAccessLabel(stats.gpuMetricsAccess)}; load not exposed")
+}
+
+private fun temperatureLabel(stats: HostPerformanceStats): String = buildString {
+    stats.socTemperatureC?.let { append("SOC ${it.format(1)}°C") }
+    stats.batteryTemperatureC?.let {
+        if (isNotEmpty()) append(" · ")
+        append("BAT ${it.format(1)}°C")
+    }
+    if (isEmpty()) append("sensors not exposed")
+}
+
 private fun thermalStatusLabel(status: Int?): String = when (status) {
     0 -> "NONE"
     1 -> "LIGHT"
@@ -383,7 +414,7 @@ private fun thermalStatusLabel(status: Int?): String = when (status) {
     4 -> "CRITICAL"
     5 -> "EMERGENCY"
     6 -> "SHUTDOWN"
-    else -> "--"
+    else -> "unavailable"
 }
 
 private val HUD_PADDING = 12.dp
