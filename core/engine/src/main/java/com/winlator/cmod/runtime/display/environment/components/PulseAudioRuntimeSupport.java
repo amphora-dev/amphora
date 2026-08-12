@@ -52,10 +52,7 @@ public final class PulseAudioRuntimeSupport {
         throw new IllegalStateException("Cannot create PulseAudio staging directory: " + staging);
       }
 
-      boolean extracted =
-          TarCompressorUtils.extract(
-              TarCompressorUtils.Type.ZSTD, context, ASSET_PATH, staging);
-      if (!extracted || !hasRequiredFiles(staging)) {
+      if (!extractBundledArchive(context, staging) || !hasRequiredFiles(staging)) {
         FileUtils.delete(staging);
         throw new IllegalStateException("PulseAudio runtime asset is missing or incomplete");
       }
@@ -91,6 +88,23 @@ public final class PulseAudioRuntimeSupport {
       if (!new File(runtimeDir, relativePath).isFile()) return false;
     }
     return true;
+  }
+
+  /**
+   * PulseAudio is the APK-bundled exception: native libs ship as jniLibs and the matched
+   * {@code pactl}/AAudio module archive ships as {@code assets/pulseaudio.tzst}. Do not route
+   * this through the remote-only {@code TarCompressorUtils.extract(Context, asset)} path.
+   */
+  private static boolean extractBundledArchive(Context context, File staging) {
+    File archive = new File(context.getCacheDir(), "pulseaudio-asset.tzst");
+    try {
+      if (!FileUtils.copy(context, ASSET_PATH, archive) || !archive.isFile()) {
+        return false;
+      }
+      return TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, archive, staging);
+    } finally {
+      FileUtils.delete(archive);
+    }
   }
 
   private static void ensurePactlExecutable(File runtimeDir) {
