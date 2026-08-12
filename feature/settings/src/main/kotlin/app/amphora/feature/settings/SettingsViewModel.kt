@@ -198,10 +198,10 @@ constructor(
                         storageMessage =
                         when {
                             result.failedPaths.isNotEmpty() && result.bytesFreed > 0 ->
-                                "Freed ${formatStorageSize(result.bytesFreed)}, but some temporary " +
+                                "Freed ${formatStorageSize(result.bytesFreed)}, but some selected " +
                                     "items could not be removed."
                             result.failedPaths.isNotEmpty() ->
-                                "Could not remove the selected temporary items."
+                                "Could not remove the selected storage items."
                             result.bytesFreed > 0 ->
                                 "Freed ${formatStorageSize(result.bytesFreed)}."
                             else -> "Nothing was removed."
@@ -214,7 +214,7 @@ constructor(
                 _uiState.update {
                     it.copy(
                         deletingStorage = false,
-                        storageMessage = "Could not remove temporary items: ${error.message}",
+                        storageMessage = "Could not remove selected storage items: ${error.message}",
                     )
                 }
             }

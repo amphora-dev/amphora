@@ -727,7 +727,8 @@ public class ContainerManager {
         return false;
       }
 
-      // Move the (possibly corrupt) prefix ASIDE, not delete — games store saves inside it and this repair auto-runs at launch, so deleting would destroy saves. Rename old->backup, copy in the repaired prefix, migrate saves across; one backup kept per container as a recovery copy.
+      // Keep the old prefix only as a transactional rollback source while the
+      // replacement is copied, validated, and populated with save data.
       File targetPrefixDir = new File(containerDir, ".wine");
       File backupPrefixDir = new File(containerDir, ".wine.broken-backup");
       boolean movedAside = false;
@@ -774,9 +775,21 @@ public class ContainerManager {
             "repairContainerWinePrefix: Wine builtin linking incomplete; keeping copies");
       }
 
-      // Best-effort: carry in-prefix save data over to the repaired prefix so saves survive without manual recovery.
-      if (movedAside) {
-        migrateInPrefixSaveData(backupPrefixDir, targetPrefixDir);
+      boolean saveDataMigrated =
+          !movedAside || migrateInPrefixSaveData(backupPrefixDir, targetPrefixDir);
+      if (!WineUtils.isPrefixValid(containerDir)) {
+        Log.e("ContainerManager", "repairContainerWinePrefix: final prefix validation failed");
+        if (movedAside) {
+          FileUtils.delete(targetPrefixDir);
+          if (!backupPrefixDir.renameTo(targetPrefixDir)) {
+            Log.e(
+                "ContainerManager",
+                "repairContainerWinePrefix: CRITICAL — failed to restore prefix after "
+                    + "validation failure; original prefix preserved at "
+                    + backupPrefixDir.getAbsolutePath());
+          }
+        }
+        return false;
       }
 
       WineInfo wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion);
@@ -785,10 +798,23 @@ public class ContainerManager {
       AppliedMarks.clearOwnedByPrefix(container);
       container.saveData();
       if (movedAside) {
-        Log.i(
-            "ContainerManager",
-            "repairContainerWinePrefix: original prefix preserved for save recovery at "
-                + backupPrefixDir.getAbsolutePath());
+        if (saveDataMigrated) {
+          if (FileUtils.delete(backupPrefixDir)) {
+            Log.i(
+                "ContainerManager",
+                "repairContainerWinePrefix: removed rollback prefix after successful migration");
+          } else {
+            Log.w(
+                "ContainerManager",
+                "repairContainerWinePrefix: could not remove completed rollback prefix "
+                    + backupPrefixDir.getAbsolutePath());
+          }
+        } else {
+          Log.w(
+              "ContainerManager",
+              "repairContainerWinePrefix: save migration incomplete; rollback prefix retained at "
+                  + backupPrefixDir.getAbsolutePath());
+        }
       }
       return true;
     } finally {
@@ -796,13 +822,18 @@ public class ContainerManager {
     }
   }
 
-  /** Copy in-prefix save data from the moved-aside old prefix into the repaired one. Best-effort/non-fatal — the old prefix is kept as backup, so failure means manual recovery, not data loss. */
-  private void migrateInPrefixSaveData(File oldPrefixDir, File newPrefixDir) {
+  /**
+   * Copies in-prefix save data into the repaired prefix.
+   *
+   * @return true only when every existing save path was copied successfully
+   */
+  private boolean migrateInPrefixSaveData(File oldPrefixDir, File newPrefixDir) {
     String[] saveSubPaths = {
       "drive_c/users",
       "drive_c/ProgramData",
       "drive_c/Program Files (x86)/Steam/userdata",
     };
+    boolean succeeded = true;
     for (String sub : saveSubPaths) {
       File src = new File(oldPrefixDir, sub);
       if (!src.exists()) continue;
@@ -810,11 +841,14 @@ public class ContainerManager {
       try {
         if (!copyWinePrefixTree(src, dst)) {
           Log.w("ContainerManager", "migrateInPrefixSaveData: failed to migrate " + sub);
+          succeeded = false;
         }
       } catch (Exception e) {
         Log.w("ContainerManager", "migrateInPrefixSaveData: error migrating " + sub, e);
+        succeeded = false;
       }
     }
+    return succeeded;
   }
 
   private boolean copyWinePrefixTree(File source, File target) {

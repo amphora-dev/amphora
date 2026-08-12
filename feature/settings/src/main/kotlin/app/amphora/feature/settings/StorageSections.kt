@@ -43,6 +43,7 @@ internal fun StorageUsageSection(
 ) {
     val usage = state.storageUsage
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
+    var confirmRecoveryDelete by rememberSaveable { mutableStateOf(false) }
     SettingSection(
         title = "Storage usage",
         subtitle = "What Amphora keeps in app-private storage",
@@ -102,24 +103,39 @@ internal fun StorageUsageSection(
         HorizontalDivider()
         usage.entries.forEach { entry ->
             val removable = entry.children.mapNotNull(StorageEntry::removablePath)
+            val recoveryBackups = entry.children.mapNotNull(StorageEntry::recoveryPath)
             StorageUsageRow(
                 entry = entry,
                 totalBytes = usage.totalBytes,
                 action =
-                if (removable.isEmpty()) {
-                    null
-                } else {
-                    {
-                        TextButton(
-                            onClick = { confirmDelete = true },
-                            enabled = !state.deletingStorage,
-                        ) {
-                            Text(
-                                if (state.deletingStorage) "Cleaning…" else "Clean up",
-                                color = MaterialTheme.colorScheme.error,
-                            )
+                when {
+                    removable.isNotEmpty() -> {
+                        {
+                            TextButton(
+                                onClick = { confirmDelete = true },
+                                enabled = !state.deletingStorage,
+                            ) {
+                                Text(
+                                    if (state.deletingStorage) "Cleaning…" else "Clean up",
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
                         }
                     }
+                    recoveryBackups.isNotEmpty() -> {
+                        {
+                            TextButton(
+                                onClick = { confirmRecoveryDelete = true },
+                                enabled = !state.deletingStorage,
+                            ) {
+                                Text(
+                                    if (state.deletingStorage) "Deleting…" else "Delete backup",
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                    }
+                    else -> null
                 },
             )
         }
@@ -161,6 +177,46 @@ internal fun StorageUsageSection(
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (confirmRecoveryDelete && usage != null) {
+        val recoveryBackups =
+            usage.entries
+                .flatMap(StorageEntry::children)
+                .filter { it.recoveryPath != null }
+        AlertDialog(
+            onDismissRequest = { confirmRecoveryDelete = false },
+            title = { Text("Delete Wine prefix recovery backup?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "This permanently removes the previous Wine prefix copy. You will no longer " +
+                            "be able to recover saves or configuration from it. The current working " +
+                            "prefix is kept.",
+                    )
+                    recoveryBackups.forEach {
+                        Text(
+                            "${it.label} · ${formatStorageSize(it.bytes)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmRecoveryDelete = false
+                        onDeleteUnused(recoveryBackups.mapNotNull(StorageEntry::recoveryPath))
+                    },
+                ) {
+                    Text("Delete permanently", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRecoveryDelete = false }) { Text("Keep backup") }
             },
         )
     }

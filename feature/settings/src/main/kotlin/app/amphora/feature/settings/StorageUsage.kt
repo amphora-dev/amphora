@@ -21,6 +21,8 @@ data class StorageEntry(
     val children: List<StorageEntry> = emptyList(),
     /** Set only for entries the user is allowed to delete from this screen. */
     val removablePath: String? = null,
+    /** Set only for prefix recovery copies that require a separate destructive confirmation. */
+    val recoveryPath: String? = null,
 )
 
 data class StorageUsage(
@@ -185,8 +187,9 @@ object StorageUsageScanner {
                         .map {
                             StorageEntry(
                                 label = it.name,
-                                detail = "Prefix recovery backup · preserved",
+                                detail = "Prefix recovery backup · can be deleted explicitly",
                                 bytes = sizeOf(it),
+                                recoveryPath = it.absolutePath,
                             )
                         }
                 }
@@ -310,13 +313,15 @@ object StorageUsageScanner {
     private fun pathKind(file: File): String = if (file.isDirectory) "Folder" else "File"
 
     /**
-     * Deletes only old app-managed temporary data or manifest-superseded WCP installs.
+     * Deletes only old app-managed temporary data, manifest-superseded WCP installs,
+     * or an explicitly selected Wine prefix recovery backup.
      *
      * The caller passes paths measured earlier, so every one is re-validated here.
      * A WCP directory is eligible only while the manifest-pinned replacement and its
-     * source SHA marker are present. Containers, active components and Wine prefix
-     * backups are never eligible. A target is first atomically moved into a managed
-     * quarantine so recursive failure cannot leave a half-deleted original.
+     * source SHA marker are present. A recovery backup is eligible only beside the
+     * active container's valid live prefix. Containers and active components are
+     * never eligible. A target is first atomically moved into a managed quarantine
+     * so recursive failure cannot leave a half-deleted original.
      */
     internal fun deleteUnusedGuestData(
         context: Context,
@@ -330,7 +335,8 @@ object StorageUsageScanner {
         paths.forEach { path ->
             val requested = File(path).absoluteFile
             if (!isManagedTemporary(requested, cacheDir) &&
-                !isSupersededComponent(requested, context, pinnedWcpInstalls)
+                !isSupersededComponent(requested, context, pinnedWcpInstalls) &&
+                !isRecoveryBackup(requested, context)
             ) {
                 failed += path
                 return@forEach
@@ -375,6 +381,22 @@ object StorageUsageScanner {
         if (target.name == pin.directoryName) return false
         val current = File(target.parentFile, pin.directoryName)
         return InstalledContentPin.matches(current, pin.sha256)
+    }
+
+    internal fun isRecoveryBackup(requested: File, context: Context): Boolean {
+        if (!requested.isDirectory || isSymlink(requested) || !isOldPrefix(requested.name)) {
+            return false
+        }
+        val rootDir =
+            try {
+                resolve(ImageFs.find(context).rootDir)
+            } catch (_: RuntimeException) {
+                return false
+            }
+        val activeHome = resolve(File(File(rootDir, "home"), ImageFs.USER))
+        val target = resolve(requested)
+        if (target.parentFile != activeHome || target.name == ".wine") return false
+        return com.winlator.cmod.runtime.wine.WineUtils.isPrefixValid(activeHome)
     }
 
     internal fun isManagedTemporary(

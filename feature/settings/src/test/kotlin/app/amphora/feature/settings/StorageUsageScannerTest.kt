@@ -220,6 +220,46 @@ class StorageUsageScannerTest {
         }
     }
 
+    @Test
+    fun recoveryBackupRequiresExplicitPathAndKeepsValidLivePrefix() {
+        val root = Files.createTempDirectory("storage-recovery-").toFile()
+        try {
+            val cache = root.resolve("cache").apply { mkdirs() }
+            val home = root.resolve("imagefs/home").apply { mkdirs() }
+            val container = home.resolve("xuser-1").apply { mkdirs() }
+            val prefix = container.resolve(".wine").apply {
+                resolve("drive_c/windows").mkdirs()
+                resolve("system.reg").writeText("WINE REGISTRY Version 2\n[System]\n")
+                resolve("user.reg").writeText("WINE REGISTRY Version 2\n[User]\n")
+            }
+            val backup = container.resolve(".wine.broken-backup").apply {
+                mkdirs()
+                resolve("save.dat").writeText("recover")
+            }
+            Files.createSymbolicLink(home.resolve("xuser").toPath(), container.toPath())
+            val context = mockk<Context>()
+            every { context.filesDir } returns root
+            every { context.cacheDir } returns cache
+
+            val usage = StorageUsageScanner.scan(context)
+            val recovery = usage.entries.first { it.label == "Other containers and recovery backups" }
+            assertEquals(backup.canonicalPath, recovery.children.single().recoveryPath)
+
+            val result =
+                StorageUsageScanner.deleteUnusedGuestData(
+                    context,
+                    listOf(backup.absolutePath),
+                )
+
+            assertEquals(7L, result.bytesFreed)
+            assertTrue(result.failedPaths.isEmpty())
+            assertFalse(backup.exists())
+            assertTrue(prefix.resolve("system.reg").isFile)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     private companion object {
         const val TWO_DAYS_MS = 2L * 24L * 60L * 60L * 1_000L
         val PIN_SHA = "b".repeat(64)
