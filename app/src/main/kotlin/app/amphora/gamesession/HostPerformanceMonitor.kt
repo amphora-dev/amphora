@@ -16,11 +16,14 @@ import android.os.health.SystemHealthManager
 import android.system.Os
 import android.system.OsConstants
 import androidx.annotation.RequiresApi
+import app.amphora.core.engine.PrivilegedPerformanceSnapshot
+import app.amphora.core.engine.ShizukuPerformanceReader
 import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
 import com.winlator.cmod.runtime.display.xserver.Atom
 import com.winlator.cmod.runtime.display.xserver.Window
 import com.winlator.cmod.runtime.display.xserver.WindowManager
 import com.winlator.cmod.runtime.display.xserver.XServer
+import com.winlator.cmod.runtime.system.ProcessHelper
 import java.io.File
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
@@ -55,6 +58,7 @@ internal class HostPerformanceMonitor(
         appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
     private val powerManager = appContext.getSystemService(PowerManager::class.java)
+    private val privilegedReader = ShizukuPerformanceReader(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
     private val tracker = FrameTracker(xServer.screenInfo.width * xServer.screenInfo.height)
@@ -76,8 +80,11 @@ internal class HostPerformanceMonitor(
     private var lastSystemHeadroomSampleMs = 0L
     private var cachedCpuHeadroom: Float? = null
     private var cachedGpuHeadroom: Float? = null
+    private var lastPrivilegedSampleMs = 0L
+    private var privilegedSnapshot: PrivilegedPerformanceSnapshot? = null
     private val telemetryBindingLock = Any()
     private var telemetryRenderer: VulkanRenderer? = null
+    private val inaccessibleStaticPaths = mutableSetOf<String>()
 
     @Volatile private var detailsEnabled = false
 
@@ -109,6 +116,7 @@ internal class HostPerformanceMonitor(
         updateRendererTelemetryBinding()
         xServer.windowManager.removeOnWindowModificationListener(this)
         samplingJob?.cancel()
+        privilegedReader.close()
         scope.cancel()
     }
 
@@ -140,6 +148,38 @@ internal class HostPerformanceMonitor(
         val battery = readBattery()
         val frames = tracker.metrics()
         val rendererTelemetry = xServer.renderer?.performanceTelemetry
+        if (nowWall - lastPrivilegedSampleMs >= PRIVILEGED_SAMPLE_INTERVAL_MS) {
+            privilegedReader.read()?.let { privilegedSnapshot = it }
+            lastPrivilegedSampleMs = nowWall
+        }
+        val compositorFps =
+            rendererTelemetry?.let { telemetry ->
+                telemetry.compositorPresentFps
+                    .finiteFloat()
+                    ?.takeIf { telemetry.compositorPresentSampleCount > 1 }
+            }
+        val compositorIntervalMs =
+            rendererTelemetry?.let { telemetry ->
+                telemetry.compositorPresentIntervalMs
+                    .finiteFloat()
+                    ?.takeIf { telemetry.compositorPresentSampleCount > 1 }
+            }
+        val actualDisplayFps =
+            rendererTelemetry?.let { telemetry ->
+                telemetry.displayFps
+                    .finiteFloat()
+                    ?.takeIf { telemetry.displaySampleCount > 1 }
+            }
+        val actualPresentIntervalMs =
+            rendererTelemetry?.let { telemetry ->
+                telemetry.presentIntervalMs
+                    .finiteFloat()
+                    ?.takeIf { telemetry.displaySampleCount > 1 }
+            }
+        val localGpuLoad = readFirst(GPU_LOAD_PATHS)
+        val gpuPercent =
+            (localGpuLoad ?: privilegedSnapshot?.gpuLoad)
+                ?.let(HostPerformanceParser::parseGpuPercent)
         if (nowWall - lastHostPssSampleMs >= PSS_SAMPLE_INTERVAL_MS) {
             cachedHostMemoryMb = (Debug.getPss() / 1024).toInt()
             lastHostPssSampleMs = nowWall
@@ -153,21 +193,53 @@ internal class HostPerformanceMonitor(
         }
 
         return HostPerformanceStats(
-            fps = frames.fps,
-            frameTimeP95Ms = frames.p95FrameTimeMs,
-            onePercentLowFps = frames.onePercentLowFps,
+            fps = frames.fps.takeIf { it > 0f } ?: compositorFps ?: 0f,
+            frameTimeP95Ms =
+            frames.p95FrameTimeMs
+                ?: rendererTelemetry?.compositorFrameP95Ms?.finiteFloat(),
+            onePercentLowFps =
+            frames.onePercentLowFps
+                ?: rendererTelemetry?.compositorOnePercentLowFps?.finiteFloat(),
             compositorGpuMs = rendererTelemetry?.gpuRenderMs?.finiteFloat(),
-            displayFps = rendererTelemetry?.displayFps?.finiteFloat(),
-            presentIntervalMs = rendererTelemetry?.presentIntervalMs?.finiteFloat(),
+            displayFps = actualDisplayFps ?: compositorFps,
+            presentIntervalMs = actualPresentIntervalMs ?: compositorIntervalMs,
             presentMarginMs = rendererTelemetry?.presentMarginMs?.finiteFloat(),
             refreshCycleMs = rendererTelemetry?.refreshCycleMs?.finiteFloat(),
             gpuTimingSupported = rendererTelemetry?.gpuTimingSupported == true,
-            displayTimingSupported = rendererTelemetry?.displayTimingSupported == true,
+            displayTimingSupported = actualDisplayFps != null || compositorFps != null,
+            displayTimingSource =
+            when {
+                actualDisplayFps != null -> DisplayTimingSource.ACTUAL
+                compositorFps != null -> DisplayTimingSource.COMPOSITOR
+                else -> DisplayTimingSource.UNAVAILABLE
+            },
             hostCpuPercent = hostCpuPercent,
             systemCpuPercent = detailStats.systemCpuPercent,
             guestCpuPercent = detailStats.guestCpuPercent,
             cpuCores = detailStats.cpuCores,
-            gpuPercent = readFirst(GPU_LOAD_PATHS)?.let(HostPerformanceParser::parseGpuPercent),
+            gpuPercent = gpuPercent,
+            gpuMetricsAccess =
+            when {
+                localGpuLoad != null -> MetricsAccess.APP
+                privilegedSnapshot?.gpuLoad != null ->
+                    if (privilegedSnapshot?.hasRootAccess == true) {
+                        MetricsAccess.SHIZUKU_ROOT
+                    } else {
+                        MetricsAccess.SHIZUKU_SHELL
+                    }
+                else -> MetricsAccess.RESTRICTED
+            },
+            systemMetricsAccess =
+            when {
+                readText(PROC_STAT_PATH) != null -> MetricsAccess.APP
+                privilegedSnapshot?.cpuStat != null ->
+                    if (privilegedSnapshot?.hasRootAccess == true) {
+                        MetricsAccess.SHIZUKU_ROOT
+                    } else {
+                        MetricsAccess.SHIZUKU_SHELL
+                    }
+                else -> MetricsAccess.RESTRICTED
+            },
             gpuCurrentMhz = detailStats.gpuCurrentMhz,
             gpuMaxMhz = detailStats.gpuMaxMhz,
             ramPercent = ramPercent,
@@ -202,7 +274,9 @@ internal class HostPerformanceMonitor(
 
     private fun sampleDetails(nowWall: Long): DetailStats {
         val currentCpuTimes =
-            HostPerformanceParser.parseCpuTimes(readText(PROC_STAT_PATH))
+            HostPerformanceParser.parseCpuTimes(
+                readText(PROC_STAT_PATH) ?: privilegedSnapshot?.cpuStat,
+            )
         val systemCpuPercent =
             HostPerformanceParser.usagePercent(previousCpuTimes[-1], currentCpuTimes[-1])
         val coreCount =
@@ -225,7 +299,7 @@ internal class HostPerformanceMonitor(
             }
         previousCpuTimes = currentCpuTimes
 
-        val guestPids = collectGuestProcessTree(guestProcessId.value)
+        val guestPids = collectGuestProcesses(Process.myPid(), guestProcessId.value)
         var guestMemoryKb = 0L
         var guestThreads = 0
         val currentGuestTicks = mutableMapOf<Int, Long>()
@@ -266,10 +340,10 @@ internal class HostPerformanceMonitor(
             guestCpuPercent = guestCpuPercent,
             cpuCores = cpuCores,
             gpuCurrentMhz =
-            readFirst(GPU_CURRENT_FREQUENCY_PATHS)
+            (readFirst(GPU_CURRENT_FREQUENCY_PATHS) ?: privilegedSnapshot?.gpuCurrentFrequency)
                 ?.let(HostPerformanceParser::parseFrequencyMhz),
             gpuMaxMhz =
-            readFirst(GPU_MAX_FREQUENCY_PATHS)
+            (readFirst(GPU_MAX_FREQUENCY_PATHS) ?: privilegedSnapshot?.gpuMaxFrequency)
                 ?.let(HostPerformanceParser::parseMaxFrequencyMhz),
             guestMemoryMb = (guestMemoryKb / 1024).toInt(),
             guestProcessCount = guestPids.size,
@@ -283,21 +357,38 @@ internal class HostPerformanceMonitor(
         )
     }
 
-    private fun collectGuestProcessTree(rootPid: Int?): List<Int> {
-        if (rootPid == null || rootPid <= 0) return emptyList()
+    /**
+     * Wine's exec interceptor reparents processes to the Android session host, so the launcher PID
+     * is only one sibling rather than the root of the whole guest tree. Walk every descendant of
+     * this :session process, then retain ProcessHelper's Wine/Box64 process set.
+     */
+    private fun collectGuestProcesses(sessionHostPid: Int, launcherPid: Int?): List<Int> {
         val pending = ArrayDeque<Int>()
-        val processes = linkedSetOf<Int>()
-        pending.add(rootPid)
-        while (pending.isNotEmpty() && processes.size < MAX_GUEST_PROCESSES) {
-            val pid = pending.removeFirst()
-            if (!processes.add(pid)) continue
-            HostPerformanceParser.parseChildPids(
-                readText("/proc/$pid/task/$pid/children"),
-            )
-                .forEach(pending::addLast)
+        val descendants = linkedSetOf<Int>()
+        readChildPids(sessionHostPid).forEach(pending::addLast)
+        if (pending.isEmpty() && launcherPid != null && launcherPid > 0) {
+            pending.add(launcherPid)
         }
-        return processes.toList()
+        while (pending.isNotEmpty() && descendants.size < MAX_GUEST_PROCESSES) {
+            val pid = pending.removeFirst()
+            if (!descendants.add(pid)) continue
+            readChildPids(pid).forEach(pending::addLast)
+        }
+        val winePids =
+            ProcessHelper.listRunningWineProcesses()
+                .mapNotNull(String::toIntOrNull)
+                .toSet()
+        return HostPerformanceParser.selectSessionGuestPids(descendants, winePids, launcherPid)
     }
+
+    private fun readChildPids(pid: Int): List<Int> =
+        File("/proc/$pid/task")
+            .listFiles { file -> file.isDirectory && file.name.all(Char::isDigit) }
+            .orEmpty()
+            .flatMap { task ->
+                HostPerformanceParser.parseChildPids(readText(File(task, "children").path))
+            }
+            .distinct()
 
     @RequiresApi(36)
     private fun updateSystemHeadroom(nowWall: Long) {
@@ -428,8 +519,19 @@ internal class HostPerformanceMonitor(
     private fun readFirst(paths: List<String>): String? = paths.firstNotNullOfOrNull(::readText)
 
     private fun readText(path: String): String? = try {
-        File(path).takeIf { it.isFile && it.canRead() }?.readText()?.trim()
+        if (path in inaccessibleStaticPaths) return null
+        val file = File(path)
+        if (!file.isFile || !file.canRead()) {
+            if (path == PROC_STAT_PATH || path.startsWith("/sys/")) {
+                inaccessibleStaticPaths += path
+            }
+            return null
+        }
+        file.readText().trim()
     } catch (_: Exception) {
+        if (path == PROC_STAT_PATH || path.startsWith("/sys/")) {
+            inaccessibleStaticPaths += path
+        }
         null
     }
 
@@ -552,6 +654,7 @@ internal class HostPerformanceMonitor(
     private companion object {
         const val SAMPLE_INTERVAL_MS = 500L
         const val DETAIL_SAMPLE_INTERVAL_MS = 1_000L
+        const val PRIVILEGED_SAMPLE_INTERVAL_MS = 1_000L
         const val PSS_SAMPLE_INTERVAL_MS = 5_000L
         const val THERMAL_HEADROOM_INTERVAL_MS = 10_000L
         const val THERMAL_FORECAST_SECONDS = 10
@@ -613,6 +716,7 @@ internal data class HostPerformanceStats(
     val refreshCycleMs: Float? = null,
     val gpuTimingSupported: Boolean = false,
     val displayTimingSupported: Boolean = false,
+    val displayTimingSource: DisplayTimingSource = DisplayTimingSource.UNAVAILABLE,
     val hostCpuPercent: Int = 0,
     val systemCpuPercent: Int? = null,
     val guestCpuPercent: Int? = null,
@@ -620,6 +724,8 @@ internal data class HostPerformanceStats(
     val gpuPercent: Int? = null,
     val gpuCurrentMhz: Int? = null,
     val gpuMaxMhz: Int? = null,
+    val gpuMetricsAccess: MetricsAccess = MetricsAccess.RESTRICTED,
+    val systemMetricsAccess: MetricsAccess = MetricsAccess.RESTRICTED,
     val ramPercent: Int = 0,
     val availableMemoryMb: Int = 0,
     val totalMemoryMb: Int = 0,
@@ -638,6 +744,19 @@ internal data class HostPerformanceStats(
     val configuredBackend: String = "WineD3D / auto",
     val detectedBackend: String? = null,
 )
+
+internal enum class DisplayTimingSource {
+    ACTUAL,
+    COMPOSITOR,
+    UNAVAILABLE,
+}
+
+internal enum class MetricsAccess {
+    APP,
+    SHIZUKU_SHELL,
+    SHIZUKU_ROOT,
+    RESTRICTED,
+}
 
 private fun Long.bytesToMb(): Int = (this / (1024L * 1024L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 

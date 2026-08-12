@@ -80,6 +80,14 @@ static bool record_and_submit_frame(VkRenderer* r);
 static void create_telemetry_resources(VkRenderer* r);
 static void destroy_telemetry_resources(VkRenderer* r);
 static void collect_gpu_timing(VkRenderer* r, VkFrame* f, uint32_t frame_index);
+static void record_compositor_present(VkRenderer* r);
+static void calculate_compositor_present(
+        const VkRendererTelemetry* t,
+        uint64_t now_ns,
+        double* fps,
+        double* interval_ms,
+        double* p95_ms,
+        double* one_percent_low_fps);
 static void reset_display_timing(VkRenderer* r);
 static void collect_display_timing(VkRenderer* r);
 
@@ -639,6 +647,103 @@ static void destroy_telemetry_resources(VkRenderer* r) {
     t->gpu_timing_enabled = false;
     t->display_timing_enabled = false;
     t->sampling_enabled = false;
+}
+
+static uint64_t monotonic_time_ns(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+}
+
+static void record_compositor_present(VkRenderer* r) {
+    VkRendererTelemetry* t = &r->telemetry;
+    uint64_t now_ns = monotonic_time_ns();
+    pthread_mutex_lock(&t->mutex);
+    if (t->sampling_enabled) {
+        t->compositor_present_ns[t->compositor_present_index] = now_ns;
+        t->compositor_present_index =
+            (t->compositor_present_index + 1u) % VK_PRESENT_TIMING_SAMPLES;
+        if (t->compositor_present_count < VK_PRESENT_TIMING_SAMPLES) {
+            t->compositor_present_count++;
+        }
+        t->compositor_present_sample_count++;
+    }
+    pthread_mutex_unlock(&t->mutex);
+}
+
+static int compare_double(const void* first, const void* second) {
+    double a = *(const double*)first;
+    double b = *(const double*)second;
+    return (a > b) - (a < b);
+}
+
+static void calculate_compositor_present(
+        const VkRendererTelemetry* t,
+        uint64_t now_ns,
+        double* fps,
+        double* interval_ms,
+        double* p95_ms,
+        double* one_percent_low_fps) {
+    *fps = NAN;
+    *interval_ms = NAN;
+    *p95_ms = NAN;
+    *one_percent_low_fps = NAN;
+    if (t->compositor_present_count == 0) return;
+
+    uint32_t newest_index =
+        (t->compositor_present_index + VK_PRESENT_TIMING_SAMPLES - 1u)
+        % VK_PRESENT_TIMING_SAMPLES;
+    uint64_t newest_ns = t->compositor_present_ns[newest_index];
+    if (now_ns > newest_ns + 1500000000ULL) {
+        *fps = 0.0;
+        return;
+    }
+
+    uint32_t samples = 1;
+    uint64_t oldest_ns = newest_ns;
+    while (samples < t->compositor_present_count) {
+        uint32_t index =
+            (newest_index + VK_PRESENT_TIMING_SAMPLES - samples)
+            % VK_PRESENT_TIMING_SAMPLES;
+        uint64_t timestamp_ns = t->compositor_present_ns[index];
+        if (newest_ns - timestamp_ns > 1000000000ULL) break;
+        oldest_ns = timestamp_ns;
+        samples++;
+    }
+    if (samples < 2 || newest_ns <= oldest_ns) return;
+
+    double duration_ns = (double)(newest_ns - oldest_ns);
+    *fps = (double)(samples - 1u) * 1000000000.0 / duration_ns;
+    *interval_ms = duration_ns / (double)(samples - 1u) / 1000000.0;
+
+    if (samples >= 9u) {
+        double intervals_ms[VK_PRESENT_TIMING_SAMPLES - 1u];
+        uint32_t interval_count = 0;
+        uint32_t oldest_index =
+            (newest_index + VK_PRESENT_TIMING_SAMPLES - (samples - 1u))
+            % VK_PRESENT_TIMING_SAMPLES;
+        uint64_t previous_ns = t->compositor_present_ns[oldest_index];
+        for (uint32_t offset = 1; offset < samples; offset++) {
+            uint32_t index = (oldest_index + offset) % VK_PRESENT_TIMING_SAMPLES;
+            uint64_t timestamp_ns = t->compositor_present_ns[index];
+            if (timestamp_ns > previous_ns) {
+                intervals_ms[interval_count++] =
+                    (double)(timestamp_ns - previous_ns) / 1000000.0;
+            }
+            previous_ns = timestamp_ns;
+        }
+        if (interval_count >= 8u) {
+            qsort(intervals_ms, interval_count, sizeof(intervals_ms[0]), compare_double);
+            uint32_t p95_index =
+                (uint32_t)ceil((double)(interval_count - 1u) * 0.95);
+            uint32_t p99_index =
+                (uint32_t)ceil((double)(interval_count - 1u) * 0.99);
+            *p95_ms = intervals_ms[p95_index];
+            if (intervals_ms[p99_index] > 0.0) {
+                *one_percent_low_fps = 1000.0 / intervals_ms[p99_index];
+            }
+        }
+    }
 }
 
 static void record_gpu_timing_failure(VkRenderer* r, const char* reason) {
@@ -2770,6 +2875,9 @@ static bool record_and_submit_frame(VkRenderer* r) {
         }
     }
     pthread_mutex_unlock(&r->queue_mutex);
+    if (pr == VK_SUCCESS || pr == VK_SUBOPTIMAL_KHR) {
+        record_compositor_present(r);
+    }
     if (r->telemetry.display_timing_enabled
         && (pr == VK_SUCCESS || pr == VK_SUBOPTIMAL_KHR)
         && (++r->telemetry.present_query_counter % 8u) == 0u) {
@@ -3200,6 +3308,9 @@ JNIEXPORT void JNICALL JNI_FN(nativeSetPerformanceTelemetryEnabled)(
         }
         pthread_mutex_lock(&t->mutex);
         t->sampling_enabled = true;
+        t->compositor_present_index = 0;
+        t->compositor_present_count = 0;
+        t->compositor_present_sample_count = 0;
         t->gpu_query_counter = 0;
         t->gpu_render_ms = 0.0;
         t->gpu_sample_count = 0;
@@ -3223,7 +3334,7 @@ JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeGetPerformanceTelemetry)(
     VkRenderer* r = (VkRenderer*)(intptr_t)handle;
     if (!r) return NULL;
 
-    jdouble values[8];
+    jdouble values[13];
     pthread_mutex_lock(&r->telemetry.mutex);
     double display_fps = r->telemetry.display_fps;
     if (r->telemetry.actual_present_count > 0) {
@@ -3231,11 +3342,20 @@ JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeGetPerformanceTelemetry)(
             (r->telemetry.actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u)
             % VK_PRESENT_TIMING_SAMPLES;
         uint64_t newest = r->telemetry.actual_present_ns[newest_index];
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        uint64_t now_ns = (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+        uint64_t now_ns = monotonic_time_ns();
         if (now_ns > newest + 1500000000ULL) display_fps = 0.0;
     }
+    double compositor_fps;
+    double compositor_interval_ms;
+    double compositor_p95_ms;
+    double compositor_one_percent_low_fps;
+    calculate_compositor_present(
+        &r->telemetry,
+        monotonic_time_ns(),
+        &compositor_fps,
+        &compositor_interval_ms,
+        &compositor_p95_ms,
+        &compositor_one_percent_low_fps);
     values[0] = r->telemetry.gpu_sample_count > 0 ? r->telemetry.gpu_render_ms : NAN;
     values[1] = r->telemetry.display_sample_count > 1 ? display_fps : NAN;
     values[2] = r->telemetry.display_sample_count > 1
@@ -3249,11 +3369,16 @@ JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeGetPerformanceTelemetry)(
         + (r->telemetry.display_timing_enabled ? 2.0 : 0.0);
     values[6] = (jdouble)r->telemetry.gpu_sample_count;
     values[7] = (jdouble)r->telemetry.display_sample_count;
+    values[8] = compositor_fps;
+    values[9] = compositor_interval_ms;
+    values[10] = (jdouble)r->telemetry.compositor_present_sample_count;
+    values[11] = compositor_p95_ms;
+    values[12] = compositor_one_percent_low_fps;
     pthread_mutex_unlock(&r->telemetry.mutex);
 
-    jdoubleArray result = (*env)->NewDoubleArray(env, 8);
+    jdoubleArray result = (*env)->NewDoubleArray(env, 13);
     if (!result) return NULL;
-    (*env)->SetDoubleArrayRegion(env, result, 0, 8, values);
+    (*env)->SetDoubleArrayRegion(env, result, 0, 13, values);
     return result;
 }
 

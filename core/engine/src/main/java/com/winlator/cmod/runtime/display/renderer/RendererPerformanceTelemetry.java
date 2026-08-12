@@ -4,7 +4,20 @@ package com.winlator.cmod.runtime.display.renderer;
 public final class RendererPerformanceTelemetry {
   public static final RendererPerformanceTelemetry UNAVAILABLE =
       new RendererPerformanceTelemetry(
-          Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN, false, false, 0, 0);
+          Double.NaN,
+          Double.NaN,
+          Double.NaN,
+          Double.NaN,
+          Double.NaN,
+          false,
+          false,
+          0,
+          0,
+          Double.NaN,
+          Double.NaN,
+          0,
+          Double.NaN,
+          Double.NaN);
 
   public final double gpuRenderMs;
   public final double displayFps;
@@ -15,6 +28,11 @@ public final class RendererPerformanceTelemetry {
   public final boolean displayTimingSupported;
   public final long gpuSampleCount;
   public final long displaySampleCount;
+  public final double compositorPresentFps;
+  public final double compositorPresentIntervalMs;
+  public final long compositorPresentSampleCount;
+  public final double compositorFrameP95Ms;
+  public final double compositorOnePercentLowFps;
 
   private RendererPerformanceTelemetry(
       double gpuRenderMs,
@@ -25,7 +43,12 @@ public final class RendererPerformanceTelemetry {
       boolean gpuTimingSupported,
       boolean displayTimingSupported,
       long gpuSampleCount,
-      long displaySampleCount) {
+      long displaySampleCount,
+      double compositorPresentFps,
+      double compositorPresentIntervalMs,
+      long compositorPresentSampleCount,
+      double compositorFrameP95Ms,
+      double compositorOnePercentLowFps) {
     this.gpuRenderMs = finiteOrNaN(gpuRenderMs);
     this.displayFps = finiteOrNaN(displayFps);
     this.presentIntervalMs = finiteOrNaN(presentIntervalMs);
@@ -35,6 +58,11 @@ public final class RendererPerformanceTelemetry {
     this.displayTimingSupported = displayTimingSupported;
     this.gpuSampleCount = Math.max(0, gpuSampleCount);
     this.displaySampleCount = Math.max(0, displaySampleCount);
+    this.compositorPresentFps = finiteOrNaN(compositorPresentFps);
+    this.compositorPresentIntervalMs = finiteOrNaN(compositorPresentIntervalMs);
+    this.compositorPresentSampleCount = Math.max(0, compositorPresentSampleCount);
+    this.compositorFrameP95Ms = finiteOrNaN(compositorFrameP95Ms);
+    this.compositorOnePercentLowFps = finiteOrNaN(compositorOnePercentLowFps);
   }
 
   static RendererPerformanceTelemetry fromNative(double[] values) {
@@ -49,7 +77,12 @@ public final class RendererPerformanceTelemetry {
         (flags & 1) != 0,
         (flags & 2) != 0,
         (long) values[6],
-        (long) values[7]);
+        (long) values[7],
+        values.length > 8 ? values[8] : Double.NaN,
+        values.length > 9 ? values[9] : Double.NaN,
+        values.length > 10 ? (long) values[10] : 0,
+        values.length > 11 ? values[11] : Double.NaN,
+        values.length > 12 ? values[12] : Double.NaN);
   }
 
   private static double finiteOrNaN(double value) {
