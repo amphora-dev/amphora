@@ -85,8 +85,8 @@ internal fun StorageUsageSection(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    "${formatStorageSize(usage.reclaimableBytes)} is caches and managed " +
-                        "temporary data.",
+                    "${formatStorageSize(usage.reclaimableBytes)} can be reclaimed from caches, " +
+                        "temporary data, and superseded components.",
                     modifier = Modifier.padding(12.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -115,7 +115,7 @@ internal fun StorageUsageSection(
                             enabled = !state.deletingStorage,
                         ) {
                             Text(
-                                if (state.deletingStorage) "Deleting…" else "Delete",
+                                if (state.deletingStorage) "Cleaning…" else "Clean up",
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
@@ -132,12 +132,13 @@ internal fun StorageUsageSection(
                 .filter { it.removablePath != null }
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete temporary data?") },
+            title = { Text("Clean up reclaimable data?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        "This removes only old files created for interrupted Amphora " +
-                            "operations. Containers and Wine prefix recovery backups are kept.",
+                        "This removes superseded component versions and old files from interrupted " +
+                            "Amphora operations. Current components, containers, and Wine prefix " +
+                            "recovery backups are kept.",
                     )
                     removable.forEach {
                         Text(
@@ -155,7 +156,7 @@ internal fun StorageUsageSection(
                         onDeleteUnused(removable.mapNotNull(StorageEntry::removablePath))
                     },
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text("Clean up", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {

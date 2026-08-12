@@ -2,7 +2,10 @@ package app.amphora.feature.settings
 
 import android.content.Context
 import android.os.StatFs
+import app.amphora.core.content.ContentManifest
+import app.amphora.core.content.InstalledContentPin
 import app.amphora.core.content.RuntimeAssetProvisioner
+import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.engine.GuestFiles
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
@@ -30,6 +33,8 @@ data class StorageUsage(
 
 data class StorageCleanupResult(val bytesFreed: Long = 0, val failedPaths: List<String> = emptyList())
 
+internal data class PinnedWcpInstall(val directoryName: String, val sha256: String?)
+
 /**
  * Measures what Amphora occupies in app-private storage.
  *
@@ -41,7 +46,10 @@ data class StorageCleanupResult(val bytesFreed: Long = 0, val failedPaths: List<
 object StorageUsageScanner {
     private const val MAX_CHILDREN = 8
 
-    fun scan(context: Context): StorageUsage {
+    internal fun scan(
+        context: Context,
+        pinnedWcpInstalls: Map<ContentProfile.ContentType, PinnedWcpInstall> = emptyMap(),
+    ): StorageUsage {
         val rootDir = resolve(ImageFs.find(context).rootDir)
         val homeDir = File(rootDir, "home")
         // `home/xuser` is a symlink to the active container (`xuser-1`, `xuser-2`, …).
@@ -51,6 +59,12 @@ object StorageUsageScanner {
         val cacheBytes = sizeOf(cacheDir)
         val preserved = preservedGuestData(homeDir, activeHome)
         val managedTemporary = managedTemporaryData(context.cacheDir)
+        val components = componentEntries(context, pinnedWcpInstalls)
+        val supersededComponentBytes =
+            components
+                .flatMap(StorageEntry::children)
+                .filter { it.removablePath != null }
+                .sumOf(StorageEntry::bytes)
 
         val entries =
             buildList {
@@ -82,7 +96,7 @@ object StorageUsageScanner {
                         ),
                     )
                 }
-                addAll(componentEntries(context))
+                addAll(components)
                 val assetsDir = RuntimeAssetProvisioner.runtimeAssetsDir(context)
                 add(
                     StorageEntry(
@@ -116,9 +130,34 @@ object StorageUsageScanner {
             totalBytes = entries.sumOf(StorageEntry::bytes),
             freeBytes = freeBytes(context),
             shaderCacheBytes = cacheBytes,
-            reclaimableBytes = managedTemporary.sumOf(StorageEntry::bytes) + cacheBytes,
+            reclaimableBytes =
+            managedTemporary.sumOf(StorageEntry::bytes) +
+                supersededComponentBytes +
+                cacheBytes,
         )
     }
+
+    internal fun pinnedWcpInstalls(
+        manifest: ContentManifest,
+    ): Map<ContentProfile.ContentType, PinnedWcpInstall> =
+        buildMap {
+            manifest
+                .all()
+                .filter { it.kind == ManifestEntry.Kind.WCP }
+                .forEach { entry ->
+                    val type =
+                        ContentProfile.ContentType.getTypeByName(entry.contentType ?: return@forEach)
+                            ?: return@forEach
+                    val version = entry.verName ?: return@forEach
+                    put(
+                        type,
+                        PinnedWcpInstall(
+                            directoryName = "$version-${entry.verCode ?: 0}",
+                            sha256 = entry.sha256,
+                        ),
+                    )
+                }
+        }
 
     /** Guest data outside the active prefix is recovery/user data, never generic cleanup. */
     private fun preservedGuestData(homeDir: File, activeHome: File): List<StorageEntry> {
@@ -207,14 +246,36 @@ object StorageUsageScanner {
      * `.wcp` components live under `contents/<type>/<verName>-<verCode>` and are
      * stored extracted — the downloaded archive is not kept after installation.
      */
-    private fun componentEntries(context: Context): List<StorageEntry> = COMPONENT_LABELS.mapNotNull { (type, label) ->
+    private fun componentEntries(
+        context: Context,
+        pinnedWcpInstalls: Map<ContentProfile.ContentType, PinnedWcpInstall>,
+    ): List<StorageEntry> = COMPONENT_LABELS.mapNotNull { (type, label) ->
         val dir = ContentsManager.getContentTypeDir(context, type)
+        val pin = pinnedWcpInstalls[type]
+        val pinnedDir = pin?.let { File(dir, it.directoryName) }
+        val pinnedInstallReady =
+            pin != null &&
+                pinnedDir != null &&
+                InstalledContentPin.matches(pinnedDir, pin.sha256)
         val versions =
             dir
                 .listFiles()
                 .orEmpty()
                 .filter { it.isDirectory }
-                .map { StorageEntry(label = it.name, detail = "Extracted component", bytes = sizeOf(it)) }
+                .map {
+                    val superseded = pinnedInstallReady && it.name != pin.directoryName
+                    StorageEntry(
+                        label = it.name,
+                        detail =
+                        if (superseded) {
+                            "Superseded component · safe to remove"
+                        } else {
+                            "Current extracted component"
+                        },
+                        bytes = sizeOf(it),
+                        removablePath = it.absolutePath.takeIf { superseded },
+                    )
+                }
                 .filter { it.bytes > 0 }
                 .sortedByDescending(StorageEntry::bytes)
         if (versions.isEmpty()) return@mapNotNull null
@@ -249,21 +310,28 @@ object StorageUsageScanner {
     private fun pathKind(file: File): String = if (file.isDirectory) "Folder" else "File"
 
     /**
-     * Deletes only old, app-managed temporary data and returns the actual bytes freed.
+     * Deletes only old app-managed temporary data or manifest-superseded WCP installs.
      *
-     * The caller passes paths measured earlier, so every one is re-validated here:
-     * arbitrary cache files, containers and Wine prefix backups are never eligible.
-     * A target is first atomically moved into a managed quarantine, preventing a
-     * recursive failure from leaving a half-deleted item at its original path.
+     * The caller passes paths measured earlier, so every one is re-validated here.
+     * A WCP directory is eligible only while the manifest-pinned replacement and its
+     * source SHA marker are present. Containers, active components and Wine prefix
+     * backups are never eligible. A target is first atomically moved into a managed
+     * quarantine so recursive failure cannot leave a half-deleted original.
      */
-    fun deleteUnusedGuestData(context: Context, paths: List<String>): StorageCleanupResult {
+    internal fun deleteUnusedGuestData(
+        context: Context,
+        paths: List<String>,
+        pinnedWcpInstalls: Map<ContentProfile.ContentType, PinnedWcpInstall> = emptyMap(),
+    ): StorageCleanupResult {
         val cacheDir = resolve(context.cacheDir)
         val cleanupDir = File(cacheDir, CLEANUP_DIR)
         val failed = mutableListOf<String>()
         var freed = 0L
         paths.forEach { path ->
             val requested = File(path).absoluteFile
-            if (!isManagedTemporary(requested, cacheDir)) {
+            if (!isManagedTemporary(requested, cacheDir) &&
+                !isSupersededComponent(requested, context, pinnedWcpInstalls)
+            ) {
                 failed += path
                 return@forEach
             }
@@ -290,6 +358,23 @@ object StorageUsageScanner {
             if (!deleted) failed += path
         }
         return StorageCleanupResult(bytesFreed = freed, failedPaths = failed)
+    }
+
+    internal fun isSupersededComponent(
+        requested: File,
+        context: Context,
+        pinnedWcpInstalls: Map<ContentProfile.ContentType, PinnedWcpInstall>,
+    ): Boolean {
+        if (!requested.isDirectory || isSymlink(requested)) return false
+        val target = resolve(requested)
+        val match =
+            pinnedWcpInstalls.entries.firstOrNull { (type, _) ->
+                target.parentFile == resolve(ContentsManager.getContentTypeDir(context, type))
+            } ?: return false
+        val pin = match.value
+        if (target.name == pin.directoryName) return false
+        val current = File(target.parentFile, pin.directoryName)
+        return InstalledContentPin.matches(current, pin.sha256)
     }
 
     internal fun isManagedTemporary(

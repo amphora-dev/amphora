@@ -1,6 +1,9 @@
 package app.amphora.feature.settings
 
 import android.content.Context
+import app.amphora.core.content.InstalledContentPin
+import com.winlator.cmod.runtime.content.ContentProfile
+import com.winlator.cmod.runtime.content.ContentsManager
 import io.mockk.every
 import io.mockk.mockk
 import java.nio.file.Files
@@ -175,7 +178,50 @@ class StorageUsageScannerTest {
         }
     }
 
+    @Test
+    fun supersededWcpIsListedAndDeletedWhilePinnedInstallIsProtected() {
+        val root = Files.createTempDirectory("storage-wcp-").toFile()
+        try {
+            val cache = root.resolve("cache").apply { mkdirs() }
+            val context = mockk<Context>()
+            every { context.filesDir } returns root
+            every { context.cacheDir } returns cache
+            val type = ContentProfile.ContentType.CONTENT_TYPE_PROTON
+            val typeDir = ContentsManager.getContentTypeDir(context, type).apply { mkdirs() }
+            val current = typeDir.resolve("11.0-current-1").apply {
+                mkdirs()
+                resolve("payload").writeText("current")
+            }
+            InstalledContentPin.write(current, PIN_SHA)
+            val stale = typeDir.resolve("10.0-old-0").apply {
+                mkdirs()
+                resolve("payload").writeText("old")
+            }
+            val pins = mapOf(type to PinnedWcpInstall(current.name, PIN_SHA))
+
+            val usage = StorageUsageScanner.scan(context, pins)
+            val proton = usage.entries.first { it.label == "Proton" }
+            assertEquals(stale.absolutePath, proton.children.first { it.label == stale.name }.removablePath)
+            assertEquals(null, proton.children.first { it.label == current.name }.removablePath)
+
+            val result =
+                StorageUsageScanner.deleteUnusedGuestData(
+                    context,
+                    listOf(stale.absolutePath, current.absolutePath),
+                    pins,
+                )
+
+            assertEquals(3L, result.bytesFreed)
+            assertEquals(listOf(current.absolutePath), result.failedPaths)
+            assertFalse(stale.exists())
+            assertTrue(current.isDirectory)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     private companion object {
         const val TWO_DAYS_MS = 2L * 24L * 60L * 60L * 1_000L
+        val PIN_SHA = "b".repeat(64)
     }
 }

@@ -2,10 +2,12 @@ package app.amphora.feature.settings
 
 import android.content.Context
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.content.ContentCatalog
 import app.amphora.core.engine.GraphicsDiag
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 
@@ -28,10 +30,26 @@ internal constructor(
     constructor(
         @ApplicationContext context: Context,
         dispatchers: DispatcherProvider,
+        catalog: ContentCatalog,
     ) : this(
         ioDispatcher = dispatchers.io,
-        scanStorage = { StorageUsageScanner.scan(context) },
-        deleteStorage = { paths -> StorageUsageScanner.deleteUnusedGuestData(context, paths) },
+        scanStorage = {
+            val manifest =
+                try {
+                    catalog.require()
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    null
+                }
+            StorageUsageScanner.scan(
+                context,
+                manifest?.let(StorageUsageScanner::pinnedWcpInstalls).orEmpty(),
+            )
+        },
+        deleteStorage = { paths ->
+            val pins = StorageUsageScanner.pinnedWcpInstalls(catalog.require())
+            StorageUsageScanner.deleteUnusedGuestData(context, paths, pins)
+        },
         clearStateCache = { GraphicsDiag.clearStateCache(context) },
     )
 

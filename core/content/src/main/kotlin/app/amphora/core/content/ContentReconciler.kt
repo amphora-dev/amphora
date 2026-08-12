@@ -7,9 +7,8 @@ import java.io.File
 /**
  * Global content reconcile after a manifest refresh or successful install.
  *
- * 1. [ContentAssetInstaller.reconcileToPin] per non-ROOTFS component. The
- *    Winlator installer intentionally retains WCP siblings until container-aware
- *    garbage collection can prove they are no longer rollback targets.
+ * 1. [ContentAssetInstaller.reconcileToPin] per non-ROOTFS component, removing
+ *    superseded installs only after the manifest-pinned replacement is present.
  * 2. [ContentPackageCache.pruneToPins] for superseded download filenames
  */
 class ContentReconciler(private val packageRoot: File, private val installer: ContentAssetInstaller) {

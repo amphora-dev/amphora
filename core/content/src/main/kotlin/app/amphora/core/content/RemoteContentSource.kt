@@ -13,7 +13,8 @@ import kotlinx.coroutines.sync.withLock
  *
  * Installed components are returned without network access. Cache misses use a
  * resumable verified download, then hand the archive to [ContentAssetInstaller].
- * Reconciliation is installer-specific; WCP installs retain rollback versions.
+ * Reconciliation is installer-specific and prunes superseded installs only
+ * after the manifest-pinned replacement is verified on disk.
  */
 class RemoteContentSource(
     private val packageCacheRoot: File,
