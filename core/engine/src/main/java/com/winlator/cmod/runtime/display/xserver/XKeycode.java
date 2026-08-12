@@ -102,7 +102,16 @@ public enum XKeycode {
   KEY_NEXT(117),
   KEY_INSERT(118),
   KEY_DEL(119),
-  KEY_MAX(KEY_DEL.id);
+  /** Reserved for Android IME committed text; not part of the physical keyboard map. */
+  KEY_UNICODE(120),
+  KEY_UNICODE_1(121),
+  KEY_UNICODE_2(122),
+  KEY_UNICODE_3(123),
+  KEY_UNICODE_4(124),
+  KEY_UNICODE_5(125),
+  KEY_UNICODE_6(126),
+  KEY_UNICODE_7(127),
+  KEY_MAX(KEY_UNICODE_7.id);
   public final byte id;
 
   XKeycode(int id) {

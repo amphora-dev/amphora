@@ -51,6 +51,7 @@ internal fun RuntimeSessionDrawer(
     onStretchToFillChange: (Boolean) -> Unit,
     performanceHudVisible: Boolean,
     onPerformanceHudVisibleChange: (Boolean) -> Unit,
+    onShowKeyboard: () -> Unit,
     onPauseToggle: () -> Unit,
     onClose: () -> Unit,
     onExit: () -> Unit,
@@ -110,6 +111,18 @@ internal fun RuntimeSessionDrawer(
             }
 
             RuntimeDrawerSection(title = "Input") {
+                OutlinedButton(
+                    onClick = onShowKeyboard,
+                    enabled = controlsEnabled,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Show Android keyboard")
+                }
+                Text(
+                    "Committed IME text, including Chinese candidates, is sent to the focused Windows field.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 Text("Touch mode", style = MaterialTheme.typography.labelLarge)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

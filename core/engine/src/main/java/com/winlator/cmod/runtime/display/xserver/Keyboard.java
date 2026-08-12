@@ -5,13 +5,26 @@ import androidx.collection.ArraySet;
 import java.util.ArrayList;
 
 public class Keyboard {
+  private static final XKeycode[] UNICODE_KEYCODES = {
+    XKeycode.KEY_UNICODE,
+    XKeycode.KEY_UNICODE_1,
+    XKeycode.KEY_UNICODE_2,
+    XKeycode.KEY_UNICODE_3,
+    XKeycode.KEY_UNICODE_4,
+    XKeycode.KEY_UNICODE_5,
+    XKeycode.KEY_UNICODE_6,
+    XKeycode.KEY_UNICODE_7
+  };
   public static final byte KEYSYMS_PER_KEYCODE = 2;
-  public static final short KEYS_COUNT = 248;
   public static final short MAX_KEYCODE = 255;
   public static final short MIN_KEYCODE = 8;
-  public final int[] keysyms = new int[KEYS_COUNT];
+  public static final short KEYCODE_COUNT = MAX_KEYCODE - MIN_KEYCODE + 1;
+  public final int[] keysyms = new int[KEYCODE_COUNT * KEYSYMS_PER_KEYCODE];
   private final Bitmask modifiersMask = new Bitmask();
-  private final XKeycode[] keycodeMap = createKeycodeMap();
+  private final XKeycode[] keycodeMap;
+  private final int[] unicodeKeysyms = new int[UNICODE_KEYCODES.length];
+  private final long[] unicodeKeycodeLastUsed = new long[UNICODE_KEYCODES.length];
+  private long unicodeKeycodeSequence;
   private final ArraySet<Byte> pressedKeys = new ArraySet<>();
   private final ArrayList<OnKeyboardListener> onKeyboardListeners = new ArrayList<>();
   private final XServer xServer;
@@ -23,7 +36,12 @@ public class Keyboard {
   }
 
   public Keyboard(XServer xServer) {
+    this(xServer, createKeycodeMap());
+  }
+
+  Keyboard(XServer xServer, XKeycode[] keycodeMap) {
     this.xServer = xServer;
+    this.keycodeMap = keycodeMap;
   }
 
   public Bitmask getModifiersMask() {
@@ -31,15 +49,63 @@ public class Keyboard {
   }
 
   public void setKeysyms(byte keycode, int minKeysym, int majKeysym) {
-    int index = keycode - 8;
-    keysyms[index * KEYSYMS_PER_KEYCODE + 0] = minKeysym;
-    keysyms[index * KEYSYMS_PER_KEYCODE + 1] = majKeysym;
+    int index = getKeysymIndex(keycode);
+    keysyms[index] = minKeysym;
+    keysyms[index + 1] = majKeysym;
   }
 
   public boolean hasKeysym(byte keycode, int keysym) {
-    int index = keycode - 8;
-    return keysyms[index * KEYSYMS_PER_KEYCODE + 0] == keysym
-        || keysyms[index * KEYSYMS_PER_KEYCODE + 1] == keysym;
+    int index = getKeysymIndex(keycode);
+    return keysyms[index] == keysym || keysyms[index + 1] == keysym;
+  }
+
+  private static int getKeysymIndex(byte keycode) {
+    int unsignedKeycode = Byte.toUnsignedInt(keycode);
+    if (unsignedKeycode < MIN_KEYCODE || unsignedKeycode > MAX_KEYCODE) {
+      throw new IllegalArgumentException("Invalid X keycode: " + unsignedKeycode);
+    }
+    return (unsignedKeycode - MIN_KEYCODE) * KEYSYMS_PER_KEYCODE;
+  }
+
+  /**
+   * Converts one UTF-16 code unit to an X11 keysym.
+   *
+   * <p>Wine's X11 driver accepts direct-Unicode keysyms for BMP characters. Supplementary
+   * characters are intentionally delivered as two UTF-16 surrogate keysyms so Windows receives
+   * the same pair of {@code WM_CHAR} values as a native Windows IME.
+   */
+  public static int unicodeCharToKeysym(char character) {
+    if ((character >= 0x20 && character <= 0x7e)
+        || (character >= 0x00a0 && character <= 0x00ff)) {
+      return character;
+    }
+    if (character >= 0x0100) {
+      return 0x01000000 | character;
+    }
+    return 0;
+  }
+
+  synchronized XKeycode selectUnicodeKeycode(int keysym) {
+    if (keysym == 0) throw new IllegalArgumentException("NoSymbol cannot be injected");
+
+    int leastRecentlyUsed = 0;
+    for (int index = 0; index < unicodeKeysyms.length; index++) {
+      if (unicodeKeysyms[index] == keysym) {
+        unicodeKeycodeLastUsed[index] = ++unicodeKeycodeSequence;
+        return UNICODE_KEYCODES[index];
+      }
+      if (unicodeKeysyms[index] == 0) {
+        leastRecentlyUsed = index;
+        break;
+      }
+      if (unicodeKeycodeLastUsed[index] < unicodeKeycodeLastUsed[leastRecentlyUsed]) {
+        leastRecentlyUsed = index;
+      }
+    }
+
+    unicodeKeysyms[leastRecentlyUsed] = keysym;
+    unicodeKeycodeLastUsed[leastRecentlyUsed] = ++unicodeKeycodeSequence;
+    return UNICODE_KEYCODES[leastRecentlyUsed];
   }
 
   public void setKeyPress(byte keycode, int keysym) {

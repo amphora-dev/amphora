@@ -151,6 +151,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         when (sessionState) {
             SessionState.STOPPING -> {
                 touchpadView?.apply {
+                    dismissSoftKeyboard()
                     resetInputState()
                     setMouseEnabled(false)
                 }
@@ -190,6 +191,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                         if (!manuallyPaused) viewModel.resume()
                     }
                     Lifecycle.Event.ON_PAUSE -> {
+                        touchpadView?.dismissSoftKeyboard()
                         touchpadView?.resetInputState()
                         rendererView?.onPause()
                         if (!manuallyPaused) viewModel.pause()
@@ -212,6 +214,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
 
     LaunchedEffect(drawerState.currentValue) {
         if (drawerState.currentValue == DrawerValue.Open) {
+            touchpadView?.dismissSoftKeyboard()
             touchpadView?.resetInputState()
         } else {
             touchpadView?.requestFocus()
@@ -282,6 +285,12 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                     onStretchToFillChange = { stretchToFill = it },
                     performanceHudVisible = performanceHudVisible,
                     onPerformanceHudVisibleChange = { performanceHudVisible = it },
+                    onShowKeyboard = {
+                        drawerScope.launch {
+                            drawerState.close()
+                            touchpadView?.showSoftKeyboard()
+                        }
+                    },
                     onPauseToggle = {
                         if (sessionState == SessionState.PAUSED) {
                             manuallyPaused = false

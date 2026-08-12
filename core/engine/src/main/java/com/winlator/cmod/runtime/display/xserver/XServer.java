@@ -329,6 +329,47 @@ public class XServer {
     }
   }
 
+  public void injectKeyTap(XKeycode xKeycode) {
+    try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+      keyboard.setKeyPress(xKeycode.id, 0);
+      keyboard.setKeyRelease(xKeycode.id);
+    }
+  }
+
+  /**
+   * Injects text committed by an Android input method into the focused X11 client.
+   *
+   * <p>Composition stays on the Android side; this method receives only committed UTF-16 text.
+   * Wine's X11 driver translates the dynamically mapped Unicode keysyms into Windows character
+   * messages. Newline, tab, and backspace retain their physical-key semantics.
+   */
+  public void injectText(CharSequence text) {
+    if (text == null || text.length() == 0) return;
+    try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
+      for (int index = 0; index < text.length(); index++) {
+        char character = text.charAt(index);
+        XKeycode controlKey =
+            switch (character) {
+              case '\n', '\r' -> XKeycode.KEY_ENTER;
+              case '\t' -> XKeycode.KEY_TAB;
+              case '\b' -> XKeycode.KEY_BKSP;
+              default -> null;
+            };
+        if (controlKey != null) {
+          keyboard.setKeyPress(controlKey.id, 0);
+          keyboard.setKeyRelease(controlKey.id);
+          continue;
+        }
+
+        int keysym = Keyboard.unicodeCharToKeysym(character);
+        if (keysym == 0) continue;
+        XKeycode unicodeKeycode = keyboard.selectUnicodeKeycode(keysym);
+        keyboard.setKeyPress(unicodeKeycode.id, keysym);
+        keyboard.setKeyRelease(unicodeKeycode.id);
+      }
+    }
+  }
+
   private void registerExtension(Extension ext, int[] nextEventId, int[] nextErrorId) {
     if (ext.getNumEvents() > 0) {
       ext.setFirstEventId((byte) nextEventId[0]);

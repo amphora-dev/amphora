@@ -14,8 +14,8 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * XServer-backed [InputSink] (RFC §8 输入衔接). Routes overlay touch / keyboard input into
  * the X server via `xServer.injectPointerMove` / `injectPointerButtonPress|Release` - the
- * same path WinNative's `TouchpadView` uses. `injectCharacter` requires an XKeycode
- * keymap lookup (Keyboard); MVP stubs it pending the on-screen keyboard (P4+).
+ * same path WinNative's `TouchpadView` uses. Character input uses the Android IME Unicode
+ * keysym path shared with the session touch overlay.
  */
 internal class XServerInputSink(private val xServer: XServer) : InputSink {
     override suspend fun injectPointerMove(x: Float, y: Float) {
@@ -33,8 +33,7 @@ internal class XServerInputSink(private val xServer: XServer) : InputSink {
     }
 
     override suspend fun injectCharacter(char: Char) {
-        // TODO(P4+): map char -> XKeycode via Keyboard (xServer.keyboard) and injectKeyPress.
-        // MVP GameSession routes touch only; character injection waits on the OSK feature.
+        xServer.injectText(char.toString())
     }
 }
 
