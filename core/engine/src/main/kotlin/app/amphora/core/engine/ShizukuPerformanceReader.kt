@@ -1,15 +1,111 @@
 package app.amphora.core.engine
 
+import android.app.Service
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
 import android.util.Log
 import app.amphora.core.engine.privileged.IPrivilegedCleanupService
+import app.amphora.core.engine.privileged.IPerformanceMetricsService
 import app.amphora.core.engine.privileged.PrivilegedCleanupService
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
+
+/**
+ * Cross-process client used by the Wine :session process.
+ *
+ * ShizukuProvider lives in Amphora's default process, so the session process cannot use Shizuku's
+ * static Binder directly. This client binds an app-private bridge in the default process.
+ */
+class PerformanceMetricsClient(context: Context) : AutoCloseable {
+    private val appContext = context.applicationContext
+
+    @Volatile private var remote: IPerformanceMetricsService? = null
+    @Volatile private var binding = false
+    @Volatile private var bound = false
+    @Volatile private var closed = false
+
+    private val connection =
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, service: IBinder) {
+                if (closed) {
+                    runCatching { appContext.unbindService(this) }
+                    return
+                }
+                remote = IPerformanceMetricsService.Stub.asInterface(service)
+                binding = false
+                bound = true
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                remote = null
+                binding = false
+                bound = false
+            }
+        }
+
+    fun read(): PrivilegedPerformanceSnapshot? {
+        val service = remote
+        if (service == null) {
+            ensureBound()
+            return null
+        }
+        return runCatching { service.readPerformanceSnapshot()?.toPerformanceSnapshot() }
+            .onFailure {
+                Log.w(TAG, "Unable to read host performance bridge", it)
+                remote = null
+            }
+            .getOrNull()
+    }
+
+    override fun close() {
+        closed = true
+        remote = null
+        if (bound || binding) {
+            runCatching { appContext.unbindService(connection) }
+        }
+        binding = false
+        bound = false
+    }
+
+    private fun ensureBound() {
+        if (closed || binding || bound) return
+        binding = true
+        val intent = Intent(appContext, PerformanceMetricsBridgeService::class.java)
+        if (!appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+            binding = false
+        }
+    }
+
+    private companion object {
+        const val TAG = "PerformanceMetricsClient"
+    }
+}
+
+/** Default-process bridge which owns the Shizuku connection. */
+class PerformanceMetricsBridgeService : Service() {
+    private lateinit var reader: ShizukuPerformanceReader
+
+    private val binder =
+        object : IPerformanceMetricsService.Stub() {
+            override fun readPerformanceSnapshot(): String? = reader.read()?.toJson()
+        }
+
+    override fun onCreate() {
+        super.onCreate()
+        reader = ShizukuPerformanceReader(this)
+    }
+
+    override fun onBind(intent: Intent): IBinder = binder
+
+    override fun onDestroy() {
+        reader.close()
+        super.onDestroy()
+    }
+}
 
 /**
  * Optional read-only host performance bridge.
@@ -17,7 +113,7 @@ import rikka.shizuku.Shizuku
  * The normal app domain remains the primary source. This bridge fills counters hidden by modern
  * Android procfs/sysfs policy when Shizuku is available, without prompting from inside a game.
  */
-class ShizukuPerformanceReader(context: Context) : AutoCloseable {
+private class ShizukuPerformanceReader(context: Context) : AutoCloseable {
     private val appContext = context.applicationContext
     private val lock = Any()
 
@@ -106,8 +202,6 @@ class ShizukuPerformanceReader(context: Context) : AutoCloseable {
         false
     }
 
-    private fun JSONObject.optionalString(name: String): String? = optString(name).takeIf(String::isNotBlank)
-
     private companion object {
         const val TAG = "ShizukuPerformance"
         const val SERVICE_VERSION = 2
@@ -124,3 +218,24 @@ data class PrivilegedPerformanceSnapshot(
     val hasRootAccess: Boolean
         get() = privilegedUid == 0
 }
+
+private fun String.toPerformanceSnapshot(): PrivilegedPerformanceSnapshot {
+    val json = JSONObject(this)
+    return PrivilegedPerformanceSnapshot(
+        cpuStat = json.optionalString("cpuStat"),
+        gpuLoad = json.optionalString("gpuLoad"),
+        gpuCurrentFrequency = json.optionalString("gpuCurrentFrequency"),
+        gpuMaxFrequency = json.optionalString("gpuMaxFrequency"),
+        privilegedUid = json.optInt("uid", -1),
+    )
+}
+
+private fun PrivilegedPerformanceSnapshot.toJson(): String = JSONObject()
+    .put("cpuStat", cpuStat)
+    .put("gpuLoad", gpuLoad)
+    .put("gpuCurrentFrequency", gpuCurrentFrequency)
+    .put("gpuMaxFrequency", gpuMaxFrequency)
+    .put("uid", privilegedUid)
+    .toString()
+
+private fun JSONObject.optionalString(name: String): String? = optString(name).takeIf(String::isNotBlank)

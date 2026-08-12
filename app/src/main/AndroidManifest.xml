@@ -71,6 +71,12 @@
             android:screenOrientation="sensorLandscape"
             tools:ignore="DiscouragedApi" />
 
+        <!-- App-private cross-process bridge: the Wine :session process requests host metrics
+             here because ShizukuProvider is intentionally initialized only in the main process. -->
+        <service
+            android:name="app.amphora.core.engine.PerformanceMetricsBridgeService"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

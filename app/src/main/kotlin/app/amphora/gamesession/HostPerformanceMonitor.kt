@@ -16,8 +16,8 @@ import android.os.health.SystemHealthManager
 import android.system.Os
 import android.system.OsConstants
 import androidx.annotation.RequiresApi
+import app.amphora.core.engine.PerformanceMetricsClient
 import app.amphora.core.engine.PrivilegedPerformanceSnapshot
-import app.amphora.core.engine.ShizukuPerformanceReader
 import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
 import com.winlator.cmod.runtime.display.xserver.Atom
 import com.winlator.cmod.runtime.display.xserver.Window
@@ -58,7 +58,7 @@ internal class HostPerformanceMonitor(
         appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
     private val powerManager = appContext.getSystemService(PowerManager::class.java)
-    private val privilegedReader = ShizukuPerformanceReader(appContext)
+    private val privilegedReader = PerformanceMetricsClient(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
     private val tracker = FrameTracker(xServer.screenInfo.width * xServer.screenInfo.height)
