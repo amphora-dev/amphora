@@ -3069,8 +3069,19 @@ JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeGetPerformanceTelemetry)(
 
     jdouble values[8];
     pthread_mutex_lock(&r->telemetry.mutex);
+    double display_fps = r->telemetry.display_fps;
+    if (r->telemetry.actual_present_count > 0) {
+        uint32_t newest_index =
+            (r->telemetry.actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u)
+            % VK_PRESENT_TIMING_SAMPLES;
+        uint64_t newest = r->telemetry.actual_present_ns[newest_index];
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        uint64_t now_ns = (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+        if (now_ns > newest + 1500000000ULL) display_fps = 0.0;
+    }
     values[0] = r->telemetry.gpu_sample_count > 0 ? r->telemetry.gpu_render_ms : NAN;
-    values[1] = r->telemetry.display_sample_count > 1 ? r->telemetry.display_fps : NAN;
+    values[1] = r->telemetry.display_sample_count > 1 ? display_fps : NAN;
     values[2] = r->telemetry.display_sample_count > 1
         ? r->telemetry.present_interval_ms : NAN;
     values[3] = r->telemetry.display_sample_count > 0
