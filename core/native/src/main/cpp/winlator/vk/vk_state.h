@@ -219,6 +219,7 @@ typedef struct VkRendererTelemetry {
     uint32_t    last_collected_present_id;
     uint32_t    present_query_counter;
     uint64_t    actual_present_ns[VK_PRESENT_TIMING_SAMPLES];
+    uint32_t    actual_present_ids[VK_PRESENT_TIMING_SAMPLES];
     uint32_t    actual_present_index;
     uint32_t    actual_present_count;
     double      display_fps;

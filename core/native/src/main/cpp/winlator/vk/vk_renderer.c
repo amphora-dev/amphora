@@ -672,6 +672,16 @@ static void reset_display_timing(VkRenderer* r) {
     }
 }
 
+static int compare_presentation_timing(const void* lhs, const void* rhs) {
+    const VkPastPresentationTimingGOOGLE* a = lhs;
+    const VkPastPresentationTimingGOOGLE* b = rhs;
+    if (a->actualPresentTime < b->actualPresentTime) return -1;
+    if (a->actualPresentTime > b->actualPresentTime) return 1;
+    if (a->presentID < b->presentID) return -1;
+    if (a->presentID > b->presentID) return 1;
+    return 0;
+}
+
 static void collect_display_timing(VkRenderer* r) {
     VkRendererTelemetry* t = &r->telemetry;
     if (!t->display_timing_enabled || !t->fn_get_past_presentation_timing
@@ -679,31 +689,57 @@ static void collect_display_timing(VkRenderer* r) {
         return;
     }
 
-    VkPastPresentationTimingGOOGLE timings[16];
-    uint32_t count = (uint32_t)(sizeof(timings) / sizeof(timings[0]));
-    VkResult result =
-        t->fn_get_past_presentation_timing(r->device, r->swapchain, &count, timings);
-    if (result != VK_SUCCESS && result != VK_INCOMPLETE) return;
+    VkPastPresentationTimingGOOGLE timings[64];
+    uint32_t total = 0;
+    for (uint32_t pass = 0; pass < 4u && total < 64u; pass++) {
+        uint32_t count = 16;
+        VkResult result =
+            t->fn_get_past_presentation_timing(
+                r->device, r->swapchain, &count, &timings[total]);
+        if (result != VK_SUCCESS && result != VK_INCOMPLETE) return;
+        if (count > 16u) count = 16u;
+        total += count;
+        if (result != VK_INCOMPLETE) break;
+    }
+    if (total == 0) return;
+    qsort(timings, total, sizeof(timings[0]), compare_presentation_timing);
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    uint64_t now_ns = (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
 
     pthread_mutex_lock(&t->mutex);
-    for (uint32_t i = 0; i < count; i++) {
+    for (uint32_t i = 0; i < total; i++) {
         VkPastPresentationTimingGOOGLE* timing = &timings[i];
-        if (timing->presentID <= t->last_collected_present_id
-            || timing->actualPresentTime == 0) {
+        if (timing->actualPresentTime == 0
+            || timing->actualPresentTime > now_ns + 1000000000ULL
+            || now_ns > timing->actualPresentTime + 30000000000ULL) {
             continue;
         }
+
+        bool duplicate = false;
+        for (uint32_t offset = 0; offset < t->actual_present_count; offset++) {
+            uint32_t index =
+                (t->actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u - offset)
+                % VK_PRESENT_TIMING_SAMPLES;
+            if (t->actual_present_ids[index] == timing->presentID) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) continue;
+
         t->last_collected_present_id = timing->presentID;
         if (t->actual_present_count > 0) {
             uint32_t previous_index =
                 (t->actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u)
                 % VK_PRESENT_TIMING_SAMPLES;
             uint64_t previous = t->actual_present_ns[previous_index];
-            if (timing->actualPresentTime > previous) {
-                t->present_interval_ms =
-                    (double)(timing->actualPresentTime - previous) / 1000000.0;
-            }
+            if (timing->actualPresentTime <= previous) continue;
+            t->present_interval_ms =
+                (double)(timing->actualPresentTime - previous) / 1000000.0;
         }
         t->actual_present_ns[t->actual_present_index] = timing->actualPresentTime;
+        t->actual_present_ids[t->actual_present_index] = timing->presentID;
         t->actual_present_index =
             (t->actual_present_index + 1u) % VK_PRESENT_TIMING_SAMPLES;
         if (t->actual_present_count < VK_PRESENT_TIMING_SAMPLES) {
