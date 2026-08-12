@@ -106,6 +106,9 @@ typedef struct VkDispatch {
     PFN_vkWaitForFences WaitForFences;
     PFN_vkCreateSemaphore CreateSemaphore;
     PFN_vkDestroySemaphore DestroySemaphore;
+    PFN_vkCreateQueryPool CreateQueryPool;
+    PFN_vkDestroyQueryPool DestroyQueryPool;
+    PFN_vkGetQueryPoolResults GetQueryPoolResults;
 
     // Commands
     PFN_vkCreateCommandPool CreateCommandPool;
@@ -128,6 +131,8 @@ typedef struct VkDispatch {
     PFN_vkCmdPipelineBarrier CmdPipelineBarrier;
     PFN_vkCmdCopyBufferToImage CmdCopyBufferToImage;
     PFN_vkCmdBlitImage CmdBlitImage;
+    PFN_vkCmdResetQueryPool CmdResetQueryPool;
+    PFN_vkCmdWriteTimestamp CmdWriteTimestamp;
 
     // Queue
     PFN_vkQueueSubmit QueueSubmit;
@@ -234,6 +239,9 @@ void vkd_unload(void);
 #define vkWaitForFences vkd.WaitForFences
 #define vkCreateSemaphore vkd.CreateSemaphore
 #define vkDestroySemaphore vkd.DestroySemaphore
+#define vkCreateQueryPool vkd.CreateQueryPool
+#define vkDestroyQueryPool vkd.DestroyQueryPool
+#define vkGetQueryPoolResults vkd.GetQueryPoolResults
 
 #define vkCreateCommandPool vkd.CreateCommandPool
 #define vkDestroyCommandPool vkd.DestroyCommandPool
@@ -255,6 +263,8 @@ void vkd_unload(void);
 #define vkCmdPipelineBarrier vkd.CmdPipelineBarrier
 #define vkCmdCopyBufferToImage vkd.CmdCopyBufferToImage
 #define vkCmdBlitImage vkd.CmdBlitImage
+#define vkCmdResetQueryPool vkd.CmdResetQueryPool
+#define vkCmdWriteTimestamp vkd.CmdWriteTimestamp
 
 #define vkQueueSubmit vkd.QueueSubmit
 #define vkQueueWaitIdle vkd.QueueWaitIdle

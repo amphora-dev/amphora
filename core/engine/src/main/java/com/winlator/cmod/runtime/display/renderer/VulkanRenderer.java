@@ -298,6 +298,20 @@ public class VulkanRenderer
         }
     }
 
+    /**
+     * Returns the latest non-blocking native compositor timing snapshot.
+     *
+     * GPU duration uses Vulkan timestamp queries. Display timing is present only when the active
+     * driver supports {@code VK_GOOGLE_display_timing}.
+     */
+    public RendererPerformanceTelemetry getPerformanceTelemetry() {
+        synchronized (this) {
+            if (nativeHandle == 0) return RendererPerformanceTelemetry.UNAVAILABLE;
+            return RendererPerformanceTelemetry.fromNative(
+                    nativeGetPerformanceTelemetry(nativeHandle));
+        }
+    }
+
     @Override
     public void onSurfaceCreated() {
         // Surface already attached in attachSurface().
@@ -931,6 +945,7 @@ public class VulkanRenderer
     private static native int nativeGetRecordWidth(long handle);
     private static native int nativeGetRecordHeight(long handle);
     private static native int nativeGetRecordOrientationHint(long handle);
+    private static native double[] nativeGetPerformanceTelemetry(long handle);
     private static native boolean nativeRenderFrame(long handle);
     private static native void nativeSetScene(long handle, ByteBuffer sceneBuf);
     private static native void nativeSetFpsLimit(long handle, int fps);

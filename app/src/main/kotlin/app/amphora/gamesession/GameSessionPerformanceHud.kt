@@ -192,6 +192,30 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                         },
                     )
                     MetricLine(
+                        "COMPOSITOR",
+                        if (stats.gpuTimingSupported) {
+                            "GPU ${stats.compositorGpuMs?.format(2) ?: "--"} ms"
+                        } else {
+                            "GPU timing unsupported"
+                        },
+                    )
+                    MetricLine(
+                        "DISPLAY",
+                        if (stats.displayTimingSupported) {
+                            "${stats.displayFps?.format(1) ?: "--"} FPS" +
+                                " · ${stats.presentIntervalMs?.format(2) ?: "--"} ms"
+                        } else {
+                            "present timing unsupported"
+                        },
+                    )
+                    if (stats.displayTimingSupported) {
+                        MetricLine(
+                            "PRESENT",
+                            "margin ${stats.presentMarginMs?.format(2) ?: "--"} ms" +
+                                " · refresh ${stats.refreshCycleMs?.format(2) ?: "--"} ms",
+                        )
+                    }
+                    MetricLine(
                         "CPU",
                         buildString {
                             append("SYS ${stats.systemCpuPercent ?: "--"}%")
@@ -253,9 +277,9 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                     MetricLine("D3D NOW", stats.detectedBackend ?: "not observed")
                     MetricLine("D3D CFG", stats.configuredBackend)
                     MetricLine("VULKAN", surface.graphicsDriver)
-                    MetricLine("PRESENT", surface.presentMode ?: "renderer default")
+                    MetricLine("MODE", surface.presentMode ?: "renderer default")
                     MetricLine(
-                        "DISPLAY",
+                        "RES",
                         "${surface.xServer.screenInfo.width}×${surface.xServer.screenInfo.height}",
                     )
                     surface.wineVersion?.let { MetricLine("WINE", it) }

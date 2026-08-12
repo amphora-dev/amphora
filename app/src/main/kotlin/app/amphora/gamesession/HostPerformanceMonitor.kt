@@ -133,6 +133,7 @@ internal class HostPerformanceMonitor(
             }
         val battery = readBattery()
         val frames = tracker.metrics()
+        val rendererTelemetry = xServer.renderer?.performanceTelemetry
         if (nowWall - lastHostPssSampleMs >= PSS_SAMPLE_INTERVAL_MS) {
             cachedHostMemoryMb = (Debug.getPss() / 1024).toInt()
             lastHostPssSampleMs = nowWall
@@ -149,6 +150,13 @@ internal class HostPerformanceMonitor(
             fps = frames.fps,
             frameTimeP95Ms = frames.p95FrameTimeMs,
             onePercentLowFps = frames.onePercentLowFps,
+            compositorGpuMs = rendererTelemetry?.gpuRenderMs?.finiteFloat(),
+            displayFps = rendererTelemetry?.displayFps?.finiteFloat(),
+            presentIntervalMs = rendererTelemetry?.presentIntervalMs?.finiteFloat(),
+            presentMarginMs = rendererTelemetry?.presentMarginMs?.finiteFloat(),
+            refreshCycleMs = rendererTelemetry?.refreshCycleMs?.finiteFloat(),
+            gpuTimingSupported = rendererTelemetry?.gpuTimingSupported == true,
+            displayTimingSupported = rendererTelemetry?.displayTimingSupported == true,
             hostCpuPercent = hostCpuPercent,
             systemCpuPercent = detailStats.systemCpuPercent,
             guestCpuPercent = detailStats.guestCpuPercent,
@@ -582,6 +590,13 @@ internal data class HostPerformanceStats(
     val fps: Float = 0f,
     val frameTimeP95Ms: Float? = null,
     val onePercentLowFps: Float? = null,
+    val compositorGpuMs: Float? = null,
+    val displayFps: Float? = null,
+    val presentIntervalMs: Float? = null,
+    val presentMarginMs: Float? = null,
+    val refreshCycleMs: Float? = null,
+    val gpuTimingSupported: Boolean = false,
+    val displayTimingSupported: Boolean = false,
     val hostCpuPercent: Int = 0,
     val systemCpuPercent: Int? = null,
     val guestCpuPercent: Int? = null,
@@ -609,3 +624,5 @@ internal data class HostPerformanceStats(
 )
 
 private fun Long.bytesToMb(): Int = (this / (1024L * 1024L)).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+private fun Double.finiteFloat(): Float? = takeIf { it.isFinite() && it >= 0.0 }?.toFloat()
