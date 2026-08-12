@@ -57,8 +57,14 @@ public final class WineInputConnection extends BaseInputConnection {
             && committed.equals(recentlyFinishedText)
             && SystemClock.uptimeMillis() - recentlyFinishedAtMs
                 <= FINISH_COMMIT_DEDUP_WINDOW_MS;
+    if (duplicateFinish) {
+      clearFinishedDedup();
+      listener.onComposingTextChanged("");
+      trimHistory();
+      return true;
+    }
     if (!super.commitText(text, newCursorPosition)) return false;
-    if (!committed.isEmpty() && !duplicateFinish) listener.onCommitText(committed);
+    if (!committed.isEmpty()) listener.onCommitText(committed);
     clearFinishedDedup();
     listener.onComposingTextChanged("");
     trimHistory();

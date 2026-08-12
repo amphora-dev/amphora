@@ -32,6 +32,7 @@ class WineInputConnectionTest {
         connection.commitText("中文", 1)
 
         assertEquals(listOf("中文"), listener.commits)
+        assertEquals("中文", connection.editable.toString())
     }
 
     @Test
