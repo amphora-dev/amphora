@@ -13,18 +13,11 @@ import kotlin.math.abs
  * app process and the Shizuku user service probe the same candidates without hard-coding one device.
  */
 object HostMetricPathDiscovery {
-    data class GpuPaths(
-        val load: List<String>,
-        val currentFrequency: List<String>,
-        val maxFrequency: List<String>,
-    )
+    data class GpuPaths(val load: List<String>, val currentFrequency: List<String>, val maxFrequency: List<String>)
 
     data class ThermalPath(val type: String, val path: String)
 
-    fun discoverGpuPaths(
-        roots: List<File> = DEFAULT_GPU_ROOTS.map(::File),
-        includeStatic: Boolean = true,
-    ): GpuPaths {
+    fun discoverGpuPaths(roots: List<File> = DEFAULT_GPU_ROOTS.map(::File), includeStatic: Boolean = true): GpuPaths {
         val load = LinkedHashSet<String>()
         val current = LinkedHashSet<String>()
         val maximum = LinkedHashSet<String>()
@@ -52,19 +45,18 @@ object HostMetricPathDiscovery {
         return GpuPaths(load.toList(), current.toList(), maximum.toList())
     }
 
-    fun discoverThermalPaths(root: File = File(DEFAULT_THERMAL_ROOT)): List<ThermalPath> =
-        root
-            .listFiles { file -> file.isDirectory && file.name.startsWith("thermal_zone") }
-            .orEmpty()
-            .mapNotNull { zone ->
-                val type =
-                    runCatching { File(zone, "type").readText().trim().lowercase(Locale.US) }
-                        .getOrNull()
-                        ?.takeIf(String::isNotBlank)
-                        ?: return@mapNotNull null
-                if (THERMAL_TYPE_TOKENS.none(type::contains)) return@mapNotNull null
-                ThermalPath(type, File(zone, "temp").path)
-            }.sortedWith(compareBy<ThermalPath> { thermalRank(it.type) }.thenBy { it.path })
+    fun discoverThermalPaths(root: File = File(DEFAULT_THERMAL_ROOT)): List<ThermalPath> = root
+        .listFiles { file -> file.isDirectory && file.name.startsWith("thermal_zone") }
+        .orEmpty()
+        .mapNotNull { zone ->
+            val type =
+                runCatching { File(zone, "type").readText().trim().lowercase(Locale.US) }
+                    .getOrNull()
+                    ?.takeIf(String::isNotBlank)
+                    ?: return@mapNotNull null
+            if (THERMAL_TYPE_TOKENS.none(type::contains)) return@mapNotNull null
+            ThermalPath(type, File(zone, "temp").path)
+        }.sortedWith(compareBy<ThermalPath> { thermalRank(it.type) }.thenBy { it.path })
 
     fun normalizeTemperatureC(raw: String?): Float? {
         val value = Regex("-?\\d+(?:\\.\\d+)?").find(raw.orEmpty())?.value?.toFloatOrNull() ?: return null

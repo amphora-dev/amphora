@@ -53,6 +53,13 @@ class HostPerformanceParserTest {
     fun normalizesHertzAndKilohertzToMegahertz() {
         assertEquals(710, HostPerformanceParser.parseFrequencyMhz("710000000"))
         assertEquals(2419, HostPerformanceParser.parseFrequencyMhz("2419200"))
+        assertEquals(
+            500,
+            HostPerformanceParser.parseFrequencyMhz(
+                "/sys/class/drm/card0/device/pp_dpm_sclk",
+                "0: 210Mhz\n1: 500Mhz *\n2: 800Mhz",
+            ),
+        )
         assertEquals(800, HostPerformanceParser.parseMaxFrequencyMhz("200000 800000 600000"))
     }
 

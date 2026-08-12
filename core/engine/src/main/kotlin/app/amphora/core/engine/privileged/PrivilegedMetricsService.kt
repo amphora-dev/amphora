@@ -42,8 +42,7 @@ class PrivilegedMetricsService : IPrivilegedMetricsService.Stub() {
         return result.toString()
     }
 
-    private fun readFirst(paths: List<String>): MetricReading? =
-        paths.firstNotNullOfOrNull(::readMetric)
+    private fun readFirst(paths: List<String>): MetricReading? = paths.firstNotNullOfOrNull(::readMetric)
 
     private fun readMetric(path: String): MetricReading? = try {
         val now = SystemClock.elapsedRealtime()
@@ -97,14 +96,13 @@ class PrivilegedMetricsService : IPrivilegedMetricsService.Stub() {
         return result
     }
 
-    private fun readSocTemperature(): MetricReading? =
-        HostMetricPathDiscovery
-            .discoverThermalPaths()
-            .mapNotNull { readMetric(it.path) }
-            .mapNotNull { reading ->
-                HostMetricPathDiscovery.normalizeTemperatureC(reading.value)?.let { it to reading }
-            }.maxByOrNull { (temperature, _) -> temperature }
-            ?.second
+    private fun readSocTemperature(): MetricReading? = HostMetricPathDiscovery
+        .discoverThermalPaths()
+        .mapNotNull { readMetric(it.path) }
+        .mapNotNull { reading ->
+            HostMetricPathDiscovery.normalizeTemperatureC(reading.value)?.let { it to reading }
+        }.maxByOrNull { (temperature, _) -> temperature }
+        ?.second
 
     private fun JSONObject.putMetric(name: String, reading: MetricReading?) {
         if (reading == null) return

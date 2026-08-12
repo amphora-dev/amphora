@@ -73,6 +73,20 @@ internal object HostPerformanceParser {
         return frequencyToMhz(value)
     }
 
+    fun parseFrequencyMhz(path: String, raw: String?): Int? {
+        val activeLine = raw.orEmpty().lineSequence().firstOrNull { '*' in it }
+        if (File(path).name == "pp_dpm_sclk" || activeLine != null) {
+            val value =
+                Regex("\\d+")
+                    .findAll(activeLine ?: raw.orEmpty())
+                    .mapNotNull { it.value.toLongOrNull() }
+                    .lastOrNull()
+                    ?: return null
+            return frequencyToMhz(value)
+        }
+        return parseFrequencyMhz(raw)
+    }
+
     fun parseMaxFrequencyMhz(raw: String?): Int? = Regex("\\d+")
         .findAll(raw.orEmpty())
         .mapNotNull { it.value.toLongOrNull() }
@@ -111,9 +125,7 @@ internal object HostPerformanceParser {
     fun selectSessionGuestPids(descendants: Collection<Int>, winePids: Set<Int>, launcherPid: Int?): List<Int> =
         descendants.filter { it in winePids || it == launcherPid }
 
-    fun parseTemperatureC(raw: String?): Float? {
-        return HostMetricPathDiscovery.normalizeTemperatureC(raw)
-    }
+    fun parseTemperatureC(raw: String?): Float? = HostMetricPathDiscovery.normalizeTemperatureC(raw)
 
     private fun frequencyToMhz(value: Long): Int {
         val mhz =

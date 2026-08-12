@@ -169,7 +169,11 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                             stats.systemCpuPercent?.let { "SYS CPU $it%" }
                                 ?: "HOST CPU ${stats.hostCpuPercent}%",
                         )
-                        append("  GPU ${stats.gpuPercent?.let { "$it%" } ?: metricsAccessLabel(stats.gpuMetricsAccess)}")
+                        append(
+                            "  GPU ${stats.gpuPercent?.let {
+                                "$it%"
+                            } ?: metricsAccessLabel(stats.gpuMetricsAccess)}",
+                        )
                         append("  RAM ${stats.ramPercent}%")
                     },
                     style = MaterialTheme.typography.labelSmall,

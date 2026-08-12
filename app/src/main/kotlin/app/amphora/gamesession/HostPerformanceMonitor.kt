@@ -372,6 +372,13 @@ internal class HostPerformanceMonitor(
             lastThermalHeadroomSampleMs = nowWall
         }
         if (Build.VERSION.SDK_INT >= 36) updateSystemHeadroom(nowWall)
+        val localGpuCurrentFrequency = readFirstMetric(gpuPaths.currentFrequency)
+        val gpuCurrentFrequencyPath =
+            localGpuCurrentFrequency?.path ?: privilegedSnapshot?.gpuCurrentFrequencyPath
+        val gpuCurrentFrequencyRaw =
+            localGpuCurrentFrequency?.value ?: privilegedSnapshot?.gpuCurrentFrequency
+        val localGpuMaxFrequency = readFirstMetric(gpuPaths.maxFrequency)
+        val gpuMaxFrequencyRaw = localGpuMaxFrequency?.value ?: privilegedSnapshot?.gpuMaxFrequency
 
         return DetailStats(
             systemCpuPercent = systemCpuPercent,
@@ -389,15 +396,16 @@ internal class HostPerformanceMonitor(
             guestCpuPercent = guestCpuPercent,
             cpuCores = cpuCores,
             gpuCurrentMhz =
-            (
-                readFirstMetric(gpuPaths.currentFrequency)?.value
-                    ?: privilegedSnapshot?.gpuCurrentFrequency
-                )?.let(HostPerformanceParser::parseFrequencyMhz),
+            if (gpuCurrentFrequencyPath != null && gpuCurrentFrequencyRaw != null) {
+                HostPerformanceParser.parseFrequencyMhz(
+                    gpuCurrentFrequencyPath,
+                    gpuCurrentFrequencyRaw,
+                )
+            } else {
+                null
+            },
             gpuMaxMhz =
-            (
-                readFirstMetric(gpuPaths.maxFrequency)?.value
-                    ?: privilegedSnapshot?.gpuMaxFrequency
-                )?.let(HostPerformanceParser::parseMaxFrequencyMhz),
+            gpuMaxFrequencyRaw?.let(HostPerformanceParser::parseMaxFrequencyMhz),
             guestMemoryMb = (guestMemoryKb / 1024).toInt(),
             guestProcessCount = guestPids.size,
             guestThreadCount = guestThreads,
