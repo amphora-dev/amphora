@@ -688,11 +688,11 @@ static void collect_display_timing(VkRenderer* r) {
     pthread_mutex_lock(&t->mutex);
     for (uint32_t i = 0; i < count; i++) {
         VkPastPresentationTimingGOOGLE* timing = &timings[i];
-        if (timing->presentationID <= t->last_collected_present_id
+        if (timing->presentID <= t->last_collected_present_id
             || timing->actualPresentTime == 0) {
             continue;
         }
-        t->last_collected_present_id = timing->presentationID;
+        t->last_collected_present_id = timing->presentID;
         if (t->actual_present_count > 0) {
             uint32_t previous_index =
                 (t->actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u)
