@@ -5,6 +5,16 @@ import androidx.collection.ArraySet;
 import java.util.ArrayList;
 
 public class Keyboard {
+  private static final XKeycode[] UNICODE_KEYCODES = {
+    XKeycode.KEY_UNICODE,
+    XKeycode.KEY_UNICODE_1,
+    XKeycode.KEY_UNICODE_2,
+    XKeycode.KEY_UNICODE_3,
+    XKeycode.KEY_UNICODE_4,
+    XKeycode.KEY_UNICODE_5,
+    XKeycode.KEY_UNICODE_6,
+    XKeycode.KEY_UNICODE_7
+  };
   public static final byte KEYSYMS_PER_KEYCODE = 2;
   public static final short MAX_KEYCODE = 255;
   public static final short MIN_KEYCODE = 8;
@@ -12,6 +22,9 @@ public class Keyboard {
   public final int[] keysyms = new int[KEYCODE_COUNT * KEYSYMS_PER_KEYCODE];
   private final Bitmask modifiersMask = new Bitmask();
   private final XKeycode[] keycodeMap;
+  private final int[] unicodeKeysyms = new int[UNICODE_KEYCODES.length];
+  private final long[] unicodeKeycodeLastUsed = new long[UNICODE_KEYCODES.length];
+  private long unicodeKeycodeSequence;
   private final ArraySet<Byte> pressedKeys = new ArraySet<>();
   private final ArrayList<OnKeyboardListener> onKeyboardListeners = new ArrayList<>();
   private final XServer xServer;
@@ -70,6 +83,29 @@ public class Keyboard {
       return 0x01000000 | character;
     }
     return 0;
+  }
+
+  synchronized XKeycode selectUnicodeKeycode(int keysym) {
+    if (keysym == 0) throw new IllegalArgumentException("NoSymbol cannot be injected");
+
+    int leastRecentlyUsed = 0;
+    for (int index = 0; index < unicodeKeysyms.length; index++) {
+      if (unicodeKeysyms[index] == keysym) {
+        unicodeKeycodeLastUsed[index] = ++unicodeKeycodeSequence;
+        return UNICODE_KEYCODES[index];
+      }
+      if (unicodeKeysyms[index] == 0) {
+        leastRecentlyUsed = index;
+        break;
+      }
+      if (unicodeKeycodeLastUsed[index] < unicodeKeycodeLastUsed[leastRecentlyUsed]) {
+        leastRecentlyUsed = index;
+      }
+    }
+
+    unicodeKeysyms[leastRecentlyUsed] = keysym;
+    unicodeKeycodeLastUsed[leastRecentlyUsed] = ++unicodeKeycodeSequence;
+    return UNICODE_KEYCODES[leastRecentlyUsed];
   }
 
   public void setKeyPress(byte keycode, int keysym) {

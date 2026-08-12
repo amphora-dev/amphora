@@ -94,7 +94,12 @@ public final class WineInputConnection extends BaseInputConnection {
   @Override
   public void closeConnection() {
     super.closeConnection();
+    reset();
+  }
+
+  public void reset() {
     editable.clear();
+    Selection.setSelection(editable, 0);
   }
 
   private void trimHistory() {

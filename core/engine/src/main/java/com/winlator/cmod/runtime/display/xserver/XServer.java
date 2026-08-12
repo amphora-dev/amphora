@@ -363,8 +363,9 @@ public class XServer {
 
         int keysym = Keyboard.unicodeCharToKeysym(character);
         if (keysym == 0) continue;
-        keyboard.setKeyPress(XKeycode.KEY_UNICODE.id, keysym);
-        keyboard.setKeyRelease(XKeycode.KEY_UNICODE.id);
+        XKeycode unicodeKeycode = keyboard.selectUnicodeKeycode(keysym);
+        keyboard.setKeyPress(unicodeKeycode.id, keysym);
+        keyboard.setKeyRelease(unicodeKeycode.id);
       }
     }
   }

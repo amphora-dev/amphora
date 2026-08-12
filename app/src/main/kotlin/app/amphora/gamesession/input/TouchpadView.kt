@@ -295,6 +295,16 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         }
     }
 
+    fun dismissSoftKeyboard() {
+        val inputMethodManager = context.getSystemService(InputMethodManager::class.java)
+        inputMethodManager?.hideSoftInputFromWindow(windowToken, 0)
+        inputConnection?.reset()
+        inputConnection = null
+        if (!inputReleased && isAttachedToWindow) {
+            inputMethodManager?.restartInput(this)
+        }
+    }
+
     override fun onDetachedFromWindow() {
         releaseInput()
         super.onDetachedFromWindow()
@@ -307,7 +317,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         resetInputState()
         context.getSystemService(InputMethodManager::class.java)
             ?.hideSoftInputFromWindow(windowToken, 0)
-        inputConnection?.closeConnection()
+        inputConnection?.reset()
         inputConnection = null
         inputReleased = true
         injectThread.quitSafely()

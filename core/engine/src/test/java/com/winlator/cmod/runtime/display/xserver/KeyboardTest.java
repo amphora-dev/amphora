@@ -2,6 +2,8 @@ package com.winlator.cmod.runtime.display.xserver;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -39,5 +41,19 @@ public class KeyboardTest {
 
     assertEquals(0x0100d83d, Keyboard.unicodeCharToKeysym(pair[0]));
     assertEquals(0x0100de00, Keyboard.unicodeCharToKeysym(pair[1]));
+  }
+
+  @Test
+  public void reusesRecentUnicodeKeycodesWithoutRemapping() {
+    Keyboard keyboard = new Keyboard(null, new XKeycode[0]);
+    XKeycode first = keyboard.selectUnicodeKeycode(0x01004e2d);
+
+    assertSame(first, keyboard.selectUnicodeKeycode(0x01004e2d));
+    for (int index = 0; index < 7; index++) {
+      keyboard.selectUnicodeKeycode(0x01005000 + index);
+    }
+
+    assertSame(first, keyboard.selectUnicodeKeycode(0x01004e2d));
+    assertNotEquals(first, keyboard.selectUnicodeKeycode(0x01006000));
   }
 }

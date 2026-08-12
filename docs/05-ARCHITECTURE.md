@@ -128,7 +128,7 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 | 层 | 组件 | 说明 |
 |---|---|---|
 | UI | `GameSessionScreen` / `TouchpadView` | 触控板：相对位移 + 单击左键 / 双指右键与滚轮 / 长按右键；触屏绝对模式；外接鼠标与手写笔；运行时抽屉可打开 Android IME |
-| 文本输入 | `WineInputConnection` → `XServer.injectText` | 拼音/候选组合留在 Android 侧，只把已提交 UTF-16 文本映射为 X11 Unicode keysym；退格、Delete、Enter 保留按键语义，支持中文及代理对 |
+| 文本输入 | `WineInputConnection` → `XServer.injectText` | 拼音/候选组合留在 Android 侧，只把已提交 UTF-16 文本映射为 X11 Unicode keysym；8 个保留 keycode 按 LRU 复用，退格、Delete、Enter 保留按键语义 |
 | Surface | `XServerSurfaceView` | `TextureView`（Compose `AndroidView` 下 SurfaceView 子窗口不可靠） |
 | Java 渲染 | `VulkanRenderer` | 加载 `winlator`，direct scene buffer |
 | Native | `vk_renderer.c` + adrenotools | swapchain / AHB 导入 / Turnip 或系统 `libvulkan.so` |
