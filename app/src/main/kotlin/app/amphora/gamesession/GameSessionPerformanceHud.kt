@@ -166,7 +166,7 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                 Text(
                     buildString {
                         append("HOST CPU ${stats.hostCpuPercent}%")
-                        stats.gpuPercent?.let { append("  GPU $it%") }
+                        append("  GPU ${stats.gpuPercent?.let { "$it%" } ?: "restricted"}")
                         append("  RAM ${stats.ramPercent}%")
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -200,7 +200,11 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                         },
                     )
                     MetricLine(
-                        "DISPLAY",
+                        when (stats.displayTimingSource) {
+                            DisplayTimingSource.ACTUAL -> "DISPLAY"
+                            DisplayTimingSource.COMPOSITOR -> "PRESENT"
+                            DisplayTimingSource.UNAVAILABLE -> "DISPLAY"
+                        },
                         if (stats.displayTimingSupported) {
                             "${stats.displayFps?.format(1) ?: "--"} FPS" +
                                 " · ${stats.presentIntervalMs?.format(2) ?: "--"} ms"
@@ -226,10 +230,9 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                     CpuCoreGrid(stats.cpuCores)
                     MetricLine(
                         "GPU",
-                        buildString {
-                            append("${stats.gpuPercent ?: "--"}%")
-                            append(" · ${frequencyLabel(stats.gpuCurrentMhz, stats.gpuMaxMhz)}")
-                        },
+                        stats.gpuPercent?.let {
+                            "$it% · ${frequencyLabel(stats.gpuCurrentMhz, stats.gpuMaxMhz)}"
+                        } ?: "restricted by SELinux",
                     )
                     if (stats.cpuHeadroom != null || stats.gpuHeadroom != null) {
                         MetricLine(
@@ -251,6 +254,11 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                     MetricLine(
                         "PROC",
                         "${stats.guestProcessCount} guest · ${stats.guestThreadCount} threads",
+                    )
+                    MetricLine(
+                        "ACCESS",
+                        "CPU ${metricsAccessLabel(stats.systemMetricsAccess)}" +
+                            " · GPU ${metricsAccessLabel(stats.gpuMetricsAccess)}",
                     )
                     MetricLine(
                         "THERM",
@@ -359,6 +367,13 @@ private fun frequencyLabel(currentMhz: Int?, maxMhz: Int?): String = when {
 private fun frequencyShort(mhz: Int): String = if (mhz >= 1_000) "${(mhz / 1_000f).format(2)}G" else "${mhz}M"
 
 private fun Float.format(decimals: Int): String = "%.${decimals}f".format(this)
+
+private fun metricsAccessLabel(access: MetricsAccess): String = when (access) {
+    MetricsAccess.APP -> "app"
+    MetricsAccess.SHIZUKU_SHELL -> "Shizuku"
+    MetricsAccess.SHIZUKU_ROOT -> "root"
+    MetricsAccess.RESTRICTED -> "restricted"
+}
 
 private fun thermalStatusLabel(status: Int?): String = when (status) {
     0 -> "NONE"

@@ -70,4 +70,16 @@ class HostPerformanceParserTest {
     fun parsesKernelChildrenPidList() {
         assertEquals(listOf(120, 121, 2048), HostPerformanceParser.parseChildPids("120 121  2048\n"))
     }
+
+    @Test
+    fun selectsAllWineSiblingsUnderSessionHost() {
+        assertEquals(
+            listOf(8357, 8371, 9412),
+            HostPerformanceParser.selectSessionGuestPids(
+                descendants = listOf(8357, 8371, 8388, 9412),
+                winePids = setOf(8357, 8371, 9412, 26528),
+                launcherPid = 8357,
+            ),
+        )
+    }
 }

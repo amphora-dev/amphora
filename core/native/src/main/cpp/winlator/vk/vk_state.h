@@ -206,6 +206,13 @@ typedef struct VkRendererTelemetry {
     pthread_mutex_t mutex;
     bool        sampling_enabled;
 
+    // Successful compositor queue-present timestamps. This is always available and provides a
+    // reliable fallback when VK_GOOGLE_display_timing advertises support but returns no history.
+    uint64_t    compositor_present_ns[VK_PRESENT_TIMING_SAMPLES];
+    uint32_t    compositor_present_index;
+    uint32_t    compositor_present_count;
+    uint64_t    compositor_present_sample_count;
+
     VkQueryPool timestamp_pool;
     bool        gpu_timing_enabled;
     uint32_t    timestamp_valid_bits;
