@@ -129,6 +129,9 @@ bool vkd_load_instance(VkInstance instance) {
     LOAD(WaitForFences);
     LOAD(CreateSemaphore);
     LOAD(DestroySemaphore);
+    LOAD(CreateQueryPool);
+    LOAD(DestroyQueryPool);
+    LOAD(GetQueryPoolResults);
 
     // Commands
     LOAD(CreateCommandPool);
@@ -151,6 +154,8 @@ bool vkd_load_instance(VkInstance instance) {
     LOAD(CmdPipelineBarrier);
     LOAD(CmdCopyBufferToImage);
     LOAD(CmdBlitImage);
+    LOAD(CmdResetQueryPool);
+    LOAD(CmdWriteTimestamp);
 
     // Queue
     LOAD(QueueSubmit);

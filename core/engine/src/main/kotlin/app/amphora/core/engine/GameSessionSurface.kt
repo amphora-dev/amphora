@@ -1,6 +1,7 @@
 package app.amphora.core.engine
 
 import com.winlator.cmod.runtime.display.xserver.XServer
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -37,4 +38,10 @@ data class GameSessionSurface(
     val graphicsDriver: String = "wrapper",
     /** Optional compositor present mode (`mailbox` / `fifo` / …); null → renderer default. */
     val presentMode: String? = null,
+    /** Configured guest D3D translation stack, for example `DXVK 2.7 + VKD3D 2.14`. */
+    val guestGraphicsBackend: String = "WineD3D / auto",
+    /** Active Wine content identifier. */
+    val wineVersion: String? = null,
+    /** Root Box64/Wine launcher PID; descendants make up the measurable guest process tree. */
+    val guestProcessId: StateFlow<Int?> = MutableStateFlow<Int?>(null),
 )

@@ -21,6 +21,7 @@
 #include <android/native_window_jni.h>
 #include <dlfcn.h>
 #include <jni.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -45,6 +46,8 @@
 #include "shaders/effect_colorblind_frag.spv.h"
 #include "shaders/effect_pixelate_frag.spv.h"
 #include "shaders/sgsr1_frag.spv.h"
+
+#define VK_TELEMETRY_FAILURE_LIMIT 3u
 
 // ============================================================
 // Forward decls
@@ -74,6 +77,11 @@ static void detach_graveyard_slot(VkRenderer* r, uint32_t slot_idx,
                                   VkTexture*** out_textures, uint32_t* out_count);
 static void destroy_graveyard_textures(VkRenderer* r, VkTexture** textures, uint32_t count);
 static bool record_and_submit_frame(VkRenderer* r);
+static void create_telemetry_resources(VkRenderer* r);
+static void destroy_telemetry_resources(VkRenderer* r);
+static void collect_gpu_timing(VkRenderer* r, VkFrame* f, uint32_t frame_index);
+static void reset_display_timing(VkRenderer* r);
+static void collect_display_timing(VkRenderer* r);
 
 // ============================================================
 // Descriptor set allocation (called from vk_image.c)
@@ -318,6 +326,7 @@ static bool pick_physical_device(VkRenderer* r) {
     for (uint32_t i = 0; i < qf_count; i++) {
         if (qf[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
             r->graphics_queue_family = i;
+            r->telemetry.timestamp_valid_bits = qf[i].timestampValidBits;
             break;
         }
     }
@@ -351,6 +360,7 @@ static bool create_device(VkRenderer* r) {
     bool has_extmem_caps = has_extension(exts, ext_count, VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
     bool has_queue_fam = has_extension(exts, ext_count, VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME);
     bool has_cubic = has_extension(exts, ext_count, VK_EXT_FILTER_CUBIC_EXTENSION_NAME);
+    bool has_display_timing = has_extension(exts, ext_count, VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME);
 
     free(exts);
 
@@ -368,11 +378,13 @@ static bool create_device(VkRenderer* r) {
     }
     if (has_ycbcr) enable[enable_n++] = VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME;
     if (has_cubic) enable[enable_n++] = VK_EXT_FILTER_CUBIC_EXTENSION_NAME;
+    if (has_display_timing) enable[enable_n++] = VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME;
     (void)has_extmem_caps;
 
     r->ext_ahb = ahb_ok;
     r->ext_ycbcr = has_ycbcr;
     r->ext_filter_cubic = has_cubic;
+    r->ext_display_timing = has_display_timing;
     VK_LOGI("AHB Vulkan device support: android_hardware_buffer=%d external_memory=%d dedicated=%d get_memory_requirements2=%d queue_family_foreign=%d enabled=%d",
             has_ahb, has_extmem, has_dedicated, has_get_mem_req2, has_queue_fam, r->ext_ahb);
     if (!r->ext_ahb) {
@@ -397,8 +409,24 @@ static bool create_device(VkRenderer* r) {
     dci.enabledExtensionCount = enable_n;
     dci.ppEnabledExtensionNames = enable;
 
-    if (vkCreateDevice(r->physical_device, &dci, NULL, &r->device) != VK_SUCCESS) {
-        VK_LOGE("vkCreateDevice failed");
+    VkResult device_result = vkCreateDevice(r->physical_device, &dci, NULL, &r->device);
+    if (device_result != VK_SUCCESS && has_display_timing) {
+        VK_LOGW("vkCreateDevice failed with optional VK_GOOGLE_display_timing (%d); retrying without it",
+                device_result);
+        for (uint32_t i = 0; i < enable_n; i++) {
+            if (strcmp(enable[i], VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) == 0) {
+                for (uint32_t j = i + 1; j < enable_n; j++) enable[j - 1] = enable[j];
+                enable_n--;
+                break;
+            }
+        }
+        dci.enabledExtensionCount = enable_n;
+        r->ext_display_timing = false;
+        r->device = VK_NULL_HANDLE;
+        device_result = vkCreateDevice(r->physical_device, &dci, NULL, &r->device);
+    }
+    if (device_result != VK_SUCCESS) {
+        VK_LOGE("vkCreateDevice failed after optional-extension fallback (%d)", device_result);
         return false;
     }
     vkGetDeviceQueue(r->device, r->graphics_queue_family, 0, &r->graphics_queue);
@@ -430,8 +458,22 @@ static bool create_device(VkRenderer* r) {
             r->ext_ycbcr = false;
         }
     }
+    if (r->ext_display_timing) {
+        r->telemetry.fn_get_past_presentation_timing =
+            (PFN_vkGetPastPresentationTimingGOOGLE)
+                vkGetDeviceProcAddr(r->device, "vkGetPastPresentationTimingGOOGLE");
+        r->telemetry.fn_get_refresh_cycle_duration =
+            (PFN_vkGetRefreshCycleDurationGOOGLE)
+                vkGetDeviceProcAddr(r->device, "vkGetRefreshCycleDurationGOOGLE");
+        if (!r->telemetry.fn_get_past_presentation_timing
+            || !r->telemetry.fn_get_refresh_cycle_duration) {
+            VK_LOGW("VK_GOOGLE_display_timing entry points unavailable; display telemetry disabled");
+            r->ext_display_timing = false;
+        }
+    }
 
-    VK_LOGI("Vulkan device created (AHB=%d, Ycbcr=%d)", r->ext_ahb, r->ext_ycbcr);
+    VK_LOGI("Vulkan device created (AHB=%d, Ycbcr=%d, display_timing=%d)",
+            r->ext_ahb, r->ext_ycbcr, r->ext_display_timing);
     return true;
 }
 
@@ -561,6 +603,259 @@ static bool create_command_pool(VkRenderer* r) {
         if (vkCreateFence(r->device, &fi, NULL, &f->in_flight) != VK_SUCCESS) return false;
     }
     return true;
+}
+
+static void create_telemetry_resources(VkRenderer* r) {
+    VkRendererTelemetry* t = &r->telemetry;
+    if (t->timestamp_pool != VK_NULL_HANDLE || t->gpu_timing_enabled) return;
+    t->timestamp_period_ns = r->caps.limits.timestampPeriod;
+    if (t->timestamp_valid_bits == 0 || t->timestamp_period_ns <= 0.0
+        || !vkd.CreateQueryPool || !vkd.GetQueryPoolResults
+        || !vkd.CmdResetQueryPool || !vkd.CmdWriteTimestamp) {
+        VK_LOGW("GPU timestamp telemetry unavailable (validBits=%u period=%.3f)",
+                t->timestamp_valid_bits, t->timestamp_period_ns);
+        return;
+    }
+
+    VkQueryPoolCreateInfo qci = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+    qci.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    qci.queryCount = VK_FRAMES_IN_FLIGHT * 2u;
+    if (vkCreateQueryPool(r->device, &qci, NULL, &t->timestamp_pool) != VK_SUCCESS) {
+        t->timestamp_pool = VK_NULL_HANDLE;
+        VK_LOGW("Unable to create GPU timestamp query pool");
+        return;
+    }
+    t->gpu_timing_enabled = true;
+    VK_LOGI("GPU timestamp telemetry enabled (validBits=%u period=%.3fns)",
+            t->timestamp_valid_bits, t->timestamp_period_ns);
+}
+
+static void destroy_telemetry_resources(VkRenderer* r) {
+    VkRendererTelemetry* t = &r->telemetry;
+    if (t->timestamp_pool != VK_NULL_HANDLE && r->device) {
+        vkDestroyQueryPool(r->device, t->timestamp_pool, NULL);
+        t->timestamp_pool = VK_NULL_HANDLE;
+    }
+    t->gpu_timing_enabled = false;
+    t->display_timing_enabled = false;
+    t->sampling_enabled = false;
+}
+
+static void record_gpu_timing_failure(VkRenderer* r, const char* reason) {
+    VkRendererTelemetry* t = &r->telemetry;
+    bool tripped = false;
+    pthread_mutex_lock(&t->mutex);
+    if (t->gpu_failure_count < UINT32_MAX) t->gpu_failure_count++;
+    if (t->gpu_failure_count >= VK_TELEMETRY_FAILURE_LIMIT && t->gpu_timing_enabled) {
+        t->gpu_timing_enabled = false;
+        tripped = true;
+    }
+    pthread_mutex_unlock(&t->mutex);
+    if (tripped) {
+        for (uint32_t i = 0; i < VK_FRAMES_IN_FLIGHT; i++) {
+            r->frames[i].telemetry_query_submitted = false;
+        }
+        VK_LOGW("GPU timestamp telemetry disabled after %u failures (%s)",
+                VK_TELEMETRY_FAILURE_LIMIT, reason);
+    }
+}
+
+static void record_display_timing_failure(VkRenderer* r, const char* reason) {
+    VkRendererTelemetry* t = &r->telemetry;
+    bool tripped = false;
+    pthread_mutex_lock(&t->mutex);
+    if (t->display_failure_count < UINT32_MAX) t->display_failure_count++;
+    if (t->display_failure_count >= VK_TELEMETRY_FAILURE_LIMIT
+        && t->display_timing_enabled) {
+        t->display_timing_enabled = false;
+        tripped = true;
+    }
+    pthread_mutex_unlock(&t->mutex);
+    if (tripped) {
+        VK_LOGW("Display timing telemetry disabled after %u failures (%s)",
+                VK_TELEMETRY_FAILURE_LIMIT, reason);
+    }
+}
+
+static void collect_gpu_timing(VkRenderer* r, VkFrame* f, uint32_t frame_index) {
+    VkRendererTelemetry* t = &r->telemetry;
+    if (!t->gpu_timing_enabled || !f->telemetry_query_submitted) return;
+    f->telemetry_query_submitted = false;
+
+    uint64_t timestamps[2] = {0, 0};
+    uint32_t first_query = frame_index * 2u;
+    VkResult result = vkGetQueryPoolResults(
+        r->device, t->timestamp_pool, first_query, 2,
+        sizeof(timestamps), timestamps, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+    if (result != VK_SUCCESS) {
+        record_gpu_timing_failure(r, "query result");
+        return;
+    }
+
+    uint64_t delta = timestamps[1] - timestamps[0];
+    if (t->timestamp_valid_bits < 64u) {
+        uint64_t mask = (1ULL << t->timestamp_valid_bits) - 1ULL;
+        delta &= mask;
+    }
+    double gpu_ms = (double)delta * t->timestamp_period_ns / 1000000.0;
+    if (gpu_ms < 0.0 || gpu_ms > 10000.0) {
+        record_gpu_timing_failure(r, "invalid duration");
+        return;
+    }
+
+    pthread_mutex_lock(&t->mutex);
+    t->gpu_failure_count = 0;
+    t->gpu_render_ms = gpu_ms;
+    t->gpu_sample_count++;
+    pthread_mutex_unlock(&t->mutex);
+}
+
+static void reset_display_timing(VkRenderer* r) {
+    VkRendererTelemetry* t = &r->telemetry;
+    pthread_mutex_lock(&t->mutex);
+    t->display_timing_enabled =
+        t->sampling_enabled && r->ext_display_timing && r->swapchain != VK_NULL_HANDLE;
+    t->next_present_id = 1;
+    t->last_collected_present_id = 0;
+    t->present_query_counter = 0;
+    t->display_failure_count = 0;
+    t->actual_present_index = 0;
+    t->actual_present_count = 0;
+    t->display_fps = 0.0;
+    t->present_interval_ms = 0.0;
+    t->present_margin_ms = 0.0;
+    t->refresh_cycle_ms = 0.0;
+    pthread_mutex_unlock(&t->mutex);
+
+    if (t->display_timing_enabled && t->fn_get_refresh_cycle_duration) {
+        VkRefreshCycleDurationGOOGLE duration = {0};
+        if (t->fn_get_refresh_cycle_duration(r->device, r->swapchain, &duration) == VK_SUCCESS) {
+            pthread_mutex_lock(&t->mutex);
+            t->refresh_cycle_ms = (double)duration.refreshDuration / 1000000.0;
+            pthread_mutex_unlock(&t->mutex);
+        }
+    }
+}
+
+static int compare_presentation_timing(const void* lhs, const void* rhs) {
+    const VkPastPresentationTimingGOOGLE* a = lhs;
+    const VkPastPresentationTimingGOOGLE* b = rhs;
+    if (a->actualPresentTime < b->actualPresentTime) return -1;
+    if (a->actualPresentTime > b->actualPresentTime) return 1;
+    if (a->presentID < b->presentID) return -1;
+    if (a->presentID > b->presentID) return 1;
+    return 0;
+}
+
+static void collect_display_timing(VkRenderer* r) {
+    VkRendererTelemetry* t = &r->telemetry;
+    if (!t->display_timing_enabled || !t->fn_get_past_presentation_timing
+        || r->swapchain == VK_NULL_HANDLE) {
+        return;
+    }
+
+    VkPastPresentationTimingGOOGLE timings[64];
+    uint32_t total = 0;
+    for (uint32_t pass = 0; pass < 4u && total < 64u; pass++) {
+        uint32_t count = 16;
+        VkResult result =
+            t->fn_get_past_presentation_timing(
+                r->device, r->swapchain, &count, &timings[total]);
+        if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
+            record_display_timing_failure(r, "history query");
+            return;
+        }
+        if (count > 16u) count = 16u;
+        total += count;
+        if (result != VK_INCOMPLETE) break;
+    }
+    if (total == 0) {
+        pthread_mutex_lock(&t->mutex);
+        t->display_failure_count = 0;
+        pthread_mutex_unlock(&t->mutex);
+        return;
+    }
+    qsort(timings, total, sizeof(timings[0]), compare_presentation_timing);
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    uint64_t now_ns = (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+
+    uint32_t accepted = 0;
+    uint32_t invalid = 0;
+    pthread_mutex_lock(&t->mutex);
+    for (uint32_t i = 0; i < total; i++) {
+        VkPastPresentationTimingGOOGLE* timing = &timings[i];
+        if (timing->actualPresentTime == 0
+            || timing->actualPresentTime > now_ns + 1000000000ULL
+            || now_ns > timing->actualPresentTime + 30000000000ULL) {
+            invalid++;
+            continue;
+        }
+
+        bool duplicate = false;
+        for (uint32_t offset = 0; offset < t->actual_present_count; offset++) {
+            uint32_t index =
+                (t->actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u - offset)
+                % VK_PRESENT_TIMING_SAMPLES;
+            if (t->actual_present_ids[index] == timing->presentID) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) continue;
+
+        t->last_collected_present_id = timing->presentID;
+        if (t->actual_present_count > 0) {
+            uint32_t previous_index =
+                (t->actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u)
+                % VK_PRESENT_TIMING_SAMPLES;
+            uint64_t previous = t->actual_present_ns[previous_index];
+            if (timing->actualPresentTime <= previous) {
+                invalid++;
+                continue;
+            }
+            t->present_interval_ms =
+                (double)(timing->actualPresentTime - previous) / 1000000.0;
+        }
+        t->actual_present_ns[t->actual_present_index] = timing->actualPresentTime;
+        t->actual_present_ids[t->actual_present_index] = timing->presentID;
+        t->actual_present_index =
+            (t->actual_present_index + 1u) % VK_PRESENT_TIMING_SAMPLES;
+        if (t->actual_present_count < VK_PRESENT_TIMING_SAMPLES) {
+            t->actual_present_count++;
+        }
+        t->present_margin_ms = (double)timing->presentMargin / 1000000.0;
+        t->display_sample_count++;
+        accepted++;
+    }
+
+    if (t->actual_present_count >= 2) {
+        uint32_t newest_index =
+            (t->actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u)
+            % VK_PRESENT_TIMING_SAMPLES;
+        uint64_t newest = t->actual_present_ns[newest_index];
+        uint64_t cutoff = newest > 1000000000ULL ? newest - 1000000000ULL : 0;
+        uint64_t oldest = newest;
+        uint32_t samples = 0;
+        for (uint32_t offset = 0; offset < t->actual_present_count; offset++) {
+            uint32_t index =
+                (newest_index + VK_PRESENT_TIMING_SAMPLES - offset)
+                % VK_PRESENT_TIMING_SAMPLES;
+            uint64_t timestamp = t->actual_present_ns[index];
+            if (timestamp < cutoff) break;
+            oldest = timestamp;
+            samples++;
+        }
+        if (samples >= 2 && newest > oldest) {
+            t->display_fps =
+                (double)(samples - 1u) * 1000000000.0 / (double)(newest - oldest);
+        }
+    }
+    if (accepted > 0) t->display_failure_count = 0;
+    pthread_mutex_unlock(&t->mutex);
+    if (accepted == 0 && invalid > 0) {
+        record_display_timing_failure(r, "invalid timestamps");
+    }
 }
 
 // ============================================================
@@ -1279,6 +1574,7 @@ static bool create_swapchain(VkRenderer* r, uint32_t fallback_width, uint32_t fa
             goto fail;
         }
     }
+    reset_display_timing(r);
     return true;
 
 fail:
@@ -1307,6 +1603,9 @@ static void destroy_swapchain_resources(VkRenderer* r) {
 static void destroy_swapchain(VkRenderer* r) {
     destroy_swapchain_resources(r);
     if (r->swapchain) { vkDestroySwapchainKHR(r->device, r->swapchain, NULL); r->swapchain = VK_NULL_HANDLE; }
+    pthread_mutex_lock(&r->telemetry.mutex);
+    r->telemetry.display_timing_enabled = false;
+    pthread_mutex_unlock(&r->telemetry.mutex);
 }
 
 // ============================================================
@@ -2113,6 +2412,7 @@ static bool record_and_submit_frame(VkRenderer* r) {
     }
 
     vkWaitForFences(r->device, 1, &f->in_flight, VK_TRUE, UINT64_MAX);
+    collect_gpu_timing(r, f, r->frame_index);
 
     // Snapshot the scene under scene_mutex (cheap memcpy of a few KB), then release it so
     // scene producers (texture destroys, X server window updates) don't stall behind the
@@ -2243,6 +2543,16 @@ static bool record_and_submit_frame(VkRenderer* r) {
     VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(f->cmd, &bi);
+    bool sample_gpu_timing =
+        r->telemetry.sampling_enabled
+        && r->telemetry.gpu_timing_enabled
+        && (r->telemetry.gpu_query_counter++ % 4u) == 0u;
+    if (sample_gpu_timing) {
+        uint32_t first_query = r->frame_index * 2u;
+        vkCmdResetQueryPool(f->cmd, r->telemetry.timestamp_pool, first_query, 2);
+        vkCmdWriteTimestamp(f->cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                            r->telemetry.timestamp_pool, first_query);
+    }
 
     bool has_effects = snap.effect_count > 0 && r->offscreen_built;
     if (snap.effect_count > 0) {
@@ -2385,6 +2695,10 @@ static bool record_and_submit_frame(VkRenderer* r) {
         }
     }
 
+    if (sample_gpu_timing) {
+        vkCmdWriteTimestamp(f->cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                            r->telemetry.timestamp_pool, r->frame_index * 2u + 1u);
+    }
     vkEndCommandBuffer(f->cmd);
 
     // The mirror's acquire/present-ready semaphores are appended only when capturing this frame.
@@ -2419,6 +2733,7 @@ static bool record_and_submit_frame(VkRenderer* r) {
         pthread_mutex_unlock(&r->render_mutex);
         return false;
     }
+    f->telemetry_query_submitted = sample_gpu_timing;
 
     VkPresentInfoKHR pi = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1;
@@ -2426,6 +2741,17 @@ static bool record_and_submit_frame(VkRenderer* r) {
     pi.swapchainCount = 1;
     pi.pSwapchains = &r->swapchain;
     pi.pImageIndices = &image_index;
+    VkPresentTimeGOOGLE present_time = {0};
+    VkPresentTimesInfoGOOGLE present_times = {
+        VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE
+    };
+    if (r->telemetry.display_timing_enabled) {
+        present_time.presentID = r->telemetry.next_present_id++;
+        present_time.desiredPresentTime = 0;
+        present_times.swapchainCount = 1;
+        present_times.pTimes = &present_time;
+        pi.pNext = &present_times;
+    }
 
     pthread_mutex_lock(&r->queue_mutex);
     VkResult pr = vkQueuePresentKHR(r->graphics_queue, &pi);
@@ -2444,6 +2770,11 @@ static bool record_and_submit_frame(VkRenderer* r) {
         }
     }
     pthread_mutex_unlock(&r->queue_mutex);
+    if (r->telemetry.display_timing_enabled
+        && (pr == VK_SUCCESS || pr == VK_SUBOPTIMAL_KHR)
+        && (++r->telemetry.present_query_counter % 8u) == 0u) {
+        collect_display_timing(r);
+    }
 
     bool present_suboptimal = (pr == VK_SUBOPTIMAL_KHR) && !r->ignore_suboptimal;
     if (recreate_after_present || pr == VK_ERROR_OUT_OF_DATE_KHR || present_suboptimal) {
@@ -2483,6 +2814,7 @@ JNIEXPORT jlong JNICALL JNI_FN(nativeCreate)(JNIEnv* env, jclass clazz,
     pthread_mutex_init(&r->texture_mutex, NULL);
     pthread_mutex_init(&r->render_mutex, NULL);
     pthread_mutex_init(&r->descriptor_mutex, NULL);
+    pthread_mutex_init(&r->telemetry.mutex, NULL);
 
     const char* driver_name_c = NULL;
     if (driverName != NULL) driver_name_c = (*env)->GetStringUTFChars(env, driverName, NULL);
@@ -2546,6 +2878,7 @@ fail:
     if (r->shared_sampler) vkDestroySampler(r->device, r->shared_sampler, NULL);
     if (r->shared_sampler_nearest) vkDestroySampler(r->device, r->shared_sampler_nearest, NULL);
     if (r->shared_sampler_cubic) vkDestroySampler(r->device, r->shared_sampler_cubic, NULL);
+    destroy_telemetry_resources(r);
     if (r->cmd_pool) vkDestroyCommandPool(r->device, r->cmd_pool, NULL);
     free(r->descriptor_free_list); r->descriptor_free_list = NULL; r->descriptor_free_count = 0;
     if (r->descriptor_pool) vkDestroyDescriptorPool(r->device, r->descriptor_pool, NULL);
@@ -2559,6 +2892,7 @@ fail:
     pthread_mutex_destroy(&r->texture_mutex);
     pthread_mutex_destroy(&r->render_mutex);
     pthread_mutex_destroy(&r->descriptor_mutex);
+    pthread_mutex_destroy(&r->telemetry.mutex);
     free(r);
     return 0;
 }
@@ -2603,6 +2937,7 @@ JNIEXPORT void JNICALL JNI_FN(nativeDestroy)(JNIEnv* env, jclass clazz, jlong ha
     if (r->shared_sampler) vkDestroySampler(r->device, r->shared_sampler, NULL);
     if (r->shared_sampler_nearest) vkDestroySampler(r->device, r->shared_sampler_nearest, NULL);
     if (r->shared_sampler_cubic) vkDestroySampler(r->device, r->shared_sampler_cubic, NULL);
+    destroy_telemetry_resources(r);
     if (r->cmd_pool) vkDestroyCommandPool(r->device, r->cmd_pool, NULL);
     free(r->descriptor_free_list); r->descriptor_free_list = NULL; r->descriptor_free_count = 0;
     if (r->descriptor_pool) vkDestroyDescriptorPool(r->device, r->descriptor_pool, NULL);
@@ -2622,6 +2957,7 @@ JNIEXPORT void JNICALL JNI_FN(nativeDestroy)(JNIEnv* env, jclass clazz, jlong ha
     pthread_mutex_destroy(&r->texture_mutex);
     pthread_mutex_destroy(&r->render_mutex);
     pthread_mutex_destroy(&r->descriptor_mutex);
+    pthread_mutex_destroy(&r->telemetry.mutex);
     free(r);
 }
 
@@ -2847,6 +3183,78 @@ JNIEXPORT jint JNICALL JNI_FN(nativeGetRecordOrientationHint)(JNIEnv* env, jclas
         case VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR: return 90;
         default: return 0;
     }
+}
+
+JNIEXPORT void JNICALL JNI_FN(nativeSetPerformanceTelemetryEnabled)(
+        JNIEnv* env, jclass clazz, jlong handle, jboolean enabled) {
+    (void)env; (void)clazz;
+    VkRenderer* r = (VkRenderer*)(intptr_t)handle;
+    if (!r) return;
+
+    pthread_mutex_lock(&r->render_mutex);
+    VkRendererTelemetry* t = &r->telemetry;
+    if (enabled == JNI_TRUE) {
+        create_telemetry_resources(r);
+        for (uint32_t i = 0; i < VK_FRAMES_IN_FLIGHT; i++) {
+            r->frames[i].telemetry_query_submitted = false;
+        }
+        pthread_mutex_lock(&t->mutex);
+        t->sampling_enabled = true;
+        t->gpu_query_counter = 0;
+        t->gpu_render_ms = 0.0;
+        t->gpu_sample_count = 0;
+        pthread_mutex_unlock(&t->mutex);
+        reset_display_timing(r);
+    } else {
+        for (uint32_t i = 0; i < VK_FRAMES_IN_FLIGHT; i++) {
+            r->frames[i].telemetry_query_submitted = false;
+        }
+        pthread_mutex_lock(&t->mutex);
+        t->sampling_enabled = false;
+        t->display_timing_enabled = false;
+        pthread_mutex_unlock(&t->mutex);
+    }
+    pthread_mutex_unlock(&r->render_mutex);
+}
+
+JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeGetPerformanceTelemetry)(
+        JNIEnv* env, jclass clazz, jlong handle) {
+    (void)clazz;
+    VkRenderer* r = (VkRenderer*)(intptr_t)handle;
+    if (!r) return NULL;
+
+    jdouble values[8];
+    pthread_mutex_lock(&r->telemetry.mutex);
+    double display_fps = r->telemetry.display_fps;
+    if (r->telemetry.actual_present_count > 0) {
+        uint32_t newest_index =
+            (r->telemetry.actual_present_index + VK_PRESENT_TIMING_SAMPLES - 1u)
+            % VK_PRESENT_TIMING_SAMPLES;
+        uint64_t newest = r->telemetry.actual_present_ns[newest_index];
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        uint64_t now_ns = (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
+        if (now_ns > newest + 1500000000ULL) display_fps = 0.0;
+    }
+    values[0] = r->telemetry.gpu_sample_count > 0 ? r->telemetry.gpu_render_ms : NAN;
+    values[1] = r->telemetry.display_sample_count > 1 ? display_fps : NAN;
+    values[2] = r->telemetry.display_sample_count > 1
+        ? r->telemetry.present_interval_ms : NAN;
+    values[3] = r->telemetry.display_sample_count > 0
+        ? r->telemetry.present_margin_ms : NAN;
+    values[4] = r->telemetry.refresh_cycle_ms > 0.0
+        ? r->telemetry.refresh_cycle_ms : NAN;
+    values[5] =
+        (r->telemetry.sampling_enabled && r->telemetry.gpu_timing_enabled ? 1.0 : 0.0)
+        + (r->telemetry.display_timing_enabled ? 2.0 : 0.0);
+    values[6] = (jdouble)r->telemetry.gpu_sample_count;
+    values[7] = (jdouble)r->telemetry.display_sample_count;
+    pthread_mutex_unlock(&r->telemetry.mutex);
+
+    jdoubleArray result = (*env)->NewDoubleArray(env, 8);
+    if (!result) return NULL;
+    (*env)->SetDoubleArrayRegion(env, result, 0, 8, values);
+    return result;
 }
 
 JNIEXPORT void JNICALL JNI_FN(nativeSurfaceDestroyed)(JNIEnv* env, jclass clazz, jlong handle) {

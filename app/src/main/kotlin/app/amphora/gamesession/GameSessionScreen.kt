@@ -321,7 +321,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                         modifier = Modifier.fillMaxSize(),
                     )
                     if (performanceHudVisible && firstGuestFrameRendered) {
-                        HostPerformanceOverlay(xServer = sessionSurface.xServer)
+                        HostPerformanceOverlay(surface = sessionSurface)
                     }
                     if (sessionState == SessionState.PAUSED && firstGuestFrameRendered) {
                         PausedSessionOverlay()

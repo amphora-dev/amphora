@@ -135,9 +135,31 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
 | Guest 图形 | Wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw 在 Dd7to9 / cnc-ddraw / D7VK 中单选；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | 默认 wrapper 包装系统 Adreno，host 直接用同一系统 Vulkan；显式 Turnip 才由 host/guest 共用 adrenotools driver |
 | 音频 | ALSA aserver 或 Wine PulseAudio | 默认 ALSA；可选 `winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`，16 KB 页或驱动不完整时保留 ALSA |
+| 性能 HUD | `HostPerformanceMonitor` / `HostPerformanceOverlay` | API 无关的 X11 源帧 FPS；可拖动、可展开。HUD 可见时 native compositor 每 4 帧用 Vulkan timestamp query 报告 GPU 合成时间，驱动支持 `VK_GOOGLE_display_timing` 时每 8 帧 drain 实际 display FPS、present interval/margin；展开后按低频率读取每核 CPU/频率、GPU 负载/频率、帧时间 P95/1% low、guest RSS/进程/线程、温度/电池功耗，以及配置和实际映射中发现的 DXVK/VKD3D/WineD3D |
 
 Pulse 代码与配套 WCP 已在功能分支完成构建验证；生产 manifest 发布含
 `winepulse` 的新 WCP 前，完整性检查会继续选择 ALSA。
+
+HUD 的详细内核指标使用普通 app 可读的 `/proc`/`sysfs`，不可读时显示 `--`，不会为了
+500 ms 采样常驻 Shizuku shell 服务；Shizuku shell 同样可能受 OEM SELinux 限制。详细
+`/proc/<pid>` 与频率/thermal I/O 只在展开状态每秒执行一次，guest 计量以 launcher PID
+及其 `/proc/.../children` 子树为边界，不扫描或误收其他应用；较重的 host PSS 降至每
+5 秒一次。温度优先显示公开 `PowerManager` thermal status/headroom；Android 36+ 另按
+系统声明的最小间隔读取 CPU/GPU headroom。折叠时保留低开销主指标。
+
+`vkQueuePresentKHR` 返回和 submit fence signal 都不等于“已经显示”。HUD 只有在
+`VK_GOOGLE_display_timing` 返回 `actualPresentTime` 时才显示最终 display FPS；不支持
+该扩展的系统 Vulkan/Turnip 明确显示 unsupported，不用 Choreographer 或
+`dumpsys SurfaceFlinger` 伪造。GPU 合成时间来自每个 in-flight frame 的两个 timestamp
+query，并在对应 fence 已完成后读取，不阻塞当前提交。HUD 隐藏时
+`nativeSetPerformanceTelemetryEnabled(false)` 停止 timestamp/reset/present-history
+命令；首次开启时才懒创建 query pool，之后关闭仅保留这个很小的 Vulkan 对象以避免
+销毁仍在途 query。
+
+兼容性按 fail-open 处理：若驱动枚举了 `VK_GOOGLE_display_timing`，但带该可选扩展的
+`vkCreateDevice` 失败，会去掉它重试，不能让 HUD 能力阻止 Vulkan 启动。运行中 GPU
+query 或 display history 连续 3 次失败/返回异常值时，只熔断对应遥测层；HUD 依次回退到
+GPU timing 或 XServer Source FPS，渲染与 Present 路径继续运行。
 
 已知裁剪：Android IME 已支持提交文本，但没有独立的 Windows 屏幕键盘或候选窗覆盖层；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 

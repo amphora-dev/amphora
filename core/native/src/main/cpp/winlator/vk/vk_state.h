@@ -26,6 +26,7 @@
 #define VK_MAX_RECORD_IMAGES 32
 #define VK_MAX_EFFECTS 8
 #define VK_MAX_RENDERABLE_WINDOWS 64
+#define VK_PRESENT_TIMING_SAMPLES 128
 // Number of in-flight upload slots. Each slot owns a persistently-mapped staging buffer,
 // fence, and command pool. An upload only blocks when this many uploads are still pending
 // on the GPU — with 8 slots and ~100µs GPU upload time, we can sustain ~80k uploads/sec
@@ -198,7 +199,39 @@ typedef struct VkFrame {
     VkSemaphore image_available;
     VkFence     in_flight;
     VkCommandBuffer cmd;
+    bool        telemetry_query_submitted;
 } VkFrame;
+
+typedef struct VkRendererTelemetry {
+    pthread_mutex_t mutex;
+    bool        sampling_enabled;
+
+    VkQueryPool timestamp_pool;
+    bool        gpu_timing_enabled;
+    uint32_t    timestamp_valid_bits;
+    double      timestamp_period_ns;
+    double      gpu_render_ms;
+    uint64_t    gpu_sample_count;
+    uint64_t    gpu_query_counter;
+    uint32_t    gpu_failure_count;
+
+    bool        display_timing_enabled;
+    PFN_vkGetPastPresentationTimingGOOGLE fn_get_past_presentation_timing;
+    PFN_vkGetRefreshCycleDurationGOOGLE   fn_get_refresh_cycle_duration;
+    uint32_t    next_present_id;
+    uint32_t    last_collected_present_id;
+    uint32_t    present_query_counter;
+    uint32_t    display_failure_count;
+    uint64_t    actual_present_ns[VK_PRESENT_TIMING_SAMPLES];
+    uint32_t    actual_present_ids[VK_PRESENT_TIMING_SAMPLES];
+    uint32_t    actual_present_index;
+    uint32_t    actual_present_count;
+    double      display_fps;
+    double      present_interval_ms;
+    double      present_margin_ms;
+    double      refresh_cycle_ms;
+    uint64_t    display_sample_count;
+} VkRendererTelemetry;
 
 // ============================================================
 // Offscreen targets (for effect ping-pong)
@@ -419,6 +452,7 @@ typedef struct VkRenderer {
     VkCommandPool    cmd_pool;
     VkFrame          frames[VK_FRAMES_IN_FLIGHT];
     uint32_t         frame_index;
+    VkRendererTelemetry telemetry;
 
     // Descriptor pool (for texture sampler descriptors)
     VkDescriptorPool descriptor_pool;
@@ -441,6 +475,7 @@ typedef struct VkRenderer {
     // Extensions present
     bool ext_ahb;
     bool ext_ycbcr;
+    bool ext_display_timing;
 
     // Cached device capabilities populated by query_device_caps().
     VkDeviceCaps caps;

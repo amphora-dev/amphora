@@ -945,6 +945,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
   }
 
+  public int getPid() {
+    synchronized (lock) {
+      return pid;
+    }
+  }
+
   public void resumeProcess() {
     synchronized (lock) {
       if (pid != -1) ProcessHelper.resumeProcess(pid);
