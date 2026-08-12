@@ -52,6 +52,7 @@ internal fun RuntimeSessionDrawer(
     performanceHudVisible: Boolean,
     onPerformanceHudVisibleChange: (Boolean) -> Unit,
     onShowKeyboard: () -> Unit,
+    onTypeClipboard: () -> Unit,
     onPauseToggle: () -> Unit,
     onClose: () -> Unit,
     onExit: () -> Unit,
@@ -111,12 +112,32 @@ internal fun RuntimeSessionDrawer(
             }
 
             RuntimeDrawerSection(title = "Input") {
-                OutlinedButton(
-                    onClick = onShowKeyboard,
-                    enabled = controlsEnabled,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text("Show Android keyboard")
+                    OutlinedButton(
+                        onClick = onShowKeyboard,
+                        enabled = controlsEnabled,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            "Show keyboard",
+                            maxLines = 2,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = onTypeClipboard,
+                        enabled = controlsEnabled,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            "Paste clipboard",
+                            maxLines = 2,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
                 Text(
                     "Committed IME text, including Chinese candidates, is sent to the focused Windows field.",

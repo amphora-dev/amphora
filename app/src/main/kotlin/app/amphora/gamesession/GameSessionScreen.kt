@@ -294,6 +294,12 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                             touchpadView?.showSoftKeyboard()
                         }
                     },
+                    onTypeClipboard = {
+                        drawerScope.launch {
+                            drawerState.close()
+                            touchpadView?.typeClipboardText()
+                        }
+                    },
                     onPauseToggle = {
                         if (sessionState == SessionState.PAUSED) {
                             manuallyPaused = false
@@ -326,19 +332,12 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                     )
                     if (
                         firstGuestFrameRendered &&
-                        sessionState !in setOf(SessionState.STOPPING, SessionState.STOPPED)
+                        sessionState !in setOf(SessionState.STOPPING, SessionState.STOPPED) &&
+                        (imeUiState.keyboardVisible || imeUiState.composingText.isNotEmpty())
                     ) {
                         ImeControlOverlay(
                             state = imeUiState,
-                            onToggleKeyboard = {
-                                touchpadView?.let { pad ->
-                                    if (imeUiState.keyboardVisible) {
-                                        pad.dismissSoftKeyboard()
-                                    } else {
-                                        pad.showSoftKeyboard()
-                                    }
-                                }
-                            },
+                            onHideKeyboard = { touchpadView?.dismissSoftKeyboard() },
                             onTypeClipboard = { touchpadView?.typeClipboardText() },
                         )
                     }
