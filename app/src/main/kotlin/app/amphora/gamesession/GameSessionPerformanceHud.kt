@@ -54,6 +54,7 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                 context = context,
                 xServer = surface.xServer,
                 configuredBackend = surface.guestGraphicsBackend,
+                guestProcessId = surface.guestProcessId,
             )
         }
     DisposableEffect(monitor) {
@@ -206,9 +207,18 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                             append(" · ${frequencyLabel(stats.gpuCurrentMhz, stats.gpuMaxMhz)}")
                         },
                     )
+                    if (stats.cpuHeadroom != null || stats.gpuHeadroom != null) {
+                        MetricLine(
+                            "HEADROOM",
+                            buildString {
+                                append("CPU ${stats.cpuHeadroom?.roundToInt() ?: "--"}%")
+                                append(" · GPU ${stats.gpuHeadroom?.roundToInt() ?: "--"}%")
+                            },
+                        )
+                    }
                     MetricLine(
                         "MEM",
-                        "GUEST ${stats.guestMemoryMb} MB · HOST ${stats.hostMemoryMb} MB",
+                        "GUEST RSS ${stats.guestMemoryMb} MB · HOST PSS ${stats.hostMemoryMb} MB",
                     )
                     MetricLine(
                         "RAM",
@@ -220,6 +230,13 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                     )
                     MetricLine(
                         "THERM",
+                        buildString {
+                            append(thermalStatusLabel(stats.thermalStatus))
+                            stats.thermalHeadroom?.let { append(" · HEAD ${it.format(2)}") }
+                        },
+                    )
+                    MetricLine(
+                        "TEMP",
                         buildString {
                             append("SOC ${stats.socTemperatureC?.format(1) ?: "--"}°C")
                             append(" · BAT ${stats.batteryTemperatureC?.format(1) ?: "--"}°C")
@@ -318,5 +335,16 @@ private fun frequencyLabel(currentMhz: Int?, maxMhz: Int?): String = when {
 private fun frequencyShort(mhz: Int): String = if (mhz >= 1_000) "${(mhz / 1_000f).format(2)}G" else "${mhz}M"
 
 private fun Float.format(decimals: Int): String = "%.${decimals}f".format(this)
+
+private fun thermalStatusLabel(status: Int?): String = when (status) {
+    0 -> "NONE"
+    1 -> "LIGHT"
+    2 -> "MODERATE"
+    3 -> "SEVERE"
+    4 -> "CRITICAL"
+    5 -> "EMERGENCY"
+    6 -> "SHUTDOWN"
+    else -> "--"
+}
 
 private val HUD_PADDING = 12.dp

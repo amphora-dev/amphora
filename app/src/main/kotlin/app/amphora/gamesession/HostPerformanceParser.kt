@@ -91,6 +91,11 @@ internal object HostPerformanceParser {
         return userTicks + systemTicks
     }
 
+    fun parseChildPids(raw: String?): List<Int> = raw.orEmpty()
+        .split(Regex("\\s+"))
+        .mapNotNull(String::toIntOrNull)
+        .filter { it > 0 }
+
     fun parseTemperatureC(raw: String?): Float? {
         val value = Regex("-?\\d+").find(raw.orEmpty())?.value?.toFloatOrNull() ?: return null
         val celsius = if (kotlin.math.abs(value) >= 1_000f) value / 1_000f else value

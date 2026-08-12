@@ -65,4 +65,9 @@ class HostPerformanceParserTest {
         assertEquals(58.5f, HostPerformanceParser.parseTemperatureC("58500"))
         assertNull(HostPerformanceParser.parseTemperatureC("999999"))
     }
+
+    @Test
+    fun parsesKernelChildrenPidList() {
+        assertEquals(listOf(120, 121, 2048), HostPerformanceParser.parseChildPids("120 121  2048\n"))
+    }
 }

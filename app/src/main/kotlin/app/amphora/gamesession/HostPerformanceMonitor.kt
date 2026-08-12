@@ -5,16 +5,23 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Build
+import android.os.CpuHeadroomParams
 import android.os.Debug
+import android.os.GpuHeadroomParams
+import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
+import android.os.health.SystemHealthManager
 import android.system.Os
 import android.system.OsConstants
+import androidx.annotation.RequiresApi
+import com.winlator.cmod.runtime.display.xserver.Atom
 import com.winlator.cmod.runtime.display.xserver.Window
 import com.winlator.cmod.runtime.display.xserver.WindowManager
 import com.winlator.cmod.runtime.display.xserver.XServer
-import com.winlator.cmod.runtime.system.ProcessHelper
 import java.io.File
+import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -40,11 +47,13 @@ internal class HostPerformanceMonitor(
     context: Context,
     private val xServer: XServer,
     private val configuredBackend: String,
+    private val guestProcessId: StateFlow<Int?>,
 ) : WindowManager.OnWindowModificationListener {
     private val appContext = context.applicationContext
     private val activityManager =
         appContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
+    private val powerManager = appContext.getSystemService(PowerManager::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
     private val tracker = FrameTracker(xServer.screenInfo.width * xServer.screenInfo.height)
@@ -59,6 +68,13 @@ internal class HostPerformanceMonitor(
     private var lastDetailSampleMs = 0L
     private var thermalSources: List<ThermalSource>? = null
     private var detailStats = DetailStats()
+    private var lastHostPssSampleMs = 0L
+    private var cachedHostMemoryMb = 0
+    private var lastThermalHeadroomSampleMs = 0L
+    private var cachedThermalHeadroom: Float? = null
+    private var lastSystemHeadroomSampleMs = 0L
+    private var cachedCpuHeadroom: Float? = null
+    private var cachedGpuHeadroom: Float? = null
 
     @Volatile private var detailsEnabled = false
 
@@ -117,6 +133,10 @@ internal class HostPerformanceMonitor(
             }
         val battery = readBattery()
         val frames = tracker.metrics()
+        if (nowWall - lastHostPssSampleMs >= PSS_SAMPLE_INTERVAL_MS) {
+            cachedHostMemoryMb = (Debug.getPss() / 1024).toInt()
+            lastHostPssSampleMs = nowWall
+        }
 
         if (detailsEnabled && nowWall - lastDetailSampleMs >= DETAIL_SAMPLE_INTERVAL_MS) {
             detailStats = sampleDetails(nowWall)
@@ -139,7 +159,7 @@ internal class HostPerformanceMonitor(
             ramPercent = ramPercent,
             availableMemoryMb = memoryInfo.availMem.bytesToMb(),
             totalMemoryMb = memoryInfo.totalMem.bytesToMb(),
-            hostMemoryMb = (Debug.getPss() / 1024).toInt(),
+            hostMemoryMb = cachedHostMemoryMb,
             guestMemoryMb = detailStats.guestMemoryMb,
             guestProcessCount = detailStats.guestProcessCount,
             guestThreadCount = detailStats.guestThreadCount,
@@ -147,6 +167,10 @@ internal class HostPerformanceMonitor(
             batteryTemperatureC = battery.temperatureC,
             batteryPowerW = battery.powerW,
             socTemperatureC = detailStats.socTemperatureC,
+            thermalStatus = detailStats.thermalStatus,
+            thermalHeadroom = detailStats.thermalHeadroom,
+            cpuHeadroom = detailStats.cpuHeadroom,
+            gpuHeadroom = detailStats.gpuHeadroom,
             configuredBackend = configuredBackend,
             detectedBackend = detailStats.detectedBackend,
         )
@@ -177,12 +201,7 @@ internal class HostPerformanceMonitor(
             }
         previousCpuTimes = currentCpuTimes
 
-        val guestPids =
-            runCatching {
-                ProcessHelper.listRunningWineProcesses()
-                    .mapNotNull(String::toIntOrNull)
-                    .take(MAX_GUEST_PROCESSES)
-            }.getOrDefault(emptyList())
+        val guestPids = collectGuestProcessTree(guestProcessId.value)
         var guestMemoryKb = 0L
         var guestThreads = 0
         val currentGuestTicks = mutableMapOf<Int, Long>()
@@ -209,6 +228,14 @@ internal class HostPerformanceMonitor(
             }
         previousGuestCpuTicks = currentGuestTicks
         previousDetailWallMs = nowWall
+        if (nowWall - lastThermalHeadroomSampleMs >= THERMAL_HEADROOM_INTERVAL_MS) {
+            cachedThermalHeadroom =
+                runCatching { powerManager.getThermalHeadroom(THERMAL_FORECAST_SECONDS) }
+                    .getOrNull()
+                    ?.takeUnless(Float::isNaN)
+            lastThermalHeadroomSampleMs = nowWall
+        }
+        if (Build.VERSION.SDK_INT >= 36) updateSystemHeadroom(nowWall)
 
         return DetailStats(
             systemCpuPercent = systemCpuPercent,
@@ -224,8 +251,52 @@ internal class HostPerformanceMonitor(
             guestProcessCount = guestPids.size,
             guestThreadCount = guestThreads,
             socTemperatureC = readSocTemperature(),
-            detectedBackend = detectGuestBackend(guestPids),
+            thermalStatus = runCatching { powerManager.currentThermalStatus }.getOrNull(),
+            thermalHeadroom = cachedThermalHeadroom,
+            cpuHeadroom = cachedCpuHeadroom,
+            gpuHeadroom = cachedGpuHeadroom,
+            detectedBackend = detectWindowBackend() ?: detectGuestBackend(guestPids),
         )
+    }
+
+    private fun collectGuestProcessTree(rootPid: Int?): List<Int> {
+        if (rootPid == null || rootPid <= 0) return emptyList()
+        val pending = ArrayDeque<Int>()
+        val processes = linkedSetOf<Int>()
+        pending.add(rootPid)
+        while (pending.isNotEmpty() && processes.size < MAX_GUEST_PROCESSES) {
+            val pid = pending.removeFirst()
+            if (!processes.add(pid)) continue
+            HostPerformanceParser.parseChildPids(
+                readText("/proc/$pid/task/$pid/children"),
+            )
+                .forEach(pending::addLast)
+        }
+        return processes.toList()
+    }
+
+    @RequiresApi(36)
+    private fun updateSystemHeadroom(nowWall: Long) {
+        val manager =
+            appContext.getSystemService(SystemHealthManager::class.java) ?: return
+        val minimumInterval =
+            runCatching {
+                maxOf(
+                    manager.cpuHeadroomMinIntervalMillis,
+                    manager.gpuHeadroomMinIntervalMillis,
+                    MIN_SYSTEM_HEADROOM_INTERVAL_MS,
+                )
+            }.getOrDefault(MIN_SYSTEM_HEADROOM_INTERVAL_MS)
+        if (nowWall - lastSystemHeadroomSampleMs < minimumInterval) return
+        cachedCpuHeadroom =
+            runCatching {
+                manager.getCpuHeadroom(CpuHeadroomParams.Builder().build())
+            }.getOrNull()?.takeUnless(Float::isNaN)
+        cachedGpuHeadroom =
+            runCatching {
+                manager.getGpuHeadroom(GpuHeadroomParams.Builder().build())
+            }.getOrNull()?.takeUnless(Float::isNaN)
+        lastSystemHeadroomSampleMs = nowWall
     }
 
     private fun readCpuFrequency(index: Int, maximum: Boolean): Int? {
@@ -288,6 +359,30 @@ internal class HostPerformanceMonitor(
             ThermalSource(File(zone, "temp").path)
         }
 
+    private fun detectWindowBackend(): String? {
+        val values =
+            xServer.lock(XServer.Lockable.WINDOW_MANAGER).use {
+                xServer.windowManager.windows
+                    .asSequence()
+                    .filter { it.attributes.isMapped }
+                    .flatMap { window ->
+                        rendererAtomIds.asSequence().mapNotNull { atom ->
+                            window.getProperty(atom)?.toString()?.takeIf(String::isNotBlank)
+                        }
+                    }.map(String::lowercase)
+                    .toList()
+            }
+        val detected = linkedSetOf<String>()
+        values.forEach { value ->
+            if ("vkd3d" in value) detected += "VKD3D"
+            if ("dxvk" in value) detected += "DXVK"
+            if ("wined3d" in value) detected += "WineD3D"
+            if ("zink" in value) detected += "Zink"
+            if ("turnip" in value) detected += "Turnip"
+        }
+        return detected.takeIf { it.isNotEmpty() }?.joinToString(" + ")
+    }
+
     private fun detectGuestBackend(pids: List<Int>): String? {
         val detected = linkedSetOf<String>()
         pids.forEach { pid ->
@@ -318,6 +413,13 @@ internal class HostPerformanceMonitor(
         runCatching { Os.sysconf(OsConstants._SC_CLK_TCK) }
             .getOrDefault(DEFAULT_CLOCK_TICKS)
             .coerceAtLeast(1L)
+    }
+    private val rendererAtomIds: List<Int> by lazy {
+        listOf(
+            Atom.getId("_MESA_DRV_ENGINE_NAME"),
+            Atom.getId("_MESA_DRV_RENDERER"),
+            Atom.getId("_UTIL_LAYER"),
+        )
     }
 
     private class FrameTracker(private val screenArea: Int) {
@@ -406,6 +508,10 @@ internal class HostPerformanceMonitor(
         val guestProcessCount: Int = 0,
         val guestThreadCount: Int = 0,
         val socTemperatureC: Float? = null,
+        val thermalStatus: Int? = null,
+        val thermalHeadroom: Float? = null,
+        val cpuHeadroom: Float? = null,
+        val gpuHeadroom: Float? = null,
         val detectedBackend: String? = null,
     )
 
@@ -422,6 +528,10 @@ internal class HostPerformanceMonitor(
     private companion object {
         const val SAMPLE_INTERVAL_MS = 500L
         const val DETAIL_SAMPLE_INTERVAL_MS = 1_000L
+        const val PSS_SAMPLE_INTERVAL_MS = 5_000L
+        const val THERMAL_HEADROOM_INTERVAL_MS = 10_000L
+        const val THERMAL_FORECAST_SECONDS = 10
+        const val MIN_SYSTEM_HEADROOM_INTERVAL_MS = 2_000L
         const val MAX_FRAME_SAMPLES = 512
         const val MIN_PERCENTILE_SAMPLES = 8
         const val MIN_WINDOW_AREA_DIVISOR = 16
@@ -490,6 +600,10 @@ internal data class HostPerformanceStats(
     val batteryTemperatureC: Float? = null,
     val batteryPowerW: Float? = null,
     val socTemperatureC: Float? = null,
+    val thermalStatus: Int? = null,
+    val thermalHeadroom: Float? = null,
+    val cpuHeadroom: Float? = null,
+    val gpuHeadroom: Float? = null,
     val configuredBackend: String = "WineD3D / auto",
     val detectedBackend: String? = null,
 )

@@ -141,7 +141,10 @@ Pulse 代码与配套 WCP 已在功能分支完成构建验证；生产 manifest
 
 HUD 的详细内核指标使用普通 app 可读的 `/proc`/`sysfs`，不可读时显示 `--`，不会为了
 500 ms 采样常驻 Shizuku shell 服务；Shizuku shell 同样可能受 OEM SELinux 限制。详细
-`/proc/<pid>` 与频率/thermal I/O 只在展开状态每秒执行一次，折叠时保留低开销主指标。
+`/proc/<pid>` 与频率/thermal I/O 只在展开状态每秒执行一次，guest 计量以 launcher PID
+及其 `/proc/.../children` 子树为边界，不扫描或误收其他应用；较重的 host PSS 降至每
+5 秒一次。温度优先显示公开 `PowerManager` thermal status/headroom；Android 36+ 另按
+系统声明的最小间隔读取 CPU/GPU headroom。折叠时保留低开销主指标。
 
 已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 

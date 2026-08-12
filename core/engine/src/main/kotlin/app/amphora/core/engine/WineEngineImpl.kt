@@ -188,6 +188,7 @@ constructor(
                         "effective='$effectiveDriver' host='$hostDriver'",
                 )
             }
+            val guestProcessId = MutableStateFlow<Int?>(null)
             _surface.value =
                 GameSessionSurface(
                     xServer = xServer,
@@ -196,6 +197,7 @@ constructor(
                     guestGraphicsBackend =
                     SessionGraphicsLabel.fromDxWrapper(wnContainer.getDXWrapper()),
                     wineVersion = wineVersion,
+                    guestProcessId = guestProcessId.asStateFlow(),
                 )
             // 6. Launch env: container Zink/Turnip defaults + preparer + caller + ALSA.
             val envVars = buildLaunchEnvVars(spec, wnContainer)
@@ -210,6 +212,7 @@ constructor(
                     dispatchers,
                     onStopped = {
                         if (currentHandle === handle) {
+                            guestProcessId.value = null
                             _surface.value = null
                             currentXServer = null
                             currentHandle = null
@@ -226,6 +229,7 @@ constructor(
             handle.markStarting()
             try {
                 environment.startEnvironmentComponents()
+                guestProcessId.value = launcher.pid.takeIf { it > 0 }
                 handle.markRunning()
             } catch (e: Exception) {
                 handle.markFailed(e)
