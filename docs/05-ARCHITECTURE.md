@@ -134,7 +134,7 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
 | Guest 图形 | Wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw 在 Dd7to9 / cnc-ddraw / D7VK 中单选；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | 默认 wrapper 包装系统 Adreno，host 直接用同一系统 Vulkan；显式 Turnip 才由 host/guest 共用 adrenotools driver |
 | 音频 | ALSA aserver 或 Wine PulseAudio | 默认 ALSA；可选 `winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`，16 KB 页或驱动不完整时保留 ALSA |
-| 性能 HUD | `HostPerformanceMonitor` / `HostPerformanceOverlay` | API 无关的 X11 源帧 FPS；可拖动、可展开。native compositor 用 Vulkan timestamp query 报告 GPU 合成时间，驱动支持 `VK_GOOGLE_display_timing` 时另报实际 display FPS、present interval/margin；展开后按低频率读取每核 CPU/频率、GPU 负载/频率、帧时间 P95/1% low、guest RSS/进程/线程、温度/电池功耗，以及配置和实际映射中发现的 DXVK/VKD3D/WineD3D |
+| 性能 HUD | `HostPerformanceMonitor` / `HostPerformanceOverlay` | API 无关的 X11 源帧 FPS；可拖动、可展开。HUD 可见时 native compositor 每 4 帧用 Vulkan timestamp query 报告 GPU 合成时间，驱动支持 `VK_GOOGLE_display_timing` 时每 8 帧 drain 实际 display FPS、present interval/margin；展开后按低频率读取每核 CPU/频率、GPU 负载/频率、帧时间 P95/1% low、guest RSS/进程/线程、温度/电池功耗，以及配置和实际映射中发现的 DXVK/VKD3D/WineD3D |
 
 Pulse 代码与配套 WCP 已在功能分支完成构建验证；生产 manifest 发布含
 `winepulse` 的新 WCP 前，完整性检查会继续选择 ALSA。
@@ -150,7 +150,10 @@ HUD 的详细内核指标使用普通 app 可读的 `/proc`/`sysfs`，不可读�
 `VK_GOOGLE_display_timing` 返回 `actualPresentTime` 时才显示最终 display FPS；不支持
 该扩展的系统 Vulkan/Turnip 明确显示 unsupported，不用 Choreographer 或
 `dumpsys SurfaceFlinger` 伪造。GPU 合成时间来自每个 in-flight frame 的两个 timestamp
-query，并在对应 fence 已完成后读取，不阻塞当前提交。
+query，并在对应 fence 已完成后读取，不阻塞当前提交。HUD 隐藏时
+`nativeSetPerformanceTelemetryEnabled(false)` 停止 timestamp/reset/present-history
+命令；首次开启时才懒创建 query pool，之后关闭仅保留这个很小的 Vulkan 对象以避免
+销毁仍在途 query。
 
 已知裁剪：无 OSK/字符注入；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 

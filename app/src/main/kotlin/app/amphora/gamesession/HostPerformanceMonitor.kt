@@ -16,6 +16,7 @@ import android.os.health.SystemHealthManager
 import android.system.Os
 import android.system.OsConstants
 import androidx.annotation.RequiresApi
+import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
 import com.winlator.cmod.runtime.display.xserver.Atom
 import com.winlator.cmod.runtime.display.xserver.Window
 import com.winlator.cmod.runtime.display.xserver.WindowManager
@@ -75,6 +76,8 @@ internal class HostPerformanceMonitor(
     private var lastSystemHeadroomSampleMs = 0L
     private var cachedCpuHeadroom: Float? = null
     private var cachedGpuHeadroom: Float? = null
+    private val telemetryBindingLock = Any()
+    private var telemetryRenderer: VulkanRenderer? = null
 
     @Volatile private var detailsEnabled = false
 
@@ -91,6 +94,7 @@ internal class HostPerformanceMonitor(
     fun start() {
         if (!started.compareAndSet(false, true)) return
         xServer.windowManager.addOnWindowModificationListener(this)
+        updateRendererTelemetryBinding()
         samplingJob =
             scope.launch {
                 while (isActive) {
@@ -102,6 +106,7 @@ internal class HostPerformanceMonitor(
 
     fun stop() {
         if (!started.compareAndSet(true, false)) return
+        updateRendererTelemetryBinding()
         xServer.windowManager.removeOnWindowModificationListener(this)
         samplingJob?.cancel()
         scope.cancel()
@@ -112,6 +117,7 @@ internal class HostPerformanceMonitor(
     }
 
     private fun sample(): HostPerformanceStats {
+        updateRendererTelemetryBinding()
         val nowWall = SystemClock.elapsedRealtime()
         val nowHostCpu = Process.getElapsedCpuTime()
         val elapsed = (nowWall - previousWallMs).coerceAtLeast(1)
@@ -182,6 +188,16 @@ internal class HostPerformanceMonitor(
             configuredBackend = configuredBackend,
             detectedBackend = detailStats.detectedBackend,
         )
+    }
+
+    private fun updateRendererTelemetryBinding() {
+        synchronized(telemetryBindingLock) {
+            val current = xServer.renderer.takeIf { started.get() }
+            if (current === telemetryRenderer) return
+            telemetryRenderer?.setPerformanceTelemetryEnabled(false)
+            current?.setPerformanceTelemetryEnabled(true)
+            telemetryRenderer = current
+        }
     }
 
     private fun sampleDetails(nowWall: Long): DetailStats {

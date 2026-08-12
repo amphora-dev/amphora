@@ -204,6 +204,7 @@ typedef struct VkFrame {
 
 typedef struct VkRendererTelemetry {
     pthread_mutex_t mutex;
+    bool        sampling_enabled;
 
     VkQueryPool timestamp_pool;
     bool        gpu_timing_enabled;
@@ -211,6 +212,7 @@ typedef struct VkRendererTelemetry {
     double      timestamp_period_ns;
     double      gpu_render_ms;
     uint64_t    gpu_sample_count;
+    uint64_t    gpu_query_counter;
 
     bool        display_timing_enabled;
     PFN_vkGetPastPresentationTimingGOOGLE fn_get_past_presentation_timing;

@@ -86,6 +86,7 @@ public class VulkanRenderer
 
     private static final int MAX_FPS_LIMIT = 1000;
     private volatile int currentFpsLimit = 0;
+    private volatile boolean performanceTelemetryEnabled = false;
 
     // Must mirror VK_MAX_RENDERABLE_WINDOWS / VK_MAX_EFFECTS in vk_state.h.
     private static final int MAX_WINDOWS = 64;
@@ -223,6 +224,9 @@ public class VulkanRenderer
                 if (requestedScaleFilter != SCALE_FILTER_OFF) {
                     nativeSetScaleFilter(nativeHandle, requestedScaleFilter);
                 }
+                if (performanceTelemetryEnabled) {
+                    nativeSetPerformanceTelemetryEnabled(nativeHandle, true);
+                }
                 destroyed.set(false);
                 xServer.windowManager.addOnWindowModificationListener(this);
                 xServer.pointer.addOnPointerMotionListener(this);
@@ -309,6 +313,14 @@ public class VulkanRenderer
             if (nativeHandle == 0) return RendererPerformanceTelemetry.UNAVAILABLE;
             return RendererPerformanceTelemetry.fromNative(
                     nativeGetPerformanceTelemetry(nativeHandle));
+        }
+    }
+
+    /** Enables native timing commands only while the host performance HUD is visible. */
+    public synchronized void setPerformanceTelemetryEnabled(boolean enabled) {
+        performanceTelemetryEnabled = enabled;
+        if (nativeHandle != 0) {
+            nativeSetPerformanceTelemetryEnabled(nativeHandle, enabled);
         }
     }
 
@@ -945,6 +957,7 @@ public class VulkanRenderer
     private static native int nativeGetRecordWidth(long handle);
     private static native int nativeGetRecordHeight(long handle);
     private static native int nativeGetRecordOrientationHint(long handle);
+    private static native void nativeSetPerformanceTelemetryEnabled(long handle, boolean enabled);
     private static native double[] nativeGetPerformanceTelemetry(long handle);
     private static native boolean nativeRenderFrame(long handle);
     private static native void nativeSetScene(long handle, ByteBuffer sceneBuf);

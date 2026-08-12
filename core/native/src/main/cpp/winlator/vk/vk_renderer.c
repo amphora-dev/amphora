@@ -589,6 +589,7 @@ static bool create_command_pool(VkRenderer* r) {
 
 static void create_telemetry_resources(VkRenderer* r) {
     VkRendererTelemetry* t = &r->telemetry;
+    if (t->timestamp_pool != VK_NULL_HANDLE || t->gpu_timing_enabled) return;
     t->timestamp_period_ns = r->caps.limits.timestampPeriod;
     if (t->timestamp_valid_bits == 0 || t->timestamp_period_ns <= 0.0
         || !vkd.CreateQueryPool || !vkd.GetQueryPoolResults
@@ -619,6 +620,7 @@ static void destroy_telemetry_resources(VkRenderer* r) {
     }
     t->gpu_timing_enabled = false;
     t->display_timing_enabled = false;
+    t->sampling_enabled = false;
 }
 
 static void collect_gpu_timing(VkRenderer* r, VkFrame* f, uint32_t frame_index) {
@@ -650,7 +652,8 @@ static void collect_gpu_timing(VkRenderer* r, VkFrame* f, uint32_t frame_index) 
 static void reset_display_timing(VkRenderer* r) {
     VkRendererTelemetry* t = &r->telemetry;
     pthread_mutex_lock(&t->mutex);
-    t->display_timing_enabled = r->ext_display_timing && r->swapchain != VK_NULL_HANDLE;
+    t->display_timing_enabled =
+        t->sampling_enabled && r->ext_display_timing && r->swapchain != VK_NULL_HANDLE;
     t->next_present_id = 1;
     t->last_collected_present_id = 0;
     t->present_query_counter = 0;
@@ -2459,7 +2462,11 @@ static bool record_and_submit_frame(VkRenderer* r) {
     VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(f->cmd, &bi);
-    if (r->telemetry.gpu_timing_enabled) {
+    bool sample_gpu_timing =
+        r->telemetry.sampling_enabled
+        && r->telemetry.gpu_timing_enabled
+        && (r->telemetry.gpu_query_counter++ % 4u) == 0u;
+    if (sample_gpu_timing) {
         uint32_t first_query = r->frame_index * 2u;
         vkCmdResetQueryPool(f->cmd, r->telemetry.timestamp_pool, first_query, 2);
         vkCmdWriteTimestamp(f->cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -2607,7 +2614,7 @@ static bool record_and_submit_frame(VkRenderer* r) {
         }
     }
 
-    if (r->telemetry.gpu_timing_enabled) {
+    if (sample_gpu_timing) {
         vkCmdWriteTimestamp(f->cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                             r->telemetry.timestamp_pool, r->frame_index * 2u + 1u);
     }
@@ -2645,7 +2652,7 @@ static bool record_and_submit_frame(VkRenderer* r) {
         pthread_mutex_unlock(&r->render_mutex);
         return false;
     }
-    f->telemetry_query_submitted = r->telemetry.gpu_timing_enabled;
+    f->telemetry_query_submitted = sample_gpu_timing;
 
     VkPresentInfoKHR pi = {VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1;
@@ -2682,8 +2689,9 @@ static bool record_and_submit_frame(VkRenderer* r) {
         }
     }
     pthread_mutex_unlock(&r->queue_mutex);
-    if ((pr == VK_SUCCESS || pr == VK_SUBOPTIMAL_KHR)
-        && (++r->telemetry.present_query_counter % 4u) == 0u) {
+    if (r->telemetry.display_timing_enabled
+        && (pr == VK_SUCCESS || pr == VK_SUBOPTIMAL_KHR)
+        && (++r->telemetry.present_query_counter % 8u) == 0u) {
         collect_display_timing(r);
     }
 
@@ -2746,7 +2754,6 @@ JNIEXPORT jlong JNICALL JNI_FN(nativeCreate)(JNIEnv* env, jclass clazz,
     if (!create_device(r)) goto fail;
     query_device_caps(r);
     if (!create_command_pool(r)) goto fail;
-    create_telemetry_resources(r);
     if (!create_descriptor_pool(r, r->caps.descriptor_pool_capacity)) goto fail;
     if (!create_quad_vbo(r)) goto fail;
     if (!vkr_create_sampler(r, VK_NULL_HANDLE, &r->shared_sampler)) goto fail;
@@ -3097,6 +3104,38 @@ JNIEXPORT jint JNICALL JNI_FN(nativeGetRecordOrientationHint)(JNIEnv* env, jclas
     }
 }
 
+JNIEXPORT void JNICALL JNI_FN(nativeSetPerformanceTelemetryEnabled)(
+        JNIEnv* env, jclass clazz, jlong handle, jboolean enabled) {
+    (void)env; (void)clazz;
+    VkRenderer* r = (VkRenderer*)(intptr_t)handle;
+    if (!r) return;
+
+    pthread_mutex_lock(&r->render_mutex);
+    VkRendererTelemetry* t = &r->telemetry;
+    if (enabled == JNI_TRUE) {
+        create_telemetry_resources(r);
+        for (uint32_t i = 0; i < VK_FRAMES_IN_FLIGHT; i++) {
+            r->frames[i].telemetry_query_submitted = false;
+        }
+        pthread_mutex_lock(&t->mutex);
+        t->sampling_enabled = true;
+        t->gpu_query_counter = 0;
+        t->gpu_render_ms = 0.0;
+        t->gpu_sample_count = 0;
+        pthread_mutex_unlock(&t->mutex);
+        reset_display_timing(r);
+    } else {
+        for (uint32_t i = 0; i < VK_FRAMES_IN_FLIGHT; i++) {
+            r->frames[i].telemetry_query_submitted = false;
+        }
+        pthread_mutex_lock(&t->mutex);
+        t->sampling_enabled = false;
+        t->display_timing_enabled = false;
+        pthread_mutex_unlock(&t->mutex);
+    }
+    pthread_mutex_unlock(&r->render_mutex);
+}
+
 JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeGetPerformanceTelemetry)(
         JNIEnv* env, jclass clazz, jlong handle) {
     (void)clazz;
@@ -3124,8 +3163,9 @@ JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeGetPerformanceTelemetry)(
         ? r->telemetry.present_margin_ms : NAN;
     values[4] = r->telemetry.refresh_cycle_ms > 0.0
         ? r->telemetry.refresh_cycle_ms : NAN;
-    values[5] = (r->telemetry.gpu_timing_enabled ? 1.0 : 0.0)
-              + (r->telemetry.display_timing_enabled ? 2.0 : 0.0);
+    values[5] =
+        (r->telemetry.sampling_enabled && r->telemetry.gpu_timing_enabled ? 1.0 : 0.0)
+        + (r->telemetry.display_timing_enabled ? 2.0 : 0.0);
     values[6] = (jdouble)r->telemetry.gpu_sample_count;
     values[7] = (jdouble)r->telemetry.display_sample_count;
     pthread_mutex_unlock(&r->telemetry.mutex);
