@@ -15,10 +15,7 @@ import android.view.inputmethod.EditorInfo
  * Composing text remains in this connection's private editor so pinyin and candidate selection
  * never leak into the guest. Only committed text is forwarded to Wine.
  */
-class WineInputConnection(
-    targetView: View,
-    private val listener: Listener,
-) : BaseInputConnection(targetView, true) {
+class WineInputConnection(targetView: View, private val listener: Listener) : BaseInputConnection(targetView, true) {
     interface Listener {
         fun onCommitText(text: CharSequence)
 
@@ -120,10 +117,7 @@ class WineInputConnection(
         return true
     }
 
-    override fun deleteSurroundingTextInCodePoints(
-        beforeLength: Int,
-        afterLength: Int,
-    ): Boolean {
+    override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
         val composing = getComposingSpanStart(editor) >= 0
         val beforeGraphemes = if (composing) 0 else countBeforeCursor(beforeLength, true)
         val afterGraphemes = if (composing) 0 else countAfterCursor(afterLength, true)
