@@ -13,13 +13,12 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.View
+import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import androidx.core.graphics.drawable.toDrawable
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import com.winlator.cmod.runtime.display.renderer.ViewTransformation
 import com.winlator.cmod.runtime.display.xserver.Pointer
 import com.winlator.cmod.runtime.display.xserver.XKeycode
@@ -291,9 +290,8 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         post {
             if (inputReleased) return@post
             requestFocus()
-            ViewCompat.getWindowInsetsController(this)
-                ?.show(WindowInsetsCompat.Type.ime())
-            inputMethodManager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+            windowInsetsController?.show(WindowInsets.Type.ime())
+            inputMethodManager?.showSoftInput(this, 0)
         }
     }
 

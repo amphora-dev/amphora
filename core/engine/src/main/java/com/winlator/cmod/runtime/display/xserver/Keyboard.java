@@ -11,7 +11,7 @@ public class Keyboard {
   public static final short KEYCODE_COUNT = MAX_KEYCODE - MIN_KEYCODE + 1;
   public final int[] keysyms = new int[KEYCODE_COUNT * KEYSYMS_PER_KEYCODE];
   private final Bitmask modifiersMask = new Bitmask();
-  private final XKeycode[] keycodeMap = createKeycodeMap();
+  private final XKeycode[] keycodeMap;
   private final ArraySet<Byte> pressedKeys = new ArraySet<>();
   private final ArrayList<OnKeyboardListener> onKeyboardListeners = new ArrayList<>();
   private final XServer xServer;
@@ -23,7 +23,12 @@ public class Keyboard {
   }
 
   public Keyboard(XServer xServer) {
+    this(xServer, createKeycodeMap());
+  }
+
+  Keyboard(XServer xServer, XKeycode[] keycodeMap) {
     this.xServer = xServer;
+    this.keycodeMap = keycodeMap;
   }
 
   public Bitmask getModifiersMask() {

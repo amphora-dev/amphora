@@ -9,7 +9,7 @@ import org.junit.Test;
 public class KeyboardTest {
   @Test
   public void storesMappingsAcrossTheFullX11KeycodeRange() {
-    Keyboard keyboard = new Keyboard(null);
+    Keyboard keyboard = new Keyboard(null, new XKeycode[0]);
 
     keyboard.setKeysyms((byte) Keyboard.MIN_KEYCODE, 1, 2);
     keyboard.setKeysyms((byte) Keyboard.MAX_KEYCODE, 3, 4);
