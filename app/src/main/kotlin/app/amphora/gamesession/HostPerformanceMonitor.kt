@@ -148,9 +148,11 @@ internal class HostPerformanceMonitor(
         val battery = readBattery()
         val frames = tracker.metrics()
         val rendererTelemetry = xServer.renderer?.performanceTelemetry
-        if (nowWall - lastPrivilegedSampleMs >= PRIVILEGED_SAMPLE_INTERVAL_MS) {
+        if (detailsEnabled && nowWall - lastPrivilegedSampleMs >= PRIVILEGED_SAMPLE_INTERVAL_MS) {
             privilegedReader.read()?.let { privilegedSnapshot = it }
             lastPrivilegedSampleMs = nowWall
+        } else if (!detailsEnabled) {
+            privilegedSnapshot = null
         }
         val compositorFps =
             rendererTelemetry?.let { telemetry ->
@@ -193,7 +195,7 @@ internal class HostPerformanceMonitor(
         }
 
         return HostPerformanceStats(
-            fps = frames.fps.takeIf { it > 0f } ?: compositorFps ?: 0f,
+            fps = compositorFps ?: frames.fps,
             frameTimeP95Ms =
             frames.p95FrameTimeMs
                 ?: rendererTelemetry?.compositorFrameP95Ms?.finiteFloat(),

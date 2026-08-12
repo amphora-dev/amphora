@@ -1,14 +1,11 @@
 package app.amphora.core.engine.privileged
 
 import android.os.ParcelFileDescriptor
-import android.os.Process
 import android.util.Log
 import app.amphora.core.engine.SessionProcessController
-import java.io.File
 import java.io.FileInputStream
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
-import org.json.JSONObject
 
 /**
  * One-shot Shizuku user service.
@@ -18,8 +15,6 @@ import org.json.JSONObject
  * Wine cleanup remains an own-UID operation in [SessionProcessController].
  */
 class PrivilegedCleanupService : IPrivilegedCleanupService.Stub() {
-    private val inaccessiblePerformancePaths = mutableSetOf<String>()
-
     override fun scheduleForceStop(packageName: String, delayMillis: Int) {
         require(PACKAGE_NAME.matches(packageName)) { "Invalid package name" }
         val delay = delayMillis.coerceIn(MIN_DELAY_MS, MAX_DELAY_MS)
@@ -67,41 +62,8 @@ class PrivilegedCleanupService : IPrivilegedCleanupService.Stub() {
         }
     }
 
-    /**
-     * Returns one bounded snapshot of host counters which normal app SELinux domains cannot read.
-     *
-     * The paths are fixed here rather than supplied over Binder, so this service cannot become an
-     * arbitrary privileged file reader. Shizuku commonly runs as shell (UID 2000), which can read
-     * /proc/stat but may still be denied vendor GPU sysfs nodes; rooted Shizuku can provide both.
-     */
-    override fun readPerformanceSnapshot(): String {
-        val result = JSONObject()
-        result.put("uid", Process.myUid())
-        PERFORMANCE_PATHS.forEach { (name, candidates) ->
-            candidates.firstNotNullOfOrNull(::readMetric)?.let { result.put(name, it) }
-        }
-        return result.toString()
-    }
-
     override fun destroy() {
         exitProcess(0)
-    }
-
-    private fun readMetric(path: String): String? = try {
-        if (path in inaccessiblePerformancePaths) return null
-        val file = File(path)
-        if (!file.isFile || !file.canRead()) {
-            inaccessiblePerformancePaths += path
-            return null
-        }
-        file
-            .readText()
-            .trim()
-            .takeIf(String::isNotEmpty)
-            ?.take(MAX_METRIC_LENGTH)
-    } catch (_: Exception) {
-        inaccessiblePerformancePaths += path
-        null
     }
 
     private fun relaunchAfterInstall(packageName: String) {
@@ -129,33 +91,6 @@ class PrivilegedCleanupService : IPrivilegedCleanupService.Stub() {
         const val MIN_DELAY_MS = 250
         const val MAX_DELAY_MS = 5_000
         const val RELAUNCH_DELAY_MS = 1_000L
-        const val MAX_METRIC_LENGTH = 32 * 1024
         val PACKAGE_NAME = Regex("[A-Za-z][A-Za-z0-9_.]*")
-        val PERFORMANCE_PATHS =
-            mapOf(
-                "cpuStat" to listOf("/proc/stat"),
-                "gpuLoad" to
-                    listOf(
-                        "/sys/class/kgsl/kgsl-3d0/gpubusy",
-                        "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
-                        "/sys/class/kgsl/kgsl-3d0/devfreq/gpu_load",
-                        "/sys/class/misc/mali0/device/utilisation",
-                        "/sys/kernel/gpu/gpu_busy",
-                    ),
-                "gpuCurrentFrequency" to
-                    listOf(
-                        "/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq",
-                        "/sys/class/kgsl/kgsl-3d0/gpuclk",
-                        "/sys/class/devfreq/gpufreq/cur_freq",
-                        "/sys/class/misc/mali0/device/devfreq/cur_freq",
-                    ),
-                "gpuMaxFrequency" to
-                    listOf(
-                        "/sys/class/kgsl/kgsl-3d0/devfreq/max_freq",
-                        "/sys/class/kgsl/kgsl-3d0/devfreq/available_frequencies",
-                        "/sys/class/devfreq/gpufreq/max_freq",
-                        "/sys/class/misc/mali0/device/devfreq/max_freq",
-                    ),
-            )
     }
 }

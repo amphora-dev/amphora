@@ -9,8 +9,8 @@ import android.content.pm.PackageManager
 import android.os.IBinder
 import android.util.Log
 import app.amphora.core.engine.privileged.IPerformanceMetricsService
-import app.amphora.core.engine.privileged.IPrivilegedCleanupService
-import app.amphora.core.engine.privileged.PrivilegedCleanupService
+import app.amphora.core.engine.privileged.IPrivilegedMetricsService
+import app.amphora.core.engine.privileged.PrivilegedMetricsService
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
 
@@ -120,12 +120,12 @@ private class ShizukuPerformanceReader(context: Context) : AutoCloseable {
     private val appContext = context.applicationContext
     private val lock = Any()
 
-    @Volatile private var remote: IPrivilegedCleanupService? = null
+    @Volatile private var remote: IPrivilegedMetricsService? = null
     private var binding = false
     private var closed = false
 
     private val userServiceArgs =
-        Shizuku.UserServiceArgs(ComponentName(appContext, PrivilegedCleanupService::class.java))
+        Shizuku.UserServiceArgs(ComponentName(appContext, PrivilegedMetricsService::class.java))
             .processNameSuffix("metrics")
             .daemon(false)
             .version(SERVICE_VERSION)
@@ -135,7 +135,7 @@ private class ShizukuPerformanceReader(context: Context) : AutoCloseable {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
                 synchronized(lock) {
                     if (closed) return
-                    remote = IPrivilegedCleanupService.Stub.asInterface(service)
+                remote = IPrivilegedMetricsService.Stub.asInterface(service)
                     binding = false
                 }
             }
