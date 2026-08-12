@@ -7,15 +7,22 @@ import android.graphics.drawable.StateListDrawable
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.text.InputType
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import androidx.core.graphics.drawable.toDrawable
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.winlator.cmod.runtime.display.renderer.ViewTransformation
 import com.winlator.cmod.runtime.display.xserver.Pointer
+import com.winlator.cmod.runtime.display.xserver.XKeycode
 import com.winlator.cmod.runtime.display.xserver.XServer
 import com.winlator.cmod.shared.math.Mathf
 import com.winlator.cmod.shared.math.XForm
@@ -52,6 +59,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         const val MODE_TOUCHSCREEN = 1
         private const val TOUCHSCREEN_DOUBLE_TAP_MS = 500L
         private const val TOUCHSCREEN_DOUBLE_TAP_DISTANCE = 100f
+        private const val MAX_IME_DELETE_COUNT = 256
     }
 
     private val injectThread =
@@ -89,6 +97,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     private var screenTouchMode = MODE_TRACKPAD
     private val xform = XForm.getInstance()
     private var activeTouchHandler: ((MotionEvent) -> Boolean)? = null
+    private var inputConnection: WineInputConnection? = null
     private val longPressHandler = Handler(Looper.getMainLooper())
     private var longPressActive = false
     private val longPressRunnable = Runnable {
@@ -233,6 +242,61 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
         xServer.keyboard.onKeyEvent(event) || super.onKeyUp(keyCode, event)
 
+    override fun onCheckIsTextEditor(): Boolean = true
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
+        outAttrs.inputType =
+            InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        outAttrs.imeOptions =
+            EditorInfo.IME_ACTION_NONE or
+            EditorInfo.IME_FLAG_NO_EXTRACT_UI or
+            EditorInfo.IME_FLAG_NO_FULLSCREEN
+        return WineInputConnection(
+            this,
+            object : WineInputConnection.Listener {
+                override fun onCommitText(text: CharSequence) {
+                    val committed = text.toString()
+                    runInject { xServer.injectText(committed) }
+                }
+
+                override fun onDelete(beforeLength: Int, afterLength: Int) {
+                    val backspaces = beforeLength.coerceAtMost(MAX_IME_DELETE_COUNT)
+                    val deletes = afterLength.coerceAtMost(MAX_IME_DELETE_COUNT)
+                    runInject {
+                        repeat(backspaces) { xServer.injectKeyTap(XKeycode.KEY_BKSP) }
+                        repeat(deletes) { xServer.injectKeyTap(XKeycode.KEY_DEL) }
+                    }
+                }
+
+                override fun onSendKeyEvent(event: KeyEvent): Boolean {
+                    val copiedEvent = KeyEvent(event)
+                    runInject { xServer.keyboard.onKeyEvent(copiedEvent) }
+                    return true
+                }
+
+                override fun onEditorAction() {
+                    runInject { xServer.injectKeyTap(XKeycode.KEY_ENTER) }
+                }
+            },
+        ).also { inputConnection = it }
+    }
+
+    fun showSoftKeyboard() {
+        if (inputReleased) return
+        requestFocus()
+        val inputMethodManager = context.getSystemService(InputMethodManager::class.java)
+        inputMethodManager?.restartInput(this)
+        post {
+            if (inputReleased) return@post
+            requestFocus()
+            ViewCompat.getWindowInsetsController(this)
+                ?.show(WindowInsetsCompat.Type.ime())
+            inputMethodManager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
     override fun onDetachedFromWindow() {
         releaseInput()
         super.onDetachedFromWindow()
@@ -243,6 +307,10 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         longPressHandler.removeCallbacks(longPressRunnable)
         injectHandler.removeCallbacksAndMessages(null)
         resetInputState()
+        context.getSystemService(InputMethodManager::class.java)
+            ?.hideSoftInputFromWindow(windowToken, 0)
+        inputConnection?.closeConnection()
+        inputConnection = null
         inputReleased = true
         injectThread.quitSafely()
     }

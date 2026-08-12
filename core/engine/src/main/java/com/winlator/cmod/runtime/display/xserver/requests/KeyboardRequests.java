@@ -15,7 +15,7 @@ public abstract class KeyboardRequests {
   public static void getKeyboardMapping(
       XClient client, XInputStream inputStream, XOutputStream outputStream)
       throws IOException, XRequestError {
-    byte firstKeycode = inputStream.readByte();
+    int firstKeycode = inputStream.readUnsignedByte();
     int count = inputStream.readUnsignedByte();
     inputStream.skip(2);
 
@@ -23,14 +23,13 @@ public abstract class KeyboardRequests {
       outputStream.writeByte(RESPONSE_CODE_SUCCESS);
       outputStream.writeByte(KEYSYMS_PER_KEYCODE);
       outputStream.writeShort(client.getSequenceNumber());
-      outputStream.writeInt(count);
+      outputStream.writeInt(count * KEYSYMS_PER_KEYCODE);
       outputStream.writePad(24);
 
-      int i = firstKeycode - Keyboard.MIN_KEYCODE;
-      while (count != 0) {
-        outputStream.writeInt(client.xServer.keyboard.keysyms[i]);
-        count--;
-        i++;
+      int index = (firstKeycode - Keyboard.MIN_KEYCODE) * KEYSYMS_PER_KEYCODE;
+      for (int keycode = 0; keycode < count; keycode++) {
+        outputStream.writeInt(client.xServer.keyboard.keysyms[index++]);
+        outputStream.writeInt(client.xServer.keyboard.keysyms[index++]);
       }
     }
   }

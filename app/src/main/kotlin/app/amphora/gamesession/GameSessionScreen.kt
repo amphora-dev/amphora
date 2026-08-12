@@ -282,6 +282,12 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                     onStretchToFillChange = { stretchToFill = it },
                     performanceHudVisible = performanceHudVisible,
                     onPerformanceHudVisibleChange = { performanceHudVisible = it },
+                    onShowKeyboard = {
+                        drawerScope.launch {
+                            drawerState.close()
+                            touchpadView?.showSoftKeyboard()
+                        }
+                    },
                     onPauseToggle = {
                         if (sessionState == SessionState.PAUSED) {
                             manuallyPaused = false
