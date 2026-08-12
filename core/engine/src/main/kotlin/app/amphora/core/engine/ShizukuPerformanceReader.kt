@@ -8,8 +8,8 @@ import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.IBinder
 import android.util.Log
-import app.amphora.core.engine.privileged.IPrivilegedCleanupService
 import app.amphora.core.engine.privileged.IPerformanceMetricsService
+import app.amphora.core.engine.privileged.IPrivilegedCleanupService
 import app.amphora.core.engine.privileged.PrivilegedCleanupService
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
@@ -24,8 +24,11 @@ class PerformanceMetricsClient(context: Context) : AutoCloseable {
     private val appContext = context.applicationContext
 
     @Volatile private var remote: IPerformanceMetricsService? = null
+
     @Volatile private var binding = false
+
     @Volatile private var bound = false
+
     @Volatile private var closed = false
 
     private val connection =
