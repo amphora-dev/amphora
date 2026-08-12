@@ -8,7 +8,6 @@ import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.wine.WineInfo
 import com.winlator.cmod.runtime.wine.WineUtils
 import com.winlator.cmod.shared.io.FileUtils
-import com.winlator.cmod.shared.io.TarCompressorUtils
 import com.winlator.cmod.shared.util.KeyValueSet
 import com.winlator.cmod.shared.util.OnExtractFileListener
 import java.io.File
@@ -58,7 +57,7 @@ object WinComponentSetup {
                 if (wincomponent[1] == oldValue && !firstTimeBoot) continue
 
                 if (useNative) {
-                    extractNativeWinComponent(
+                    linkNativeWinComponent(
                         context,
                         identifier,
                         wincomponentsJson,
@@ -96,7 +95,7 @@ object WinComponentSetup {
         }
     }
 
-    private fun extractNativeWinComponent(
+    private fun linkNativeWinComponent(
         context: Context,
         identifier: String,
         wincomponentsJson: JSONObject,
@@ -114,27 +113,13 @@ object WinComponentSetup {
             Log.d(TAG, "Native WinComponent '$identifier' has no archive; applying override only")
             return
         }
-        // Builtin mode binds Proton DLLs into the prefix with symlinks. The native
-        // extractor deliberately opens regular entries with O_NOFOLLOW, so remove
-        // only this component's known links before extracting private replacements.
-        wineDllsForComponentRestore(wincomponentsJson, identifier).forEach { dll ->
-            listOf("system32", "syswow64").forEach { directory ->
-                val target = File(windowsDir, "$directory/$dll")
-                check(!FileUtils.isSymlink(target) || target.delete()) {
-                    "Cannot unlink builtin component target before native extract: $target"
-                }
-            }
-        }
-        check(
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD,
-                archive,
-                windowsDir,
-                onExtractFileListener,
-            ),
-        ) {
-            "Cannot extract native WinComponent: $identifier"
-        }
+        WinComponentCache.linkComponent(
+            context = context,
+            identifier = identifier,
+            windowsDir = windowsDir,
+            expectedFiles = wineDllsForComponentRestore(wincomponentsJson, identifier),
+            onExtractFileListener = onExtractFileListener,
+        )
     }
 
     private fun wineDllsForComponentRestore(wincomponentsJson: JSONObject, identifier: String): List<String> {

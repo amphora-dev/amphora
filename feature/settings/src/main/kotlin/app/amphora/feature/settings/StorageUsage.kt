@@ -99,6 +99,15 @@ object StorageUsageScanner {
                     )
                 }
                 addAll(components)
+                val sharedWinComponents = File(ContentsManager.getContentDir(context), "WINCOMPONENTS")
+                add(
+                    StorageEntry(
+                        label = "Shared Windows components",
+                        detail = "DirectX and other native DLLs linked into Wine prefixes",
+                        bytes = sizeOf(sharedWinComponents),
+                        children = childrenOf(sharedWinComponents),
+                    ),
+                )
                 val assetsDir = RuntimeAssetProvisioner.runtimeAssetsDir(context)
                 add(
                     StorageEntry(
