@@ -1,6 +1,7 @@
 package app.amphora.gamesession.input
 
 import android.annotation.SuppressLint
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.StateListDrawable
@@ -19,12 +20,16 @@ import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import androidx.core.graphics.drawable.toDrawable
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.winlator.cmod.runtime.display.renderer.ViewTransformation
 import com.winlator.cmod.runtime.display.xserver.Pointer
 import com.winlator.cmod.runtime.display.xserver.XKeycode
 import com.winlator.cmod.runtime.display.xserver.XServer
 import com.winlator.cmod.shared.math.Mathf
 import com.winlator.cmod.shared.math.XForm
+
+data class ImeUiState(val composingText: String = "", val keyboardVisible: Boolean = false)
 
 /**
  * Amphora port of WinNative [com.winlator.cmod.runtime.input.ui.TouchpadView].
@@ -97,6 +102,8 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     private val xform = XForm.getInstance()
     private var activeTouchHandler: ((MotionEvent) -> Boolean)? = null
     private var inputConnection: WineInputConnection? = null
+    private var imeUiState = ImeUiState()
+    private var imeUiStateListener: ((ImeUiState) -> Unit)? = null
     private val longPressHandler = Handler(Looper.getMainLooper())
     private var longPressActive = false
     private val longPressRunnable = Runnable {
@@ -222,6 +229,12 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
                 else -> false
             }
         }
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+            updateImeUiState(
+                keyboardVisible = insets.isVisible(WindowInsetsCompat.Type.ime()),
+            )
+            insets
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -233,6 +246,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         requestFocus()
+        ViewCompat.requestApplyInsets(this)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
@@ -278,6 +292,10 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
                 override fun onEditorAction() {
                     runInject { xServer.injectKeyTap(XKeycode.KEY_ENTER) }
                 }
+
+                override fun onComposingTextChanged(text: CharSequence) {
+                    updateImeUiState(composingText = text.toString())
+                }
             },
         ).also { inputConnection = it }
     }
@@ -292,6 +310,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
             requestFocus()
             windowInsetsController?.show(WindowInsets.Type.ime())
             inputMethodManager?.showSoftInput(this, 0)
+            ViewCompat.requestApplyInsets(this)
         }
     }
 
@@ -300,9 +319,37 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         inputMethodManager?.hideSoftInputFromWindow(windowToken, 0)
         inputConnection?.reset()
         inputConnection = null
+        updateImeUiState(composingText = "", keyboardVisible = false)
         if (!inputReleased && isAttachedToWindow) {
             inputMethodManager?.restartInput(this)
         }
+    }
+
+    fun typeClipboardText(): Boolean {
+        val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return false
+        val item = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0) ?: return false
+        val text = item.coerceToText(context)?.toString()?.takeIf { it.isNotEmpty() } ?: return false
+        runInject { xServer.injectText(text) }
+        return true
+    }
+
+    fun setImeUiStateListener(listener: ((ImeUiState) -> Unit)?) {
+        imeUiStateListener = listener
+        listener?.invoke(imeUiState)
+    }
+
+    private fun updateImeUiState(
+        composingText: String = imeUiState.composingText,
+        keyboardVisible: Boolean = imeUiState.keyboardVisible,
+    ) {
+        val updated =
+            ImeUiState(
+                composingText = composingText,
+                keyboardVisible = keyboardVisible,
+            )
+        if (updated == imeUiState) return
+        imeUiState = updated
+        imeUiStateListener?.invoke(updated)
     }
 
     override fun onDetachedFromWindow() {
@@ -319,6 +366,8 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
             ?.hideSoftInputFromWindow(windowToken, 0)
         inputConnection?.reset()
         inputConnection = null
+        updateImeUiState(composingText = "", keyboardVisible = false)
+        imeUiStateListener = null
         inputReleased = true
         injectThread.quitSafely()
     }
@@ -394,6 +443,10 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!mouseEnabled) return true
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && imeUiState.keyboardVisible) {
+            inputConnection?.reset()
+            context.getSystemService(InputMethodManager::class.java)?.restartInput(this)
+        }
         showCursor()
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) return handleStylusEvent(event)
         val action = event.actionMasked

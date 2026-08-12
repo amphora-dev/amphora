@@ -33,6 +33,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.amphora.core.engine.model.SessionState
+import app.amphora.gamesession.input.ImeUiState
 import app.amphora.gamesession.input.TouchpadView
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView
 import com.winlator.cmod.runtime.display.xserver.XServer
@@ -61,6 +62,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     val audioVolume by viewModel.audioVolume.collectAsState()
     var rendererView by remember { mutableStateOf<XServerSurfaceView?>(null) }
     var touchpadView by remember { mutableStateOf<TouchpadView?>(null) }
+    var imeUiState by remember { mutableStateOf(ImeUiState()) }
     var inputMode by rememberSaveable { mutableStateOf(TouchpadView.MODE_TRACKPAD) }
     var pointerSensitivity by rememberSaveable { mutableStateOf(1f) }
     var tapToClick by rememberSaveable { mutableStateOf(true) }
@@ -222,6 +224,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     }
     LaunchedEffect(surface) {
         firstGuestFrameRendered = false
+        imeUiState = ImeUiState()
     }
     LaunchedEffect(exitRequested) {
         if (exitRequested) {
@@ -318,8 +321,27 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                         xServer = sessionSurface.xServer,
                         onViewReady = { touchpadView = it },
                         onOpenDrawer = { drawerScope.launch { drawerState.open() } },
+                        onImeStateChange = { imeUiState = it },
                         modifier = Modifier.fillMaxSize(),
                     )
+                    if (
+                        firstGuestFrameRendered &&
+                        sessionState !in setOf(SessionState.STOPPING, SessionState.STOPPED)
+                    ) {
+                        ImeControlOverlay(
+                            state = imeUiState,
+                            onToggleKeyboard = {
+                                touchpadView?.let { pad ->
+                                    if (imeUiState.keyboardVisible) {
+                                        pad.dismissSoftKeyboard()
+                                    } else {
+                                        pad.showSoftKeyboard()
+                                    }
+                                }
+                            },
+                            onTypeClipboard = { touchpadView?.typeClipboardText() },
+                        )
+                    }
                     if (performanceHudVisible && firstGuestFrameRendered) {
                         HostPerformanceOverlay(surface = sessionSurface)
                     }

@@ -127,8 +127,8 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 
 | 层 | 组件 | 说明 |
 |---|---|---|
-| UI | `GameSessionScreen` / `TouchpadView` | 触控板：相对位移 + 单击左键 / 双指右键与滚轮 / 长按右键；触屏绝对模式；外接鼠标与手写笔；运行时抽屉可打开 Android IME |
-| 文本输入 | `WineInputConnection` → `XServer.injectText` | 拼音/候选组合留在 Android 侧，只把已提交 UTF-16 文本映射为 X11 Unicode keysym；8 个保留 keycode 按 LRU 复用，退格、Delete、Enter 保留按键语义 |
+| UI | `GameSessionScreen` / `TouchpadView` | 触控板：相对位移 + 单击左键 / 双指右键与滚轮 / 长按右键；触屏绝对模式；外接鼠标与手写笔；可拖动 IME 浮条直接打开/隐藏 Android 键盘并预览 composition |
+| 文本输入 | `WineInputConnection` → `XServer.injectText` | 拼音/候选组合留在 Android 侧，只把已提交 UTF-16 文本映射为 X11 Unicode keysym；防 `finishComposingText`/`commitText` 重复，按可见字素转发删除，8 个保留 keycode 按 LRU 复用；浮条可把 Android 剪贴板内容作为文本注入 |
 | Surface | `XServerSurfaceView` | `TextureView`（Compose `AndroidView` 下 SurfaceView 子窗口不可靠） |
 | Java 渲染 | `VulkanRenderer` | 加载 `winlator`，direct scene buffer |
 | Native | `vk_renderer.c` + adrenotools | swapchain / AHB 导入 / Turnip 或系统 `libvulkan.so` |
@@ -161,7 +161,7 @@ query，并在对应 fence 已完成后读取，不阻塞当前提交。HUD 隐�
 query 或 display history 连续 3 次失败/返回异常值时，只熔断对应遥测层；HUD 依次回退到
 GPU timing 或 XServer Source FPS，渲染与 Present 路径继续运行。
 
-已知裁剪：Android IME 已支持提交文本，但没有独立的 Windows 屏幕键盘或候选窗覆盖层；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
+已知裁剪：IME 浮条只预览 Android composition，候选列表仍由系统输入法展示；“CLIPBOARD”是 Unicode 文本注入，不是 Wine 剪贴板/`Ctrl+V`，不承诺绕过拒绝字符输入的游戏控件。没有独立 Windows OSK 或 IMM32/TSF 桥；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 
 ---
 

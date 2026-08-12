@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import app.amphora.core.engine.GameSessionSurface
+import app.amphora.gamesession.input.ImeUiState
 import app.amphora.gamesession.input.TouchpadView
 import com.winlator.cmod.runtime.display.renderer.VulkanRenderer
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView
@@ -67,6 +68,7 @@ internal fun TouchpadOverlay(
     xServer: XServer,
     onViewReady: (TouchpadView) -> Unit,
     onOpenDrawer: () -> Unit,
+    onImeStateChange: (ImeUiState) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     AndroidView(
@@ -77,16 +79,19 @@ internal fun TouchpadOverlay(
                 xServer.setRelativeMouseMovement(false)
                 pad.setScreenTouchMode(TouchpadView.MODE_TRACKPAD)
                 pad.setFourFingersTapCallback(onOpenDrawer)
+                pad.setImeUiStateListener(onImeStateChange)
                 onViewReady(pad)
             }
         },
         update = { pad ->
             pad.setFourFingersTapCallback(onOpenDrawer)
+            pad.setImeUiStateListener(onImeStateChange)
             onViewReady(pad)
         },
         modifier = modifier,
         onRelease = { pad ->
             pad.setFourFingersTapCallback(null)
+            pad.setImeUiStateListener(null)
             pad.releaseInput()
         },
     )
