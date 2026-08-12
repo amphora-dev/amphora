@@ -6,7 +6,6 @@ import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.RuntimeAssetProvisioner
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.content.SharedDllLinker
-import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.wine.WineRegistryEditor
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import java.io.File
@@ -41,15 +40,9 @@ object SharedContainerFonts {
     const val TAHOMA = "tahoma.ttf"
     const val TAHOMA_BOLD = "tahomabd.ttf"
 
-    /** Primary face kept for callers that only know the old single-file name. */
-    const val FONT_FILE_NAME = CN_REGULAR
-
     const val FONT_FAMILY_CN = "Source Han Sans CN"
     const val FONT_FAMILY_CN_LOCALIZED = "思源黑体 CN"
     const val FONT_FAMILY_JP = "Source Han Sans JP"
-
-    /** @deprecated use [FONT_FAMILY_CN] */
-    const val FONT_FAMILY = FONT_FAMILY_CN
 
     internal fun cnFamilyForLanguage(language: String?): String =
         if (language.equals("zh", ignoreCase = true)) FONT_FAMILY_CN_LOCALIZED else FONT_FAMILY_CN
@@ -369,11 +362,6 @@ object SharedContainerFonts {
                 Log.w(TAG, "Failed to link $windowsName -> $source")
             }
         }
-        val removedFontconfigLinks =
-            removeLegacyFontconfigLinks(
-                File(ImageFs.find(context).rootDir, "usr/share/fonts"),
-                File(contentsRoot, CONTENTS_TYPE),
-            )
 
         val registryOk =
             !applyRegistry ||
@@ -393,8 +381,7 @@ object SharedContainerFonts {
             TAG,
             "CJK fonts: linked=$linked/${fontLinks.size} primary=$primaryOk " +
                 "nativeWindows=$useNativeWindowsFonts registry=$registryOk " +
-                "locale=$registryLocale removedManagedLinks=$removedManagedLinks " +
-                "removedFontconfigLinks=$removedFontconfigLinks cache=$cacheDir",
+                "locale=$registryLocale removedManagedLinks=$removedManagedLinks cache=$cacheDir",
         )
         return ok
     }
@@ -442,25 +429,10 @@ object SharedContainerFonts {
                 return null
             }
 
-            // Collect faces from flat root or nested windows/Fonts/ (legacy).
             val found = mutableMapOf<String, File>()
             for (face in PACK_FACES + WINDOWS_PACK_FACES) {
-                val hit =
-                    sequenceOf(
-                        File(staging, face),
-                        File(staging, "windows/Fonts/$face"),
-                        File(staging, "Fonts/$face"),
-                    ).firstOrNull { it.isFile && it.length() > 0L }
-                if (hit != null) found[face] = hit
-            }
-            // Legacy single-file pack only had CN Regular under old name.
-            if (CN_REGULAR !in found) {
-                val legacy =
-                    sequenceOf(
-                        File(staging, "SourceHanSansCN-Regular.otf"),
-                        File(staging, "windows/Fonts/SourceHanSansCN-Regular.otf"),
-                    ).firstOrNull { it.isFile && it.length() > 0L }
-                if (legacy != null) found[CN_REGULAR] = legacy
+                val src = File(staging, face)
+                if (src.isFile && src.length() > 0L) found[face] = src
             }
 
             if (CN_REGULAR !in found) {
@@ -473,16 +445,6 @@ object SharedContainerFonts {
 
             for ((face, src) in found) {
                 src.copyTo(File(publish, face), overwrite = true)
-            }
-            // If Bold/JP missing (old pack), fall back Regular CN for missing faces
-            // so link table still has a file — imperfect but avoids total failure.
-            for (face in PACK_FACES) {
-                val dest = File(publish, face)
-                if (!dest.isFile) {
-                    val fallback = File(publish, CN_REGULAR)
-                    fallback.copyTo(dest, overwrite = true)
-                    Log.w(TAG, "Pack missing $face; cloned $CN_REGULAR as placeholder")
-                }
             }
 
             File(publish, PACK_COMPLETE_MARKER).writeText("$sha\n")
@@ -533,27 +495,6 @@ object SharedContainerFonts {
         for (name in managedNames - desiredNames) {
             val target = File(fontsDir, name)
             if (Files.isSymbolicLink(target.toPath()) && target.delete()) removed++
-        }
-        return removed
-    }
-
-    /**
-     * Remove links created by the former `/usr/share/fonts` synchronization.
-     * Real files and links outside the shared FONTS cache are user/image assets
-     * and must remain untouched.
-     */
-    internal fun removeLegacyFontconfigLinks(fontconfigDir: File, sharedFontsRoot: File): Int {
-        if (!fontconfigDir.isDirectory || !sharedFontsRoot.isDirectory) return 0
-        val sharedRoot =
-            runCatching { sharedFontsRoot.canonicalFile.toPath() }
-                .getOrElse { return 0 }
-        var removed = 0
-        for (entry in fontconfigDir.listFiles().orEmpty()) {
-            if (!Files.isSymbolicLink(entry.toPath())) continue
-            val pointsIntoSharedFonts =
-                runCatching { entry.canonicalFile.toPath().startsWith(sharedRoot) }
-                    .getOrDefault(false)
-            if (pointsIntoSharedFonts && entry.delete()) removed++
         }
         return removed
     }

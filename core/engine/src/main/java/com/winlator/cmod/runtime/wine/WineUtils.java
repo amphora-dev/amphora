@@ -418,13 +418,11 @@ public abstract class WineUtils {
     createVerifiedSymlink("../drive_c", dosdevicesPath + "/c:");
     createVerifiedSymlink(container.getRootDir().getPath() + "/../..", dosdevicesPath + "/z:");
 
-    String packageStorageSuffix = "/com.winnative.cmod/storage";
-    String legacyPackageStorageSuffix = "/com.winlator.cmod/storage";
+    String packageStorageSuffix = null;
     Context context = null;
     if (container.getManager() != null && container.getManager().getContext() != null) {
       context = container.getManager().getContext();
-      String packageName = context.getPackageName();
-      packageStorageSuffix = "/" + packageName + "/storage";
+      packageStorageSuffix = "/" + context.getPackageName() + "/storage";
     }
 
     if (context != null) {
@@ -456,7 +454,7 @@ public abstract class WineUtils {
         }
       }
       boolean isAppStoragePath =
-          path.endsWith(packageStorageSuffix) || path.endsWith(legacyPackageStorageSuffix);
+          packageStorageSuffix != null && path.endsWith(packageStorageSuffix);
       if (!linkTarget.isDirectory() && isAppStoragePath) {
         linkTarget.mkdirs();
         FileUtils.chmod(linkTarget, 0771);

@@ -170,12 +170,7 @@ object StorageUsageScanner {
                     listOf(
                         StorageEntry(
                             label = container.name,
-                            detail =
-                            if (container.name.startsWith("${ImageFs.USER}.legacy-backup-")) {
-                                "Legacy home recovery backup · preserved"
-                            } else {
-                                "Inactive container · preserved"
-                            },
+                            detail = "Inactive container · preserved",
                             bytes = sizeOf(container),
                         ),
                     )
