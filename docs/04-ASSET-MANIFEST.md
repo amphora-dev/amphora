@@ -180,7 +180,7 @@ aserver。它与远程 Proton WCP 中的 x86_64 `winepulse.so` 配套，但两�
 | 8 | **`Vkd3d-*.wcp`** | D3D12 → Vulkan | 3.3 MB | 同上 | ✅ |
 | 9 | ~~`container_pattern_common.tzst`~~ | Winlator prefix 模板（字体/图标/winhandler/ddraw 工具） | ~42 MB | — | ❌ **已废止**（2026-08）：prefix 只靠 Proton `prefixPack` |
 | 10 | **`fonts.tzst`**（共享） | Source Han Sans **CN+JP** 回退 + Microsoft YaHei、SimHei、PMingLiU、Tahoma、Microsoft Sans Serif | **~38 MB** | `contents/FONTS/<sha>/`；真实 Windows 字体优先，Source Han 处理未打包字体；FontLink / FontSubstitutes / Wine Replacements | ✅ |
-| 11 | **`wincomponents/*.tzst`** | 微软 redist（保持 tzst，**不**改 WCP） | 目录合计 ~38 MB；按 `FALLBACK` 选装 | 容器 DLL | ✅ 按需提取，机制不变 |
+| 11 | **`wincomponents/*.tzst`** | 微软 redist（保持 tzst，**不**改 WCP） | 目录合计 ~38 MB；按 `FALLBACK` 选装 | `contents/WINCOMPONENTS/<id>-<sha>/`；prefix 只软链 DLL/EXE | ✅ 按需解压一次再链接 |
 | 12 | **`WN-Turnip-*.zip`** | 可选完整 Turnip | ~2.7 MB zip / ~15 MB `.so` | `contents/adrenotools/<id>/` | ⚪ 可选 |
 | 13 | **`ddrawrapper/{cnc-ddraw,dd7to9}.tzst` + `d7vk.zip` + `nglide.tzst`** | DirectDraw 三选一，默认 DxWrapper Dd7to9；nGlide 独立 | 各包以 manifest 为准 | 容器 `syswow64` | ⚪ 可选 |
 | 14 | ~~`layers.tzst`~~ | Vulkan validation | ~4.4 MB | — | ❌ **默认不装**（host 调试层可选；guest 不 extract） |
@@ -426,10 +426,11 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 | 落地根 | 谁写入 | 冲突风险 |
 |---|---|---|
 | `imagefs/`（rootfs） | `imagefs`（含自建 `libGL`）+ `wrapper.tzst` + `layers` + Proton/Box64 WCP | **提取顺序敏感**；hooks 曾在此三份漂移 |
-| 容器 `system32`/`syswow64` | DXVK/VKD3D/Proton builtin/DirectDraw cache 的只读软链接 + 容器私有配置 | `cnc-ddraw` / `dd7to9` / `d7vk` **互斥**；写入前必须先 unlink，禁止跟随链接改共享源 |
+| 容器 `system32`/`syswow64` | DXVK/VKD3D/Proton builtin/DirectDraw/native wincomponents cache 的只读软链接 + 容器私有配置 | `cnc-ddraw` / `dd7to9` / `d7vk` **互斥**；写入前必须先 unlink，禁止跟随链接改共享源 |
 | 容器 `.wine`（prefix） | Proton `prefixPack` + 共享字体链接 + 容器私有配置 | pattern 已废止；写入前须处理旧链接 |
 | `filesDir/contents/<type>/<ver>/` | `ContentsManager`（WCP） | 版本化，无冲突 |
 | `filesDir/contents/DDRAW/<id>-<sha>/` | runtime asset 解压一次后的 immutable DLL cache | prefix 只链接 DLL；INI/shader 仍为容器私有 |
+| `filesDir/contents/WINCOMPONENTS/<id>-<sha>/` | native wincomponents 解压一次后的 immutable DLL/EXE cache | prefix 只链接；DllOverrides / CLSID 仍写容器注册表 |
 | `filesDir/contents/adrenotools/<id>/` | wrapper ICD 桥接 + 可选 Turnip | 单选 |
 | **`imagefs/usr/lib`（wrapper.tzst）** | **hooks 唯一权威来源**（guest env + host `hookLibDir`） | APK 不再带 hooks |
 

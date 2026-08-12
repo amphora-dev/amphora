@@ -3,24 +3,22 @@ package com.winlator.cmod.runtime.container
 import android.content.Context
 import android.util.Log
 import app.amphora.core.content.RuntimeAssetProvisioner
+import app.amphora.core.engine.WinComponentCache
 import com.winlator.cmod.runtime.content.SharedDllLinker
 import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.wine.WineInfo
 import com.winlator.cmod.runtime.wine.WineUtils
 import com.winlator.cmod.shared.io.FileUtils
-import com.winlator.cmod.shared.io.TarCompressorUtils
 import com.winlator.cmod.shared.util.KeyValueSet
-import com.winlator.cmod.shared.util.OnExtractFileListener
 import java.io.File
 import org.json.JSONException
 import org.json.JSONObject
 
 /**
- * WinComponents installer (ported verbatim from WinNative
- * {@code runtime.container.WinComponentSetup}). Used by
- * {@link app.amphora.core.engine.XServerWineSessionPreparer} (D9 XSDA
- * extraction) to apply native/builtin DLL overrides per the container's
- * `wincomponents` setting. Unchanged from upstream.
+ * Applies native/builtin Windows component DLLs for a container's
+ * `wincomponents` setting. Native archives are extracted once into a shared
+ * cache and bound with [SharedDllLinker]; builtin restores Proton's matching
+ * DLLs the same way. Wine DllOverrides and COM registration stay here.
  */
 object WinComponentSetup {
     private const val TAG = "WinComponentSetup"
@@ -34,7 +32,6 @@ object WinComponentSetup {
         wincomponents: String,
         previousWincomponents: String,
         firstTimeBoot: Boolean,
-        onExtractFileListener: OnExtractFileListener?,
     ) {
         Log.d(TAG, "Applying WinComponents")
 
@@ -58,13 +55,7 @@ object WinComponentSetup {
                 if (wincomponent[1] == oldValue && !firstTimeBoot) continue
 
                 if (useNative) {
-                    extractNativeWinComponent(
-                        context,
-                        identifier,
-                        wincomponentsJson,
-                        windowsDir,
-                        onExtractFileListener,
-                    )
+                    linkNativeWinComponent(context, identifier, windowsDir)
                 } else {
                     dlls.addAll(wineDllsForComponentRestore(wincomponentsJson, identifier))
                 }
@@ -96,13 +87,7 @@ object WinComponentSetup {
         }
     }
 
-    private fun extractNativeWinComponent(
-        context: Context,
-        identifier: String,
-        wincomponentsJson: JSONObject,
-        windowsDir: File,
-        onExtractFileListener: OnExtractFileListener?,
-    ) {
+    private fun linkNativeWinComponent(context: Context, identifier: String, windowsDir: File) {
         val archive =
             File(
                 RuntimeAssetProvisioner.runtimeAssetsDir(context),
@@ -114,27 +99,7 @@ object WinComponentSetup {
             Log.d(TAG, "Native WinComponent '$identifier' has no archive; applying override only")
             return
         }
-        // Builtin mode binds Proton DLLs into the prefix with symlinks. The native
-        // extractor deliberately opens regular entries with O_NOFOLLOW, so remove
-        // only this component's known links before extracting private replacements.
-        wineDllsForComponentRestore(wincomponentsJson, identifier).forEach { dll ->
-            listOf("system32", "syswow64").forEach { directory ->
-                val target = File(windowsDir, "$directory/$dll")
-                check(!FileUtils.isSymlink(target) || target.delete()) {
-                    "Cannot unlink builtin component target before native extract: $target"
-                }
-            }
-        }
-        check(
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD,
-                archive,
-                windowsDir,
-                onExtractFileListener,
-            ),
-        ) {
-            "Cannot extract native WinComponent: $identifier"
-        }
+        WinComponentCache.linkComponent(context, identifier, windowsDir)
     }
 
     private fun wineDllsForComponentRestore(wincomponentsJson: JSONObject, identifier: String): List<String> {

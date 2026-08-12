@@ -6,7 +6,7 @@ import androidx.core.content.edit
 /**
  * User-selected Wine DLL source, using WinNative's `wincomponents` wire format.
  *
- * The actual DLL extraction/restoration remains owned by WinComponentSetup and
+ * The actual DLL linking/restoration remains owned by WinComponentSetup and
  * runs during prefix preparation when this value differs from the container's
  * last-applied snapshot.
  */

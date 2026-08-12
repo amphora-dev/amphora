@@ -81,8 +81,9 @@ internal fun WindowsComponentsSection(state: SettingsUiState, viewModel: Setting
                 if (index != WindowsComponentSetting.entries.lastIndex) HorizontalDivider()
             }
             Text(
-                "Compatibility archives are verified during runtime provisioning. Native extracts " +
-                    "private DLLs into the prefix; builtin links the matching Proton DLLs.",
+                "Compatibility archives are verified during runtime provisioning. Native and " +
+                    "builtin both link shared DLLs into the prefix; native uses the Microsoft " +
+                    "packages, builtin uses Proton.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
