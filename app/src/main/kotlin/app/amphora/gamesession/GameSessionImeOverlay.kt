@@ -39,7 +39,7 @@ import app.amphora.gamesession.input.ImeUiState
 import kotlin.math.roundToInt
 
 @Composable
-internal fun BoxScope.ImeControlOverlay(state: ImeUiState, onToggleKeyboard: () -> Unit, onTypeClipboard: () -> Unit) {
+internal fun BoxScope.ImeControlOverlay(state: ImeUiState, onHideKeyboard: () -> Unit, onTypeClipboard: () -> Unit) {
     val paddingPx = with(LocalDensity.current) { IME_OVERLAY_PADDING.toPx() }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var overlaySize by remember { mutableStateOf(IntSize.Zero) }
@@ -118,8 +118,8 @@ internal fun BoxScope.ImeControlOverlay(state: ImeUiState, onToggleKeyboard: () 
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        if (state.keyboardVisible) "HIDE" else "KEYBOARD",
-                        modifier = Modifier.clickable(onClick = onToggleKeyboard),
+                        "HIDE",
+                        modifier = Modifier.clickable(onClick = onHideKeyboard),
                         color = Color(0xFF80CBC4),
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
@@ -139,12 +139,6 @@ internal fun BoxScope.ImeControlOverlay(state: ImeUiState, onToggleKeyboard: () 
                         fontFamily = FontFamily.Monospace,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                    )
-                } else if (state.keyboardVisible) {
-                    Text(
-                        "Select a candidate to commit text",
-                        color = Color.White.copy(alpha = 0.72f),
-                        style = MaterialTheme.typography.labelSmall,
                     )
                 }
             }
