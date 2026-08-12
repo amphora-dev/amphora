@@ -1,5 +1,6 @@
 package app.amphora.gamesession
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,6 +14,7 @@ import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.LaunchTarget
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
@@ -53,21 +55,28 @@ constructor(
             scope = viewModelScope,
             actionDispatcher = dispatchers.io,
             launchSession = { request ->
-                val diagEnv =
-                    if (request.graphicsDiag) {
-                        hostEnvironment.prepareGraphicsDiagnostics()
-                    } else {
-                        emptyMap()
-                    }
-                wineEngine.launch(
-                    LaunchSpec(
-                        exePath = request.exePath,
-                        containerId = DEFAULT_CONTAINER_ID,
-                        displaySize = DisplaySize(request.width, request.height),
-                        target = request.target,
-                        env = diagEnv,
-                    ),
-                )
+                try {
+                    val diagEnv =
+                        if (request.graphicsDiag) {
+                            hostEnvironment.prepareGraphicsDiagnostics()
+                        } else {
+                            emptyMap()
+                        }
+                    wineEngine.launch(
+                        LaunchSpec(
+                            exePath = request.exePath,
+                            containerId = DEFAULT_CONTAINER_ID,
+                            displaySize = DisplaySize(request.width, request.height),
+                            target = request.target,
+                            env = diagEnv,
+                        ),
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    Log.e(TAG, "Session launch failed", e)
+                    throw e
+                }
             },
         )
 
@@ -129,6 +138,7 @@ constructor(
     }
 
     private companion object {
+        const val TAG = "GameSessionViewModel"
         const val EXE_PATH_ARG = "exePath"
         const val WIDTH_ARG = "width"
         const val HEIGHT_ARG = "height"

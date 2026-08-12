@@ -80,6 +80,11 @@ class VerifiedAssetDownloader(
                 } catch (failure: Throwable) {
                     if (failure is CancellationException) throw failure
                     lastFailure = failure
+                    android.util.Log.w(
+                        TAG,
+                        "Download attempt ${attempt + 1}/$MAX_ATTEMPTS failed for $relativePath",
+                        failure,
+                    )
                     if (failure is SecurityException) {
                         partial.delete()
                     } else if (isUnsatisfiableRange(failure)) {
@@ -101,7 +106,11 @@ class VerifiedAssetDownloader(
                     }
                 }
             }
-            throw IOException("Unable to download $relativePath after $MAX_ATTEMPTS attempts", lastFailure)
+            val reason = lastFailure?.message ?: lastFailure?.javaClass?.simpleName ?: "unknown error"
+            throw IOException(
+                "Unable to download $relativePath after $MAX_ATTEMPTS attempts: $reason",
+                lastFailure,
+            )
         }
     }
 
@@ -130,21 +139,6 @@ class VerifiedAssetDownloader(
         // A valid record for a different pin identifies the last-known-good asset.
         // Do not hash or delete it before its replacement has downloaded and verified.
         if (AssetDigest.hasCurrentRecord(file)) return false
-
-        // Preserve the trust semantics of deployed digest-only markers while
-        // upgrading them with a size. This avoids hashing an old multi-hundred-MB
-        // asset on every offline launch after the manifest pin advances.
-        val legacyPin = AssetDigest.pinnedSha(file)
-        if (legacyPin != null) {
-            if (!legacyPin.equals(expectedSha256, ignoreCase = true)) {
-                AssetDigest.writePin(file, legacyPin)
-                return false
-            }
-            if (expectedSize == null || file.length() == expectedSize) {
-                AssetDigest.writePin(file, legacyPin)
-                return true
-            }
-        }
 
         // Missing/malformed markers are not trusted. Hash only this recovery path,
         // then record metadata so later startup checks remain O(1).
@@ -216,8 +210,17 @@ class VerifiedAssetDownloader(
         val resume =
             existing > 0L && (expectedSize == null || existing < expectedSize)
         if (resume) connection.setRequestProperty("Range", "bytes=$existing-")
+        android.util.Log.i(
+            TAG,
+            "GET ${safeUrl(remoteUrl)} resume=$existing agent=${System.getProperty("http.agent")}",
+        )
         try {
             val response = connection.responseCode
+            android.util.Log.i(
+                TAG,
+                "HTTP $response ${safeUrl(connection.url.toString())} " +
+                    "length=${connection.contentLengthLong}",
+            )
             val append = resume && response == HttpURLConnection.HTTP_PARTIAL
             if (response !in 200..299) {
                 throw IOException("HTTP $response ${connection.responseMessage} for $remoteUrl")
@@ -261,6 +264,11 @@ class VerifiedAssetDownloader(
         const val READ_TIMEOUT_MS = 60_000
         val RETRY_DELAYS_MS = longArrayOf(1_000, 2_000)
         private const val TAG = "VerifiedAssetDownloader"
+
+        private fun safeUrl(url: String): String {
+            val uri = runCatching { URI(url) }.getOrNull() ?: return "<invalid-url>"
+            return URI(uri.scheme, uri.authority, uri.path, null, null).toString()
+        }
 
         private fun sizeHint(expectedSize: Long?, actualSize: Long): String =
             if (expectedSize == null || expectedSize == actualSize) {
