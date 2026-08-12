@@ -56,13 +56,7 @@ class RuntimeAssetProvisioner(
 
     private fun isVerified(file: File, entry: RuntimeAssetEntry): Boolean {
         if (!file.isFile || (entry.size != null && file.length() != entry.size)) return false
-        if (AssetDigest.matchesPin(file, entry.sha256)) return true
-        val legacyPin = AssetDigest.pinnedSha(file)
-        if (legacyPin.equals(entry.sha256, ignoreCase = true) && AssetDigest.pinnedSize(file) == null) {
-            AssetDigest.writePin(file, entry.sha256)
-            return true
-        }
-        return false
+        return AssetDigest.matchesPin(file, entry.sha256)
     }
 
     private fun installFromApkAsset(entry: RuntimeAssetEntry, destination: File): Boolean {
