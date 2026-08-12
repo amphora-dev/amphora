@@ -106,8 +106,7 @@ class ShizukuPerformanceReader(context: Context) : AutoCloseable {
         false
     }
 
-    private fun JSONObject.optionalString(name: String): String? =
-        optString(name).takeIf(String::isNotBlank)
+    private fun JSONObject.optionalString(name: String): String? = optString(name).takeIf(String::isNotBlank)
 
     private companion object {
         const val TAG = "ShizukuPerformance"

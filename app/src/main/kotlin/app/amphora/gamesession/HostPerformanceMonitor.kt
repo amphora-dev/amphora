@@ -381,14 +381,13 @@ internal class HostPerformanceMonitor(
         return HostPerformanceParser.selectSessionGuestPids(descendants, winePids, launcherPid)
     }
 
-    private fun readChildPids(pid: Int): List<Int> =
-        File("/proc/$pid/task")
-            .listFiles { file -> file.isDirectory && file.name.all(Char::isDigit) }
-            .orEmpty()
-            .flatMap { task ->
-                HostPerformanceParser.parseChildPids(readText(File(task, "children").path))
-            }
-            .distinct()
+    private fun readChildPids(pid: Int): List<Int> = File("/proc/$pid/task")
+        .listFiles { file -> file.isDirectory && file.name.all(Char::isDigit) }
+        .orEmpty()
+        .flatMap { task ->
+            HostPerformanceParser.parseChildPids(readText(File(task, "children").path))
+        }
+        .distinct()
 
     @RequiresApi(36)
     private fun updateSystemHeadroom(nowWall: Long) {

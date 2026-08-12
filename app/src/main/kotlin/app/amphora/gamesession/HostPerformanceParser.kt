@@ -96,11 +96,8 @@ internal object HostPerformanceParser {
         .mapNotNull(String::toIntOrNull)
         .filter { it > 0 }
 
-    fun selectSessionGuestPids(
-        descendants: Collection<Int>,
-        winePids: Set<Int>,
-        launcherPid: Int?,
-    ): List<Int> = descendants.filter { it in winePids || it == launcherPid }
+    fun selectSessionGuestPids(descendants: Collection<Int>, winePids: Set<Int>, launcherPid: Int?): List<Int> =
+        descendants.filter { it in winePids || it == launcherPid }
 
     fun parseTemperatureC(raw: String?): Float? {
         val value = Regex("-?\\d+").find(raw.orEmpty())?.value?.toFloatOrNull() ?: return null
