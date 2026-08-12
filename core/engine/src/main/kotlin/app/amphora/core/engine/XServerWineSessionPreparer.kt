@@ -306,7 +306,6 @@ class XServerWineSessionPreparer @Inject constructor(
                 wincomponents,
                 previousWincomponents.ifEmpty { Container.FALLBACK_WINCOMPONENTS },
                 firstTimeBoot || wincomponentAssetsChanged,
-                null,
             )
             AppliedMarks.markWincomponents(c, wincomponentsKey)
             containerDataChanged = true
@@ -1384,8 +1383,8 @@ class XServerWineSessionPreparer @Inject constructor(
     private fun getDxvkFrameRateOverride(): Int = AdvancedRuntimePreferences.frameRateLimit(context)
 
     /**
-     * Migrate old physical copies and repair deleted/broken component links.
-     * Normal launches no longer wipe and reinstall the whole graphics stack.
+     * Repair deleted or broken component links. Normal launches skip a full
+     * graphics reinstall while the expected shared links are healthy.
      */
     private fun sharedGraphicsLinksNeedRefresh(dxwrapper: String): Boolean {
         val windowsDir =
