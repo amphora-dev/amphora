@@ -3,10 +3,11 @@ package app.amphora.ui
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
@@ -50,16 +51,21 @@ private fun StartupUpdatePrompt(viewModel: StartupUpdateViewModel = hiltViewMode
         onDismissRequest = viewModel::dismiss,
         title = { Text("Update available") },
         text = {
-            Column(modifier = Modifier.animateContentSize()) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text("${update.versionName} (${update.versionCode}) · ${update.channel}")
                 update.notes?.let {
                     Text(it, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
-                state.message?.let {
-                    Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
+                Text(
+                    text = state.message.orEmpty(),
+                    minLines = 2,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 if (state.busy) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else {
+                    Spacer(modifier = Modifier.fillMaxWidth().height(4.dp))
                 }
             }
         },
