@@ -135,7 +135,7 @@ private class ShizukuPerformanceReader(context: Context) : AutoCloseable {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
                 synchronized(lock) {
                     if (closed) return
-                remote = IPrivilegedMetricsService.Stub.asInterface(service)
+                    remote = IPrivilegedMetricsService.Stub.asInterface(service)
                     binding = false
                 }
             }
