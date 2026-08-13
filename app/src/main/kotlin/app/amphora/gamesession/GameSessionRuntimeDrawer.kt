@@ -37,6 +37,8 @@ internal fun RuntimeSessionDrawer(
     controlsEnabled: Boolean,
     inputMode: Int,
     onInputModeChange: (Int) -> Unit,
+    rtsGesturesEnabled: Boolean,
+    onRtsGesturesEnabledChange: (Boolean) -> Unit,
     pointerSensitivity: Float,
     onPointerSensitivityChange: (Float) -> Unit,
     tapToClick: Boolean,
@@ -150,16 +152,32 @@ internal fun RuntimeSessionDrawer(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     FilterChip(
-                        selected = inputMode == TouchpadView.MODE_TRACKPAD,
+                        selected =
+                        inputMode == TouchpadView.MODE_TRACKPAD && !rtsGesturesEnabled,
                         onClick = { onInputModeChange(TouchpadView.MODE_TRACKPAD) },
                         enabled = controlsEnabled,
                         label = { Text("Trackpad") },
                     )
                     FilterChip(
-                        selected = inputMode == TouchpadView.MODE_TOUCHSCREEN,
+                        selected =
+                        inputMode == TouchpadView.MODE_TOUCHSCREEN && !rtsGesturesEnabled,
                         onClick = { onInputModeChange(TouchpadView.MODE_TOUCHSCREEN) },
                         enabled = controlsEnabled,
                         label = { Text("Direct touch") },
+                    )
+                    FilterChip(
+                        selected = rtsGesturesEnabled,
+                        onClick = { onRtsGesturesEnabledChange(!rtsGesturesEnabled) },
+                        enabled = controlsEnabled,
+                        label = { Text("RTS strategy") },
+                    )
+                }
+                if (rtsGesturesEnabled) {
+                    Text(
+                        "One finger selects and box-drags. Two fingers pan with arrow keys or pinch to zoom. " +
+                            "Three fingers middle-click; four fingers open this panel.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 Text(
@@ -169,19 +187,25 @@ internal fun RuntimeSessionDrawer(
                 Slider(
                     value = pointerSensitivity,
                     onValueChange = onPointerSensitivityChange,
-                    enabled = controlsEnabled && inputMode == TouchpadView.MODE_TRACKPAD,
+                    enabled =
+                    controlsEnabled &&
+                        inputMode == TouchpadView.MODE_TRACKPAD &&
+                        !rtsGesturesEnabled,
                     valueRange = 0.5f..2f,
                 )
                 RuntimeToggleRow(
                     title =
-                    if (inputMode == TouchpadView.MODE_TRACKPAD) {
+                    if (rtsGesturesEnabled) {
+                        "RTS tap actions · On"
+                    } else if (inputMode == TouchpadView.MODE_TRACKPAD) {
                         "Tap to click · ${if (tapToClick) "On" else "Off"}"
                     } else {
                         "Touch click · ${if (tapToClick) "On" else "Off"}"
                     },
-                    subtitle = tapGestureDescription(inputMode, tapToClick),
-                    checked = tapToClick,
-                    enabled = controlsEnabled,
+                    subtitle =
+                    tapGestureDescription(inputMode, tapToClick, rtsGesturesEnabled),
+                    checked = if (rtsGesturesEnabled) true else tapToClick,
+                    enabled = controlsEnabled && !rtsGesturesEnabled,
                     onCheckedChange = onTapToClickChange,
                 )
             }
@@ -301,7 +325,13 @@ private fun RuntimeToggleRow(
     }
 }
 
-private fun tapGestureDescription(inputMode: Int, enabled: Boolean): String = when {
+private fun tapGestureDescription(
+    inputMode: Int,
+    enabled: Boolean,
+    rtsGesturesEnabled: Boolean,
+): String = when {
+    rtsGesturesEnabled ->
+        "One-finger tap: left click\nTwo-finger tap: right click\nThree-finger tap: middle click"
     inputMode == TouchpadView.MODE_TOUCHSCREEN && enabled ->
         "Touching the screen positions the cursor and holds left click"
     inputMode == TouchpadView.MODE_TOUCHSCREEN ->
