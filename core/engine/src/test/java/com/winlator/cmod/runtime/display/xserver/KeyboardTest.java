@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import android.view.InputDevice;
 import org.junit.Test;
 
 public class KeyboardTest {
@@ -55,5 +56,30 @@ public class KeyboardTest {
 
     assertSame(first, keyboard.selectUnicodeKeycode(0x01004e2d));
     assertNotEquals(first, keyboard.selectUnicodeKeycode(0x01006000));
+  }
+
+  @Test
+  public void identifiesPhysicalGameControllers() {
+    assertTrue(
+        Keyboard.isGameControllerDescriptor(
+            "Xbox Wireless Controller", InputDevice.SOURCE_GAMEPAD, false));
+    assertTrue(
+        Keyboard.isGameControllerDescriptor(
+            "Generic Joystick", InputDevice.SOURCE_JOYSTICK, false));
+  }
+
+  @Test
+  public void ignoresVirtualAndPointerDevices() {
+    assertFalse(
+        Keyboard.isGameControllerDescriptor(
+            "Virtual Controller", InputDevice.SOURCE_GAMEPAD, true));
+    assertFalse(
+        Keyboard.isGameControllerDescriptor(
+            "Joystick Mouse",
+            InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_MOUSE,
+            false));
+    assertFalse(
+        Keyboard.isGameControllerDescriptor(
+            "uinput-fpc", InputDevice.SOURCE_GAMEPAD, false));
   }
 }
