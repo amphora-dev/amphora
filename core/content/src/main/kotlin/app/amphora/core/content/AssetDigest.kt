@@ -36,7 +36,7 @@ object AssetDigest {
         return firstLine.trim().lowercase().takeIf { HEX.matches(it) }
     }
 
-    /** Byte size recorded with the pin, or null for malformed/legacy digest-only markers. */
+    /** Byte size recorded with the pin, or null for malformed/digest-only markers. */
     fun pinnedSize(assetFile: File): Long? {
         val size = markerLines(assetFile)?.getOrNull(1)?.trim()?.toLongOrNull() ?: return null
         return size.takeIf { it >= 0L }

@@ -99,36 +99,17 @@ public class ContainerManager {
     File driveC = new File(containerDir, ".wine/drive_c");
     if (driveC.isDirectory()) FileUtils.chmod(driveC, 0771);
 
-    // Replace a legacy real "xuser" dir with a symlink to the active container. The
-    // legacy tree can contain saves, so move it intact to a recovery backup and never
-    // delete it as part of automatic activation.
-    File legacyBackup = null;
     if (file.exists() && !FileUtils.isSymlink(file)) {
-      Log.w(
+      Log.e(
           "ContainerManager",
-          "activateContainer: xuser is real dir, migrating essential files to container "
-              + container.id);
-      migrateEssentialFiles(file, containerDir);
-      legacyBackup = nextLegacyBackup();
-      if (!file.renameTo(legacyBackup)) {
-        Log.e(
-            "ContainerManager",
-            "activateContainer: unable to preserve legacy xuser at " + legacyBackup);
-        return false;
-      }
-      Log.w(
-          "ContainerManager",
-          "activateContainer: preserved legacy xuser at " + legacyBackup.getName());
-    } else {
-      boolean wasLink = FileUtils.isSymlink(file);
-      boolean deleted = !wasLink || file.delete();
-      Log.d(
-          "ContainerManager",
-          "activateContainer: xuser symlink/missing delete="
-              + deleted
-              + " existed="
-              + file.exists());
-      if (wasLink && (!deleted || FileUtils.isSymlink(file))) {
+          "activateContainer: home/xuser is a real directory, expected a symlink to "
+              + linkTarget
+              + ": "
+              + file.getAbsolutePath());
+      return false;
+    }
+    if (FileUtils.isSymlink(file)) {
+      if (!file.delete() || FileUtils.isSymlink(file)) {
         Log.e("ContainerManager", "activateContainer: unable to remove previous xuser symlink");
         return false;
       }
@@ -146,44 +127,8 @@ public class ContainerManager {
           "ContainerManager",
           "activateContainer: active xuser does not point to selected container "
               + container.id);
-      if (legacyBackup != null && legacyBackup.exists()) {
-        if (FileUtils.isSymlink(file)) file.delete();
-        if (!legacyBackup.renameTo(file)) {
-          Log.e(
-              "ContainerManager",
-              "activateContainer: CRITICAL — legacy xuser remains recoverable at "
-                  + legacyBackup
-                  + " but could not be restored");
-        }
-      }
     }
     return symlinkReady;
-  }
-
-  private File nextLegacyBackup() {
-    long timestamp = System.currentTimeMillis();
-    File candidate = new File(homeDir, ImageFs.USER + ".legacy-backup-" + timestamp);
-    int suffix = 1;
-    while (candidate.exists()) {
-      candidate =
-          new File(homeDir, ImageFs.USER + ".legacy-backup-" + timestamp + "-" + suffix++);
-    }
-    return candidate;
-  }
-
-  private void migrateEssentialFiles(File sourceDir, File destDir) {
-    String[] essentialPaths = {
-      ".wine/drive_c/windows/winhandler.exe", ".wine/drive_c/windows/wfm.exe"
-    };
-    for (String path : essentialPaths) {
-      File source = new File(sourceDir, path);
-      File dest = new File(destDir, path);
-      if (source.exists() && !dest.exists()) {
-        dest.getParentFile().mkdirs();
-        FileUtils.copy(source, dest);
-        Log.d("ContainerManager", "Migrated " + path + " to container");
-      }
-    }
   }
 
   public void createContainerAsync(
@@ -385,12 +330,12 @@ public class ContainerManager {
         }
 
         if (FileUtils.isSymlink(dstFile)) {
-          // Keep per-container overrides (DXVK/VKD3D/DirectDraw). Only a link
-          // previously owned by Proton may be rebound when the Proton pin moves.
+          // Keep shared overrides (DXVK/VKD3D/DirectDraw/native WinComponents).
+          // Only a link previously owned by Proton may be rebound when the pin moves.
           if (!isWineBuiltinLink(dstFile)) continue;
         } else if (dstFile.exists() && !FileUtils.contentEquals(file, dstFile)) {
-          // A native WinComponent or installer-private replacement is intentionally
-          // different from Proton and must remain private to this prefix.
+          // An installer-private replacement is intentionally different from
+          // Proton and must remain private to this prefix.
           continue;
         }
 

@@ -5,6 +5,7 @@ import android.util.SparseArray;
 import com.winlator.cmod.runtime.display.connector.XInputStream;
 import com.winlator.cmod.runtime.display.xserver.errors.BadIdChoice;
 import com.winlator.cmod.runtime.display.xserver.errors.BadMatch;
+import com.winlator.cmod.runtime.display.xserver.errors.BadValue;
 import com.winlator.cmod.runtime.display.xserver.errors.XRequestError;
 import com.winlator.cmod.runtime.display.xserver.events.ConfigureNotify;
 import com.winlator.cmod.runtime.display.xserver.events.ConfigureRequest;
@@ -348,7 +349,8 @@ public class WindowManager extends XResourceManager {
     triggerOnChangeWindowZOrder(window);
   }
 
-  public void configureWindow(Window window, Bitmask valueMask, XInputStream inputStream) {
+  public void configureWindow(Window window, Bitmask valueMask, XInputStream inputStream)
+      throws XRequestError {
     short x = window.getX();
     short y = window.getY();
     short width = window.getWidth();
@@ -383,6 +385,8 @@ public class WindowManager extends XResourceManager {
       }
     }
 
+    validateWindowSize(width, height);
+
     Window parent = window.getParent();
     boolean overrideRedirect = window.attributes.isOverrideRedirect();
     if (!parent.hasEventListenerFor(Event.SUBSTRUCTURE_REDIRECT) || overrideRedirect) {
@@ -414,6 +418,11 @@ public class WindowManager extends XResourceManager {
               borderWidth,
               stackMode,
               valueMask));
+  }
+
+  static void validateWindowSize(short width, short height) throws BadValue {
+    if (width <= 0) throw new BadValue(width);
+    if (height <= 0) throw new BadValue(height);
   }
 
   public void reparentWindow(Window window, Window newParent) {

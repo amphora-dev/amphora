@@ -26,7 +26,7 @@ class VerifiedAssetDownloaderTest {
         val asset = root.resolve("nested/runtime.bin")
         requireNotNull(asset.parentFile).mkdirs()
         asset.writeBytes(payload)
-        AssetDigest.markerFor(asset).writeText(sha)
+        AssetDigest.writePin(asset, sha)
 
         val resolved =
             VerifiedAssetDownloader(DefaultDispatcherProvider()).acquire(
@@ -68,35 +68,6 @@ class VerifiedAssetDownloaderTest {
 
         assertEquals(oldPayload.toList(), asset.readBytes().toList())
         assertEquals(oldSha, AssetDigest.pinnedSha(asset))
-        assertTrue(AssetDigest.hasCurrentRecord(asset))
-    }
-
-    @Test
-    fun legacyDigestOnlyPinIsUpgradedAndPreservedWhenNewPinIsOffline() = runBlocking {
-        val root = temporaryFolder.newFolder("legacy-offline-update")
-        val oldPayload = "legacy last known good".toByteArray()
-        val newPayload = "new release".toByteArray()
-        val oldSha = sha256(oldPayload)
-        val asset = root.resolve("runtime.bin")
-        asset.writeBytes(oldPayload)
-        AssetDigest.markerFor(asset).writeText(oldSha)
-
-        try {
-            VerifiedAssetDownloader(DefaultDispatcherProvider()).acquire(
-                root = root,
-                relativePath = "runtime.bin",
-                remoteUrl = "https://127.0.0.1:1/unreachable",
-                expectedSha256 = sha256(newPayload),
-                expectedSize = newPayload.size.toLong(),
-            )
-            throw AssertionError("offline download unexpectedly succeeded")
-        } catch (_: IOException) {
-            // Expected after bounded retries.
-        }
-
-        assertEquals(oldPayload.toList(), asset.readBytes().toList())
-        assertEquals(oldSha, AssetDigest.pinnedSha(asset))
-        assertEquals(oldPayload.size.toLong(), AssetDigest.pinnedSize(asset))
         assertTrue(AssetDigest.hasCurrentRecord(asset))
     }
 

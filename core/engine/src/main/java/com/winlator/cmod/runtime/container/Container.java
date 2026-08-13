@@ -4,7 +4,6 @@ import android.os.Environment;
 import android.util.Log;
 
 import com.winlator.cmod.runtime.compat.box64.Box64Preset;
-import com.winlator.cmod.runtime.wine.EnvVars;
 import com.winlator.cmod.shared.util.KeyValueSet;
 import com.winlator.cmod.runtime.wine.WineInfo;
 import com.winlator.cmod.runtime.compat.fexcore.FEXCorePreset;
@@ -90,7 +89,6 @@ public class Container {
     private String executablePath = "";
     private String execArgs = "";
     private boolean launchBionicSteam;
-    private boolean useColdClient = false;
     private boolean allowSteamUpdates;
     private boolean needsUnpacking = true;
     private boolean steamOfflineMode = false;
@@ -508,8 +506,6 @@ public class Container {
         data.put("midiSoundFont", midiSoundFont);
         data.put("lc_all", lc_all);
         data.put("launchBionicSteam", launchBionicSteam);
-        data.put("useColdClient", useColdClient);
-        data.put("coldClientMigrated", true);
         data.put("allowSteamUpdates", allowSteamUpdates);
         data.put("needsUnpacking", needsUnpacking);
         data.put("steamOfflineMode", steamOfflineMode);
@@ -719,16 +715,6 @@ public class Container {
                 case "launchBionicSteam" :
                     setLaunchBionicSteam(data.getBoolean(key));
                     break;
-                case "useColdClient" :
-                    // Only respect explicit user choice if coldClientMigrated flag is set
-                    if (data.has("coldClientMigrated")) {
-                        setUseColdClient(data.getBoolean(key));
-                    }
-                    // Otherwise keep default true (migrating from old data)
-                    break;
-                case "useLegacyDRM" :
-                    // Old field — always default to ColdClient on
-                    break;
                 case "allowSteamUpdates" :
                     setAllowSteamUpdates(data.getBoolean(key));
                     break;
@@ -789,44 +775,8 @@ public class Container {
 
     public static void checkObsoleteOrMissingProperties(JSONObject data) {
         try {
-            if (data.has("dxcomponents")) {
-                data.put("wincomponents", data.getString("dxcomponents"));
-                data.remove("dxcomponents");
-            }
-
-            if (data.has("dxwrapper")) {
-                String dxwrapper = data.getString("dxwrapper");
-                if (dxwrapper.equals("original-wined3d")) {
-                    data.put("dxwrapper", DEFAULT_DXWRAPPER);
-                }
-                else if (dxwrapper.startsWith("d8vk-") || dxwrapper.startsWith("dxvk-")) {
-                    data.put("dxwrapper", dxwrapper);
-                }
-            }
-
-            if (data.has("graphicsDriver")) {
-                String graphicsDriver = data.getString("graphicsDriver");
-                if (graphicsDriver.equals("turnip-zink") || graphicsDriver.equals("turnip")) {
-                    data.put("graphicsDriver", "wrapper");
-                }
-                else if (graphicsDriver.equals("llvmpipe")) {
-                    data.put("graphicsDriver", "wrapper");
-                }
-            }
-
-            if (data.has("envVars") && data.has("extraData")) {
-                JSONObject extraData = data.getJSONObject("extraData");
-                int appVersion = Integer.parseInt(extraData.optString("appVersion", "0"));
-                if (appVersion < 16) {
-                    EnvVars defaultEnvVars = new EnvVars(DEFAULT_ENV_VARS);
-                    EnvVars envVars = new EnvVars(data.getString("envVars"));
-                    for (String name : defaultEnvVars) if (!name.equals("VKD3D_SHADER_MODEL") && !envVars.has(name)) envVars.put(name, defaultEnvVars.get(name));
-                    data.put("envVars", envVars.toString());
-                }
-            }
-
             KeyValueSet wincomponents1 = new KeyValueSet(DEFAULT_WINCOMPONENTS);
-            KeyValueSet wincomponents2 = new KeyValueSet(data.getString("wincomponents"));
+            KeyValueSet wincomponents2 = new KeyValueSet(data.optString("wincomponents"));
             String result = "";
 
             for (String[] wincomponent1 : wincomponents1) {
@@ -881,14 +831,6 @@ public class Container {
 
     public void setLaunchBionicSteam(boolean launchBionicSteam) {
         this.launchBionicSteam = launchBionicSteam;
-    }
-
-    public boolean isUseColdClient() {
-        return useColdClient;
-    }
-
-    public void setUseColdClient(boolean useColdClient) {
-        this.useColdClient = useColdClient;
     }
 
     public boolean isAllowSteamUpdates() {
