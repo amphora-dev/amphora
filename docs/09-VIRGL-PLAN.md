@@ -12,8 +12,9 @@
 Mali 上是**死路**，且失败是无声的：
 
 - AIO Graphics Test 的 GPU Info 报 renderer = **softpipe**，`3.3 (Compatibility Profile)
-  Mesa 26.2.0`，Vendor `Mesa`。同一次运行里 D3D11（DXVK-Sarek → Vulkan）**3192 fps**，
-  OpenGL 只有 **519 fps**。
+  Mesa 26.2.0`，Vendor `Mesa`。同一次运行的后端对比：Vulkan **1420 fps**、
+  D3D11（DXVK-Sarek → Vulkan）**3192 fps**、D3D12 850、D3D9 1175、DirectDraw 894，
+  而 OpenGL 只有 **519 fps**。
 - `wine_stderr.log` 里唯一的线索是 `MESA-EGL: warning: egl: failed to create dri2 screen`。
 - 根因：Mali-G76 r34 缺 zink 硬性要求的 `VK_KHR_dynamic_rendering` 与
   `VK_EXT_robustness2`（`nullDescriptor`）。用 NDK 探针枚举了该设备全部 76 个设备扩展逐条比对确认。
@@ -96,6 +97,24 @@ bionic imagefs 用不了。
 
 **这个 fork 不是随手改的**——它正是为了避开上游 vtest 的双份拷贝，见 §4。
 
+### 2.4 一个纠正过的前提：guest 的 Mesa 是 arm64
+
+开工前差点搞错的一点：Wine 是 x86_64，但它用的 **`libGL` 是 arm64**。设备上确认：
+
+```
+files/imagefs/usr/lib/libGL.so.1.2.0   ELF 64-bit LSB shared object, ARM aarch64
+files/imagefs/usr/lib/libGLESv2.so  ->  /system/lib64/libGLESv2.so
+```
+
+x86_64 Wine 里的 GL 调用被 **box64 的原生库包装**接走，落到这份 arm64 Mesa 上；imagefs 里
+只有这一份 `libGL`，没有 x86_64 的。这有三个后果：
+
+1. 要改的是 `buildstream/elements/graphics/mesa-gl.bst`（arm64，进 `imagefs/staging.bst`），
+   **不是** `wine/x86_64/graphics/mesa-gl.bst`——后者只是编 Wine 用的 sysroot。
+2. virglrenderer 也编 arm64，socket 两端**没有跨架构边界**，只有跨进程。
+3. guest 确实是独立进程（`GuestProgramLauncherComponent` 用 `ProcessBuilder` 起，有自己的
+   pid），所以 vtest socket 是真正的 IPC，和 Winlator 的情形一致。
+
 ---
 
 ## 3. 选型一：以哪份 virglrenderer 为基底
@@ -141,9 +160,10 @@ CMake 只链 `log android EGL GLESv2 GLESv3`。`winlator-imagefs/build-native-li
 - 换来的是和 Mesa 26 同代的 vrend，避免了方案 B 最难排查的那类问题。
 
 这条路仍然需要 guest Mesa 打补丁（见 §4），但补丁面小——改的是
-`src/gallium/winsys/virgl/vtest/` 下的 socket 与 winsys 两个文件，几百行量级。
-imagefs 的 Mesa 是自建的（`packages/graphics/mesa-gl.sh`，上游源码 + 自定义 meson 参数 +
-Termux 链接画像），补丁挂进去不难，但**该脚本目前是否已有 patch 步骤未核实**，要开工前确认。
+`src/gallium/winsys/virgl/vtest/` 下的 socket 与 winsys 两个文件，几百行量级，而且
+**我们已经有现成的补丁流水线**：`amphora-dev/imagefs` 的
+`buildstream/elements/graphics/mesa-gl.bst` 在 `configure-commands` 里循环套用
+`vendor/mesa-gl-patches/*.patch`，那儿今天就带着 4 个补丁（3 个是 zink 的）在跑。
 
 ---
 
@@ -192,24 +212,73 @@ app 里，这些搬运纯属浪费。好处是 guest Mesa 完全不用改，X se
 
 目标：**在不改 app 代码的前提下，量出 virgl over GLES 在这颗 Mali 上的真实帧率。**
 
-1. imagefs 的 `packages/graphics/mesa-gl.sh` 把
+1. ✅ imagefs 的 `buildstream/elements/graphics/mesa-gl.bst` 把
    `-Dgallium-drivers=zink,softpipe` 改成 `zink,softpipe,virgl`。
    **virgl 不依赖 LLVM**，这点和 llvmpipe 完全不同，是个便宜改动。
-2. 编一个 arm64 的独立 vtest server（现代 virglrenderer + 去 epoxy/gbm），先当普通可执行文件跑。
-3. 手工把 server 起在 app 数据目录里的一个 socket 上，guest 侧设
+   已提 [amphora-dev/imagefs#5](https://github.com/amphora-dev/imagefs/pull/5)，
+   PR 构建会出 artifact 但不发布 Release，正好用来实测。
+2. ✅ **不用自己编 server**。Termux 的 `virglrenderer-android`（1.3.0，aarch64）就是
+   "用安卓原生 GLES 跑 vtest server"这个用途，走**上游协议**，能和没打补丁的 Mesa 26
+   直接对话。拆开只有三个文件，解释器是标准的 `/system/bin/linker64`，依赖只有自带的
+   `libvirglrenderer.so` + `libepoxy.so` + `libc`，带 `--socket-path` 参数。
+   §3 里那两个 port（libepoxy、gbm）在阶段 0 完全绕开了。
+3. ✅ 手工把 server 起在 app 数据目录里的一个 socket 上，guest 侧设
    `GALLIUM_DRIVER=virpipe` + `LIBGL_ALWAYS_SOFTWARE=1` + `VTEST_SOCKET_NAME=<路径>`
    （用现成的 `advanced_custom_env` 就能下发，不用改代码）。
-4. 跑 AIO Graphics Test 的 OpenGL 项，读 GPU Info 里的 renderer 字符串和 fps。
+4. ⏳ 跑 AIO Graphics Test 的 OpenGL 项，读 GPU Info 里的 renderer 字符串和 fps。
 
-**判据**（当前基线：同一台设备上 OpenGL/softpipe 519 fps，D3D11/DXVK-Sarek 3192 fps）：
+**判据**（当前基线：同一台设备上 OpenGL/softpipe 519 fps，原生 Vulkan 1420 fps）：
 
 | 结果 | 结论 |
 |---|---|
 | renderer 显示 `virgl (Mali-G76)` 且 fps ≥ 3× softpipe | 继续阶段 1 |
-| 能跑但 fps < 2× softpipe | 停，回头评估给 Leegao 补 zink 缺的两个扩展 |
+| 能跑但 fps < 2× softpipe（约 1040） | 停，回头评估给 Leegao 补 zink 缺的两个扩展 |
 | 跑不起来 | 记录失败点，重新评估 |
 
 注意阶段 0 走的是路线 1（双份拷贝），**测出来的是下限**，阶段 2 的零拷贝还能再往上抬。
+
+#### 阶段 0 进展（2026-08-13）
+
+**链路已打通，帧率还没测到。**
+
+通的部分（两次会话复现）：guest 的 Mesa 加载了带 virgl 的新 `libgallium`
+（SELinux audit 记了 `granted { execute } for path=".../libgallium-26.2.0.so"`），
+连上 vtest socket，server 按连接 fork 出子进程，子进程加载
+**`/vendor/lib64/egl/libGLES_mali.so`** —— 原生 Mali GLES 驱动。全程**没有改 app 代码**。
+
+顺带确认的两件事：
+
+- **W^X 不是障碍**。数据目录里的二进制用 `/system/bin/linker64 <绝对路径>` 拉起即可，
+  linker64 是 `system_file`，`execute_no_trans` 允许，随后 `mmap(PROT_EXEC)` 那个
+  `app_data_file` 也允许。依据见 `07-TARGETSDK-SELINUX.md`。
+- **socket 路径不需要命名空间映射**。guest 拿到的是绝对宿主路径，
+  `WineEngineImpl` 里 `envVars.put("PULSE_SERVER", rootPath + ...)` 就是这个模式，
+  VirGL 照做即可，§7 第 3 条那个疑问可以消掉。
+
+没测到的原因：设备反复自动休眠，唤醒后 `screencap` 一直返回 0 字节（设备端直接截也是空），
+读不到屏幕。中途那张成功的截图里 OpenGL 显示 519 fps，但**那多半是上一轮的残留值**——
+当时高亮在跑的是 D3D11，AIO 的列表会保留上次结果，不能当作 virgl 的成绩。
+
+复现所需的设备侧状态（已留在机器上）：
+
+| 位置 | 内容 |
+|---|---|
+| `files/virgl/` | `virgl_test_server_android` + `libvirglrenderer.so` + `libepoxy.so` |
+| `files/imagefs/usr/lib/libgallium-26.2.0.so` | PR #5 的构建产物（含 virgl，是原版的超集） |
+| `files/imagefs/usr/lib/libgallium.bak` | 原始产物，需要回滚时用 |
+
+起 server：
+
+```
+run-as app.amphora sh -c 'LD_LIBRARY_PATH=$V nohup /system/bin/linker64 \
+  $V/virgl_test_server_android --socket-path $S/V0 > $V/server.log 2>&1 &'
+```
+
+（`$V=/data/user/0/app.amphora/files/virgl`，
+`$S=/data/user/0/app.amphora/files/imagefs/usr/tmp/.virgl`）
+
+`advanced_custom_env` 已经改回原样，所以现在的设备行为和实测前一致——不撤掉的话，
+下次开会话 OpenGL 会去连一个已经不存在的 socket。
 
 ### 阶段 1 · 集成进 app
 
@@ -256,14 +325,16 @@ app 里，这些搬运纯属浪费。好处是 guest Mesa 完全不用改，X se
    Vulkan 走 Leegao（给 DXVK 用）、OpenGL 走 VirGL。UI 上是拆成两个设置项，还是合成一个
    预设，需要定。
 2. **Mesa 26 guest virgl 驱动 × 我们的 vrend 版本**，caps 协商能否优雅降级，只能实测。
-3. **socket 路径**。Winlator 用 `/tmp/.virgl/V0`，amphora 其余 socket 都在 `/usr/tmp/` 下
-   （`UnixSocketConfig.java:7-10`），要跟 imagefs 布局对齐后再定。
+3. ~~**socket 路径**~~ —— 阶段 0 已消解。`UnixSocketConfig` 的常量是**相对路径**，
+   `createSocket(rootPath, relativePath)` 拼上 imagefs 根目录，guest 拿到的是绝对宿主路径
+   （`envVars.put("PULSE_SERVER", rootPath + ...)`），没有 chroot。VirGL 照抄这个模式即可。
 4. **GL 版本上限**。virgl over GLES 3.2 host 能给 guest 到什么 GL 版本？社区数据显示
    `MESA_GL_VERSION_OVERRIDE=4.0` 是常见做法，说明默认可能偏低。要确认它够不够
    DirectDraw/WineD3D 那条路用。
 5. **`LIBGL_ALWAYS_SOFTWARE=1` 与 `WINE_USE_EGL=1` 的相互作用**。当前我们强制 Wine 走 EGL
    后端（`applyWineEglBackend`，`XServerWineSessionPreparer.kt:1375`），virpipe 是从 sw
-   winsys 路径选中的，两者组合没验证过。
+   winsys 路径选中的。阶段 0 里两者同时开着，会话正常起来、virgl 也接上了 Mali GLES，
+   但**没量到帧率**，所以只能说"不冲突"，谈不上验证。
 6. **和 DirectDraw 的关系**。`DirectDrawWrapperIds.kt` 里 WineD3D 那档显式依赖 OpenGL，
    VirGL 生效后 DirectDraw 游戏也会改道，需要一起回归。
 
