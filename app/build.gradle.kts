@@ -100,19 +100,6 @@ amphoraContentStaging {
     winnativeDir.set(winNativeAssetsDir)
 }
 
-// Local-only Mali experiment: package just the Leegao wrapper without staging the
-// full content manifest (which would add the ~160 MB Proton WCP to every debug APK).
-val localLeegaoAssetsDir = layout.buildDirectory.dir("generated/assets/leegaoTest")
-android.sourceSets.getByName("debug").assets.srcDir(localLeegaoAssetsDir.get().asFile)
-val stageLeegaoTestAsset =
-    tasks.register<Sync>("stageLeegaoTestAsset") {
-        from(winNativeAssetsDir.resolve("graphics_driver/wrapper-leegao.tzst"))
-        into(localLeegaoAssetsDir.map { it.dir("graphics_driver") })
-    }
-tasks.matching { it.name == "mergeDebugAssets" }.configureEach {
-    dependsOn(stageLeegaoTestAsset)
-}
-
 // ============================================================================
 // Instrumented-test orchestration
 // ============================================================================

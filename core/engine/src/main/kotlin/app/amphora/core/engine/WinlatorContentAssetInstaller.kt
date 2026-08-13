@@ -63,14 +63,13 @@ constructor(@ApplicationContext private val context: Context) :
                 ManifestEntry.Kind.ROOTFS ->
                     throw UnsupportedOperationException("ROOTFS is managed by RootfsInstaller")
             }
-        reconcileToPin(entry)
         return installed
     }
 
-    override fun reconcileToPin(entry: ManifestEntry): Int {
+    override fun reconcileToPin(entry: ManifestEntry, pinnedEntries: Collection<ManifestEntry>): Int {
         if (!isInstalled(entry)) return 0
         return when (entry.kind) {
-            ManifestEntry.Kind.WCP -> pruneWcpSiblings(entry)
+            ManifestEntry.Kind.WCP -> pruneWcpSiblings(entry, pinnedEntries)
             ManifestEntry.Kind.ARCHIVE -> pruneArchiveSiblings(entry)
             ManifestEntry.Kind.ROOTFS -> 0
         }
@@ -187,39 +186,38 @@ constructor(@ApplicationContext private val context: Context) :
         FileUtils.delete(backup)
     }
 
-    private fun pruneWcpSiblings(entry: ManifestEntry): Int {
+    private fun pruneWcpSiblings(entry: ManifestEntry, pinnedEntries: Collection<ManifestEntry>): Int {
         val profile = profileFor(entry) ?: return 0
-        val keep = ContentsManager.getInstallDir(context, profile)
         val typeDir = ContentsManager.getContentTypeDir(context, profile.type)
         if (!typeDir.isDirectory) return 0
+        // Every manifest pin of this content type survives, not just this entry's:
+        // DXVK and DXVK-Sarek share contents/DXVK/ and a device installs whichever
+        // its graphics driver needs.
+        val keep =
+            pinnedEntries
+                .mapNotNull { profileFor(it) }
+                .filter { it.type == profile.type }
+                .map { ContentsManager.getInstallDir(context, it).canonicalFile }
+                .toSet()
         var removed = 0
         val cm = ContentsManager(context)
         for (child in typeDir.listFiles().orEmpty()) {
             if (!child.isDirectory) continue
-            if (child.canonicalFile == keep.canonicalFile) continue
-            if (shouldPreserveMaliSarek(profile.type, child)) continue
+            if (child.canonicalFile in keep) continue
             val stale = profileFromInstallDir(profile.type, child) ?: continue
             try {
                 cm.removeContent(stale)
                 removed++
                 Log.i(
                     TAG,
-                    "Removed stale ${profile.type} install ${child.name} (keep=${keep.name})",
+                    "Removed unpinned ${profile.type} install ${child.name} " +
+                        "(keep=${keep.joinToString { it.name }})",
                 )
             } catch (failure: Throwable) {
                 Log.w(TAG, "Failed to remove stale WCP ${child.absolutePath}", failure)
             }
         }
         return removed
-    }
-
-    private fun shouldPreserveMaliSarek(type: ContentProfile.ContentType, installDir: File): Boolean {
-        if (type != ContentProfile.ContentType.CONTENT_TYPE_DXVK) return false
-        if (!installDir.name.contains("sarek", ignoreCase = true)) return false
-        val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
-        return GraphicsDriverIds.normalize(
-            prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
-        ) == GraphicsDriverIds.MALI_LEEGAO
     }
 
     private fun profileFromInstallDir(type: ContentProfile.ContentType, installDir: File): ContentProfile? {

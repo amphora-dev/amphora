@@ -39,8 +39,9 @@ class RemoteContentSourceTest {
         val urlResolver = mockk<RemoteUrlResolver>()
         coEvery { catalog.require() } returns manifest
         every { manifest.entry(entry.component.id) } returns entry
+        every { manifest.all() } returns listOf(entry)
         every { installer.isInstalled(entry) } returns true
-        every { installer.reconcileToPin(entry) } returns 1
+        every { installer.reconcileToPin(entry, listOf(entry)) } returns 1
         every { installer.resolvedPath(entry) } returns installedPath
 
         val resolved =
@@ -48,7 +49,7 @@ class RemoteContentSourceTest {
                 .resolve(entry.component.id)
 
         assertEquals(ContentArtifact.Resolved(entry.component, installedPath, entry.version), resolved)
-        verify(exactly = 1) { installer.reconcileToPin(entry) }
+        verify(exactly = 1) { installer.reconcileToPin(entry, listOf(entry)) }
         coVerify(exactly = 0) { installer.install(any(), any()) }
         coVerify(exactly = 0) {
             downloader.acquire(any(), any(), any(), any(), any(), any())
@@ -70,8 +71,10 @@ class RemoteContentSourceTest {
         val urlResolver = mockk<RemoteUrlResolver>()
         coEvery { catalog.require() } returns manifest
         every { manifest.entry(entry.component.id) } returns entry
+        every { manifest.all() } returns listOf(entry)
         every { manifest.wcpCatalogUrl } returns WCP_CATALOG_URL
         every { installer.isInstalled(entry) } returns false
+        every { installer.reconcileToPin(entry, listOf(entry)) } returns 0
         every { urlResolver.resolve(entry, WCP_CATALOG_URL) } returns remoteUrl
         coEvery {
             downloader.acquire(
@@ -146,6 +149,7 @@ class RemoteContentSourceTest {
         val releaseInstall = CompletableDeferred<Unit>()
         coEvery { catalog.require() } returns manifest
         every { manifest.entry(entry.component.id) } returns entry
+        every { manifest.all() } returns listOf(entry)
         every { manifest.wcpCatalogUrl } returns WCP_CATALOG_URL
         every { installer.isInstalled(entry) } answers {
             if (!installed.get() && installChecks.incrementAndGet() >= 3) {
@@ -154,7 +158,7 @@ class RemoteContentSourceTest {
             installed.get()
         }
         every { installer.resolvedPath(entry) } returns installedPath
-        every { installer.reconcileToPin(entry) } returns 0
+        every { installer.reconcileToPin(entry, listOf(entry)) } returns 0
         every { urlResolver.resolve(entry, WCP_CATALOG_URL) } returns REMOTE_URL
         coEvery { downloader.acquire(any(), any(), any(), any(), any(), any()) } returns archive
         coEvery { installer.install(entry, archive) } coAnswers {
@@ -184,7 +188,8 @@ class RemoteContentSourceTest {
         )
         coVerify(exactly = 1) { downloader.acquire(any(), any(), any(), any(), any(), any()) }
         coVerify(exactly = 1) { installer.install(entry, archive) }
-        verify(exactly = 1) { installer.reconcileToPin(entry) }
+        // Once for the install, once for the second resolve's cache hit.
+        verify(exactly = 2) { installer.reconcileToPin(entry, listOf(entry)) }
     }
 
     private fun source(

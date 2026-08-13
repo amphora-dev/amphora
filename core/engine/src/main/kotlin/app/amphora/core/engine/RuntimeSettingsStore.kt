@@ -15,6 +15,7 @@ data class LaunchRuntimeSettings(
     val resolutionName: String? = null,
     val graphicsDriverId: String? = null,
     val directDrawWrapperId: String? = null,
+    val dxvkFlavorId: String? = null,
 )
 
 /**
@@ -55,11 +56,16 @@ class RuntimeSettingsStore private constructor(private val preferences: SharedPr
         preferences.edit { putString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, value) }
     }
 
+    fun setDxvkFlavorId(value: String) {
+        preferences.edit { putString(DxvkFlavorIds.PREFS_KEY_FLAVOR, value) }
+    }
+
     fun clearLaunchSettings() {
         preferences.edit {
             remove(KEY_RESOLUTION_NAME)
             remove(GraphicsDriverIds.PREFS_KEY_DRIVER_ID)
             remove(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID)
+            remove(DxvkFlavorIds.PREFS_KEY_FLAVOR)
         }
     }
 
@@ -69,6 +75,7 @@ class RuntimeSettingsStore private constructor(private val preferences: SharedPr
         preferences.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
         directDrawWrapperId =
         preferences.getString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, null),
+        dxvkFlavorId = preferences.getString(DxvkFlavorIds.PREFS_KEY_FLAVOR, null),
     )
 
     companion object {
@@ -82,6 +89,7 @@ class RuntimeSettingsStore private constructor(private val preferences: SharedPr
                 KEY_RESOLUTION_NAME,
                 GraphicsDriverIds.PREFS_KEY_DRIVER_ID,
                 DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID,
+                DxvkFlavorIds.PREFS_KEY_FLAVOR,
             )
     }
 }

@@ -14,6 +14,15 @@ enum class ContentComponent {
     WINE,
     BOX64,
     DXVK,
+
+    /**
+     * DXVK-Sarek, installed instead of [DXVK] on the Leegao vendor-HAL path.
+     *
+     * [DXVK] needs Vulkan 1.3 and enumerates no adapter on the hardware that path
+     * exists for. Both are pinned because the device only picks between them at
+     * launch, and only the one it picks is ever resolved.
+     */
+    DXVK_SAREK,
     VKD3D,
 }
 

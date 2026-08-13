@@ -32,15 +32,23 @@ interface ContentAssetInstaller {
     /**
      * Extract/install the already-verified [archiveFile] for [entry]; return the
      * resolved path. Idempotent: if already installed, return [resolvedPath].
+     *
+     * Superseded installs are left alone — that is [reconcileToPin]'s job, and it
+     * needs the whole manifest to know what else is pinned.
      */
     suspend fun install(entry: ManifestEntry, archiveFile: File): File
 
     /**
      * After the current pin is present on disk, delete sibling installs for the
-     * same component / WCP content-type that are **not** this pin.
+     * same component / WCP content-type that are **not** pinned by the manifest.
      *
-     * No-op when the pin itself is not installed — never remove an older copy
+     * [pinnedEntries] is the whole manifest, not just [entry], because one WCP
+     * content type can carry several pins — DXVK and DXVK-Sarek both install
+     * under `contents/DXVK/`, and pruning to a single directory would have them
+     * delete each other on alternating launches.
+     *
+     * No-op when [entry] itself is not installed — never remove an older copy
      * before its replacement has landed. Returns the number of directories removed.
      */
-    fun reconcileToPin(entry: ManifestEntry): Int = 0
+    fun reconcileToPin(entry: ManifestEntry, pinnedEntries: Collection<ManifestEntry>): Int = 0
 }

@@ -130,6 +130,7 @@ internal fun resolveSessionAudioDriver(
 class XServerWineSessionPreparer @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
+    private val graphicsDriverCapabilities: GraphicsDriverCapabilities,
 ) : WineSessionPreparer {
 
     // --- kernel singletons (constructed like XSDA L1041/1084/1099) -----------
@@ -889,9 +890,22 @@ class XServerWineSessionPreparer @Inject constructor(
         seedAdrenotoolsRuntimeDeps(adrenotoolsDir)
     }
 
-    private fun wrapperImagefsNeedsRefresh(rootDir: File): Boolean {
+    private fun wrapperImagefsNeedsRefresh(rootDir: File, relativePath: String): Boolean {
         val so = File(rootDir, "usr/lib/libvulkan_wrapper.so")
-        return !so.isFile || AppliedAssetPin.needsApply(rootDir, runtimeAsset(WRAPPER_ASSET), WRAPPER_ASSET)
+        return !so.isFile || AppliedAssetPin.needsApply(rootDir, runtimeAsset(relativePath), relativePath)
+    }
+
+    private fun readWrapperFlavor(rootDir: File): String? = File(rootDir, WRAPPER_FLAVOR_MARKER)
+        .takeIf { it.isFile }
+        ?.runCatching { readText().trim() }
+        ?.getOrNull()
+        ?.takeIf { it.isNotEmpty() }
+
+    private fun writeWrapperFlavor(rootDir: File, relativePath: String) {
+        val marker = File(rootDir, WRAPPER_FLAVOR_MARKER)
+        marker.parentFile?.mkdirs()
+        runCatching { marker.writeText(relativePath) }
+            .onFailure { Log.w(TAG, "Cannot record wrapper flavor at ${marker.absolutePath}", it) }
     }
 
     private fun runtimeAsset(relativePath: String): File =
@@ -1015,12 +1029,13 @@ class XServerWineSessionPreparer @Inject constructor(
         // 图形驱动：容器是唯一真相（getOrCreate 已从设置写入）。
         val configuredDriverId = GraphicsDriverIds.normalize(graphicsDriverConfig["version"])
         val isAdreno = GPUInformation.isAdrenoGPU(context)
+        val vendorHal = VendorVulkanHal.find()
         val effectiveDriverId =
-            GraphicsDriverIds.resolveEffectiveDriver(configuredDriverId, isAdreno)
+            GraphicsDriverIds.resolveEffectiveDriver(configuredDriverId, isAdreno, vendorHal != null)
         Log.i(
             TAG,
             "Launch graphics driver: configured='$configuredDriverId' effective='$effectiveDriverId' " +
-                "graphicsDriver='$graphicsDriver' adreno=$isAdreno",
+                "graphicsDriver='$graphicsDriver' adreno=$isAdreno vendorHal=${vendorHal?.path}",
         )
 
         // applyPreferredRefreshRate() STRIPPED (D9: Activity/Window refresh UI -> Compose P3).
@@ -1050,7 +1065,7 @@ class XServerWineSessionPreparer @Inject constructor(
         // enters DXVK.
         envState.put("WINEDLLOVERRIDES", "ddraw=n,b;d3d9=n")
 
-        applyGalliumDriver(rootDir)
+        applyGalliumDriver(rootDir, configuredDriverId)
         applyWineEglBackend(rootDir)
         // LIBGL_KOPPER_DISABLE is deliberately not set. Winlator ships it, but it only
         // exists in Mesa's DRI GLX/EGL paths (src/glx, src/egl) — the xlib GLX frontend
@@ -1058,9 +1073,23 @@ class XServerWineSessionPreparer @Inject constructor(
         // DRI frontend it would really turn kopper off, and kopper is exactly how zink
         // presents through DRI3 + Present.
 
-        if (firstTimeBoot || wrapperImagefsNeedsRefresh(rootDir)) {
-            Log.i(TAG, "Applying $WRAPPER_ASSET to imagefs")
-            applyRuntimeArchive(WRAPPER_ASSET, rootDir)
+        // The Adreno wrapper ICD and the Leegao build install the same imagefs
+        // paths, so their applied pins cannot say which of the two is live.
+        // Record the flavor next to them and treat a switch as a refresh.
+        val wrapperAsset =
+            if (effectiveDriverId == GraphicsDriverIds.LEEGAO) {
+                GraphicsDriverIds.LEEGAO_WRAPPER_RELATIVE
+            } else {
+                WRAPPER_ASSET
+            }
+        val liveWrapperAsset = readWrapperFlavor(rootDir)
+        if (firstTimeBoot ||
+            liveWrapperAsset != wrapperAsset ||
+            wrapperImagefsNeedsRefresh(rootDir, wrapperAsset)
+        ) {
+            Log.i(TAG, "Applying $wrapperAsset to imagefs (live=${liveWrapperAsset ?: "none"})")
+            applyRuntimeArchive(wrapperAsset, rootDir)
+            writeWrapperFlavor(rootDir, wrapperAsset)
         }
         // layers.tzst (Khronos validation) is debug-only and is not extracted by default.
         // Host VulkanRenderer enables validation only when explicitly requested.
@@ -1070,30 +1099,15 @@ class XServerWineSessionPreparer @Inject constructor(
         // path is the wrapper ICD and full Turnip is the optional WN-Turnip zip.
         // D5: arm64ec zink_dlls branch stripped (wineInfo.isArm64EC() always false for x86_64).
 
-        val wantLeegao = effectiveDriverId == GraphicsDriverIds.MALI_LEEGAO
-        val leegaoMarker = File(rootDir, "usr/lib/.wrapper_leegao")
-        if (wantLeegao) {
-            check(
-                TarCompressorUtils.extract(
-                    TarCompressorUtils.Type.ZSTD,
-                    context,
-                    MALI_LEEGAO_ASSET,
-                    rootDir,
-                ),
-            ) {
-                "Cannot apply Mali Leegao wrapper asset: $MALI_LEEGAO_ASSET"
-            }
-            try {
-                leegaoMarker.createNewFile()
-            } catch (e: IOException) { /* ignored */ }
-        } else if (leegaoMarker.exists()) {
-            applyRuntimeArchive(WRAPPER_ASSET, rootDir)
-            leegaoMarker.delete()
+        if (effectiveDriverId == GraphicsDriverIds.LEEGAO) {
+            configureLeegaoDriver(rootDir, requireNotNull(vendorHal))
+        } else if (GuestLibandroidShim.restore(rootDir)) {
+            Log.i(TAG, "Restored the platform libandroid.so symlink in imagefs")
         }
 
-        if (wantLeegao) {
-            configureMaliLeegaoDriver(rootDir)
-        } else if (effectiveDriverId != GraphicsDriverIds.SYSTEM) {
+        if (effectiveDriverId != GraphicsDriverIds.LEEGAO &&
+            effectiveDriverId != GraphicsDriverIds.SYSTEM
+        ) {
             val adrenotoolsManager = AdrenotoolsManager(context)
             val driverLibrary = adrenotoolsManager.getLibraryName(effectiveDriverId)
             Log.i(TAG, "Loading graphics/Turnip driver: id='$effectiveDriverId' library='$driverLibrary'")
@@ -1130,16 +1144,12 @@ class XServerWineSessionPreparer @Inject constructor(
                     TAG,
                     "Guest adrenotools backend: PATH=${driverDir.path} NAME=$libraryName",
                 )
-            } else if (wantLeegao) {
-                envState.put("ADRENOTOOLS_HOOKS_PATH", adrenotoolsHooksPath())
             }
-        } else {
-            Log.w(
-                TAG,
-                "No Adrenotools driver applied (id='$effectiveDriverId' graphicsDriver='$graphicsDriver')" +
-                    " - system Vulkan driver will be used",
-            )
         }
+        // No `else` log here: the two ids that skip this block already say what
+        // they run on. Leegao logs its HAL in configureLeegaoDriver, and System
+        // logs the platform loader right below — the old warning claimed both
+        // were falling back to the system driver, which was wrong for Leegao.
 
         if (effectiveDriverId == GraphicsDriverIds.SYSTEM) {
             // Let Android's Vulkan loader select the platform ICD (Mali,
@@ -1162,6 +1172,7 @@ class XServerWineSessionPreparer @Inject constructor(
                 GraphicsDriverIds.resolveHostDriver(
                     effectiveDriverId,
                     isAdreno,
+                    vendorHal != null,
                 )
             val fullVkVersion = GPUInformation.getVulkanVersion(probeDriver, context)
             if (fullVkVersion != null && fullVkVersion.contains(".")) {
@@ -1243,45 +1254,43 @@ class XServerWineSessionPreparer @Inject constructor(
     }
 
     /**
-     * Route Leegao's platform-Vulkan open through adrenotools with a clean hooks directory.
+     * Route Leegao's vendor-HAL open through adrenotools with a clean hooks directory.
      *
      * Passing imagefs/usr/lib as ADRENOTOOLS_HOOKS_PATH would put libssl/libcrypto in the
      * isolated driver's default search path and recreate the Huawei loader collision this
      * path exists to avoid. Copy only the hook runtime (and libc++) into a dedicated dir.
      */
-    private fun configureMaliLeegaoDriver(rootDir: File) {
-        val hardware = Build.HARDWARE.trim()
-        check(hardware.matches(HARDWARE_NAME)) { "Unsafe or empty Android hardware name: '$hardware'" }
-
-        val driverDir = File(MALI_HAL_DIR)
-        val driverName = "vulkan.$hardware.so"
-        val driverFile = File(driverDir, driverName)
-        check(driverFile.isFile) {
-            "Mali Vulkan HAL not found: ${driverFile.absolutePath}"
+    private fun configureLeegaoDriver(rootDir: File, vendorHal: File) {
+        check(GuestLibandroidShim.install(File(context.applicationInfo.nativeLibraryDir), rootDir)) {
+            "Missing ${GuestLibandroidShim.SHIM_LIBRARY} in ${context.applicationInfo.nativeLibraryDir}"
         }
 
         val sourceLibDir = File(rootDir, "usr/lib")
-        val cleanHooksDir = File(context.filesDir, MALI_HOOKS_DIR)
+        val cleanHooksDir = File(context.filesDir, LEEGAO_HOOKS_DIR)
         check(cleanHooksDir.isDirectory || cleanHooksDir.mkdirs()) {
-            "Cannot create clean Mali hooks directory: ${cleanHooksDir.absolutePath}"
+            "Cannot create clean Leegao hooks directory: ${cleanHooksDir.absolutePath}"
         }
-        for (name in MALI_HOOK_LIBS) {
+        for (name in LEEGAO_HOOK_LIBS) {
             val source = File(sourceLibDir, name)
             val destination = File(cleanHooksDir, name)
-            check(source.isFile) { "Mali adrenotools dependency missing: ${source.absolutePath}" }
+            check(source.isFile) { "Leegao adrenotools dependency missing: ${source.absolutePath}" }
             check(FileUtils.copy(source, destination)) {
-                "Cannot stage Mali adrenotools dependency: ${destination.absolutePath}"
+                "Cannot stage Leegao adrenotools dependency: ${destination.absolutePath}"
             }
         }
 
-        envState.put("ADRENOTOOLS_DRIVER_PATH", driverDir.path + "/")
-        envState.put("ADRENOTOOLS_DRIVER_NAME", driverName)
+        envState.put("ADRENOTOOLS_DRIVER_PATH", vendorHal.parent + "/")
+        envState.put("ADRENOTOOLS_DRIVER_NAME", vendorHal.name)
         envState.put("ADRENOTOOLS_HOOKS_PATH", cleanHooksDir.absolutePath)
         envState.put("ADRENOTOOLS_DRIVER_CUSTOM", "1")
-        Log.i(
-            TAG,
-            "Mali Leegao backend: HAL=${driverFile.absolutePath} hooks=${cleanHooksDir.absolutePath}",
-        )
+        // The Leegao build traces every entry point by default, and a few of its
+        // generated printers (vkAllocateCommandBuffers, vkFreeCommandBuffers)
+        // hand the logger a garbage __func__ pointer, so it dies in strlen() the
+        // first time DXVK tears a swapchain down. Advanced custom env still wins
+        // over this, which is how a trace gets re-enabled on purpose.
+        envState.put("WRAPPER_LOG_LEVEL", "error")
+        envState.put("WRAPPER_CMD_LOG_LEVEL", "none")
+        Log.i(TAG, "Leegao backend: HAL=${vendorHal.absolutePath} hooks=${cleanHooksDir.absolutePath}")
     }
 
     // --- helpers --------------------------------------------------------------
@@ -1319,19 +1328,31 @@ class XServerWineSessionPreparer @Inject constructor(
      * `PixmapFromBuffers` + Present route DXVK already presents through.
      *
      * Without zink there is no accelerated path at all, so leave every knob unset
-     * and let Mesa pick its software rasterizer — slow, but it draws.
+     * and let Mesa pick its software rasterizer — slow, but it draws. The knobs
+     * also stay unset when the GPU cannot meet [ZinkRequirements]: zink would
+     * fail its screen creation and Mesa would reach the same rasterizer anyway,
+     * but silently, and the log would blame nothing.
      */
-    private fun applyGalliumDriver(rootDir: File) {
-        if (File(rootDir, LIBGL_ZINK_MARKER).isFile) {
-            envState.put("MESA_LOADER_DRIVER_OVERRIDE", "zink")
-            envState.put(KOPPER_DRI2, "1")
+    private fun applyGalliumDriver(rootDir: File, configuredDriverId: String) {
+        if (!File(rootDir, LIBGL_ZINK_MARKER).isFile) {
+            Log.w(
+                TAG,
+                "imagefs Mesa has no zink ($LIBGL_ZINK_MARKER missing); leaving the zink/kopper " +
+                    "knobs unset so Mesa falls back to software rasterization for OpenGL/DirectDraw",
+            )
             return
         }
-        Log.w(
-            TAG,
-            "imagefs Mesa has no zink ($LIBGL_ZINK_MARKER missing); leaving the zink/kopper " +
-                "knobs unset so Mesa falls back to software rasterization for OpenGL/DirectDraw",
-        )
+        val blockers = graphicsDriverCapabilities.zinkBlockers(configuredDriverId)
+        if (blockers.isNotEmpty()) {
+            Log.w(
+                TAG,
+                "GPU is missing ${blockers.joinToString(", ")}, which zink requires; leaving the " +
+                    "zink/kopper knobs unset so OpenGL/DirectDraw run on Mesa's software rasterizer",
+            )
+            return
+        }
+        envState.put("MESA_LOADER_DRIVER_OVERRIDE", "zink")
+        envState.put(KOPPER_DRI2, "1")
     }
 
     /**
@@ -1548,11 +1569,11 @@ class XServerWineSessionPreparer @Inject constructor(
         private const val TAG = "WineSessionPreparer"
         private const val D8VK_ASSET_PATH = "dxwrapper/d8vk-1.0.tzst"
         private const val WRAPPER_ASSET = "graphics_driver/wrapper.tzst"
-        private const val MALI_LEEGAO_ASSET = "graphics_driver/wrapper-leegao.tzst"
-        private const val MALI_HAL_DIR = "/vendor/lib64/hw"
-        private const val MALI_HOOKS_DIR = "mali-vulkan-hooks"
-        private val HARDWARE_NAME = Regex("[A-Za-z0-9._-]+")
-        private val MALI_HOOK_LIBS =
+
+        /** Names the wrapper flavor currently extracted into imagefs. */
+        private const val WRAPPER_FLAVOR_MARKER = "usr/lib/.wrapper_flavor"
+        private const val LEEGAO_HOOKS_DIR = "vendor-vulkan-hooks"
+        private val LEEGAO_HOOK_LIBS =
             listOf(
                 "libmain_hook.so",
                 "libhook_impl.so",

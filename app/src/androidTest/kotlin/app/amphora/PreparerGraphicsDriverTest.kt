@@ -11,6 +11,7 @@ import app.amphora.core.content.ContentSource
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.id
+import app.amphora.core.engine.GraphicsDriverCapabilities
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.XServerWineSessionPreparer
 import app.amphora.core.engine.model.DisplaySize
@@ -52,7 +53,7 @@ import org.junit.runner.RunWith
  *     extracts the Wine prefix from the Proton `prefixPack.txz`.
  *  4. [XServerWineSessionPreparer]: `ensureWinePrefixReady` (repair →
  *     `firstTimeBoot=true`) + `extractGraphicsDriverFiles` → populates
- *     `envVars()` (`WRAPPER_VK_VERSION`, `GALLIUM_DRIVER=zink`, …).
+ *     `envVars()` (`WRAPPER_VK_VERSION`, `MESA_LOADER_DRIVER_OVERRIDE=zink`, …).
  *  5. Verify `envVars()` (unconditional). Conditionally verify `wrapper.tzst`
  *     extraction (needs the app APK to bundle `graphics_driver/wrapper.tzst`).
  *
@@ -154,7 +155,12 @@ class PreparerGraphicsDriverTest {
         )
 
         // --- Phase 3: preparer (ensureWinePrefixReady + extractGraphicsDriver) -
-        val preparer = XServerWineSessionPreparer(appCtx, DefaultDispatcherProvider())
+        val preparer =
+            XServerWineSessionPreparer(
+                appCtx,
+                DefaultDispatcherProvider(),
+                GraphicsDriverCapabilities(appCtx),
+            )
 
         // The preparer owns a private ContentsManager that has not had syncContents()
         // called; WineInfo.fromIdentifier / repairContainerWinePrefix need the
@@ -207,13 +213,21 @@ class PreparerGraphicsDriverTest {
         println("ENVVARS (${env.size}, firstTimeBoot=$firstTimeBoot):")
         env.toSortedMap().forEach { (k, v) -> println("  $k=$v") }
 
-        // Core env vars set unconditionally by extractGraphicsDriverFilesCore.
         // zink is selected through the loader, not GALLIUM_DRIVER: the latter leaves
         // EGL on swrast (blank window) and suppresses Mesa's own zink selection.
-        assertEquals("MESA_LOADER_DRIVER_OVERRIDE", "zink", env["MESA_LOADER_DRIVER_OVERRIDE"])
+        // Both knobs are skipped on a GPU that cannot start zink at all, so the
+        // expectation follows the same probe the preparer used.
+        val zinkBlockers = GraphicsDriverCapabilities(appCtx).zinkBlockers(null)
+        println("ZINK_BLOCKERS=$zinkBlockers")
+        if (zinkBlockers.isEmpty()) {
+            assertEquals("MESA_LOADER_DRIVER_OVERRIDE", "zink", env["MESA_LOADER_DRIVER_OVERRIDE"])
+            // Our X server answers DRI3Open with zero FDs, so kopper has to be forced.
+            assertEquals("LIBGL_KOPPER_DRI2", "1", env["LIBGL_KOPPER_DRI2"])
+        } else {
+            assertNull("zink override must stay unset", env["MESA_LOADER_DRIVER_OVERRIDE"])
+            assertNull("kopper must stay unset without zink", env["LIBGL_KOPPER_DRI2"])
+        }
         assertNull("GALLIUM_DRIVER must stay unset", env["GALLIUM_DRIVER"])
-        // Our X server answers DRI3Open with zero FDs, so kopper has to be forced.
-        assertEquals("LIBGL_KOPPER_DRI2", "1", env["LIBGL_KOPPER_DRI2"])
         assertNull("LIBGL_KOPPER_DISABLE must stay unset", env["LIBGL_KOPPER_DISABLE"])
         assertNotNull("WRAPPER_VK_VERSION missing", env["WRAPPER_VK_VERSION"])
         val selectedDriver =

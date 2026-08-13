@@ -148,9 +148,7 @@ object StorageUsageScanner {
         )
     }
 
-    internal fun pinnedWcpInstalls(
-        manifest: ContentManifest,
-    ): Map<ContentProfile.ContentType, PinnedWcpInstall> =
+    internal fun pinnedWcpInstalls(manifest: ContentManifest): Map<ContentProfile.ContentType, PinnedWcpInstall> =
         buildMap {
             manifest
                 .all()

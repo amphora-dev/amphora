@@ -79,8 +79,9 @@ class ContentReconcilerTest {
         override suspend fun install(entry: ManifestEntry, archiveFile: File): File =
             error("install is not used by reconciliation")
 
-        override fun reconcileToPin(entry: ManifestEntry): Int {
+        override fun reconcileToPin(entry: ManifestEntry, pinnedEntries: Collection<ManifestEntry>): Int {
             reconciled += entry
+            check(entry in pinnedEntries) { "reconcile must see the whole manifest, got $pinnedEntries" }
             check(entry.component != failOn) { "reconcile failed for ${entry.component}" }
             return siblingsRemoved
         }

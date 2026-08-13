@@ -77,7 +77,19 @@
   `winepulse.so`/`winepulse.drv`；设置可选 Pulse，4 KB 页/驱动完整性不满足时保留
   ALSA。启动等待真实 `AAudioSink`，音量/静音跨后端与生命周期保持。代码与 WCP
   构建验证已完成；仍需合并两仓改动、发布 WCP 并更新生产 manifest 才能端到端启用。
-- ⏭ 下一步: Pulse 真机出声/延迟/来电切换回归；手柄 / FEX 等明确扩展项；
+- ✅ **Mali 上 OpenGL 落到软件光栅器的根因定位** (2026-08-13): 华为 Mali-G76 r34
+  (Vulkan 1.1.191) 缺 zink 硬性要求的 `VK_KHR_dynamic_rendering` 与
+  `VK_EXT_robustness2`(`nullDescriptor`)，zink 建屏失败，Mesa 静默回退到
+  **softpipe**（imagefs Mesa 是 `-Dgallium-drivers=zink,softpipe -Dllvm=disabled`，
+  连 llvmpipe 都没有）。失败之所以无声：zink 在 `driver_name_is_inferred` 时屏蔽自己
+  的 `mesa_loge`，缺扩展那条只走 release 编译掉的 `debug_printf`，日志里只剩
+  `MESA-EGL: warning: egl: failed to create dri2 screen`。现已加 `ZinkRequirements`
+  前置探测：命中即不设 zink/kopper 旋钮、打点名日志，并在设置页 Graphics 分区明写
+  OpenGL 走软件渲染。**无法靠改 zink 绕过**——zink 已删除 renderpass 路径
+  (`zink_render_pass.c` 只剩属性计算，无 `vkCreateRenderPass`)。Adreno / Turnip
+  两个扩展齐备，高通路径不受影响。
+- ⏭ 下一步: Mali 硬件 OpenGL 走 VirGL（安卓侧 virglrenderer + 原生 GLES，绕开
+  Vulkan 扩展缺口）——方案与分阶段计划见 `09-VIRGL-PLAN.md`，**待审未动工**；Pulse 真机出声/延迟/来电切换回归；手柄 / FEX 等明确扩展项；
   WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。详见
   [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 

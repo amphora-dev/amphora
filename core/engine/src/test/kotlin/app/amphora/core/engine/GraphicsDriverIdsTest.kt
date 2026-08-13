@@ -14,7 +14,9 @@ class GraphicsDriverIdsTest {
                 "system" to GraphicsDriverIds.SYSTEM,
                 GraphicsDriverIds.SYSTEM to GraphicsDriverIds.SYSTEM,
                 GraphicsDriverIds.TURNIP_BALANCED to GraphicsDriverIds.TURNIP_BALANCED,
-                GraphicsDriverIds.MALI_LEEGAO to GraphicsDriverIds.MALI_LEEGAO,
+                GraphicsDriverIds.LEEGAO to GraphicsDriverIds.LEEGAO,
+                // Pre-rename value, still stored on devices that tried it early.
+                "Mali-Leegao" to GraphicsDriverIds.LEEGAO,
                 "unknown-driver" to GraphicsDriverIds.WRAPPER,
             )
 
@@ -27,7 +29,7 @@ class GraphicsDriverIdsTest {
     fun wrapperUsesSystemVulkanForHostCompositor() {
         assertEquals(
             GraphicsDriverIds.SYSTEM,
-            GraphicsDriverIds.resolveHostDriver(GraphicsDriverIds.WRAPPER, isAdreno = true),
+            GraphicsDriverIds.resolveHostDriver(GraphicsDriverIds.WRAPPER, isAdreno = true, hasVendorHal = true),
         )
     }
 
@@ -35,39 +37,75 @@ class GraphicsDriverIdsTest {
     fun turnipUsesAdrenotoolsOnlyOnAdreno() {
         assertEquals(
             GraphicsDriverIds.TURNIP_BALANCED,
-            GraphicsDriverIds.resolveHostDriver(GraphicsDriverIds.TURNIP_BALANCED, isAdreno = true),
+            GraphicsDriverIds.resolveHostDriver(
+                GraphicsDriverIds.TURNIP_BALANCED,
+                isAdreno = true,
+                hasVendorHal = true,
+            ),
         )
         assertEquals(
             GraphicsDriverIds.SYSTEM,
-            GraphicsDriverIds.resolveHostDriver(GraphicsDriverIds.TURNIP_BALANCED, isAdreno = false),
+            GraphicsDriverIds.resolveHostDriver(
+                GraphicsDriverIds.TURNIP_BALANCED,
+                isAdreno = false,
+                hasVendorHal = false,
+            ),
         )
     }
 
     @Test
-    fun nonAdrenoForcesOneSystemDriverForHostAndGuest() {
-        for (configured in listOf(GraphicsDriverIds.WRAPPER, GraphicsDriverIds.TURNIP_BALANCED)) {
-            val effective = GraphicsDriverIds.resolveEffectiveDriver(configured, isAdreno = false)
-            assertEquals(GraphicsDriverIds.SYSTEM, effective)
+    fun aVendorHalTakesAnUntouchedNonAdrenoDefaultToLeegao() {
+        for (configured in listOf(null, GraphicsDriverIds.WRAPPER, GraphicsDriverIds.TURNIP_BALANCED)) {
             assertEquals(
-                GraphicsDriverIds.SYSTEM,
-                GraphicsDriverIds.resolveHostDriver(effective, isAdreno = false),
+                "resolveEffectiveDriver($configured)",
+                GraphicsDriverIds.LEEGAO,
+                GraphicsDriverIds.resolveEffectiveDriver(configured, isAdreno = false, hasVendorHal = true),
             )
         }
     }
 
     @Test
-    fun maliLeegaoIsGuestOnlyAndFallsBackOnAdreno() {
-        assertEquals(
-            GraphicsDriverIds.MALI_LEEGAO,
-            GraphicsDriverIds.resolveEffectiveDriver(GraphicsDriverIds.MALI_LEEGAO, isAdreno = false),
-        )
+    fun noVendorHalLeavesOneSystemDriverForHostAndGuest() {
+        for (configured in listOf(GraphicsDriverIds.WRAPPER, GraphicsDriverIds.TURNIP_BALANCED)) {
+            val effective =
+                GraphicsDriverIds.resolveEffectiveDriver(configured, isAdreno = false, hasVendorHal = false)
+            assertEquals(GraphicsDriverIds.SYSTEM, effective)
+            assertEquals(
+                GraphicsDriverIds.SYSTEM,
+                GraphicsDriverIds.resolveHostDriver(effective, isAdreno = false, hasVendorHal = false),
+            )
+        }
+    }
+
+    @Test
+    fun anExplicitSystemPickSurvivesAVendorHal() {
         assertEquals(
             GraphicsDriverIds.SYSTEM,
-            GraphicsDriverIds.resolveHostDriver(GraphicsDriverIds.MALI_LEEGAO, isAdreno = false),
+            GraphicsDriverIds.resolveEffectiveDriver(
+                GraphicsDriverIds.SYSTEM,
+                isAdreno = false,
+                hasVendorHal = true,
+            ),
         )
+    }
+
+    @Test
+    fun leegaoIsGuestOnlyAndFallsBackToTheWrapperOnAdreno() {
         assertEquals(
             GraphicsDriverIds.SYSTEM,
-            GraphicsDriverIds.resolveEffectiveDriver(GraphicsDriverIds.MALI_LEEGAO, isAdreno = true),
+            GraphicsDriverIds.resolveHostDriver(
+                GraphicsDriverIds.LEEGAO,
+                isAdreno = false,
+                hasVendorHal = true,
+            ),
+        )
+        assertEquals(
+            GraphicsDriverIds.WRAPPER,
+            GraphicsDriverIds.resolveEffectiveDriver(
+                GraphicsDriverIds.LEEGAO,
+                isAdreno = true,
+                hasVendorHal = true,
+            ),
         )
     }
 
@@ -75,13 +113,18 @@ class GraphicsDriverIdsTest {
     fun adrenoPreservesGuestSelectionBeforeHostResolution() {
         assertEquals(
             GraphicsDriverIds.WRAPPER,
-            GraphicsDriverIds.resolveEffectiveDriver(GraphicsDriverIds.WRAPPER, isAdreno = true),
+            GraphicsDriverIds.resolveEffectiveDriver(
+                GraphicsDriverIds.WRAPPER,
+                isAdreno = true,
+                hasVendorHal = false,
+            ),
         )
         assertEquals(
             GraphicsDriverIds.TURNIP_BALANCED,
             GraphicsDriverIds.resolveEffectiveDriver(
                 GraphicsDriverIds.TURNIP_BALANCED,
                 isAdreno = true,
+                hasVendorHal = false,
             ),
         )
     }
@@ -90,11 +133,28 @@ class GraphicsDriverIdsTest {
     fun systemAndUnknownDriversUseSystemVulkan() {
         assertEquals(
             GraphicsDriverIds.SYSTEM,
-            GraphicsDriverIds.resolveHostDriver(GraphicsDriverIds.SYSTEM, isAdreno = true),
+            GraphicsDriverIds.resolveHostDriver(GraphicsDriverIds.SYSTEM, isAdreno = true, hasVendorHal = false),
         )
         assertEquals(
             GraphicsDriverIds.SYSTEM,
-            GraphicsDriverIds.resolveHostDriver("unknown", isAdreno = true),
+            GraphicsDriverIds.resolveHostDriver("unknown", isAdreno = true, hasVendorHal = false),
+        )
+    }
+
+    @Test
+    fun offeredDriversFollowTheHardwareTheyNeed() {
+        assertEquals(
+            listOf(GraphicsDriverIds.WRAPPER, GraphicsDriverIds.TURNIP_BALANCED),
+            GraphicsDriverIds.availableDrivers(isAdreno = true, hasVendorHal = true),
+        )
+        assertEquals(
+            listOf(GraphicsDriverIds.LEEGAO),
+            GraphicsDriverIds.availableDrivers(isAdreno = false, hasVendorHal = true),
+        )
+        // No Adreno stack and no vendor HAL: emulators and software renderers.
+        assertEquals(
+            listOf(GraphicsDriverIds.SYSTEM),
+            GraphicsDriverIds.availableDrivers(isAdreno = false, hasVendorHal = false),
         )
     }
 }

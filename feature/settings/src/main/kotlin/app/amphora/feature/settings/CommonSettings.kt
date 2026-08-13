@@ -37,19 +37,22 @@ internal fun CommonSettings(
         title = "Graphics",
         subtitle = "Native Vulkan backend used by DXVK, VKD3D and Zink",
     ) {
+        val driverDefault = state.graphicsDriverOptions.first()
         ChoiceSetting(
             title = "GPU driver",
             description =
-            "System driver uses the device's Adreno Vulkan implementation. Turnip uses " +
-                "Mesa Freedreno and is downloaded when first selected.",
+            "Adreno wrapper drives the device's own Vulkan implementation. Turnip uses " +
+                "Mesa Freedreno and is downloaded when first selected. Leegao opens the " +
+                "vendor Vulkan HAL in an isolated loader namespace, which is how Mali, " +
+                "Xclipse and PowerVR devices get a working guest driver.",
             impact = "Global default · Direct3D 9–12 and OpenGL/Zink · next launch",
             selected = state.graphicsDriver,
-            defaultValue = GraphicsDriverSetting.WRAPPER,
-            values = GraphicsDriverSetting.entries,
+            defaultValue = driverDefault,
+            values = state.graphicsDriverOptions,
             label = { it.label },
             enabled = !state.applyingDriver,
             onSelect = viewModel::selectGraphicsDriver,
-            onReset = { viewModel.selectGraphicsDriver(GraphicsDriverSetting.WRAPPER) },
+            onReset = { viewModel.selectGraphicsDriver(driverDefault) },
         )
         if (state.applyingDriver) {
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -57,6 +60,37 @@ internal fun CommonSettings(
                 "Installing Turnip and verifying its package…",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            state.openGlBackend.detail,
+            style = MaterialTheme.typography.bodySmall,
+            color =
+            if (state.openGlBackend.accelerated) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+        )
+        ChoiceSetting(
+            title = "Direct3D 8–11 translation",
+            description =
+            "DXVK 3.0.2 is the current build and needs a Vulkan 1.3 device. DXVK-Sarek is a " +
+                "1.11-era fork that targets Vulkan 1.1/1.2, for GPUs that never got 1.3. " +
+                "Automatic follows what this device reports.",
+            impact = state.dxvkFlavor.impact,
+            selected = state.dxvkFlavor.selected,
+            defaultValue = DxvkFlavorSetting.AUTO,
+            values = DxvkFlavorSetting.entries,
+            label = { it.label },
+            onSelect = viewModel::selectDxvkFlavor,
+            onReset = { viewModel.selectDxvkFlavor(DxvkFlavorSetting.AUTO) },
+        )
+        state.dxvkFlavor.warning?.let { warning ->
+            Text(
+                warning,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }

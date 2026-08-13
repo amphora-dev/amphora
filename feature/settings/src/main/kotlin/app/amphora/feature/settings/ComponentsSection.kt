@@ -113,6 +113,7 @@ private fun ComponentRow(component: ComponentStatus) {
             ContentComponent.WINE -> "Proton"
             ContentComponent.BOX64 -> "Box64"
             ContentComponent.DXVK -> "DXVK"
+            ContentComponent.DXVK_SAREK -> "DXVK-Sarek"
             ContentComponent.VKD3D -> "VKD3D"
         }
     val role =
@@ -121,6 +122,7 @@ private fun ComponentRow(component: ComponentStatus) {
             ContentComponent.WINE -> "Windows compatibility layer"
             ContentComponent.BOX64 -> "Runs x86_64 Wine on ARM"
             ContentComponent.DXVK -> "Direct3D 8–11 to Vulkan"
+            ContentComponent.DXVK_SAREK -> "Direct3D 8–11 to Vulkan 1.1/1.2 · Leegao driver only"
             ContentComponent.VKD3D -> "Direct3D 12 to Vulkan"
         }
     Row(

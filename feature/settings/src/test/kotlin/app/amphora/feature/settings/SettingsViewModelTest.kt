@@ -10,6 +10,8 @@ import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.update.AppUpdateManifest
 import app.amphora.core.engine.ContentHealthScanner
 import app.amphora.core.engine.DirectDrawWrapperIds
+import app.amphora.core.engine.DxvkFlavorIds
+import app.amphora.core.engine.GraphicsDriverCapabilities
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.GuestDriveManager
 import app.amphora.core.engine.GuestDriveMapping
@@ -199,6 +201,20 @@ class SettingsViewModelTest {
         every { updateController.installedVersionCode() } returns 20_000_000
         every { updateController.installStatus } returns shizukuStatus
 
+        // An Adreno device on Vulkan 1.3: the probes are native, so the fixture
+        // states the hardware instead of pretending to detect it.
+        val graphicsDriverCapabilities = mockk<GraphicsDriverCapabilities>()
+        every { graphicsDriverCapabilities.availableDriverIds() } returns
+            listOf(GraphicsDriverIds.WRAPPER, GraphicsDriverIds.TURNIP_BALANCED)
+        every { graphicsDriverCapabilities.effectiveDriverId(any()) } answers {
+            GraphicsDriverIds.normalize(firstArg())
+        }
+        every { graphicsDriverCapabilities.vulkanMinorVersion(any()) } returns 3
+        every { graphicsDriverCapabilities.zinkBlockers(any()) } returns emptyList()
+        every { graphicsDriverCapabilities.effectiveDxvkFlavor(any(), any()) } answers {
+            DxvkFlavorIds.resolve(firstArg(), vulkanMinor = 3, usesLeegao = false)
+        }
+
         return Fixture(
             viewModel =
             SettingsViewModel(
@@ -213,6 +229,7 @@ class SettingsViewModelTest {
                 shizukuEmergencyStopper = shizuku,
                 updateController = updateController,
                 runtimeSettings = runtimeSettings,
+                graphicsDriverCapabilities = graphicsDriverCapabilities,
             ),
             runtimeState = runtimeState,
             runtimeSettings = runtimeSettings,

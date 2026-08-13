@@ -21,10 +21,10 @@ class ContentReconciler(private val packageRoot: File, private val installer: Co
      * Safe to call on every launcher / settings refresh: no-op when already clean.
      */
     fun reconcile(manifest: ContentManifest): Report {
+        val pinned = manifest.all().filter { it.kind != ManifestEntry.Kind.ROOTFS }
         var siblings = 0
-        for (entry in manifest.all()) {
-            if (entry.kind == ManifestEntry.Kind.ROOTFS) continue
-            siblings += installer.reconcileToPin(entry)
+        for (entry in pinned) {
+            siblings += installer.reconcileToPin(entry, pinned)
         }
         val keep =
             buildSet {

@@ -168,10 +168,12 @@ constructor(
             val configuredHostDriver =
                 GraphicsDriverIds.normalize(driverConfig["version"])
             val isAdreno = GPUInformation.isAdrenoGPU(context)
+            val hasVendorHal = VendorVulkanHal.isAvailable()
             val effectiveDriver =
                 GraphicsDriverIds.resolveEffectiveDriver(
                     configuredHostDriver,
                     isAdreno,
+                    hasVendorHal,
                 )
             // WinNative's default wrapper is a Vulkan ICD, not an Android HAL:
             // guest wrapper -> system Adreno, host compositor -> system Vulkan.
@@ -181,6 +183,7 @@ constructor(
                 GraphicsDriverIds.resolveHostDriver(
                     effectiveDriver,
                     isAdreno,
+                    hasVendorHal,
                 )
             if (effectiveDriver != configuredHostDriver || hostDriver != effectiveDriver) {
                 Log.i(

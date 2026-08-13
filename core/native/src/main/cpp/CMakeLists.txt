@@ -235,5 +235,14 @@ add_library(amphora-exec SHARED
 target_compile_options(amphora-exec PRIVATE -Wall -Wextra)
 target_link_libraries(amphora-exec PRIVATE dl)
 
+# Replaces the imagefs `usr/lib/libandroid.so` symlink for the Mali (Leegao)
+# ICD. The SONAME has to stay `libandroid.so` so the guest linker matches the
+# DT_NEEDED of libandroid-shmem.
+add_library(amphora-android-shim SHARED
+        winlator/android_shim.c
+)
+target_compile_options(amphora-android-shim PRIVATE -Wall -Wextra)
+target_link_options(amphora-android-shim PRIVATE "-Wl,-soname,libandroid.so")
+
 # fakeinput LD_PRELOAD shim intentionally not built (MVP input is XServer inject).
 # Source removed from tree; reintroduce from WinNative when native gamepad returns.

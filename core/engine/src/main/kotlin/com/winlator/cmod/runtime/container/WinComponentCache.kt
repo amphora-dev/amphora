@@ -134,15 +134,14 @@ internal object WinComponentCache {
         return found.containsAll(expectedFiles)
     }
 
-    private fun payloadFiles(directory: File, expectedFiles: Set<String>): Sequence<File> =
-        directory
-            .walkTopDown()
-            .filter { file ->
-                file.isFile &&
-                    file.name.lowercase() in expectedFiles &&
-                    file.relativeTo(directory).invariantSeparatorsPath.substringBefore('/') in
-                    setOf("system32", "syswow64")
-            }
+    private fun payloadFiles(directory: File, expectedFiles: Set<String>): Sequence<File> = directory
+        .walkTopDown()
+        .filter { file ->
+            file.isFile &&
+                file.name.lowercase() in expectedFiles &&
+                file.relativeTo(directory).invariantSeparatorsPath.substringBefore('/') in
+                setOf("system32", "syswow64")
+        }
 
     private fun pruneSupersededCaches(typeRoot: File, identifier: String, keep: File) {
         typeRoot

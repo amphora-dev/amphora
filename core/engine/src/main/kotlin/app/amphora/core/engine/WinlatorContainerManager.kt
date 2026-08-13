@@ -15,6 +15,7 @@ import com.winlator.cmod.runtime.container.Container as WnContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WnContainerManager
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
+import com.winlator.cmod.runtime.system.GPUInformation
 import com.winlator.cmod.runtime.wine.WineInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -76,6 +77,7 @@ constructor(
     private val contentSource: ContentSource,
     private val catalog: ContentCatalog,
     private val turnipProvisioner: TurnipDriverProvisioner,
+    private val graphicsDriverCapabilities: GraphicsDriverCapabilities,
     private val dispatchers: DispatcherProvider,
 ) : ContainerManager {
     // --- kernel singletons (constructed like WineEngineImpl / preparer) -------
@@ -85,27 +87,19 @@ constructor(
 
     override suspend fun getOrCreate(id: ContainerId): AmphoraContainer = withContext(dispatchers.io) {
         val manifest = catalog.require()
-        val useInstalledSarek =
-            if (selectedGraphicsDriver() == GraphicsDriverIds.MALI_LEEGAO) {
-                contentsManager.syncContents()
-                resolveInstalledSarekToken() != null
-            } else {
-                false
-            }
+        val dxvkComponent = dxvkComponent()
         // 1. Bundled Wine (Proton) + Box64 + DXVK + VKD3D must be installed
         //    before a container can be created / launched. Idempotent.
         contentSource.resolve(ContentComponent.WINE.id)
         contentSource.resolve(ContentComponent.BOX64.id)
-        if (!useInstalledSarek) {
-            contentSource.resolve(ContentComponent.DXVK.id)
-        }
+        contentSource.resolve(dxvkComponent.id)
         contentSource.resolve(ContentComponent.VKD3D.id)
         // 2. Load the installed profiles into this manager's ContentsManager.
         contentsManager.syncContents()
 
         val wineVersion = resolveWineVersion(manifest)
         val box64Version = resolveBox64Version(manifest)
-        val dxwrapper = resolveDxwrapper(manifest)
+        val dxwrapper = resolveDxwrapper(manifest, dxvkComponent)
         val wincomponents = WindowsComponentPreferences.serialized(context)
         val targetId = parseContainerId(id)
 
@@ -230,15 +224,11 @@ constructor(
      * field. Prefers manifest-pinned entries; falls back to any installed
      * profiles of each type.
      */
-    private fun resolveDxwrapper(manifest: ContentManifest): String {
+    private fun resolveDxwrapper(manifest: ContentManifest, dxvkComponent: ContentComponent): String {
         val dxvk =
-            if (selectedGraphicsDriver() == GraphicsDriverIds.MALI_LEEGAO) {
-                resolveInstalledSarekToken()
-            } else {
-                null
-            } ?: resolveWrapperToken(
+            resolveWrapperToken(
                 manifest = manifest,
-                component = ContentComponent.DXVK,
+                component = dxvkComponent,
                 type = ContentProfile.ContentType.CONTENT_TYPE_DXVK,
                 prefix = "dxvk",
             )
@@ -258,43 +248,27 @@ constructor(
         return "$dxvk;$vkd3d;$ddraw"
     }
 
-    private fun selectedGraphicsDriver(): String {
+    /**
+     * The driver this device will actually launch with. Reading the stored
+     * preference is not enough: a device with no Adreno stack resolves to
+     * [GraphicsDriverIds.LEEGAO] from the untouched default.
+     */
+    private fun effectiveGraphicsDriver(): String =
+        graphicsDriverCapabilities.effectiveDriverId(storedGraphicsDriverId())
+
+    private fun dxvkComponent(): ContentComponent {
         val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
-        return GraphicsDriverIds.normalize(prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null))
+        val flavor =
+            graphicsDriverCapabilities.effectiveDxvkFlavor(
+                storedFlavorId = prefs.getString(DxvkFlavorIds.PREFS_KEY_FLAVOR, null),
+                storedDriverId = storedGraphicsDriverId(),
+            )
+        return DxvkFlavorIds.component(flavor)
     }
 
-    private fun resolveInstalledSarekToken(): String? {
-        val installDir =
-            ContentsManager
-                .getContentTypeDir(context, ContentProfile.ContentType.CONTENT_TYPE_DXVK)
-                .listFiles()
-                ?.asSequence()
-                ?.filter {
-                    it.isDirectory &&
-                        it.name.contains("sarek", ignoreCase = true) &&
-                        File(it, "profile.json").isFile &&
-                        File(it, "system32/d3d11.dll").isFile
-                }?.maxByOrNull { it.name }
-        if (installDir != null) {
-            val token = "dxvk-${installDir.name}"
-            android.util.Log.i("WinlatorContainerManager", "Mali Leegao selected installed Sarek: $token")
-            return token
-        }
-
-        val profile =
-            contentsManager
-                .getProfiles(ContentProfile.ContentType.CONTENT_TYPE_DXVK)
-                ?.asSequence()
-                ?.filter { it.isInstalled && it.verName?.contains("sarek", ignoreCase = true) == true }
-                ?.maxWithOrNull(
-                    compareBy<ContentProfile> { it.verCode }
-                        .thenBy { it.verName.orEmpty() },
-                )
-                ?: return null
-        val token = ContentPinResolver.wrapperToken("dxvk", profile)
-        android.util.Log.i("WinlatorContainerManager", "Mali Leegao selected installed Sarek profile: $token")
-        return token
-    }
+    private fun storedGraphicsDriverId(): String? = context
+        .getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+        .getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null)
 
     private fun resolveWrapperToken(
         manifest: ContentManifest,
@@ -325,7 +299,7 @@ constructor(
      * 之后启动只读容器。
      */
     private suspend fun ensureAdrenotoolsDriver(container: WnContainer) {
-        val desired = selectedGraphicsDriver()
+        val desired = effectiveGraphicsDriver()
         if (desired == GraphicsDriverIds.TURNIP_BALANCED) {
             turnipProvisioner.ensureInstalled()
         }

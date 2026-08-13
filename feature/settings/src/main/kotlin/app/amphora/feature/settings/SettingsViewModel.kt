@@ -13,6 +13,8 @@ import app.amphora.core.content.update.AppUpdateManifest
 import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.ContentHealthScanner
 import app.amphora.core.engine.DirectDrawWrapperIds
+import app.amphora.core.engine.DxvkFlavorIds
+import app.amphora.core.engine.GraphicsDriverCapabilities
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.GuestDriveManager
 import app.amphora.core.engine.GuestDriveMapping
@@ -54,9 +56,15 @@ constructor(
     private val shizukuEmergencyStopper: ShizukuEmergencyStopper,
     private val updateController: SettingsUpdateController,
     private val runtimeSettings: RuntimeSettingsStore,
+    private val graphicsDriverCapabilities: GraphicsDriverCapabilities,
 ) : ViewModel() {
     private val prefs =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+    private val graphicsDriverOptions =
+        graphicsDriverCapabilities
+            .availableDriverIds()
+            .mapNotNull(GraphicsDriverSetting::ofId)
+            .ifEmpty { listOf(GraphicsDriverSetting.SYSTEM) }
     private val initialCustomEnv =
         prefs.getString(AdvancedRuntimePreferences.KEY_CUSTOM_ENV, "").orEmpty()
     private val initialWindowsComponents = WindowsComponentPreferences.selections(context)
@@ -121,14 +129,15 @@ constructor(
                 customEnv = initialCustomEnv,
                 rejectedEnvNames = AdvancedRuntimePreferences.rejectedCustomEnvNames(initialCustomEnv),
                 shizukuCleanupStatus = shizukuEmergencyStopper.status.value,
-            ).withRuntimeSettings(runtimeSettings.settings.value),
+                graphicsDriverOptions = graphicsDriverOptions,
+            ).withResolvedRuntimeSettings(runtimeSettings.settings.value),
         )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
             runtimeSettings.settings.collect { settings ->
-                _uiState.update { it.withRuntimeSettings(settings) }
+                _uiState.update { it.withResolvedRuntimeSettings(settings) }
             }
         }
         refreshComponents()
@@ -281,6 +290,32 @@ constructor(
         }
     }
 
+    /** Adds the device probes [withRuntimeSettings] cannot do on its own. */
+    private fun SettingsUiState.withResolvedRuntimeSettings(settings: LaunchRuntimeSettings): SettingsUiState {
+        val selected = DxvkFlavorSetting.fromId(settings.dxvkFlavorId)
+        return withRuntimeSettings(
+            settings = settings,
+            effectiveDriverId = graphicsDriverCapabilities.effectiveDriverId(settings.graphicsDriverId),
+            dxvkFlavor =
+            DxvkFlavorStatus.of(
+                selected = selected,
+                resolvedId =
+                graphicsDriverCapabilities.effectiveDxvkFlavor(
+                    storedFlavorId = settings.dxvkFlavorId,
+                    storedDriverId = settings.graphicsDriverId,
+                ),
+                vulkanMinor = graphicsDriverCapabilities.vulkanMinorVersion(settings.graphicsDriverId),
+            ),
+            openGlBackend =
+            OpenGlBackendStatus.of(graphicsDriverCapabilities.zinkBlockers(settings.graphicsDriverId)),
+        )
+    }
+
+    fun selectDxvkFlavor(value: DxvkFlavorSetting) {
+        runtimeSettings.setDxvkFlavorId(value.id)
+        refreshComponents()
+    }
+
     fun selectDirectDraw(value: DirectDrawSetting) {
         runtimeSettings.setDirectDrawWrapperId(value.id)
         _uiState.update { it.copy(directDrawWrapper = value) }
@@ -315,7 +350,7 @@ constructor(
         _uiState.update {
             it.copy(
                 resolution = DisplayResolution.DEFAULT,
-                graphicsDriver = GraphicsDriverSetting.WRAPPER,
+                graphicsDriver = graphicsDriverOptions.first(),
                 directDrawWrapper = DirectDrawSetting.DXWRAPPER,
                 wineLocale = WineLocaleOption.AUTO,
                 box64Mode = Box64Mode.PERFORMANCE,
@@ -475,7 +510,7 @@ constructor(
                 _uiState.update {
                     it.copy(
                         refreshing = false,
-                        components = snapshot.toComponentStatuses(),
+                        components = snapshot.toComponentStatuses().forDxvkFlavor(it.dxvkFlavor.resolved),
                         runtimeAssets = snapshot.toRuntimeAssetHealth(),
                         imagefsResidue = snapshot.imageFsResidue,
                         manifestReady = true,
@@ -492,6 +527,17 @@ constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Drops the DXVK build this device will not install. Both are pinned for every
+     * device — the manifest cannot know which one a device needs — so listing the
+     * other one would be a permanent, unfixable "missing component".
+     */
+    private fun List<ComponentStatus>.forDxvkFlavor(resolved: DxvkFlavorSetting): List<ComponentStatus> {
+        val unused =
+            if (resolved == DxvkFlavorSetting.SAREK) ContentComponent.DXVK else ContentComponent.DXVK_SAREK
+        return filterNot { it.component == unused }
     }
 
     fun checkForUpdate() {
@@ -581,6 +627,10 @@ data class SettingsUiState(
     val updateMessage: String? = null,
     val resolution: DisplayResolution = DisplayResolution.DEFAULT,
     val graphicsDriver: GraphicsDriverSetting = GraphicsDriverSetting.WRAPPER,
+    /** Driver choices this device can run, best first; see `GraphicsDriverCapabilities`. */
+    val graphicsDriverOptions: List<GraphicsDriverSetting> = listOf(GraphicsDriverSetting.WRAPPER),
+    val dxvkFlavor: DxvkFlavorStatus = DxvkFlavorStatus(),
+    val openGlBackend: OpenGlBackendStatus = OpenGlBackendStatus(),
     val directDrawWrapper: DirectDrawSetting = DirectDrawSetting.DXWRAPPER,
     val wineLocale: WineLocaleOption = WineLocaleOption.AUTO,
     val box64Mode: Box64Mode = Box64Mode.PERFORMANCE,
@@ -625,10 +675,22 @@ data class SettingsUiState(
     val localAssets: Int get() = runtimeAssets.count { it.health == AssetHealth.LOCAL }
 }
 
-internal fun SettingsUiState.withRuntimeSettings(settings: LaunchRuntimeSettings): SettingsUiState = copy(
+/**
+ * [effectiveDriverId] is the device-resolved driver, not the stored one: an
+ * untouched preference reads as the Adreno wrapper everywhere, and the picker
+ * would show that on hardware that will really launch something else.
+ */
+internal fun SettingsUiState.withRuntimeSettings(
+    settings: LaunchRuntimeSettings,
+    effectiveDriverId: String,
+    dxvkFlavor: DxvkFlavorStatus,
+    openGlBackend: OpenGlBackendStatus,
+): SettingsUiState = copy(
     resolution = DisplayResolution.fromPreference(settings.resolutionName),
-    graphicsDriver = GraphicsDriverSetting.fromId(settings.graphicsDriverId),
+    graphicsDriver = GraphicsDriverSetting.fromId(effectiveDriverId),
     directDrawWrapper = DirectDrawSetting.fromId(settings.directDrawWrapperId),
+    dxvkFlavor = dxvkFlavor,
+    openGlBackend = openGlBackend,
 )
 
 enum class DisplayResolution(val width: Int, val height: Int, val label: String) {
@@ -649,13 +711,113 @@ enum class DisplayResolution(val width: Int, val height: Int, val label: String)
 
 enum class GraphicsDriverSetting(val id: String, val label: String) {
     WRAPPER(GraphicsDriverIds.WRAPPER, "Adreno wrapper"),
-    SYSTEM(GraphicsDriverIds.SYSTEM, "Android system Vulkan · 2D/test"),
+    SYSTEM(GraphicsDriverIds.SYSTEM, "Android system Vulkan"),
     TURNIP(GraphicsDriverIds.TURNIP_BALANCED, "Turnip 1.06-b"),
+    LEEGAO(GraphicsDriverIds.LEEGAO, "Leegao wrapper · Mali / Xclipse / PowerVR"),
     ;
 
     companion object {
         fun fromId(value: String?): GraphicsDriverSetting =
             entries.firstOrNull { it.id == GraphicsDriverIds.normalize(value) } ?: WRAPPER
+
+        /** Exact match, for turning a device's available id list into options. */
+        fun ofId(value: String): GraphicsDriverSetting? = entries.firstOrNull { it.id == value }
+    }
+}
+
+enum class DxvkFlavorSetting(val id: String, val label: String) {
+    AUTO(DxvkFlavorIds.AUTO, "Automatic"),
+    DXVK(DxvkFlavorIds.DXVK, "DXVK 3.0.2"),
+    SAREK(DxvkFlavorIds.SAREK, "DXVK-Sarek 1.11"),
+    ;
+
+    companion object {
+        fun fromId(value: String?): DxvkFlavorSetting =
+            entries.firstOrNull { it.id == DxvkFlavorIds.normalize(value) } ?: AUTO
+    }
+}
+
+/**
+ * What the DXVK picker says below the chips: which build a launch will really
+ * use, and — since the answer depends on a Vulkan probe the user cannot see —
+ * what made that call.
+ */
+data class DxvkFlavorStatus(
+    val selected: DxvkFlavorSetting = DxvkFlavorSetting.AUTO,
+    val resolved: DxvkFlavorSetting = DxvkFlavorSetting.DXVK,
+    val impact: String = "",
+    val warning: String? = null,
+) {
+    companion object {
+        fun of(selected: DxvkFlavorSetting, resolvedId: String, vulkanMinor: Int?): DxvkFlavorStatus {
+            val vulkan = vulkanMinor?.let { "Vulkan 1.$it" }
+            val resolved =
+                if (resolvedId == DxvkFlavorIds.SAREK) DxvkFlavorSetting.SAREK else DxvkFlavorSetting.DXVK
+            return DxvkFlavorStatus(
+                selected = selected,
+                resolved = resolved,
+                impact = impact(selected, resolved, vulkan),
+                warning = warning(selected, vulkanMinor, vulkan),
+            )
+        }
+
+        private fun impact(selected: DxvkFlavorSetting, resolved: DxvkFlavorSetting, vulkan: String?): String {
+            if (selected != DxvkFlavorSetting.AUTO) {
+                return "${selected.label} · Direct3D 8–11 · applies on next launch"
+            }
+            val reason =
+                when {
+                    vulkan == null -> "this device did not report a Vulkan version"
+                    resolved == DxvkFlavorSetting.SAREK ->
+                        "this device reports $vulkan and DXVK 3.0.2 requires Vulkan 1.3"
+                    else -> "this device reports $vulkan"
+                }
+            return "Automatic chose ${resolved.label} · $reason"
+        }
+
+        private fun warning(selected: DxvkFlavorSetting, vulkanMinor: Int?, vulkan: String?): String? {
+            if (vulkanMinor == null || vulkan == null) return null
+            return when {
+                selected == DxvkFlavorSetting.DXVK && vulkanMinor < DxvkFlavorIds.DXVK_MIN_VULKAN_MINOR ->
+                    "This device reports $vulkan. DXVK 3.0.2 enumerates no adapter below Vulkan 1.3, " +
+                        "so Direct3D 9–11 games will fail to start."
+
+                selected == DxvkFlavorSetting.SAREK && vulkanMinor >= DxvkFlavorIds.DXVK_MIN_VULKAN_MINOR ->
+                    "This device supports $vulkan. DXVK-Sarek is a 1.11-era build without the pipeline " +
+                        "library and Direct3D 11 work DXVK has done since, so it will run slower here."
+
+                else -> null
+            }
+        }
+    }
+}
+
+/**
+ * Whether guest OpenGL reaches the GPU.
+ *
+ * Zink is the only accelerated OpenGL path, and when the GPU cannot meet its
+ * requirements Mesa drops to a software rasterizer without reporting anything —
+ * see `ZinkRequirements`. Direct3D keeps working through DXVK/VKD3D either way,
+ * so the difference only shows up in OpenGL and DirectDraw titles, where it is
+ * otherwise indistinguishable from the device just being slow.
+ */
+data class OpenGlBackendStatus(val accelerated: Boolean = true, val detail: String = "") {
+    companion object {
+        fun of(zinkBlockers: List<String>): OpenGlBackendStatus {
+            if (zinkBlockers.isEmpty()) {
+                return OpenGlBackendStatus(
+                    accelerated = true,
+                    detail = "OpenGL and DirectDraw reach the GPU through Zink.",
+                )
+            }
+            return OpenGlBackendStatus(
+                accelerated = false,
+                detail =
+                "OpenGL and DirectDraw run on Mesa's software rasterizer: this GPU has no " +
+                    "${zinkBlockers.joinToString(", ")}, which Zink requires. Direct3D is " +
+                    "unaffected — it goes through DXVK and VKD3D.",
+            )
+        }
     }
 }
 

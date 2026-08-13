@@ -34,14 +34,15 @@ class RemoteContentSource(
         require(entry.kind != ManifestEntry.Kind.ROOTFS) {
             "ROOTFS is managed by RootfsInstaller"
         }
+        val pinned = manifest.all().filter { it.kind != ManifestEntry.Kind.ROOTFS }
         if (installer.isInstalled(entry)) {
-            installer.reconcileToPin(entry)
+            installer.reconcileToPin(entry, pinned)
             return resolved(entry)
         }
 
         return locks.getOrPut(component) { Mutex() }.withLock {
             if (installer.isInstalled(entry)) {
-                installer.reconcileToPin(entry)
+                installer.reconcileToPin(entry, pinned)
                 return@withLock resolved(entry)
             }
             val sha =
@@ -69,6 +70,7 @@ class RemoteContentSource(
                 ProvisionProgress(stage = "install", detail = entry.assetPath),
             )
             val installed = installer.install(entry, archive)
+            installer.reconcileToPin(entry, pinned)
             ContentArtifact.Resolved(entry.component, installed, entry.version)
         }
     }

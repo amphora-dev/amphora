@@ -147,6 +147,17 @@ class ContentManifestTest {
                   "remoteUrl": "https://cdn.example/dxvk.tzst",
                   "size": 300
                 },
+                "dxvk_sarek": {
+                  "assetPath": "Dxvk-sarek-1.11.wcp",
+                  "sha256": "${"f".repeat(64)}",
+                  "version": "DXVK-1.11-sarek-0",
+                  "kind": "WCP",
+                  "contentType": "DXVK",
+                  "verName": "1.11-sarek",
+                  "verCode": 0,
+                  "remoteUrl": "https://cdn.example/Dxvk-sarek-1.11.wcp",
+                  "size": 320
+                },
                 "vkd3d": {
                   "assetPath": "Vkd3d-3.0.wcp",
                   "sha256": "${"e".repeat(64)}",
