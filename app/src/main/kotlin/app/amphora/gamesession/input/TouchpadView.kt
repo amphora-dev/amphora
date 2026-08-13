@@ -37,8 +37,9 @@ data class ImeUiState(val composingText: String = "", val keyboardVisible: Boole
  * Differences from WinNative:
  * - No WinHandler / relative-UDP mouse path — all buttons and motion go through X inject
  *   (`injectPointerMove` / `injectPointerMoveDelta` / button press-release).
- * - No RTS gestures / ScreenTouchStick / InputControls coupling.
- * - Trackpad (default) + touchscreen absolute modes only.
+ * - RTS strategy gestures use X pointer/keyboard injection; ScreenTouchStick and InputControls
+ *   remain excluded because they require a virtual-gamepad backend.
+ * - Trackpad (default) + touchscreen absolute modes remain available alongside RTS gestures.
  * - Hardware keyboard events are forwarded directly through [XServer.keyboard].
  * - Pointer inject runs on a dedicated thread with motion coalescing: synchronous
  *   `ClientSocket.write` on the UI thread ANRs when Wine is slow to drain the X socket
@@ -100,6 +101,40 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     private var simTouchScreen = false
     private var screenTouchMode = MODE_TRACKPAD
     private val xform = XForm.getInstance()
+    private var rtsGesturesEnabled = false
+    private val rtsGestureController =
+        RtsGestureController(
+            object : RtsInputSink {
+                override fun movePointer(x: Float, y: Float) {
+                    val transformedPoint = XForm.transformPoint(xform, x, y)
+                    queueMoveAbs(transformedPoint[0].toInt(), transformedPoint[1].toInt())
+                }
+
+                override fun pressButton(button: Pointer.Button) {
+                    this@TouchpadView.pressButton(button)
+                }
+
+                override fun releaseButton(button: Pointer.Button) {
+                    this@TouchpadView.releaseButton(button)
+                }
+
+                override fun clickButton(button: Pointer.Button) {
+                    this@TouchpadView.clickButton(button)
+                }
+
+                override fun pressKey(key: XKeycode) {
+                    runInject { xServer.injectKeyPress(key) }
+                }
+
+                override fun releaseKey(key: XKeycode) {
+                    runInject { xServer.injectKeyRelease(key) }
+                }
+
+                override fun openSessionControls() {
+                    fourFingersTapCallback?.run()
+                }
+            },
+        )
     private var activeTouchHandler: ((MotionEvent) -> Boolean)? = null
     private var inputConnection: WineInputConnection? = null
     private var imeUiState = ImeUiState()
@@ -460,9 +495,39 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         return result
     }
 
-    private fun selectTouchHandler(): (MotionEvent) -> Boolean = when (screenTouchMode) {
-        MODE_TOUCHSCREEN -> ::handleTouchscreenEvent
+    private fun selectTouchHandler(): (MotionEvent) -> Boolean = when {
+        rtsGesturesEnabled -> ::handleRtsGestureEvent
+        screenTouchMode == MODE_TOUCHSCREEN -> ::handleTouchscreenEvent
         else -> ::handleTouchpadEvent
+    }
+
+    private fun handleRtsGestureEvent(event: MotionEvent): Boolean {
+        val action =
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> RtsTouchAction.DOWN
+                MotionEvent.ACTION_MOVE -> RtsTouchAction.MOVE
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> RtsTouchAction.UP
+                MotionEvent.ACTION_CANCEL -> RtsTouchAction.CANCEL
+                else -> return true
+            }
+        val contacts =
+            buildList {
+                for (index in 0 until event.pointerCount) {
+                    val id = event.getPointerId(index)
+                    if (id !in pointerIdsToIgnore) {
+                        add(RtsTouchContact(id, event.getX(index), event.getY(index)))
+                    }
+                }
+            }
+        return rtsGestureController.onTouch(
+            RtsTouchEvent(
+                action = action,
+                changedPointerId =
+                if (action == RtsTouchAction.CANCEL) -1 else event.getPointerId(event.actionIndex),
+                contacts = contacts,
+                eventTimeMs = event.eventTime,
+            ),
+        )
     }
 
     private fun showCursor() {
@@ -940,13 +1005,39 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     fun isSimTouchScreen(): Boolean = simTouchScreen
 
     fun setScreenTouchMode(mode: Int) {
+        val rtsWasEnabled = rtsGesturesEnabled
+        if (rtsGesturesEnabled) {
+            rtsGesturesEnabled = false
+            rtsGestureController.cancel()
+        }
         setSimTouchScreen(mode == MODE_TOUCHSCREEN)
-        if (screenTouchMode == mode) return
+        if (screenTouchMode == mode) {
+            if (rtsWasEnabled) {
+                activeTouchHandler = null
+                resetInputState()
+            }
+            return
+        }
         screenTouchMode = mode
+        activeTouchHandler = null
         resetInputState()
     }
 
     fun getScreenTouchMode(): Int = screenTouchMode
+
+    fun setRtsGesturesEnabled(enabled: Boolean) {
+        if (rtsGesturesEnabled == enabled) return
+        rtsGestureController.cancel()
+        rtsGesturesEnabled = enabled
+        if (enabled) {
+            screenTouchMode = MODE_TRACKPAD
+            setSimTouchScreen(false)
+        }
+        activeTouchHandler = null
+        resetInputState()
+    }
+
+    fun areRtsGesturesEnabled(): Boolean = rtsGesturesEnabled
 
     fun setPointerIdsToIgnore(ids: Set<Int>) {
         pointerIdsToIgnore.clear()
@@ -964,6 +1055,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     }
 
     fun resetInputState() {
+        rtsGestureController.cancel()
         continueClick = false
         scrolling = false
         scrollAccumY = 0f

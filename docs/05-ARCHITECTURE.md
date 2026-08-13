@@ -1,7 +1,7 @@
 # 05 - As-Built 架构
 
 > 当前实现的架构真源。决议见 [`01-RFC.md`](01-RFC.md)；进度手账见 [`03-TRACKING.md`](03-TRACKING.md)；资产锁见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)。
-> 最后更新: 2026-08-11 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
+> 最后更新: 2026-08-13 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
 
 ---
 
@@ -71,7 +71,7 @@ GameSessionViewModel
 
 GameSessionScreen
   → AndroidView(XServerSurfaceView)  // TextureView + VulkanRenderer 线程
-  → AndroidView(TouchpadView)        // WinNative 触控板手势 → X inject（无 WinHandler）
+  → AndroidView(TouchpadView)        // 触控板 / 触屏 / RTS 手势 → X inject（无 WinHandler）
 ```
 
 Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停环境并回收 Wine 子进程。
@@ -127,7 +127,7 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 
 | 层 | 组件 | 说明 |
 |---|---|---|
-| UI | `GameSessionScreen` / `TouchpadView` | 触控板：相对位移 + 单击左键 / 双指右键与滚轮 / 长按右键；触屏绝对模式；外接鼠标与手写笔；可拖动 IME 浮条直接打开/隐藏 Android 键盘并预览 composition |
+| UI | `GameSessionScreen` / `TouchpadView` | 触控板：相对位移 + 单击左键 / 双指右键与滚轮 / 长按右键；触屏绝对模式；RTS 策略手势；外接鼠标与手写笔；可拖动 IME 浮条直接打开/隐藏 Android 键盘并预览 composition |
 | 文本输入 | `WineInputConnection` → `XServer.injectText` | 拼音/候选组合留在 Android 侧，只把已提交 UTF-16 文本映射为 X11 Unicode keysym；防 `finishComposingText`/`commitText` 重复，按可见字素转发删除，8 个保留 keycode 按 LRU 复用；浮条可把 Android 剪贴板内容作为文本注入 |
 | Surface | `XServerSurfaceView` | `TextureView`（Compose `AndroidView` 下 SurfaceView 子窗口不可靠） |
 | Java 渲染 | `VulkanRenderer` | 加载 `winlator`，direct scene buffer |
@@ -136,6 +136,45 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 | Guest 图形 | Wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw 在 Dd7to9 / cnc-ddraw / D7VK 中单选；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | 默认 wrapper 包装系统 Adreno，host 直接用同一系统 Vulkan；显式 Turnip 才由 host/guest 共用 adrenotools driver |
 | 音频 | ALSA aserver 或 Wine PulseAudio | 默认 ALSA；可选 `winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`，16 KB 页或驱动不完整时保留 ALSA |
 | 性能 HUD | `HostPerformanceMonitor` / `HostPerformanceOverlay` | API 无关的 compositor queue-present FPS；可拖动、可展开。HUD 可见时 native compositor 每 4 帧用 Vulkan timestamp query 报告 GPU 合成时间，驱动支持 `VK_GOOGLE_display_timing` 时每 8 帧 drain 实际 display FPS、present interval/margin；展开后按低频率读取每核 CPU/频率、GPU 负载/频率、帧时间 P95/1% low、guest RSS/进程/线程、温度/电池功耗，以及配置和实际映射中发现的 DXVK/VKD3D/WineD3D |
+
+### 4.1 RTS 策略触控
+
+运行时抽屉的 `RTS strategy` 与 `Trackpad` / `Direct touch` 互斥。它不是
+WinNative `ScreenTouchStick` 的虚拟手柄模式：Amphora 仍不恢复 WinHandler 或
+InputControls，所有动作继续写入 Java X server。
+
+```
+MotionEvent
+  → TouchpadView.handleRtsGestureEvent
+  → RtsGestureController           // 纯状态机，可做 JVM 单测
+  → RtsInputSink
+  → TouchpadXInject HandlerThread  // 与普通触控共用有序注入队列
+  → XServer.injectPointer* / injectKey*
+```
+
+| 手势 | X11 动作 |
+|---|---|
+| 单指短按 | 移动到触点并单击左键 |
+| 单指移动超过阈值 | 在起点按住左键，持续绝对移动，抬手释放（框选/拖拽） |
+| 双指短按 | 右键 |
+| 双指同向平移 | 按住对应方向键；方向改变或手指数变化时先释放旧键 |
+| 双指捏合 | 按固定距离步长注入滚轮上/下 |
+| 三指短按 | 中键 |
+| 四指短按 | 打开会话控制抽屉 |
+
+状态机在模式切换、抽屉打开、会话暂停/停止、View detach 和
+`ACTION_CANCEL` 时释放自己持有的鼠标键与方向键。触点阈值使用 View 坐标判定，
+绝对光标位置再通过当前 `XForm` 映射到 guest 分辨率；实际注入仍在
+`TouchpadXInject` 线程执行，避免 Wine 未及时读取 X socket 时阻塞 Android UI。
+
+当前限制：
+
+- 只有内置策略布局，开关通过 `rememberSaveable` 保留在当前会话；尚无跨会话 profile
+  和手势编辑器。
+- 无右摇杆 / XInput / DInput 输出；`ScreenTouchStick` 必须等待 Amphora 自有的
+  虚拟手柄或 evdev 后端，不能直接接回 WinHandler UDP。
+- JVM 测试覆盖单指点按、双指右键、框选拖拽、方向键平移和捏合缩放；真机需在
+  Wine 会话内继续验证多指事件时序、系统边缘手势冲突和不同屏幕密度。
 
 Pulse 代码与配套 WCP 已在功能分支完成构建验证；生产 manifest 发布含
 `winepulse` 的新 WCP 前，完整性检查会继续选择 ALSA。
@@ -165,7 +204,7 @@ PRESENT 标注 queue-present 回退，不用 Choreographer 或 `dumpsys SurfaceF
 query 或 display history 连续 3 次失败/返回异常值时，只熔断对应遥测层；主 FPS 在
 queue-present 无样本时才回退到 XServer Source FPS，渲染与 Present 路径继续运行。
 
-已知裁剪：IME 浮条只预览 Android composition，候选列表仍由系统输入法展示；“CLIPBOARD”是 Unicode 文本注入，不是 Wine 剪贴板/`Ctrl+V`，不承诺绕过拒绝字符输入的游戏控件。没有独立 Windows OSK 或 IMM32/TSF 桥；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false）；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
+已知裁剪：IME 浮条只预览 Android composition，候选列表仍由系统输入法展示；“CLIPBOARD”是 Unicode 文本注入，不是 Wine 剪贴板/`Ctrl+V`，不承诺绕过拒绝字符输入的游戏控件。没有独立 Windows OSK 或 IMM32/TSF 桥；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false），RTS 手势也只输出 X11 键鼠事件；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 
 ---
 
