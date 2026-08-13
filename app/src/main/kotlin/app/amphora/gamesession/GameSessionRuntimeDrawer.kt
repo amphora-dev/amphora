@@ -325,11 +325,7 @@ private fun RuntimeToggleRow(
     }
 }
 
-private fun tapGestureDescription(
-    inputMode: Int,
-    enabled: Boolean,
-    rtsGesturesEnabled: Boolean,
-): String = when {
+private fun tapGestureDescription(inputMode: Int, enabled: Boolean, rtsGesturesEnabled: Boolean): String = when {
     rtsGesturesEnabled ->
         "One-finger tap: left click\nTwo-finger tap: right click\nThree-finger tap: middle click"
     inputMode == TouchpadView.MODE_TOUCHSCREEN && enabled ->

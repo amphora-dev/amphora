@@ -176,32 +176,22 @@ class RtsGestureControllerTest {
     private companion object {
         fun contact(id: Int, x: Float, y: Float) = RtsTouchContact(id, x, y)
 
-        fun down(
-            timeMs: Long,
-            vararg contacts: RtsTouchContact,
-            changedPointerId: Int = contacts.last().id,
-        ) = RtsTouchEvent(
-            action = RtsTouchAction.DOWN,
-            changedPointerId = changedPointerId,
-            contacts = contacts.toList(),
-            eventTimeMs = timeMs,
-        )
+        fun down(timeMs: Long, vararg contacts: RtsTouchContact, changedPointerId: Int = contacts.last().id) =
+            RtsTouchEvent(
+                action = RtsTouchAction.DOWN,
+                changedPointerId = changedPointerId,
+                contacts = contacts.toList(),
+                eventTimeMs = timeMs,
+            )
 
-        fun move(
-            timeMs: Long,
-            vararg contacts: RtsTouchContact,
-        ) = RtsTouchEvent(
+        fun move(timeMs: Long, vararg contacts: RtsTouchContact) = RtsTouchEvent(
             action = RtsTouchAction.MOVE,
             changedPointerId = -1,
             contacts = contacts.toList(),
             eventTimeMs = timeMs,
         )
 
-        fun up(
-            timeMs: Long,
-            changedPointerId: Int,
-            vararg contacts: RtsTouchContact,
-        ) = RtsTouchEvent(
+        fun up(timeMs: Long, changedPointerId: Int, vararg contacts: RtsTouchContact) = RtsTouchEvent(
             action = RtsTouchAction.UP,
             changedPointerId = changedPointerId,
             contacts = contacts.toList(),
