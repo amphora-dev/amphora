@@ -1,8 +1,10 @@
 package com.winlator.cmod.runtime.display.xserver;
 
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import androidx.collection.ArraySet;
 import java.util.ArrayList;
+import java.util.Locale;
 
 public class Keyboard {
   private static final XKeycode[] UNICODE_KEYCODES = {
@@ -155,6 +157,8 @@ public class Keyboard {
   }
 
   public boolean onKeyEvent(KeyEvent event) {
+    if (isGameController(event.getDevice())) return false;
+
     int action = event.getAction();
     int keyCode = event.getKeyCode();
 
@@ -192,6 +196,27 @@ public class Keyboard {
       }
     }
     return true;
+  }
+
+  static boolean isGameController(InputDevice device) {
+    return device != null
+        && isGameControllerDescriptor(device.getName(), device.getSources(), device.isVirtual());
+  }
+
+  static boolean isGameControllerDescriptor(String name, int sources, boolean virtual) {
+    if (virtual) return false;
+    if (name != null) {
+      String lowerName = name.toLowerCase(Locale.ROOT);
+      if (lowerName.contains("uinput-fpc")
+          || lowerName.contains("goodix_fp")
+          || lowerName.contains("uinput-")) {
+        return false;
+      }
+    }
+    boolean gamepad = (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD;
+    boolean joystick = (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+    boolean mouse = (sources & InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE;
+    return gamepad || (joystick && !mouse);
   }
 
   private static XKeycode[] createKeycodeMap() {
