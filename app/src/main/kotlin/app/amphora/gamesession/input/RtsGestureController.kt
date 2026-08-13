@@ -12,11 +12,7 @@ internal enum class RtsTouchAction {
     CANCEL,
 }
 
-internal data class RtsTouchContact(
-    val id: Int,
-    val x: Float,
-    val y: Float,
-)
+internal data class RtsTouchContact(val id: Int, val x: Float, val y: Float)
 
 internal data class RtsTouchEvent(
     val action: RtsTouchAction,
@@ -47,9 +43,7 @@ internal interface RtsInputSink {
  * One finger selects and box-drags, two fingers pan with arrow keys or pinch to zoom, three
  * fingers middle-click, and four fingers open the session controls.
  */
-internal class RtsGestureController(
-    private val sink: RtsInputSink,
-) {
+internal class RtsGestureController(private val sink: RtsInputSink) {
     private data class Point(val x: Float, val y: Float)
 
     private val contacts = linkedMapOf<Int, Point>()
