@@ -64,6 +64,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     var touchpadView by remember { mutableStateOf<TouchpadView?>(null) }
     var imeUiState by remember { mutableStateOf(ImeUiState()) }
     var inputMode by rememberSaveable { mutableStateOf(TouchpadView.MODE_TRACKPAD) }
+    var rtsGesturesEnabled by rememberSaveable { mutableStateOf(false) }
     var pointerSensitivity by rememberSaveable { mutableStateOf(1f) }
     var tapToClick by rememberSaveable { mutableStateOf(true) }
     var audioMuted by rememberSaveable { mutableStateOf(false) }
@@ -237,9 +238,17 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
             viewModel.stop()
         }
     }
-    LaunchedEffect(inputMode, pointerSensitivity, tapToClick, sessionState, touchpadView) {
+    LaunchedEffect(
+        inputMode,
+        rtsGesturesEnabled,
+        pointerSensitivity,
+        tapToClick,
+        sessionState,
+        touchpadView,
+    ) {
         touchpadView?.apply {
             setScreenTouchMode(inputMode)
+            setRtsGesturesEnabled(rtsGesturesEnabled)
             setSensitivity(pointerSensitivity)
             tapToClickEnabled = tapToClick
             setMouseEnabled(sessionState != SessionState.PAUSED)
@@ -270,7 +279,15 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                         sessionState != SessionState.STOPPING &&
                         !exitRequested,
                     inputMode = inputMode,
-                    onInputModeChange = { inputMode = it },
+                    onInputModeChange = {
+                        rtsGesturesEnabled = false
+                        inputMode = it
+                    },
+                    rtsGesturesEnabled = rtsGesturesEnabled,
+                    onRtsGesturesEnabledChange = {
+                        rtsGesturesEnabled = it
+                        if (it) inputMode = TouchpadView.MODE_TRACKPAD
+                    },
                     pointerSensitivity = pointerSensitivity,
                     onPointerSensitivityChange = { pointerSensitivity = it },
                     tapToClick = tapToClick,
