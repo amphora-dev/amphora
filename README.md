@@ -1,8 +1,15 @@
 # Amphora
 
+> ⚠️ **Please do not download or use this project yet.** Amphora is still an
+> early-stage, largely AI-generated project with very little human review - a
+> personal idea-validation and learning exercise, not a production-ready product.
+> **It is not ready for other people to use.** The published builds and releases
+> exist only to exercise the CI and asset-distribution pipeline; do not install
+> them expecting a working emulator. There is no user support at this stage.
+
 A modern, minimal-first, long-term-engineered Android Wine emulator.
 
-> **Status: v0.1 end-to-end working** — launch a Windows `.exe` with Vulkan desktop surface + relative touch on device.
+> **Status: v0.1 end-to-end working** - launch a Windows `.exe` with Vulkan desktop surface + relative touch on device.
 > Architecture: [`docs/05-ARCHITECTURE.md`](docs/05-ARCHITECTURE.md) · RFC: [`docs/01-RFC.md`](docs/01-RFC.md) · Tracking: [`docs/03-TRACKING.md`](docs/03-TRACKING.md)
 
 Name from *amphora* — the ancient two-handled vessel that carried wine. A container that holds Wine containers.
@@ -21,7 +28,7 @@ Name from *amphora* — the ancient two-handled vessel that carried wine. A cont
         ↓
 :core:engine          WineEngine + Winlator runtime (com.winlator.cmod)
         ↓
-:core:{content,container,rootfs,native,common}
+:core:{content,container,rootfs,native,common,ui}
 ```
 
 Contracts live in the lower modules; Winlator-backed implementations live in `:core:engine` (DIP). See the architecture doc for the launch pipeline and Vulkan/touch path.
@@ -35,37 +42,22 @@ Contracts live in the lower modules; Winlator-backed implementations live in `:c
 
 The APK stays slim. On first launch the device downloads SHA-pinned Rootfs,
 Proton, Box64, DXVK, VKD3D and runtime assets; installed assets are reused on
-later launches. The optional PulseAudio backend is the exception: its matched
-Android native libraries and small module archive ship in the APK so the
-daemon/client ABI stays together. The launcher shows app / imagefs versions and
-download progress.
+later launches. The launcher shows app / imagefs versions and download progress.
 
 The pins come from `content_manifest.json`, fetched at runtime from
 [`amphora-dev/content_manifest`](https://github.com/amphora-dev/content_manifest)
-through the GitHub Contents API on `main` (raw GitHub fallback; no APK-bundled
-manifest fallback). Changing a URL or SHA there does not require rebuilding the
-APK; bump `rootfs.version` when the installed imagefs tree must be replaced.
-imagefs CI updates that repo after each Release publish.
+(`main` raw URL — no APK-bundled fallback). Changing a URL or SHA there does not
+require rebuilding the APK; bump `rootfs.version` when the installed imagefs
+tree must be replaced. imagefs CI updates that repo after each Release publish.
 
 Instrumented E2E (ARM64 Adreno device recommended):
 
 ```bash
-./gradlew :app:connectedAndroidTestWithContent
+./gradlew :app:connectedDebugAndroidTest
 ```
 
-The aggregate task stages the manifest-pinned content before running device
-tests. Plain `connectedDebugAndroidTest` is useful for a quick run, but
-asset-gated tests may skip when the slim APK has no staged runtime content.
-
-Repository-wide JVM tests (Android modules with test sources plus build logic):
-
-```bash
-./gradlew jvmTest
-```
-
-GitHub Actions CI (`.github/workflows/ci.yml`): `continuous-test` on pushes to
-`main` and on pull requests—JVM unit tests with JaCoCo coverage summary plus
-debug/androidTest assembly.
+GitHub Actions CI (`.github/workflows/ci.yml`): `continuous-test` on every push
+/ PR - JVM unit tests with JaCoCo coverage summary + debug/androidTest assemble.
 On `main`, the same job also publishes the debug APK to the rolling Release tag
 `apk` and pins `app_update.json` in
 [`amphora-dev/content_manifest`](https://github.com/amphora-dev/content_manifest)
@@ -75,11 +67,9 @@ Device instrumented coverage stays on Tailscale ADB - see
 
 **Notes**
 
-- `stageBundledContent` is **not** wired to `preBuild` (keeps routine debug APKs slim). It writes only to
-  `app/build/generated/assets/bundledContent`, which is registered as a main asset source set; `clean` removes it.
+- `stageBundledContent` is **not** wired to `preBuild` (keeps routine debug APKs slim).
 - Remote/cloud ADB setup and reliable manual test commands: [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md).
-- Debug Wine path: launcher **Debug: Wine smoke test** button; it launches
-  `SessionActivity` in the isolated `:session` process.
+- Debug Wine path: launcher **Debug: Wine smoke test** button, or flip `DEBUG_AUTO_LAUNCH_WINE` in `AmphoraNavHost` (default starts at launcher).
 - `targetSdk` is **36**. App-private AArch64 ELF files start through
   `/system/bin/linker64`; `libamphora-exec.so` preserves that routing for
   Box64/Wine descendants.
@@ -93,9 +83,6 @@ Device instrumented coverage stays on Tailscale ADB - see
 | [`docs/03-TRACKING.md`](docs/03-TRACKING.md) | Progress / agent handoff |
 | [`docs/04-ASSET-MANIFEST.md`](docs/04-ASSET-MANIFEST.md) | Asset SHA locks |
 | [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) | Cloud build, Tailscale ADB and physical-device testing |
-| [`docs/07-TARGETSDK-SELINUX.md`](docs/07-TARGETSDK-SELINUX.md) | targetSdk 36 app-private ELF execution |
-| [`docs/08-EGGGAME-COMPARISON.md`](docs/08-EGGGAME-COMPARISON.md) | GameHub / WinNative / Amphora comparison |
-| [`docs/RESEARCH-proton-wine-selfbuild.md`](docs/RESEARCH-proton-wine-selfbuild.md) | Proton source-build research and current BuildStream result |
-| [`docs/WRAPPER-BUILD.md`](docs/WRAPPER-BUILD.md) | Rebuilding the Vulkan wrapper |
 | [`docs/02-SCAFFOLD.md`](docs/02-SCAFFOLD.md) | Scaffold-era stack & pitfalls |
 | [`docs/00-RESEARCH.md`](docs/00-RESEARCH.md) | WinNative research basis |
+<!-- CI push-trigger probe -->
