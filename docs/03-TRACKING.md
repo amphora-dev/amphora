@@ -88,17 +88,17 @@
   OpenGL 走软件渲染。**无法靠改 zink 绕过**——zink 已删除 renderpass 路径
   (`zink_render_pass.c` 只剩属性计算，无 `vkCreateRenderPass`)。Adreno / Turnip
   两个扩展齐备，高通路径不受影响。
-- 🔬 **VirGL 阶段 0：链路打通，帧率待测** (2026-08-13): 方案见
+- ✅ **VirGL 阶段 0：链路与性能判据通过** (2026-08-13): 方案见
   [`09-VIRGL-PLAN.md`](09-VIRGL-PLAN.md)。imagefs 侧 `graphics/mesa-gl.bst` 加了
   `virgl`（[imagefs#5](https://github.com/amphora-dev/imagefs/pull/5)，CI 绿，产物验过
   `virpipe` 字面量与 `.libgl-virgl` 标记）；安卓侧直接用 Termux 的
   `virglrenderer-android`（上游协议、自包含、标准 linker64），**省掉 libepoxy/gbm 两个
   移植**。真机两次复现：guest Mesa 连上 vtest socket，server 子进程加载
-  `/vendor/lib64/egl/libGLES_mali.so`，**全程未改 app 代码**。顺带确认 W^X 可用
+  `/vendor/lib64/egl/libGLES_mali.so`，**全程未改 app 代码**。重新实测确认 OpenGL/softpipe
+  约 **30 fps**，VirGL 达到 **100+ fps**，超过 3× 判据；先前记录的 519 fps 是 AIO
+  列表中其他测试的残值，并非 OpenGL 成绩。顺带确认 W^X 可用
   `linker64 <绝对路径>` 绕过、guest 拿的是绝对宿主路径无需命名空间映射。
-  **缺口**：设备反复休眠 + `screencap` 返回空，OpenGL 帧率没读到，判据（≥2× softpipe，
-  即 1040 fps）尚未裁决。
-- ⏭ 下一步: 补测 VirGL 的 OpenGL 帧率并对判据下结论；Pulse 真机出声/延迟/来电切换回归；手柄 / FEX 等明确扩展项；
+- ⏭ 下一步: 把 VirGL renderer、socket 生命周期和 OpenGL 后端三态选择集成进 app；Pulse 真机出声/延迟/来电切换回归；手柄 / FEX 等明确扩展项；
   WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。详见
   [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 

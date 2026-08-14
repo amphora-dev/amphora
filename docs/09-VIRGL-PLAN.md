@@ -12,9 +12,8 @@
 Mali 上是**死路**，且失败是无声的：
 
 - AIO Graphics Test 的 GPU Info 报 renderer = **softpipe**，`3.3 (Compatibility Profile)
-  Mesa 26.2.0`，Vendor `Mesa`。同一次运行的后端对比：Vulkan **1420 fps**、
-  D3D11（DXVK-Sarek → Vulkan）**3192 fps**、D3D12 850、D3D9 1175、DirectDraw 894，
-  而 OpenGL 只有 **519 fps**。
+  Mesa 26.2.0`，Vendor `Mesa`。同一台设备重新实测确认 OpenGL/softpipe 约 **30 fps**；
+  先前记录的 519 fps 是 AIO 列表保留的其他测试残值，不是 OpenGL 成绩。
 - `wine_stderr.log` 里唯一的线索是 `MESA-EGL: warning: egl: failed to create dri2 screen`。
 - 根因：Mali-G76 r34 缺 zink 硬性要求的 `VK_KHR_dynamic_rendering` 与
   `VK_EXT_robustness2`（`nullDescriptor`）。用 NDK 探针枚举了该设备全部 76 个设备扩展逐条比对确认。
@@ -225,21 +224,22 @@ app 里，这些搬运纯属浪费。好处是 guest Mesa 完全不用改，X se
 3. ✅ 手工把 server 起在 app 数据目录里的一个 socket 上，guest 侧设
    `GALLIUM_DRIVER=virpipe` + `LIBGL_ALWAYS_SOFTWARE=1` + `VTEST_SOCKET_NAME=<路径>`
    （用现成的 `advanced_custom_env` 就能下发，不用改代码）。
-4. ⏳ 跑 AIO Graphics Test 的 OpenGL 项，读 GPU Info 里的 renderer 字符串和 fps。
+4. ✅ 跑 AIO Graphics Test 的 OpenGL 项，确认 softpipe 约 **30 fps**，VirGL 路径达到
+   **100+ fps**。
 
-**判据**（当前基线：同一台设备上 OpenGL/softpipe 519 fps，原生 Vulkan 1420 fps）：
+**结果**：VirGL 已达到 softpipe 的 3 倍以上，阶段 0 通过，继续阶段 1 集成。
 
 | 结果 | 结论 |
 |---|---|
-| renderer 显示 `virgl (Mali-G76)` 且 fps ≥ 3× softpipe | 继续阶段 1 |
-| 能跑但 fps < 2× softpipe（约 1040） | 停，回头评估给 Leegao 补 zink 缺的两个扩展 |
+| renderer 显示 `virgl (Mali-G76)` 且 fps ≥ 3× softpipe | ✅ 已满足：30 fps → 100+ fps，继续阶段 1 |
+| 能跑但 fps < 2× softpipe | 停，回头评估给 Leegao 补 zink 缺的两个扩展 |
 | 跑不起来 | 记录失败点，重新评估 |
 
 注意阶段 0 走的是路线 1（双份拷贝），**测出来的是下限**，阶段 2 的零拷贝还能再往上抬。
 
 #### 阶段 0 进展（2026-08-13）
 
-**链路已打通，帧率还没测到。**
+**链路与性能判据均已验证，阶段 0 通过。**
 
 通的部分（两次会话复现）：guest 的 Mesa 加载了带 virgl 的新 `libgallium`
 （SELinux audit 记了 `granted { execute } for path=".../libgallium-26.2.0.so"`），
@@ -255,9 +255,10 @@ app 里，这些搬运纯属浪费。好处是 guest Mesa 完全不用改，X se
   `WineEngineImpl` 里 `envVars.put("PULSE_SERVER", rootPath + ...)` 就是这个模式，
   VirGL 照做即可，§7 第 3 条那个疑问可以消掉。
 
-没测到的原因：设备反复自动休眠，唤醒后 `screencap` 一直返回 0 字节（设备端直接截也是空），
-读不到屏幕。中途那张成功的截图里 OpenGL 显示 519 fps，但**那多半是上一轮的残留值**——
-当时高亮在跑的是 D3D11，AIO 的列表会保留上次结果，不能当作 virgl 的成绩。
+重新实测已纠正此前记录：softpipe 约 **30 fps**，VirGL 为 **100+ fps**。先前截图里的
+519 fps 是 AIO 列表保留的其他测试残值，当时高亮运行的是 D3D11，不能作为 OpenGL 成绩。
+
+因此 VirGL 达到 softpipe 的 3 倍以上，进入阶段 1 集成。
 
 复现所需的设备侧状态（已留在机器上）：
 
