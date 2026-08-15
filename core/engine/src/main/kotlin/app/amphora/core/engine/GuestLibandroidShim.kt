@@ -36,8 +36,10 @@ internal object GuestLibandroidShim {
         Files.deleteIfExists(target.toPath())
         target.parentFile?.mkdirs()
         source.copyTo(target, overwrite = true)
-        target.setReadable(true, false)
-        target.setExecutable(true, false)
+        // Owner-only is enough: the guest is forked from this app via
+        // ProcessBuilder, so it shares our uid (no proot on the Bionic route).
+        target.setReadable(true)
+        target.setExecutable(true)
         return true
     }
 
