@@ -86,12 +86,11 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     private var lastTapTransY = 0
     private var fingerPointerButtonLeft: Finger? = null
     private var fingerPointerButtonRight: Finger? = null
-    private val fingers = arrayOfNulls<Finger>(4)
+    private val fingerTracker = TouchpadFingerTracker<Finger>(MAX_FINGERS.toInt())
     private var fourFingersTapCallback: Runnable? = null
     private var lastTouchedPosX = 0
     private var lastTouchedPosY = 0
     private var mouseEnabled = true
-    private var numFingers: Byte = 0
     private var pointerButtonLeftEnabled = true
     private var pointerButtonRightEnabled = true
     private var resolutionScale = 0f
@@ -142,10 +141,9 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     private val longPressHandler = Handler(Looper.getMainLooper())
     private var longPressActive = false
     private val longPressRunnable = Runnable {
-        if (tapToClickEnabled &&
-            numFingers.toInt() == 1 &&
-            fingers[0] != null &&
-            fingers[0]!!.travelDistance() < MAX_TAP_TRAVEL_DISTANCE
+        val soleFinger = if (fingerTracker.count == 1) fingerTracker.first() else null
+        if (tapToClickEnabled && soleFinger != null &&
+            soleFinger.travelDistance() < MAX_TAP_TRAVEL_DISTANCE
         ) {
             longPressActive = true
             runInject {
@@ -485,10 +483,12 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         showCursor()
         if (event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) return handleStylusEvent(event)
         val action = event.actionMasked
-        if (action == MotionEvent.ACTION_DOWN || activeTouchHandler == null) {
-            activeTouchHandler = selectTouchHandler()
+        var handler = activeTouchHandler
+        if (action == MotionEvent.ACTION_DOWN || handler == null) {
+            handler = selectTouchHandler()
+            activeTouchHandler = handler
         }
-        val result = activeTouchHandler!!(event)
+        val result = handler(event)
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
             activeTouchHandler = null
         }
@@ -594,12 +594,12 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
                 if (event.isFromSource(InputDevice.SOURCE_MOUSE)) return true
                 scrollAccumY = 0.0f
                 scrolling = false
-                fingers[pointerId] = Finger(event.getX(actionIndex), event.getY(actionIndex))
-                numFingers = (numFingers + 1).toByte()
-                if (numFingers.toInt() > 1) {
+                val finger = Finger(event.getX(actionIndex), event.getY(actionIndex))
+                if (!fingerTracker.put(pointerId, finger)) return true
+                if (fingerTracker.count > 1) {
                     longPressHandler.removeCallbacks(longPressRunnable)
                 }
-                if (pointerId == 0 && numFingers.toInt() == 1 && !simTouchScreen) {
+                if (fingerTracker.count == 1 && !simTouchScreen) {
                     longPressActive = false
                     longPressHandler.postDelayed(longPressRunnable, LONG_PRESS_RIGHT_CLICK_MS)
                 } else {
@@ -612,44 +612,35 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
                             pressButton(Pointer.Button.BUTTON_LEFT)
                         }
                     }
-                    if (pointerId == 0) {
-                        continueClick = true
-                        if (Math.hypot(
-                                (fingers[0]!!.x - lastTouchedPosX).toDouble(),
-                                (fingers[0]!!.y - lastTouchedPosY).toDouble(),
-                            ) * resolutionScale > EFFECTIVE_TOUCH_DISTANCE
-                        ) {
-                            lastTouchedPosX = fingers[0]!!.x
-                            lastTouchedPosY = fingers[0]!!.y
-                        }
-                        postDelayed(clickDelay, CLICK_DELAYED_TIME)
-                    } else if (pointerId == 1) {
-                        if (numFingers < 2) {
+                    when (fingerTracker.rankOf(pointerId)) {
+                        0 -> {
                             continueClick = true
                             if (Math.hypot(
-                                    (fingers[1]!!.x - lastTouchedPosX).toDouble(),
-                                    (fingers[1]!!.y - lastTouchedPosY).toDouble(),
+                                    (finger.x - lastTouchedPosX).toDouble(),
+                                    (finger.y - lastTouchedPosY).toDouble(),
                                 ) * resolutionScale > EFFECTIVE_TOUCH_DISTANCE
                             ) {
-                                lastTouchedPosX = fingers[1]!!.x
-                                lastTouchedPosY = fingers[1]!!.y
+                                lastTouchedPosX = finger.x
+                                lastTouchedPosY = finger.y
                             }
                             postDelayed(clickDelay, CLICK_DELAYED_TIME)
-                        } else {
+                        }
+                        1 -> {
                             continueClick =
-                                System.currentTimeMillis() - fingers[0]!!.touchTime > CLICK_DELAYED_TIME
+                                System.currentTimeMillis() -
+                                (fingerTracker.first()?.touchTime ?: 0L) > CLICK_DELAYED_TIME
                         }
                     }
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 longPressHandler.removeCallbacks(longPressRunnable)
-                if (fingers[pointerId] != null) {
-                    fingers[pointerId]!!.update(event.getX(actionIndex), event.getY(actionIndex))
-                    if (!longPressActive) handleFingerUp(fingers[pointerId]!!)
+                val finger = fingerTracker[pointerId]
+                if (finger != null) {
+                    finger.update(event.getX(actionIndex), event.getY(actionIndex))
+                    if (!longPressActive) handleFingerUp(finger)
                     longPressActive = false
-                    fingers[pointerId] = null
-                    numFingers = (numFingers - 1).toByte()
+                    fingerTracker.remove(pointerId)
                 }
             }
             MotionEvent.ACTION_MOVE -> {
@@ -657,22 +648,18 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
                     val transformedPoint = XForm.transformPoint(xform, event.x, event.y)
                     queueMoveAbs(transformedPoint[0].toInt(), transformedPoint[1].toInt())
                 } else {
-                    for (i in 0 until 4) {
-                        if (fingers[i] != null) {
-                            if (pointerIdsToIgnore.contains(i)) {
-                                fingers[i] = null
-                                numFingers = (numFingers - 1).toByte()
-                                continue
-                            }
-                            val pointerIndex = event.findPointerIndex(i)
-                            if (pointerIndex >= 0) {
-                                fingers[i]!!.update(event.getX(pointerIndex), event.getY(pointerIndex))
-                                handleFingerMove(fingers[i]!!)
-                            } else {
-                                handleFingerUp(fingers[i]!!)
-                                fingers[i] = null
-                                numFingers = (numFingers - 1).toByte()
-                            }
+                    for ((id, finger) in fingerTracker.snapshot()) {
+                        if (pointerIdsToIgnore.contains(id)) {
+                            fingerTracker.remove(id)
+                            continue
+                        }
+                        val pointerIndex = event.findPointerIndex(id)
+                        if (pointerIndex >= 0) {
+                            finger.update(event.getX(pointerIndex), event.getY(pointerIndex))
+                            handleFingerMove(finger)
+                        } else {
+                            handleFingerUp(finger)
+                            fingerTracker.remove(id)
                         }
                     }
                 }
@@ -680,8 +667,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
             MotionEvent.ACTION_CANCEL -> {
                 longPressHandler.removeCallbacks(longPressRunnable)
                 longPressActive = false
-                for (i in 0 until 4) fingers[i] = null
-                numFingers = 0
+                fingerTracker.clear()
             }
         }
         return true
@@ -699,29 +685,20 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 // Track fingers for two-finger scroll/tap distance checks.
                 val pointerId = event.getPointerId(event.actionIndex)
-                if (pointerId < MAX_FINGERS) {
-                    fingers[pointerId] = Finger(event.getX(event.actionIndex), event.getY(event.actionIndex))
-                    numFingers = (numFingers + 1).toByte()
-                }
+                fingerTracker.put(pointerId, Finger(event.getX(event.actionIndex), event.getY(event.actionIndex)))
                 handleTouchDown(event)
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 if (event.pointerCount == 2) handleTwoFingerTap(event) else handleTouchUp(event)
-                val pointerId = event.getPointerId(event.actionIndex)
-                if (pointerId < MAX_FINGERS && fingers[pointerId] != null) {
-                    fingers[pointerId] = null
-                    numFingers = (numFingers - 1).toByte().coerceAtLeast(0).toByte()
-                }
+                fingerTracker.remove(event.getPointerId(event.actionIndex))
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (event.pointerCount == 2) {
                     for (i in 0 until event.pointerCount) {
                         val id = event.getPointerId(i)
-                        if (id < MAX_FINGERS && fingers[id] != null) {
-                            fingers[id]!!.update(event.getX(i), event.getY(i))
-                        }
+                        fingerTracker[id]?.update(event.getX(i), event.getY(i))
                     }
                     handleTwoFingerScroll(event)
                 } else {
@@ -732,8 +709,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
             MotionEvent.ACTION_CANCEL -> {
                 releaseButton(Pointer.Button.BUTTON_LEFT)
                 releaseButton(Pointer.Button.BUTTON_RIGHT)
-                for (i in 0 until 4) fingers[i] = null
-                numFingers = 0
+                fingerTracker.clear()
                 return true
             }
         }
@@ -777,7 +753,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
     }
 
     private fun handleTwoFingerScroll(event: MotionEvent) {
-        val activeFingers = fingers.filterNotNull()
+        val activeFingers = fingerTracker.entriesById().map { it.second }
         if (activeFingers.size < 2) return
         val finger1 = activeFingers[0]
         val finger2 = activeFingers[1]
@@ -807,7 +783,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
 
     private fun handleFingerUp(finger1: Finger) {
         if (tapToClickEnabled) {
-            when (numFingers.toInt()) {
+            when (fingerTracker.count) {
                 1 -> {
                     if (simTouchScreen) {
                         injectHandler.postDelayed(
@@ -823,14 +799,16 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
                     }
                 }
                 2 -> {
-                    val finger2 = findSecondFinger(finger1)
+                    val finger2 = fingerTracker.otherByLowestId(finger1)
                     if (finger2 != null && finger1.isTap()) pressPointerButtonRight(finger1)
                 }
                 4 -> {
-                    fourFingersTapCallback?.let { callback ->
-                        for (i in 0 until 4) {
-                            if (fingers[i] != null && !fingers[i]!!.isTap()) return
-                        }
+                    val callback = fourFingersTapCallback
+                    if (callback != null) {
+                        // Any non-tap finger cancels the gesture entirely: skip
+                        // the pointer-button releases below, matching the
+                        // original early-return semantics.
+                        if (!fingerTracker.all { it.isTap() }) return
                         callback.run()
                     }
                 }
@@ -845,7 +823,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
             longPressHandler.removeCallbacks(longPressRunnable)
         }
         var skipPointerMove = false
-        val finger2 = if (numFingers.toInt() == 2) findSecondFinger(finger1) else null
+        val finger2 = if (fingerTracker.count == 2) fingerTracker.otherByLowestId(finger1) else null
         if (finger2 != null) {
             val resScale =
                 1000.0f / Math.min(xServer.screenInfo.width.toInt(), xServer.screenInfo.height.toInt())
@@ -875,7 +853,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
                 skipPointerMove = true
             }
         }
-        if (!scrolling && numFingers <= 2 && !skipPointerMove) {
+        if (!scrolling && fingerTracker.count <= 2 && !skipPointerMove) {
             val drivingFinger =
                 if (
                     finger2 != null &&
@@ -897,13 +875,6 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
                 queueMoveDelta(dx, dy)
             }
         }
-    }
-
-    private fun findSecondFinger(finger: Finger): Finger? {
-        for (i in 0 until 4) {
-            if (fingers[i] != null && fingers[i] != finger) return fingers[i]
-        }
-        return null
     }
 
     private fun pressPointerButtonLeft(finger: Finger) {
@@ -1059,10 +1030,7 @@ class TouchpadView(context: Context, private val xServer: XServer) : View(contex
         continueClick = false
         scrolling = false
         scrollAccumY = 0f
-        for (i in 0 until 4) {
-            fingers[i] = null
-        }
-        numFingers = 0
+        fingerTracker.clear()
         fingerPointerButtonLeft = null
         fingerPointerButtonRight = null
         longPressHandler.removeCallbacks(longPressRunnable)
