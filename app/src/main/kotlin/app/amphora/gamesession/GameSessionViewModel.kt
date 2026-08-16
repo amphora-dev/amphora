@@ -48,6 +48,7 @@ constructor(
     val surface: StateFlow<GameSessionSurface?> = surfaceProvider.surface
     val provisionProgress = wineEngine.provisionProgress
     val hostPerformanceHudEnabled = hostEnvironment.hostPerformanceHudEnabled
+    val initialFrameRateLimit = hostEnvironment.frameRateLimit
 
     /** IO dispatcher for screens to run blocking teardown off the main thread. */
     val ioDispatcher: CoroutineDispatcher

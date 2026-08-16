@@ -20,6 +20,9 @@ import javax.inject.Inject
 interface GameSessionHostEnvironment {
     val hostPerformanceHudEnabled: Boolean
 
+    /** The frame limit chosen in settings, as the runtime drawer's initial value. */
+    val frameRateLimit: Int
+
     fun prepareGraphicsDiagnostics(): Map<String, String>
 }
 
@@ -30,6 +33,9 @@ constructor(
 ) : GameSessionHostEnvironment {
     override val hostPerformanceHudEnabled: Boolean
         get() = AdvancedRuntimePreferences.hostPerformanceHudEnabled(appContext)
+
+    override val frameRateLimit: Int
+        get() = AdvancedRuntimePreferences.frameRateLimit(appContext)
 
     override fun prepareGraphicsDiagnostics(): Map<String, String> {
         GraphicsDiag.clearStateCache(appContext)

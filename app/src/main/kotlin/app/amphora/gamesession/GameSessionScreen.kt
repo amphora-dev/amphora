@@ -67,7 +67,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     var pointerSensitivity by rememberSaveable { mutableStateOf(1f) }
     var tapToClick by rememberSaveable { mutableStateOf(true) }
     var audioMuted by rememberSaveable { mutableStateOf(false) }
-    var fpsLimit by rememberSaveable { mutableStateOf(0) }
+    var fpsLimit by rememberSaveable { mutableStateOf(viewModel.initialFrameRateLimit) }
     var stretchToFill by rememberSaveable { mutableStateOf(false) }
     var performanceHudVisible by rememberSaveable {
         mutableStateOf(viewModel.hostPerformanceHudEnabled)

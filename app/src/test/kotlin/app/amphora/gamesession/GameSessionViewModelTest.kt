@@ -90,6 +90,15 @@ class GameSessionViewModelTest {
     }
 
     @Test
+    fun frameRateLimitIsReadThroughHostBoundary() = runTest(dispatchers.testDispatcher) {
+        val off = fixture(frameRateLimit = 0)
+        val limited = fixture(frameRateLimit = 60)
+
+        assertEquals(0, off.viewModel.initialFrameRateLimit)
+        assertEquals(60, limited.viewModel.initialFrameRateLimit)
+    }
+
+    @Test
     fun audioControlsAreForwardedToTheEngineSink() = runTest(dispatchers.testDispatcher) {
         val fixture = fixture()
 
@@ -109,6 +118,7 @@ class GameSessionViewModelTest {
             ),
         diagnosticEnv: Map<String, String> = emptyMap(),
         hostPerformanceHudEnabled: Boolean = false,
+        frameRateLimit: Int = 0,
     ): Fixture {
         val engine = mockk<WineEngine>()
         val handle = mockk<SessionHandle>(relaxed = true)
@@ -123,6 +133,7 @@ class GameSessionViewModelTest {
         val hostEnvironment =
             FakeGameSessionHostEnvironment(
                 hostPerformanceHudEnabled = hostPerformanceHudEnabled,
+                frameRateLimit = frameRateLimit,
                 diagnosticEnv = diagnosticEnv,
             )
         val viewModel =
@@ -145,6 +156,7 @@ class GameSessionViewModelTest {
 
     private class FakeGameSessionHostEnvironment(
         override val hostPerformanceHudEnabled: Boolean,
+        override val frameRateLimit: Int,
         private val diagnosticEnv: Map<String, String>,
     ) : GameSessionHostEnvironment {
         var diagnosticRequests = 0
