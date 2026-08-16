@@ -1,13 +1,21 @@
 package app.amphora.gamesession
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
@@ -19,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -184,4 +193,47 @@ private fun formatBytes(bytes: Long): String = when {
     bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
     bytes >= 1_000 -> "%.1f KB".format(bytes / 1_000.0)
     else -> "$bytes B"
+}
+
+/**
+ * Narrow left-edge strip that reveals the runtime session drawer on tap or on
+ * rightward drag. Deliberately limited to its own 20dp hit area so the drawer
+ * never competes with game touch input on the rest of the screen.
+ */
+@Composable
+internal fun BoxScope.DrawerEdgeHandle(onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier =
+        modifier
+            .align(Alignment.CenterStart)
+            .fillMaxHeight()
+            .width(20.dp)
+            .pointerInput(onOpen) {
+                var totalDrag = 0f
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        totalDrag += dragAmount
+                    },
+                    onDragEnd = {
+                        if (totalDrag > 40f) onOpen()
+                        totalDrag = 0f
+                    },
+                    onDragCancel = { totalDrag = 0f },
+                )
+            }
+            .clickable(onClick = onOpen),
+    ) {
+        Box(
+            modifier =
+            Modifier
+                .padding(start = 3.dp)
+                .width(3.dp)
+                .height(36.dp)
+                .background(
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    RoundedCornerShape(2.dp),
+                ),
+        )
+    }
 }

@@ -46,6 +46,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:ui"))
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(project(":feature:launcher"))
     implementation(project(":feature:settings"))
     implementation(project(":core:common"))

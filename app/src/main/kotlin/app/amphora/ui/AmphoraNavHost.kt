@@ -6,6 +6,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import app.amphora.core.engine.model.LaunchTarget
+import app.amphora.core.ui.AmphoraMotion
 import app.amphora.feature.launcher.navigation.LAUNCHER_ROUTE
 import app.amphora.feature.launcher.navigation.launcherScreen
 import app.amphora.feature.settings.navigation.SETTINGS_ROUTE
@@ -15,7 +16,14 @@ import app.amphora.gamesession.SessionActivity
 @Composable
 fun AmphoraNavHost(navController: NavHostController) {
     val context = LocalContext.current
-    NavHost(navController = navController, startDestination = LAUNCHER_ROUTE) {
+    NavHost(
+        navController = navController,
+        startDestination = LAUNCHER_ROUTE,
+        enterTransition = { AmphoraMotion.navEnter() },
+        exitTransition = { AmphoraMotion.navExit() },
+        popEnterTransition = { AmphoraMotion.navPopEnter() },
+        popExitTransition = { AmphoraMotion.navPopExit() },
+    ) {
         launcherScreen(
             onLaunch = { exePath, width, height ->
                 SessionActivity.launch(context, exePath, width, height)

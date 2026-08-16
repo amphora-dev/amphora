@@ -9,6 +9,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
+/** Every scheme slot is overridden; none may fall through to the Material baseline. */
 private val DarkColors =
     darkColorScheme(
         primary = AmphoraDarkPrimary,
@@ -19,12 +20,34 @@ private val DarkColors =
         onSecondary = AmphoraDarkOnSecondary,
         secondaryContainer = AmphoraDarkSecondaryContainer,
         onSecondaryContainer = AmphoraDarkOnSecondaryContainer,
+        tertiary = AmphoraDarkTertiary,
+        onTertiary = AmphoraDarkOnTertiary,
+        tertiaryContainer = AmphoraDarkTertiaryContainer,
+        onTertiaryContainer = AmphoraDarkOnTertiaryContainer,
+        error = AmphoraDarkError,
+        onError = AmphoraDarkOnError,
+        errorContainer = AmphoraDarkErrorContainer,
+        onErrorContainer = AmphoraDarkOnErrorContainer,
         background = AmphoraDarkBackground,
         onBackground = AmphoraDarkOnBackground,
         surface = AmphoraDarkSurface,
         onSurface = AmphoraDarkOnSurface,
         surfaceVariant = AmphoraDarkSurfaceVariant,
         onSurfaceVariant = AmphoraDarkOnSurfaceVariant,
+        surfaceContainerLowest = AmphoraDarkSurfaceContainerLowest,
+        surfaceContainerLow = AmphoraDarkSurfaceContainerLow,
+        surfaceContainer = AmphoraDarkSurfaceContainer,
+        surfaceContainerHigh = AmphoraDarkSurfaceContainerHigh,
+        surfaceContainerHighest = AmphoraDarkSurfaceContainerHighest,
+        surfaceDim = AmphoraDarkSurfaceDim,
+        surfaceBright = AmphoraDarkSurfaceBright,
+        surfaceTint = AmphoraDarkPrimary,
+        outline = AmphoraDarkOutline,
+        outlineVariant = AmphoraDarkOutlineVariant,
+        inverseSurface = AmphoraDarkInverseSurface,
+        inverseOnSurface = AmphoraDarkInverseOnSurface,
+        inversePrimary = AmphoraDarkInversePrimary,
+        scrim = AmphoraDarkScrim,
     )
 
 private val LightColors =
@@ -37,12 +60,34 @@ private val LightColors =
         onSecondary = AmphoraLightOnSecondary,
         secondaryContainer = AmphoraLightSecondaryContainer,
         onSecondaryContainer = AmphoraLightOnSecondaryContainer,
+        tertiary = AmphoraLightTertiary,
+        onTertiary = AmphoraLightOnTertiary,
+        tertiaryContainer = AmphoraLightTertiaryContainer,
+        onTertiaryContainer = AmphoraLightOnTertiaryContainer,
+        error = AmphoraLightError,
+        onError = AmphoraLightOnError,
+        errorContainer = AmphoraLightErrorContainer,
+        onErrorContainer = AmphoraLightOnErrorContainer,
         background = AmphoraLightBackground,
         onBackground = AmphoraLightOnBackground,
         surface = AmphoraLightSurface,
         onSurface = AmphoraLightOnSurface,
         surfaceVariant = AmphoraLightSurfaceVariant,
         onSurfaceVariant = AmphoraLightOnSurfaceVariant,
+        surfaceContainerLowest = AmphoraLightSurfaceContainerLowest,
+        surfaceContainerLow = AmphoraLightSurfaceContainerLow,
+        surfaceContainer = AmphoraLightSurfaceContainer,
+        surfaceContainerHigh = AmphoraLightSurfaceContainerHigh,
+        surfaceContainerHighest = AmphoraLightSurfaceContainerHighest,
+        surfaceDim = AmphoraLightSurfaceDim,
+        surfaceBright = AmphoraLightSurfaceBright,
+        surfaceTint = AmphoraLightPrimary,
+        outline = AmphoraLightOutline,
+        outlineVariant = AmphoraLightOutlineVariant,
+        inverseSurface = AmphoraLightInverseSurface,
+        inverseOnSurface = AmphoraLightInverseOnSurface,
+        inversePrimary = AmphoraLightInversePrimary,
+        scrim = AmphoraLightScrim,
     )
 
 @Composable

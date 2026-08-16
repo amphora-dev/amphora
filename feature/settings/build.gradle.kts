@@ -7,6 +7,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:ui"))
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(project(":core:engine"))
     implementation(project(":core:rootfs"))
     implementation(project(":core:content"))

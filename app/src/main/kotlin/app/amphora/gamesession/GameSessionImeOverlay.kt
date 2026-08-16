@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,6 +38,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import app.amphora.core.ui.AmphoraSemantic
 import app.amphora.gamesession.input.ImeUiState
 import kotlin.math.roundToInt
 
@@ -109,10 +113,16 @@ internal fun BoxScope.ImeControlOverlay(state: ImeUiState, onHideKeyboard: () ->
                         },
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    Icon(
+                        Icons.Filled.DragIndicator,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 2.dp),
+                        tint = AmphoraSemantic.info,
+                    )
                     Text(
-                        "⠿  IME",
+                        "IME",
                         modifier = Modifier.weight(1f),
-                        color = Color(0xFF80CBC4),
+                        color = AmphoraSemantic.info,
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
@@ -120,14 +130,14 @@ internal fun BoxScope.ImeControlOverlay(state: ImeUiState, onHideKeyboard: () ->
                     Text(
                         "HIDE",
                         modifier = Modifier.clickable(onClick = onHideKeyboard),
-                        color = Color(0xFF80CBC4),
+                        color = AmphoraSemantic.info,
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
                     )
                     Text(
                         "CLIPBOARD",
                         modifier = Modifier.clickable(onClick = onTypeClipboard),
-                        color = Color(0xFFFFCC80),
+                        color = AmphoraSemantic.warning,
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
                     )

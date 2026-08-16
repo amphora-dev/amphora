@@ -19,6 +19,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -232,26 +235,35 @@ internal fun RuntimeSessionDrawer(
 
             RuntimeDrawerSection(title = "Display") {
                 Text("Frame limit", style = MaterialTheme.typography.labelLarge)
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FPS_LIMITS.chunked(3).forEach { rowLimits ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            rowLimits.forEach { limit ->
-                                FilterChip(
-                                    selected = fpsLimit == limit,
-                                    onClick = { onFpsLimitChange(limit) },
-                                    enabled = controlsEnabled,
-                                    label = { Text(if (limit == 0) "Off" else "$limit") },
-                                    modifier = Modifier.weight(1f),
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    FPS_LIMITS.forEachIndexed { index, limit ->
+                        SegmentedButton(
+                            selected = fpsLimit == limit,
+                            onClick = { onFpsLimitChange(limit) },
+                            enabled = controlsEnabled,
+                            shape =
+                            SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = FPS_LIMITS.size,
+                            ),
+                            label = {
+                                Text(
+                                    if (limit == 0) "Off" else "$limit",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
                                 )
-                            }
-                        }
+                            },
+                        )
                     }
                 }
+                Text(
+                    "Applies immediately to the compositor and refresh rate. Direct3D titles " +
+                        "(8-12) also carry the DXVK launch-time frame rate, so raising the limit or " +
+                        "turning it off here cannot exceed that until the next session. OpenGL titles " +
+                        "are only limited here.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 RuntimeToggleRow(
                     title = "Stretch to fill",
                     subtitle = "Fill the display instead of preserving aspect ratio",

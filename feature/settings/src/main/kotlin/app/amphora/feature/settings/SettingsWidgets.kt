@@ -28,6 +28,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.amphora.core.ui.AmphoraSemantic
 
 @Composable
 internal fun SettingSection(title: String, subtitle: String, content: @Composable () -> Unit) {
@@ -157,8 +158,8 @@ internal enum class HealthTone {
 
 @Composable
 internal fun HealthTone.color(): Color = when (this) {
-    HealthTone.GOOD -> Color(0xFF2E7D5B)
+    HealthTone.GOOD -> AmphoraSemantic.successDim
     HealthTone.BAD -> MaterialTheme.colorScheme.error
     HealthTone.NEUTRAL -> MaterialTheme.colorScheme.outline
-    HealthTone.LOCAL -> Color(0xFF3976A8)
+    HealthTone.LOCAL -> AmphoraSemantic.localBuild
 }

@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import app.amphora.core.engine.GuestStorageAccess
+import app.amphora.core.ui.AmphoraSemantic
 
 @Composable
 internal fun StorageUsageSection(
@@ -438,7 +439,7 @@ private fun GuestDriveMappingRow(letter: String, label: String, path: String, ma
             style = MaterialTheme.typography.labelSmall,
             color =
             if (mapped && available) {
-                Color(0xFF2E7D5B)
+                AmphoraSemantic.successDim
             } else {
                 MaterialTheme.colorScheme.error
             },

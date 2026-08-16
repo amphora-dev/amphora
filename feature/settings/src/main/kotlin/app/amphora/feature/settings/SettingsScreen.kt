@@ -20,9 +20,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -45,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import app.amphora.core.engine.GuestStorageAccess
+import app.amphora.core.ui.AmphoraBreakpoints
 import java.util.concurrent.atomic.AtomicReference
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,7 +85,12 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                     }
                 },
                 navigationIcon = {
-                    TextButton(onClick = onBack) { Text("← Back") }
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                        )
+                    }
                 },
                 actions = {
                     TextButton(onClick = { showResetConfirmation = true }) {
@@ -96,7 +106,7 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            if (maxWidth >= 840.dp) {
+            if (maxWidth >= AmphoraBreakpoints.EXPANDED.dp) {
                 Row(modifier = Modifier.fillMaxSize()) {
                     SettingsCategoryPane(
                         selected = selectedCategory,

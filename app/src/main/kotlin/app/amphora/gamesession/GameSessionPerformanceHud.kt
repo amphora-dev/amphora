@@ -16,6 +16,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragIndicator
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,6 +49,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import app.amphora.core.engine.GameSessionSurface
+import app.amphora.core.ui.AmphoraSemantic
 import kotlin.math.roundToInt
 
 @Composable
@@ -142,20 +149,25 @@ internal fun BoxScope.HostPerformanceOverlay(surface: GameSessionSurface) {
                             }
                         },
                 ) {
+                    Icon(
+                        Icons.Filled.DragIndicator,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 4.dp),
+                        tint = AmphoraSemantic.info,
+                    )
                     Text(
-                        "⠿  HOST · ALL APIs",
+                        "HOST · ALL APIs",
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF80CBC4),
+                        color = AmphoraSemantic.info,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                     )
-                    Text(
-                        if (expanded) "LESS ▲" else "MORE ▼",
+                    Icon(
+                        if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (expanded) "Collapse metrics" else "Expand metrics",
                         modifier = Modifier.clickable { expanded = !expanded },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF80CBC4),
-                        fontFamily = FontFamily.Monospace,
+                        tint = AmphoraSemantic.info,
                     )
                 }
                 Text(
@@ -326,7 +338,7 @@ private fun CpuCoreGrid(cores: List<CpuCoreStats>) {
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
-                    color = Color(0xFFCFD8DC),
+                    color = AmphoraSemantic.metricMuted,
                 )
             }
             if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
@@ -344,7 +356,7 @@ private fun MetricLine(label: String, value: String) {
             label,
             modifier = Modifier.widthIn(min = 62.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFFFFCC80),
+            color = AmphoraSemantic.warning,
             fontFamily = FontFamily.Monospace,
         )
         Text(
@@ -358,12 +370,10 @@ private fun MetricLine(label: String, value: String) {
 
 @Composable
 private fun HudDivider() {
-    Text(
-        "────────────────────────",
+    HorizontalDivider(
+        modifier = Modifier.fillMaxWidth(),
+        thickness = 1.dp,
         color = Color.White.copy(alpha = 0.28f),
-        style = MaterialTheme.typography.labelSmall,
-        fontFamily = FontFamily.Monospace,
-        maxLines = 1,
     )
 }
 

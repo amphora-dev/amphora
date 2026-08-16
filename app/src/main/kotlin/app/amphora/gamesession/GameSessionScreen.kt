@@ -386,6 +386,19 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
         if (exitRequested || sessionState == SessionState.STOPPING) {
             SessionEndingOverlay(modifier = Modifier.fillMaxSize().zIndex(10f))
         }
+        // Narrow left-edge affordance: tap or drag right to reveal the session
+        // drawer. It deliberately occupies only this strip, so game touch input
+        // through the TouchpadOverlay is never stolen by drawer gestures.
+        if (
+            !exitRequested &&
+            sessionState == SessionState.RUNNING &&
+            drawerState.targetValue == DrawerValue.Closed
+        ) {
+            DrawerEdgeHandle(
+                onOpen = { drawerScope.launch { drawerState.open() } },
+                modifier = Modifier.zIndex(9f),
+            )
+        }
     }
 
     if (showExitConfirmation) {

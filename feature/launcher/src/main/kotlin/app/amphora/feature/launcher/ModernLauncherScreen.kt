@@ -4,9 +4,13 @@ import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,9 +30,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -42,11 +49,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -60,6 +69,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import app.amphora.core.ui.AmphoraBreakpoints
+import app.amphora.core.ui.AmphoraMotion
+import app.amphora.core.ui.AmphoraSemantic
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,7 +116,7 @@ fun ModernLauncherScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            val expanded = maxWidth >= 760.dp
+            val expanded = maxWidth >= AmphoraBreakpoints.EXPANDED.dp
             if (expanded) {
                 Row(modifier = Modifier.fillMaxSize()) {
                     ProgramListPane(
@@ -260,7 +272,7 @@ private fun RuntimeStatusButton(ready: Boolean, busy: Boolean, compact: Boolean,
     val statusColor =
         when {
             busy -> MaterialTheme.colorScheme.outline
-            ready -> Color(0xFF58D6A5)
+            ready -> AmphoraSemantic.success
             else -> MaterialTheme.colorScheme.error
         }
     TextButton(
@@ -338,6 +350,7 @@ private fun ProgramListPane(
                     monogram = program.name.firstOrNull()?.uppercase() ?: "A",
                     selected = !desktopSelected && state.stagedExePath == program.path,
                     onClick = { onSelectProgram(program.path) },
+                    modifier = Modifier.animateItem(),
                 )
             }
         } else {
@@ -361,11 +374,25 @@ private fun ProgramListPane(
 }
 
 @Composable
-private fun ProgramRow(title: String, subtitle: String, monogram: String, selected: Boolean, onClick: () -> Unit) {
+private fun ProgramRow(
+    title: String,
+    subtitle: String,
+    monogram: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val shape = RoundedCornerShape(14.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = AmphoraMotion.pressScale(),
+        label = "programRowPressScale",
+    )
     Row(
         modifier =
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(shape)
             .background(
@@ -374,7 +401,13 @@ private fun ProgramRow(title: String, subtitle: String, monogram: String, select
                 } else {
                     Color.Transparent
                 },
-            ).clickable(onClick = onClick)
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick,
+            )
+            .scale(scale)
             .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -683,7 +716,18 @@ private fun ConfigurationCard(state: LauncherUiState, onOpenSettings: () -> Unit
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                 )
-                Text("Edit →", color = MaterialTheme.colorScheme.primary)
+                Text(
+                    "Edit",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(end = 2.dp),
+                )
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp),
+                )
             }
             HorizontalDivider()
             LauncherStateEvaluator.configuration(state).forEach { value ->
@@ -732,7 +776,7 @@ private fun RuntimeSummary(state: LauncherUiState, ready: Boolean, onRefresh: ()
                     .size(9.dp)
                     .clip(CircleShape)
                     .background(
-                        if (ready) Color(0xFF58D6A5) else MaterialTheme.colorScheme.error,
+                        if (ready) AmphoraSemantic.success else MaterialTheme.colorScheme.error,
                     ),
             )
             Column(modifier = Modifier.weight(1f)) {

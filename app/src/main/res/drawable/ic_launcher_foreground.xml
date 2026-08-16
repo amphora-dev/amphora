@@ -1,0 +1,26 @@
+<!-- Amphora mark: ember jar silhouette with twin handles, centered in the
+     66dp adaptive-icon safe zone of the 108dp canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF8B61"
+        android:pathData="M54,26 L45,28 C43,32 44,35 47,37 C39,41 35,49 36,58 C37,69 45,78 54,80 C63,78 71,69 72,58 C73,49 69,41 61,37 C64,35 65,32 63,28 Z"/>
+    <path
+        android:pathData="M46,36 C38,34 34,40 35,46 C36,51 40,54 44,55"
+        android:strokeColor="#FF8B61"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
+    <path
+        android:pathData="M62,36 C70,34 74,40 73,46 C72,51 68,54 64,55"
+        android:strokeColor="#FF8B61"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
+    <path
+        android:fillColor="#33FFFFFF"
+        android:pathData="M44,44 C41,48 40,54 41,60 C42,65 45,69 48,71 C45,66 44,60 44,54 C44,50 44,46 44,44 Z"/>
+</vector>
