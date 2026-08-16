@@ -44,6 +44,7 @@ import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.NonCancellable
@@ -109,21 +110,29 @@ constructor(
     override val surface: StateFlow<GameSessionSurface?> = _surface.asStateFlow()
     override val provisionProgress: StateFlow<ProvisionProgress?> = progressBus.progress
 
-    private var currentXServer: XServer? = null
-    private var currentHandle: XServerSessionHandle? = null
+    /**
+     * Immutable session snapshot published atomically. [inputFeed] reads it from
+     * the main thread, [launch] writes it on [dispatchers.default], and the
+     * handle's stop-completion callback clears it from yet another context.
+     * A single reference replaces the old pair of nullable fields, which could
+     * tear (xServer cleared while the handle was not) and had no happens-before
+     * edge to readers.
+     */
+    private data class ActiveSession(val xServer: XServer, val handle: XServerSessionHandle)
+
+    private val activeSession = AtomicReference<ActiveSession?>(null)
     private val sessionAudioSink = XServerAudioSink()
 
     override suspend fun launch(spec: LaunchSpec): SessionHandle = withContext(dispatchers.default) {
         // A new launch is also the recovery boundary after process death or an
         // interrupted teardown. Stop the previous handle first, then sweep any
         // own-UID Wine/Box64 processes that survived before creating new ones.
-        currentHandle?.stop()
+        activeSession.get()?.handle?.stop()
         DefaultSessionProcessController.terminateAndWait(PRELAUNCH_CLEANUP_TIMEOUT_MS)
 
         // Clear any prior session state before starting a new one.
         _surface.value = null
-        currentXServer = null
-        currentHandle = null
+        activeSession.set(null)
         // Ensure Wine stderr can land under filesDir (ProcessHelper has no PluviaApp).
         ProcessHelper.init(context)
 
@@ -160,7 +169,6 @@ constructor(
             // 5. XServer: the X render target + the input injection surface for the touch overlay.
             progressBus.update(ProvisionProgress(stage = "session", detail = "Starting X session…"))
             val xServer = XServer(ScreenInfo(spec.displaySize.width, spec.displaySize.height))
-            currentXServer = xServer
             val driverConfig =
                 GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
                     wnContainer.getGraphicsDriverConfig(),
@@ -215,15 +223,18 @@ constructor(
                     xServer,
                     dispatchers,
                     onStopped = {
-                        if (currentHandle === handle) {
+                        // Compare-and-clear: only the snapshot still owning this
+                        // handle may tear down published state. If a concurrent
+                        // launch already installed a new session, the CAS fails
+                        // and the old handle's callback leaves it untouched.
+                        val session = activeSession.get()
+                        if (session?.handle === handle && activeSession.compareAndSet(session, null)) {
                             guestProcessId.value = null
                             _surface.value = null
-                            currentXServer = null
-                            currentHandle = null
                         }
                     },
                 )
-            currentHandle = handle
+            activeSession.set(ActiveSession(xServer, handle))
             // 8. Guest launcher: `box64 wine explorer /desktop=WxH "<exe>"` (D9: Amphora passes
             //    exe + env only; it never rewrites getWineStartCommand).
             val launcher = buildGuestLauncher(wnContainer, wineInfo, spec, envVars)
@@ -249,7 +260,7 @@ constructor(
         }
     }
 
-    override fun inputFeed(): InputSink = currentXServer?.let { XServerInputSink(it) } ?: StubInputSink
+    override fun inputFeed(): InputSink = activeSession.get()?.xServer?.let { XServerInputSink(it) } ?: StubInputSink
 
     override fun audioSink(): AudioSink = sessionAudioSink
 
