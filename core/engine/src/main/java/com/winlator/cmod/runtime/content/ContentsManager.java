@@ -513,6 +513,7 @@ public class ContentsManager {
         return TarCompressorUtils.Type.ZSTD;
       }
     } catch (Exception ignored) {
+      Log.d("ContentsManager", "Tar type sniff failed; assuming XZ", ignored);
     }
     return TarCompressorUtils.Type.XZ;
   }
@@ -771,7 +772,8 @@ public class ContentsManager {
         }
       }
     } else {
-      // TODO: do nothing?
+      // Wine/Proton profiles install via extraction, not per-file copy.
+      Log.d("ContentsManager", "applyContent: nothing to copy for type=" + profile.type);
     }
     return true;
   }

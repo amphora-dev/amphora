@@ -218,6 +218,7 @@ public abstract class WineUtils {
         addStorageRoot(roots, root);
       }
     } catch (Throwable ignored) {
+      Log.w("WineUtils", "Storage enumeration failed", ignored);
     }
 
     return roots;

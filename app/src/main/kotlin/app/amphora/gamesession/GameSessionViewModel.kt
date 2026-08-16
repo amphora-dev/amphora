@@ -15,6 +15,7 @@ import app.amphora.core.engine.model.LaunchTarget
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +48,10 @@ constructor(
     val surface: StateFlow<GameSessionSurface?> = surfaceProvider.surface
     val provisionProgress = wineEngine.provisionProgress
     val hostPerformanceHudEnabled = hostEnvironment.hostPerformanceHudEnabled
+
+    /** IO dispatcher for screens to run blocking teardown off the main thread. */
+    val ioDispatcher: CoroutineDispatcher
+        get() = dispatchers.io
     private val audioSink = wineEngine.audioSink()
     val audioVolume = audioSink.volume
 

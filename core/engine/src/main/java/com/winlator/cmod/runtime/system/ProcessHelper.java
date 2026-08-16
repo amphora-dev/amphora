@@ -381,7 +381,9 @@ public abstract class ProcessHelper {
           try {
             if (wineDebugLog.exists() && wineDebugLog.length() > 16 * 1024 * 1024)
               wineDebugLog.delete();
-          } catch (Exception ignored) {}
+          } catch (Exception ignored) {
+            Log.d(TAG, "wine_stderr.log cleanup failed", ignored);
+          }
           pb.redirectErrorStream(true);
           pb.redirectOutput(ProcessBuilder.Redirect.appendTo(wineDebugLog));
           Log.i(

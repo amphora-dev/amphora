@@ -30,6 +30,7 @@ import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,6 +54,8 @@ internal class HostPerformanceMonitor(
     private val xServer: XServer,
     private val configuredBackend: String,
     private val guestProcessId: StateFlow<Int?>,
+    // Constructor-injected so JVM tests can drive sampling on a test dispatcher.
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : WindowManager.OnWindowModificationListener {
     private val appContext = context.applicationContext
     private val activityManager =
@@ -60,7 +63,7 @@ internal class HostPerformanceMonitor(
     private val batteryManager = appContext.getSystemService(BatteryManager::class.java)
     private val powerManager = appContext.getSystemService(PowerManager::class.java)
     private val privilegedReader = PerformanceMetricsClient(appContext)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val started = AtomicBoolean(false)
     private val tracker = FrameTracker(xServer.screenInfo.width * xServer.screenInfo.height)
     private val _stats = MutableStateFlow(HostPerformanceStats(configuredBackend = configuredBackend))

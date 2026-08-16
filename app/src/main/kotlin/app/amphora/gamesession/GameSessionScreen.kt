@@ -38,7 +38,6 @@ import app.amphora.gamesession.input.TouchpadView
 import com.winlator.cmod.runtime.display.ui.XServerSurfaceView
 import com.winlator.cmod.runtime.display.xserver.XServer
 import com.winlator.cmod.shared.android.RefreshRateUtils
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -162,7 +161,7 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
             }
             SessionState.STOPPED -> {
                 val closed =
-                    withContext(Dispatchers.IO) {
+                    withContext(viewModel.ioDispatcher) {
                         rendererView?.closeAndJoin(RENDERER_CLOSE_TIMEOUT_MS) ?: true
                     }
                 if (!closed) {

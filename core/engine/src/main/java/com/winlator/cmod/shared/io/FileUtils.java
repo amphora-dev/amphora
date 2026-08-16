@@ -455,7 +455,9 @@ public abstract class FileUtils {
               long id = Long.parseLong(idStr);
               Uri contentUri = ContentUris.withAppendedId(MediaStore.Files.getContentUri("external"), id);
               filePath = queryContentResolverForPath(context, contentUri);
-            } catch (Exception e) {}
+            } catch (Exception e) {
+              Log.d(TAG, "MediaStore id path lookup failed for docId=" + docId, e);
+            }
           }
 
           if (filePath == null) {
@@ -485,7 +487,9 @@ public abstract class FileUtils {
           }
         }
       }
-    } catch (Exception e) {}
+    } catch (Exception e) {
+      Log.d(TAG, "Document tree path extraction failed", e);
+    }
 
     // Generic Content URI fallback
     if (filePath == null) {
@@ -722,7 +726,9 @@ public abstract class FileUtils {
           }
         }
       }
-    } catch (Exception e) {}
+    } catch (Exception e) {
+      Log.d(TAG, "Content resolver path query failed", e);
+    }
     return null;
   }
 

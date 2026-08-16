@@ -358,7 +358,9 @@ public class Container {
             }
             else extraData.remove(name);
         }
-        catch (JSONException e) {}
+        catch (JSONException e) {
+            Log.w(TAG, "Failed to persist extra '" + name + "'", e);
+        }
     }
 
     public String getWineVersion() {
@@ -794,7 +796,9 @@ public class Container {
 
             data.put("wincomponents", result);
         }
-        catch (JSONException e) {}
+        catch (JSONException e) {
+            Log.w(TAG, "Failed to persist wincomponents", e);
+        }
     }
 
     public static String getFallbackCPUList() {
