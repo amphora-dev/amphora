@@ -75,6 +75,41 @@ class ContainerSaveDataTest {
         }
     }
 
+    /**
+     * Regression: a config whose extraData is already populated (every real
+     * container — creation + pin-sync write extras before the preparer runs)
+     * must keep accepting applied-mark saves. loadData used to run
+     * checkObsoleteOrMissingProperties(extraData), injecting a default
+     * "wincomponents" key nobody reads; the in-memory baseline then differed
+     * from the on-disk extraData forever, and mergeWithCurrent rejected every
+     * later save that touched extraData — so AppliedMarks never persisted and
+     * each launch re-ran the full firstTimeBoot path.
+     */
+    @Test
+    fun loadedContainerWithPopulatedExtraDataStillSavesMarks() {
+        val root = Files.createTempDirectory("container-extra-marks-").toFile()
+        try {
+            val seeded = newContainer(root).apply {
+                putExtra("appliedWineContent", "Proton-11|sha=abc")
+                putExtra("dxvkTrustAugment", "1")
+            }
+            assertTrue(seeded.saveData())
+
+            val container = loadContainer(root)
+            container.putExtra("appliedAppVersion", "1")
+            container.putExtra("appliedDxwrapper", "dxvk-a;vkd3d-b;dd7to9|arch=x86_64")
+            assertTrue(container.saveData())
+
+            val reloaded = loadContainer(root)
+            assertEquals("1", reloaded.getExtra("appliedAppVersion"))
+            assertEquals("dxvk-a;vkd3d-b;dd7to9|arch=x86_64", reloaded.getExtra("appliedDxwrapper"))
+            val savedExtras = JSONObject(root.resolve(".container").readText()).getJSONObject("extraData")
+            assertFalse("loadData must not inject an unused wincomponents key into extraData", savedExtras.has("wincomponents"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test
     fun readersNeverObserveEmptyOrTruncatedConfig() {
         val root = Files.createTempDirectory("container-atomic-").toFile()

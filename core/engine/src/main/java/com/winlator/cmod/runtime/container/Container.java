@@ -122,7 +122,7 @@ public class Container {
         this.containerManager = containerManager;
     }
 
-    
+
     public String getExecutablePath() {
         return executablePath;
     }
@@ -144,7 +144,7 @@ public class Container {
     public void setExecArgs(String execArgs) {
         this.execArgs = execArgs != null ? execArgs : "";
     }
-    
+
     public ContainerManager getManager() {
         return containerManager;
     }
@@ -641,7 +641,7 @@ public class Container {
                 case "graphicsDriverConfig" :
                     setGraphicsDriverConfig(data.getString(key));
                     break;
-                
+
                 case "executablePath":
                     setExecutablePath(data.getString(key));
                     break;
@@ -682,8 +682,13 @@ public class Container {
                     setStartupSelection((byte)data.getInt(key));
                     break;
                 case "extraData" : {
+                    // Do NOT run checkObsoleteOrMissingProperties here: it would inject a
+                    // default "wincomponents" key into extraData that no code reads. The
+                    // in-memory baseline (savedState) would then differ from the on-disk
+                    // extraData forever, and mergeWithCurrent would reject every later
+                    // save that changes extraData — i.e. every AppliedMarks write — so
+                    // applied marks never persist and each launch re-runs firstTimeBoot.
                     JSONObject extraData = data.getJSONObject(key);
-                    checkObsoleteOrMissingProperties(extraData);
                     setExtraData(extraData);
                     break;
                 }
