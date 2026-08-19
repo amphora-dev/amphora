@@ -8,7 +8,10 @@ import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentReconciler
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.content.ProvisionProgressBus
+import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.engine.ContentHealthScanner
+import app.amphora.core.engine.DxvkFlavorIds
+import app.amphora.core.engine.GraphicsDriverCapabilities
 import app.amphora.core.engine.LaunchRuntimeSettings
 import app.amphora.core.engine.RuntimeSettingsStore
 import app.amphora.core.engine.TurnipDriverProvisioner
@@ -63,6 +66,7 @@ constructor(
     private val contentHealthScanner: ContentHealthScanner,
     private val programLibrary: LauncherProgramLibrary,
     private val settingsStore: RuntimeSettingsStore,
+    private val graphicsDriverCapabilities: GraphicsDriverCapabilities,
     progressBus: ProvisionProgressBus,
 ) : LauncherOperations {
     override val appVersion: String = readAppVersion(context)
@@ -76,9 +80,31 @@ constructor(
         val health =
             withContext(dispatchers.io) {
                 contentReconciler.reconcile(manifest)
-                contentHealthScanner.scan(manifest)
+                contentHealthScanner.scan(manifest).forDeviceDxvkFlavor()
             }
         return LoadedLauncherContent(health.toLauncherSnapshot(), sourceUrl)
+    }
+
+    /**
+     * Drops the DXVK build this device will not install. Both flavors are pinned
+     * for every device - the manifest cannot know which one a device needs - so
+     * keeping the other one would be a permanent, unfixable "needs update"
+     * (same filter as SettingsViewModel.forDxvkFlavor).
+     */
+    private fun ContentHealthSnapshot.forDeviceDxvkFlavor(): ContentHealthSnapshot {
+        val settings = settingsStore.settings.value
+        val flavor =
+            graphicsDriverCapabilities.effectiveDxvkFlavor(
+                storedFlavorId = settings.dxvkFlavorId,
+                storedDriverId = settings.graphicsDriverId,
+            )
+        val unused =
+            if (DxvkFlavorIds.component(flavor) == ContentComponent.DXVK) {
+                ContentComponent.DXVK_SAREK
+            } else {
+                ContentComponent.DXVK
+            }
+        return copy(components = components.filterNot { it.component == unused })
     }
 
     override suspend fun listPrograms(): List<RecentProgram> =
