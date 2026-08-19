@@ -3,13 +3,13 @@ package app.amphora.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Amphora "Ember" palette.
- *
- * Warm terracotta brand on near-black warm-charcoal surfaces; elevation is
- * expressed through the surfaceContainer brightness ladder, not shadows. The
- * secondary family is clay bronze (same hue neighborhood as the brand) instead
- * of an unrelated purple. Every scheme slot is overridden so nothing falls
- * through to the Material baseline.
+ * Amphora palette: terracotta brand accents (primary) over pure-neutral
+ * graphite surfaces, with a warm mauve secondary for chips and selection
+ * states. Surfaces carry no hue cast so the warm brand color owns the
+ * temperature of the screen; the mauve secondary keeps enough hue distance
+ * from the primary for accents to scan instantly. Tertiary and error slots
+ * are pinned to the Material 3 baseline dark tokens, declared explicitly so
+ * nothing silently falls through if the baseline changes.
  */
 
 // --- Dark (the product scheme; AmphoraTheme pins darkTheme = true) ------------------------
@@ -17,36 +17,36 @@ val AmphoraDarkPrimary = Color(0xFFFF8B61)
 val AmphoraDarkOnPrimary = Color(0xFF2B0D05)
 val AmphoraDarkPrimaryContainer = Color(0xFF4A211A)
 val AmphoraDarkOnPrimaryContainer = Color(0xFFFFD8CB)
-val AmphoraDarkSecondary = Color(0xFFD9B98C)
-val AmphoraDarkOnSecondary = Color(0xFF382B17)
-val AmphoraDarkSecondaryContainer = Color(0xFF4A3A24)
-val AmphoraDarkOnSecondaryContainer = Color(0xFFF2E2C9)
-val AmphoraDarkTertiary = Color(0xFF9CD1C8)
-val AmphoraDarkOnTertiary = Color(0xFF0E362F)
-val AmphoraDarkTertiaryContainer = Color(0xFF1F4C44)
-val AmphoraDarkOnTertiaryContainer = Color(0xFFC4F0E7)
-val AmphoraDarkError = Color(0xFFFF867C)
-val AmphoraDarkOnError = Color(0xFF49201B)
-val AmphoraDarkErrorContainer = Color(0xFF5C211B)
-val AmphoraDarkOnErrorContainer = Color(0xFFFFDAD3)
-val AmphoraDarkBackground = Color(0xFF08070A)
-val AmphoraDarkOnBackground = Color(0xFFF5F1ED)
-val AmphoraDarkSurface = Color(0xFF100E12)
-val AmphoraDarkOnSurface = Color(0xFFF5F1ED)
-val AmphoraDarkSurfaceVariant = Color(0xFF2A252A)
-val AmphoraDarkOnSurfaceVariant = Color(0xFFCFC7C1)
-val AmphoraDarkSurfaceContainerLowest = Color(0xFF0C0B0D)
-val AmphoraDarkSurfaceContainerLow = Color(0xFF1A1614)
-val AmphoraDarkSurfaceContainer = Color(0xFF1E1A17)
-val AmphoraDarkSurfaceContainerHigh = Color(0xFF262120)
-val AmphoraDarkSurfaceContainerHighest = Color(0xFF2E2926)
-val AmphoraDarkSurfaceDim = Color(0xFF08070A)
-val AmphoraDarkSurfaceBright = Color(0xFF3B3536)
-val AmphoraDarkOutline = Color(0xFF8E847F)
-val AmphoraDarkOutlineVariant = Color(0xFF4B4441)
-val AmphoraDarkInverseSurface = Color(0xFFEDE6E1)
-val AmphoraDarkInverseOnSurface = Color(0xFF191619)
-val AmphoraDarkInversePrimary = Color(0xFF9B452E)
+val AmphoraDarkSecondary = Color(0xFFE5C8ED)
+val AmphoraDarkOnSecondary = Color(0xFF461A52)
+val AmphoraDarkSecondaryContainer = Color(0xFF532A5E)
+val AmphoraDarkOnSecondaryContainer = Color(0xFFF4E5F8)
+val AmphoraDarkTertiary = Color(0xFFEFB8C8)
+val AmphoraDarkOnTertiary = Color(0xFF492532)
+val AmphoraDarkTertiaryContainer = Color(0xFF633B48)
+val AmphoraDarkOnTertiaryContainer = Color(0xFFFFD8E4)
+val AmphoraDarkError = Color(0xFFF2B8B5)
+val AmphoraDarkOnError = Color(0xFF601410)
+val AmphoraDarkErrorContainer = Color(0xFF8C1D18)
+val AmphoraDarkOnErrorContainer = Color(0xFFF9DEDC)
+val AmphoraDarkBackground = Color(0xFF0C0C0C)
+val AmphoraDarkOnBackground = Color(0xFFF8F4F1)
+val AmphoraDarkSurface = Color(0xFF121212)
+val AmphoraDarkOnSurface = Color(0xFFF8F4F1)
+val AmphoraDarkSurfaceVariant = Color(0xFF303030)
+val AmphoraDarkOnSurfaceVariant = Color(0xFFC6C6C6)
+val AmphoraDarkSurfaceContainerLowest = Color(0xFF0F0F0F)
+val AmphoraDarkSurfaceContainerLow = Color(0xFF1D1D1D)
+val AmphoraDarkSurfaceContainer = Color(0xFF222222)
+val AmphoraDarkSurfaceContainerHigh = Color(0xFF2C2C2C)
+val AmphoraDarkSurfaceContainerHighest = Color(0xFF373737)
+val AmphoraDarkSurfaceDim = Color(0xFF141414)
+val AmphoraDarkSurfaceBright = Color(0xFF3B3B3B)
+val AmphoraDarkOutline = Color(0xFF949494)
+val AmphoraDarkOutlineVariant = Color(0xFF494949)
+val AmphoraDarkInverseSurface = Color(0xFFE5E5E5)
+val AmphoraDarkInverseOnSurface = Color(0xFF323232)
+val AmphoraDarkInversePrimary = Color(0xFF9250A4)
 val AmphoraDarkScrim = Color(0xFF000000)
 
 // --- Light (kept complete so a future theme toggle needs no palette work) -----------------
