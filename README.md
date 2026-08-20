@@ -58,8 +58,8 @@ Instrumented E2E (ARM64 Adreno device recommended):
 
 GitHub Actions CI (`.github/workflows/ci.yml`): `continuous-test` on every push
 / PR - JVM unit tests with JaCoCo coverage summary + debug/androidTest assemble.
-On `main`, the same job also publishes the debug APK to the rolling Release tag
-`apk` and pins `app_update.json` in
+On `main`, the same job also publishes the debug APK to the GitHub Release
+`apk` (stable tag; the APK asset is replaced in place) and pins `app_update.json` in
 [`amphora-dev/content_manifest`](https://github.com/amphora-dev/content_manifest)
 (GitHub Contents API, raw GitHub fallback). Settings → **App update** checks that pin.
 Device instrumented coverage stays on Tailscale ADB - see

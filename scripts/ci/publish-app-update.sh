@@ -2,6 +2,13 @@
 # Publish the CI debug APK to a rolling amphora Release (`apk`) and pin it in
 # amphora-dev/content_manifest as app_update.json (same CDN pattern as content pins).
 #
+# The `apk` git tag is created once and left in place. Later publishes only
+# replace the APK asset (and release notes) so `git fetch --tags` / editor
+# Sync do not see a moved tag. The download URL stays
+# .../releases/download/apk/amphora-debug.apk. The commit that built the APK
+# is recorded in the release notes and in app_update.json, not by retargeting
+# the tag.
+#
 # Required env:
 #   GH_TOKEN / AMPHORA_REPO_TOKEN  — write to amphora releases + content_manifest
 #   VERSION_CODE / VERSION_NAME
@@ -66,14 +73,26 @@ Pin file: \`amphora-dev/content_manifest\` → \`app_update.json\`
 (CDN: https://cdn.jsdelivr.net/gh/amphora-dev/content_manifest@latest/app_update.json)
 EOF
 
-# Rolling release on amphora: replace previous assets with stable names.
-gh release delete "$RELEASE_TAG" --repo "$REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
-gh release create "$RELEASE_TAG" \
-  "$WORK/$APK_ASSET_NAME" \
-  --repo "$REPOSITORY" \
-  --prerelease \
-  --title "CI APK ${VERSION_NAME}" \
-  --notes-file "$NOTES"
+# Rolling asset, immutable tag: overwrite amphora-debug.apk in place. Do not
+# delete/recreate the release — that moves refs/tags/apk and breaks fetch.
+if gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+  gh release upload "$RELEASE_TAG" \
+    "$WORK/$APK_ASSET_NAME" \
+    --repo "$REPOSITORY" \
+    --clobber
+  gh release edit "$RELEASE_TAG" \
+    --repo "$REPOSITORY" \
+    --prerelease \
+    --title "CI APK ${VERSION_NAME}" \
+    --notes-file "$NOTES"
+else
+  gh release create "$RELEASE_TAG" \
+    "$WORK/$APK_ASSET_NAME" \
+    --repo "$REPOSITORY" \
+    --prerelease \
+    --title "CI APK ${VERSION_NAME}" \
+    --notes-file "$NOTES"
+fi
 
 # Pin app_update.json in content_manifest (jsDelivr @latest).
 git clone --depth 1 \
