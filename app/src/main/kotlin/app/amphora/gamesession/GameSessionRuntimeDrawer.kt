@@ -50,7 +50,9 @@ internal fun RuntimeSessionDrawer(
     onAudioVolumeChange: (Float) -> Unit,
     audioMuted: Boolean,
     onAudioMutedChange: (Boolean) -> Unit,
+    audioBackendLabel: String?,
     fpsLimit: Int,
+    launchFrameRateLimit: Int,
     onFpsLimitChange: (Int) -> Unit,
     stretchToFill: Boolean,
     onStretchToFillChange: (Boolean) -> Unit,
@@ -214,6 +216,13 @@ internal fun RuntimeSessionDrawer(
             }
 
             RuntimeDrawerSection(title = "Audio") {
+                audioBackendLabel?.let { backend ->
+                    Text(
+                        "This session is using $backend.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 Text(
                     "Volume · ${(audioVolume.coerceIn(0f, 1f) * 100).toInt()}%",
                     style = MaterialTheme.typography.labelLarge,
@@ -257,11 +266,13 @@ internal fun RuntimeSessionDrawer(
                     }
                 }
                 Text(
-                    "Applies immediately to the compositor and refresh rate. Direct3D titles " +
-                        "(8-12) also carry the DXVK launch-time frame rate, so raising the limit or " +
-                        "turning it off here cannot exceed that until the next session. OpenGL titles " +
-                        "are only limited here.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    sessionFrameLimitHint(fpsLimit, launchFrameRateLimit),
+                    color =
+                    if (sessionFrameLimitHintIsWarning(fpsLimit, launchFrameRateLimit)) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     style = MaterialTheme.typography.bodySmall,
                 )
                 RuntimeToggleRow(
@@ -360,3 +371,25 @@ private fun runtimeStatusLabel(sessionState: SessionState?): String = when (sess
 }
 
 private val FPS_LIMITS = listOf(0, 30, 45, 60, 90, 120)
+
+internal fun sessionFrameLimitHint(compositorLimit: Int, launchLimit: Int): String {
+    if (launchLimit <= 0) {
+        return "The compositor cap applies immediately to every API, including OpenGL and WineD3D."
+    }
+    val lock =
+        "Direct3D 8–12 stay locked at $launchLimit FPS from Settings (DXVK/DXGI) until you restart " +
+            "the session."
+    return when {
+        compositorLimit == 0 ->
+            "Off here only removes the compositor cap for OpenGL and WineD3D. $lock " +
+                "Turning this Off cannot lift that launch cap."
+        compositorLimit > launchLimit ->
+            "Raising this cannot exceed $launchLimit FPS for Direct3D 8–12. $lock"
+        else ->
+            "The compositor cap applies immediately to every API. $lock " +
+                "Turning this Off cannot lift that launch cap."
+    }
+}
+
+internal fun sessionFrameLimitHintIsWarning(compositorLimit: Int, launchLimit: Int): Boolean =
+    launchLimit > 0 && (compositorLimit == 0 || compositorLimit > launchLimit)

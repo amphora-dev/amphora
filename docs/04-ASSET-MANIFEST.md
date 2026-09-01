@@ -20,9 +20,11 @@
 PulseAudio 是例外，不属于远程 manifest：`pulseaudio.tzst`（78,340 B）与约 2.03 MB
 PA13 Android JNI 依赖随 APK 固定交付，避免 Wine 客户端、守护进程和模块跨版本漂移。
 
-> **发布联动状态（2026-08-11）**：应用与 imagefs 功能分支已完成 Pulse 代码及
-> `winepulse.so`/`.drv` 构建；文首当前生产 Proton pin 仍是联动前产物。manifest
-> 发布新 WCP 前，运行时完整性检查会把 Pulse 请求安全回退到 ALSA。
+> **发布联动状态（2026-08-30）**：imagefs `wine` Release 已在 2026-08-11 用同一
+> 文件名替换为含 `winepulse` 的 WCP。生产 pin 仍是
+> `Proton-11.0-d12a5634a-x86_64.wcp`，SHA `99c664d9994a5876a6e0e34eec252c5eb9f5074efec52ae68d0be8b37ead4b6e`。
+> 设备上的 `winepulse.so` 为 x86_64，`DT_NEEDED=libpulse.so`（无 guest `libpulse`）。
+> 4 KB 页上选择 Pulse 不再因缺失驱动回退 ALSA。
 
 ---
 

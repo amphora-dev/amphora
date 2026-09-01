@@ -19,6 +19,8 @@ import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.GuestDriveManager
 import app.amphora.core.engine.GuestDriveMapping
 import app.amphora.core.engine.LaunchRuntimeSettings
+import app.amphora.core.engine.PulseAudioCapabilities
+import app.amphora.core.engine.PulseAudioProbe
 import app.amphora.core.engine.RuntimeSettingsStore
 import app.amphora.core.engine.ShizukuCleanupStatus
 import app.amphora.core.engine.ShizukuEmergencyStopper
@@ -29,6 +31,7 @@ import app.amphora.core.engine.WineLocalePreferences
 import app.amphora.core.engine.model.ContentComponentHealth
 import app.amphora.core.engine.model.ContentHealthSnapshot
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
+import com.winlator.cmod.runtime.wine.LocaleEnv
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -57,6 +60,7 @@ constructor(
     private val updateController: SettingsUpdateController,
     private val runtimeSettings: RuntimeSettingsStore,
     private val graphicsDriverCapabilities: GraphicsDriverCapabilities,
+    private val pulseAudioCapabilities: PulseAudioCapabilities,
 ) : ViewModel() {
     private val prefs =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
@@ -69,21 +73,23 @@ constructor(
         prefs.getString(AdvancedRuntimePreferences.KEY_CUSTOM_ENV, "").orEmpty()
     private val initialWindowsComponents = WindowsComponentPreferences.selections(context)
     private val updateCoordinator = SettingsUpdateCoordinator<AppUpdateManifest, File>()
+    private val initialAudioBackend =
+        AudioBackend.fromId(prefs.getString(AdvancedRuntimePreferences.KEY_AUDIO_DRIVER, null))
+    private val initialWineLocale = WineLocalePreferences.selected(context)
 
     private val _uiState =
         MutableStateFlow(
             SettingsUiState(
                 installedVersionName = updateController.installedVersionName(),
                 installedVersionCode = updateController.installedVersionCode(),
-                wineLocale = WineLocalePreferences.selected(context),
+                wineLocale = initialWineLocale,
+                wineLocaleImpact = wineLocaleImpact(initialWineLocale),
                 box64Mode =
                 Box64Mode.fromId(
                     prefs.getString(AdvancedRuntimePreferences.KEY_BOX64_PRESET, null),
                 ),
-                audioBackend =
-                AudioBackend.fromId(
-                    prefs.getString(AdvancedRuntimePreferences.KEY_AUDIO_DRIVER, null),
-                ),
+                audioBackend = initialAudioBackend,
+                audioStatus = AudioBackendStatus.of(initialAudioBackend, pulseAudioCapabilities.probe()),
                 dxvkAsync = prefs.getBoolean(AdvancedRuntimePreferences.KEY_DXVK_ASYNC, true),
                 frameLimit =
                 FrameLimit.fromValue(
@@ -293,6 +299,7 @@ constructor(
     /** Adds the device probes [withRuntimeSettings] cannot do on its own. */
     private fun SettingsUiState.withResolvedRuntimeSettings(settings: LaunchRuntimeSettings): SettingsUiState {
         val selected = DxvkFlavorSetting.fromId(settings.dxvkFlavorId)
+        val vulkanMinor = graphicsDriverCapabilities.vulkanMinorVersion(settings.graphicsDriverId)
         return withRuntimeSettings(
             settings = settings,
             effectiveDriverId = graphicsDriverCapabilities.effectiveDriverId(settings.graphicsDriverId),
@@ -304,12 +311,19 @@ constructor(
                     storedFlavorId = settings.dxvkFlavorId,
                     storedDriverId = settings.graphicsDriverId,
                 ),
-                vulkanMinor = graphicsDriverCapabilities.vulkanMinorVersion(settings.graphicsDriverId),
+                vulkanMinor = vulkanMinor,
             ),
             openGlBackend =
             OpenGlBackendStatus.of(graphicsDriverCapabilities.zinkBlockers(settings.graphicsDriverId)),
+            vulkanVersionLabel = vulkanMinor?.let { "Vulkan 1.$it" },
         )
     }
+
+    private fun wineLocaleImpact(option: WineLocaleOption): String =
+        option.impact(LocaleEnv.normalize(LocaleEnv.deriveFromDevice()))
+
+    private fun audioStatus(selected: AudioBackend): AudioBackendStatus =
+        AudioBackendStatus.of(selected, pulseAudioCapabilities.probe())
 
     fun selectDxvkFlavor(value: DxvkFlavorSetting) {
         runtimeSettings.setDxvkFlavorId(value.id)
@@ -323,7 +337,7 @@ constructor(
 
     fun selectWineLocale(value: WineLocaleOption) {
         WineLocalePreferences.set(context, value)
-        _uiState.update { it.copy(wineLocale = value) }
+        _uiState.update { it.copy(wineLocale = value, wineLocaleImpact = wineLocaleImpact(value)) }
     }
 
     fun resetPreferences() {
@@ -353,8 +367,11 @@ constructor(
                 graphicsDriver = graphicsDriverOptions.first(),
                 directDrawWrapper = DirectDrawSetting.DXWRAPPER,
                 wineLocale = WineLocaleOption.AUTO,
+                wineLocaleImpact = wineLocaleImpact(WineLocaleOption.AUTO),
                 box64Mode = Box64Mode.PERFORMANCE,
-                audioBackend = AudioBackend.ALSA,
+                audioBackend = AudioBackend.PULSEAUDIO,
+                audioStatus = audioStatus(AudioBackend.PULSEAUDIO),
+                audioFallbackDialog = null,
                 dxvkAsync = true,
                 frameLimit = FrameLimit.OFF,
                 presentMode = PresentMode.AUTO,
@@ -385,8 +402,19 @@ constructor(
     }
 
     fun selectAudioBackend(value: AudioBackend) {
+        val status = audioStatus(value)
         prefs.edit { putString(AdvancedRuntimePreferences.KEY_AUDIO_DRIVER, value.id) }
-        _uiState.update { it.copy(audioBackend = value) }
+        _uiState.update {
+            it.copy(
+                audioBackend = value,
+                audioStatus = status,
+                audioFallbackDialog = status.dialog,
+            )
+        }
+    }
+
+    fun dismissAudioFallbackDialog() {
+        _uiState.update { it.copy(audioFallbackDialog = null) }
     }
 
     fun setDxvkAsync(enabled: Boolean) {
@@ -514,6 +542,7 @@ constructor(
                         runtimeAssets = snapshot.toRuntimeAssetHealth(),
                         imagefsResidue = snapshot.imageFsResidue,
                         manifestReady = true,
+                        audioStatus = audioStatus(it.audioBackend),
                     )
                 }
             } catch (error: Throwable) {
@@ -633,8 +662,11 @@ data class SettingsUiState(
     val openGlBackend: OpenGlBackendStatus = OpenGlBackendStatus(),
     val directDrawWrapper: DirectDrawSetting = DirectDrawSetting.DXWRAPPER,
     val wineLocale: WineLocaleOption = WineLocaleOption.AUTO,
+    val wineLocaleImpact: String = WineLocaleOption.AUTO.impact("en_US.UTF-8"),
     val box64Mode: Box64Mode = Box64Mode.PERFORMANCE,
-    val audioBackend: AudioBackend = AudioBackend.ALSA,
+    val audioBackend: AudioBackend = AudioBackend.PULSEAUDIO,
+    val audioStatus: AudioBackendStatus = AudioBackendStatus(),
+    val audioFallbackDialog: String? = null,
     val dxvkAsync: Boolean = true,
     val frameLimit: FrameLimit = FrameLimit.OFF,
     val presentMode: PresentMode = PresentMode.AUTO,
@@ -647,6 +679,7 @@ data class SettingsUiState(
     val vkd3dFeatureLevel: Vkd3dFeatureLevel = Vkd3dFeatureLevel.AUTO,
     val vkd3dShaderModel: Vkd3dShaderModel = Vkd3dShaderModel.AUTO,
     val vkd3dDxr: Vkd3dDxrMode = Vkd3dDxrMode.AUTO,
+    val vulkanVersionLabel: String? = null,
     val windowsComponents: Map<WindowsComponentSetting, Boolean> =
         WindowsComponentSetting.entries.associateWith { true },
     val clearingShaderCache: Boolean = false,
@@ -685,12 +718,14 @@ internal fun SettingsUiState.withRuntimeSettings(
     effectiveDriverId: String,
     dxvkFlavor: DxvkFlavorStatus,
     openGlBackend: OpenGlBackendStatus,
+    vulkanVersionLabel: String?,
 ): SettingsUiState = copy(
     resolution = DisplayResolution.fromPreference(settings.resolutionName),
     graphicsDriver = GraphicsDriverSetting.fromId(effectiveDriverId),
     directDrawWrapper = DirectDrawSetting.fromId(settings.directDrawWrapperId),
     dxvkFlavor = dxvkFlavor,
     openGlBackend = openGlBackend,
+    vulkanVersionLabel = vulkanVersionLabel,
 )
 
 enum class DisplayResolution(val width: Int, val height: Int, val label: String) {
@@ -864,7 +899,61 @@ enum class AudioBackend(val id: String, val label: String) {
     ;
 
     companion object {
-        fun fromId(value: String?): AudioBackend = entries.firstOrNull { it.id == value } ?: ALSA
+        fun fromId(value: String?): AudioBackend =
+            entries.firstOrNull { it.id == value } ?: PULSEAUDIO
+    }
+}
+
+/**
+ * Requested audio chip versus the backend a launch will actually start.
+ *
+ * Pulse stays selectable on 16 KB-page devices and on Proton trees without
+ * winepulse; the chip, impact line and (on change) dialog say that ALSA will
+ * run instead.
+ */
+data class AudioBackendStatus(
+    val selected: AudioBackend = AudioBackend.PULSEAUDIO,
+    val effective: AudioBackend = AudioBackend.PULSEAUDIO,
+    val chipLabel: String = AudioBackend.PULSEAUDIO.label,
+    val impact: String = "Wine driver and session audio service · next launch",
+    val warning: String? = null,
+    val summaryLabel: String = AudioBackend.PULSEAUDIO.label,
+    val dialog: String? = null,
+) {
+    companion object {
+        fun of(selected: AudioBackend, probe: PulseAudioProbe): AudioBackendStatus {
+            val fallback = selected == AudioBackend.PULSEAUDIO && probe.fallsBackToAlsa()
+            val reason = probe.fallbackReason()
+            val effective = if (fallback) AudioBackend.ALSA else selected
+            return AudioBackendStatus(
+                selected = selected,
+                effective = effective,
+                chipLabel =
+                if (fallback) "PulseAudio · uses ALSA" else selected.label,
+                impact =
+                if (fallback) {
+                    "Selected PulseAudio · this session will use ALSA because $reason"
+                } else {
+                    "Wine driver and session audio service · next launch"
+                },
+                warning =
+                if (fallback) {
+                    "PulseAudio cannot start here. ALSA will run instead. You can keep Pulse " +
+                        "selected; it will be used automatically if this device later supports it."
+                } else {
+                    null
+                },
+                summaryLabel =
+                if (fallback) "PulseAudio → ALSA" else selected.label,
+                dialog =
+                if (fallback) {
+                    "PulseAudio cannot start on this device because $reason. Keep PulseAudio " +
+                        "selected if you want it later, or switch to ALSA now."
+                } else {
+                    null
+                },
+            )
+        }
     }
 }
 

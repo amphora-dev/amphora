@@ -32,6 +32,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.model.SessionState
 import app.amphora.gamesession.input.ImeUiState
 import app.amphora.gamesession.input.TouchpadView
@@ -298,7 +299,9 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
                         audioMuted = it
                         viewModel.setAudioMuted(it)
                     },
+                    audioBackendLabel = sessionAudioBackendLabel(surface?.audioDriver),
                     fpsLimit = fpsLimit,
+                    launchFrameRateLimit = viewModel.initialFrameRateLimit,
                     onFpsLimitChange = { fpsLimit = it },
                     stretchToFill = stretchToFill,
                     onStretchToFillChange = { stretchToFill = it },
@@ -419,6 +422,13 @@ private fun Context.findActivity(): Activity? {
         current = current.baseContext
     }
     return current as? Activity
+}
+
+private fun sessionAudioBackendLabel(audioDriver: String?): String? = when (audioDriver) {
+    AdvancedRuntimePreferences.AUDIO_DRIVER_PULSEAUDIO -> "PulseAudio · AAudio"
+    AdvancedRuntimePreferences.AUDIO_DRIVER_ALSA -> "ALSA · AudioTrack"
+    null -> null
+    else -> audioDriver
 }
 
 private const val TAG = "GameSessionScreen"

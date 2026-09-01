@@ -491,6 +491,7 @@ private fun DetailPane(
     onBack: (() -> Unit)? = null,
 ) {
     val selectedProgram = LauncherStateEvaluator.selectedProgram(state, desktopSelected)
+    val storageGranted = rememberGuestStorageGranted()
     Box(
         modifier =
         modifier.background(
@@ -521,20 +522,28 @@ private fun DetailPane(
                         runtimeReady = runtimeReady,
                         canPrepareRuntime = canPrepareRuntime,
                         onOpenExplorer = onOpenExplorer,
-                        onOpenSettings = onOpenSettings,
                     )
                 } else if (selectedProgram != null) {
                     ProgramDetail(
                         program = selectedProgram,
-                        state = state,
                         runtimeReady = runtimeReady,
                         canPrepareRuntime = canPrepareRuntime,
                         onLaunch = onLaunchProgram,
-                        onOpenSettings = onOpenSettings,
                     )
                 } else {
                     MissingProgramDetail(onAddProgram)
                 }
+            }
+            item {
+                Text(
+                    "SHARED ENVIRONMENT",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.4.sp,
+                )
+            }
+            item {
+                ConfigurationCard(state = state, onOpenSettings = onOpenSettings)
             }
             item {
                 RuntimeSummary(
@@ -543,8 +552,10 @@ private fun DetailPane(
                     onRefresh = onRefresh,
                 )
             }
-            item {
-                StorageAccessBlock()
+            if (!storageGranted) {
+                item {
+                    StorageAccessBlock()
+                }
             }
         }
         Box(
@@ -577,7 +588,6 @@ private fun DesktopDetail(
     runtimeReady: Boolean,
     canPrepareRuntime: Boolean,
     onOpenExplorer: () -> Unit,
-    onOpenSettings: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -585,7 +595,7 @@ private fun DesktopDetail(
     ) {
         DetailIdentity(
             monogram = "W",
-            eyebrow = "WINDOWS ENVIRONMENT",
+            eyebrow = "WINDOWS DESKTOP",
             title = "Windows Desktop",
             subtitle = "Browse drives, run installers, and manage programs in Explorer.",
         )
@@ -604,18 +614,15 @@ private fun DesktopDetail(
                 },
             )
         }
-        ConfigurationCard(state = state, onOpenSettings = onOpenSettings)
     }
 }
 
 @Composable
 private fun ProgramDetail(
     program: RecentProgram,
-    state: LauncherUiState,
     runtimeReady: Boolean,
     canPrepareRuntime: Boolean,
     onLaunch: () -> Unit,
-    onOpenSettings: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -641,7 +648,6 @@ private fun ProgramDetail(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        ConfigurationCard(state = state, onOpenSettings = onOpenSettings)
     }
 }
 
@@ -710,12 +716,18 @@ private fun ConfigurationCard(state: LauncherUiState, onOpenSettings: () -> Unit
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Current configuration",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Launch settings",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Same for every program and the Windows desktop.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
                     "Edit",
                     color = MaterialTheme.colorScheme.primary,
@@ -787,7 +799,7 @@ private fun RuntimeSummary(state: LauncherUiState, ready: Boolean, onRefresh: ()
                 )
                 Text(
                     if (ready) {
-                        "Proton · Box64 · ${state.graphicsDriver.label}"
+                        "Proton and Box64 are installed for this container."
                     } else {
                         "${contentHealth.unhealthyComponents} components and " +
                             "${contentHealth.unhealthyRuntimeAssets} files need attention"

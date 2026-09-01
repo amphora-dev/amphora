@@ -98,8 +98,9 @@
   约 **30 fps**，VirGL 达到 **100+ fps**，超过 3× 判据；先前记录的 519 fps 是 AIO
   列表中其他测试的残值，并非 OpenGL 成绩。顺带确认 W^X 可用
   `linker64 <绝对路径>` 绕过、guest 拿的是绝对宿主路径无需命名空间映射。
-- ⏭ 下一步: 把 VirGL renderer、socket 生命周期和 OpenGL 后端三态选择集成进 app；Pulse 真机出声/延迟/来电切换回归；手柄 / FEX 等明确扩展项；
-  WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。详见
+- ⏭ 下一步: 把 VirGL renderer、socket 生命周期和 OpenGL 后端三态选择集成进 app；手柄 / FEX 等明确扩展项；
+  WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。Pulse 生产 WCP 已含
+  `winepulse`（2026-08-11 pin SHA `99c664d9…`）；真机栈回归见 `GameSessionPulseAudioTest`。详见
   [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
 
 | 项 | 值 |

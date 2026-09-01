@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -160,7 +161,7 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "${state.box64Mode.label} · ${state.audioBackend.label}",
+                        "${state.box64Mode.label} · ${state.audioStatus.summaryLabel}",
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
@@ -192,17 +193,19 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
             ChoiceSetting(
                 title = "Audio backend",
                 description =
-                "ALSA uses Android AudioTrack for broad compatibility. PulseAudio routes " +
-                    "Wine audio through an AAudio sink for lower latency and restores the " +
-                    "stream after Android audio-device interruptions. The current matched " +
-                    "AAudio module falls back to ALSA on 16 KB-page devices.",
-                impact = "Wine driver and session audio service · next launch",
+                "PulseAudio is the default: Wine talks to an AAudio sink for lower latency " +
+                    "and recovers after calls or device switches. ALSA uses AudioTrack when " +
+                    "you need the compatibility path.",
+                impact = state.audioStatus.impact,
                 selected = state.audioBackend,
-                defaultValue = AudioBackend.ALSA,
+                defaultValue = AudioBackend.PULSEAUDIO,
                 values = AudioBackend.entries,
-                label = { it.label },
+                label = { backend ->
+                    if (backend == AudioBackend.PULSEAUDIO) state.audioStatus.chipLabel else backend.label
+                },
+                warning = state.audioStatus.warning,
                 onSelect = viewModel::selectAudioBackend,
-                onReset = { viewModel.selectAudioBackend(AudioBackend.ALSA) },
+                onReset = { viewModel.selectAudioBackend(AudioBackend.PULSEAUDIO) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -210,7 +213,9 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                 description =
                 "Can reduce shader stutter with compatible DXVK builds, but may introduce " +
                     "rendering glitches in some games.",
-                impact = "Scope: Direct3D through DXVK · next launch",
+                impact =
+                "Environment: DXVK_ASYNC · Direct3D 8–11 through DXVK only. Direct3D 12 / " +
+                    "VKD3D ignores this.",
                 selected = state.dxvkAsync,
                 defaultValue = false,
                 values = listOf(false, true),
@@ -221,9 +226,11 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
             ChoiceSetting(
                 title = "Frame limit",
                 description =
-                "Limits DXVK presentation rate. This can reduce heat and power use; it does " +
-                    "not affect WineD3D or software renderers.",
-                impact = "Environment: DXVK_FRAME_RATE · DXVK only",
+                "Caps presentation for Direct3D 8–11 (DXVK) and Direct3D 12 (VKD3D uses " +
+                    "DXVK's DXGI). WineD3D and OpenGL are not limited here — use the in-session " +
+                    "panel for the compositor cap that applies to every API.",
+                impact =
+                "Environment: DXVK_FRAME_RATE and dxgi.maxFrameRate · Direct3D 8–12 · next launch",
                 selected = state.frameLimit,
                 defaultValue = FrameLimit.OFF,
                 values = FrameLimit.entries,
@@ -237,7 +244,7 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                 description =
                 "Limits the D3D feature level VKD3D reports. Automatic is recommended; " +
                     "forcing a higher level cannot add missing GPU driver features.",
-                impact = "Environment: VKD3D_FEATURE_LEVEL · Direct3D 12 only",
+                impact = vkd3dFeatureLevelImpact(state.vkd3dFeatureLevel, state.vulkanVersionLabel),
                 selected = state.vkd3dFeatureLevel,
                 defaultValue = Vkd3dFeatureLevel.AUTO,
                 values = Vkd3dFeatureLevel.entries,
@@ -250,7 +257,7 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                 description =
                 "Controls the maximum shader model exposed by VKD3D-Proton. Values unsupported " +
                     "by the driver may prevent a game from starting.",
-                impact = "Environment: VKD3D_SHADER_MODEL · Direct3D 12 only",
+                impact = vkd3dShaderModelImpact(state.vkd3dShaderModel, state.vulkanVersionLabel),
                 selected = state.vkd3dShaderModel,
                 defaultValue = Vkd3dShaderModel.AUTO,
                 values = Vkd3dShaderModel.entries,
@@ -263,7 +270,7 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                 description =
                 "Automatic lets VKD3D detect safe DXR support. Force can bypass its safety " +
                     "checks; DXR 1.2 is experimental and requires opacity micromap support.",
-                impact = "Environment: VKD3D_CONFIG · Direct3D 12 only",
+                impact = vkd3dDxrImpact(state.vkd3dDxr, state.vulkanVersionLabel),
                 selected = state.vkd3dDxr,
                 defaultValue = Vkd3dDxrMode.AUTO,
                 values = Vkd3dDxrMode.entries,
@@ -275,9 +282,9 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
             ChoiceSetting(
                 title = "Vulkan present mode",
                 description =
-                "Automatic follows the driver. Mailbox favors low-latency tear-free output; " +
-                    "VSync is conservative; Immediate may tear.",
-                impact = "Dependency: wrapper → Vulkan WSI · all Vulkan renderers",
+                "Mailbox favors low-latency tear-free output; VSync is conservative; " +
+                    "Immediate may tear.",
+                impact = presentModeImpact(state.presentMode),
                 selected = state.presentMode,
                 defaultValue = PresentMode.AUTO,
                 values = PresentMode.entries,
@@ -290,7 +297,7 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                 description =
                 "Controls fallback emulation when the selected GPU driver lacks BC texture " +
                     "support. Full emulation improves compatibility at a performance cost.",
-                impact = "Scope: Vulkan wrapper texture formats · next launch",
+                impact = bcnModeImpact(state.bcnMode),
                 selected = state.bcnMode,
                 defaultValue = BcnMode.DEFAULT,
                 values = BcnMode.entries,
@@ -315,8 +322,9 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
             ChoiceSetting(
                 title = "DXVK in-game HUD",
                 description =
-                "Shows FPS, API, GPU and memory information over Direct3D games. " +
-                    "This is display-only and does not enable verbose log files.",
+                "Shows FPS, API, GPU and memory information over Direct3D 8–11 games. " +
+                    "Direct3D 12 does not show this overlay; use Host performance overlay " +
+                    "for every graphics API.",
                 impact = "Environment: DXVK_HUD · Direct3D 8–11 only",
                 selected = state.dxvkHud,
                 defaultValue = false,
@@ -439,4 +447,74 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
             )
         }
     }
+    state.audioFallbackDialog?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissAudioFallbackDialog,
+            title = { Text("PulseAudio cannot run on this device") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.selectAudioBackend(AudioBackend.ALSA) },
+                ) {
+                    Text("Use ALSA")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissAudioFallbackDialog) {
+                    Text("Keep PulseAudio")
+                }
+            },
+        )
+    }
+}
+
+private fun vkd3dFeatureLevelImpact(selected: Vkd3dFeatureLevel, vulkan: String?): String {
+    val device = vulkan?.let { " This device reports $it." }.orEmpty()
+    return if (selected == Vkd3dFeatureLevel.AUTO) {
+        "Automatic lets VKD3D choose a feature level when a Direct3D 12 game creates a device." +
+            "$device A background Wine start would not load vkd3d, so Settings cannot preview " +
+            "the exact level."
+    } else {
+        "${selected.label} · Environment: VKD3D_FEATURE_LEVEL · Direct3D 12 only"
+    }
+}
+
+private fun vkd3dShaderModelImpact(selected: Vkd3dShaderModel, vulkan: String?): String {
+    val device = vulkan?.let { " This device reports $it." }.orEmpty()
+    return if (selected == Vkd3dShaderModel.AUTO) {
+        "Automatic lets VKD3D choose a shader model when a Direct3D 12 game creates a device." +
+            "$device A background Wine start would not load vkd3d."
+    } else {
+        "${selected.label} · Environment: VKD3D_SHADER_MODEL · Direct3D 12 only"
+    }
+}
+
+private fun vkd3dDxrImpact(selected: Vkd3dDxrMode, vulkan: String?): String {
+    val device = vulkan?.let { " This device reports $it." }.orEmpty()
+    return if (selected == Vkd3dDxrMode.AUTO) {
+        "Automatic lets VKD3D enable DXR only when the driver reports safe support." +
+            "$device That check happens at D3D12 device creation, not by starting Wine."
+    } else {
+        "${selected.label} · Environment: VKD3D_CONFIG · Direct3D 12 only"
+    }
+}
+
+private fun presentModeImpact(selected: PresentMode): String = when (selected) {
+    PresentMode.AUTO ->
+        "Automatic keeps Mailbox, the session compositor default. This is applied before " +
+            "Wine starts — a background Wine launch would not report a different mode."
+    else ->
+        "${selected.label} · Environment: MESA_VK_WSI_PRESENT_MODE · all Vulkan renderers · next launch"
+}
+
+private fun bcnModeImpact(selected: BcnMode): String = when (selected) {
+    BcnMode.DEFAULT ->
+        "Driver default keeps automatic BC emulation. The wrapper fills in missing BC " +
+            "formats; a background Wine start would not change this."
+    BcnMode.AUTO ->
+        "Automatic emulation · WRAPPER_EMULATE_BCN=3 · next launch"
+    BcnMode.FULL ->
+        "Full emulation · WRAPPER_EMULATE_BCN=2 · next launch"
+    BcnMode.NONE ->
+        "Disabled · WRAPPER_EMULATE_BCN=0 · next launch"
 }

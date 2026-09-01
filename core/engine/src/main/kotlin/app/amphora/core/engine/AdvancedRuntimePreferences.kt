@@ -62,10 +62,11 @@ object AdvancedRuntimePreferences {
         }
     }
 
-    fun audioDriver(context: Context): String = when (prefs(context).getString(KEY_AUDIO_DRIVER, AUDIO_DRIVER_ALSA)) {
-        AUDIO_DRIVER_PULSEAUDIO -> AUDIO_DRIVER_PULSEAUDIO
-        else -> AUDIO_DRIVER_ALSA
-    }
+    fun audioDriver(context: Context): String =
+        when (prefs(context).getString(KEY_AUDIO_DRIVER, AUDIO_DRIVER_PULSEAUDIO)) {
+            AUDIO_DRIVER_ALSA -> AUDIO_DRIVER_ALSA
+            else -> AUDIO_DRIVER_PULSEAUDIO
+        }
 
     fun applyEnvOverrides(context: Context, env: EnvVars) {
         val prefs = prefs(context)

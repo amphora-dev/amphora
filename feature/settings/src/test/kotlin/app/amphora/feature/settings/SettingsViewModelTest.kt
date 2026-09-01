@@ -16,6 +16,8 @@ import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.GuestDriveManager
 import app.amphora.core.engine.GuestDriveMapping
 import app.amphora.core.engine.LaunchRuntimeSettings
+import app.amphora.core.engine.PulseAudioCapabilities
+import app.amphora.core.engine.PulseAudioProbe
 import app.amphora.core.engine.RuntimeSettingsStore
 import app.amphora.core.engine.ShizukuCleanupStatus
 import app.amphora.core.engine.ShizukuEmergencyStopper
@@ -150,10 +152,46 @@ class SettingsViewModelTest {
         )
     }
 
-    private fun fixture(): Fixture {
+    @Test
+    fun selectingPulseOnAnUnsupportedDeviceKeepsTheRequestAndShowsFallbackUi() =
+        runTest(dispatchers.testDispatcher) {
+            val fixture =
+                fixture(
+                    PulseAudioProbe(
+                        platformSupported = false,
+                        wineDriver = PulseAudioProbe.WineDriver.PRESENT,
+                    ),
+                )
+            runCurrent()
+
+            fixture.viewModel.selectAudioBackend(AudioBackend.PULSEAUDIO)
+
+            with(fixture.viewModel.uiState.value) {
+                assertEquals(AudioBackend.PULSEAUDIO, audioBackend)
+                assertEquals(AudioBackend.ALSA, audioStatus.effective)
+                assertEquals("PulseAudio · uses ALSA", audioStatus.chipLabel)
+                assertEquals("PulseAudio → ALSA", audioStatus.summaryLabel)
+                assertTrue(audioStatus.warning!!.contains("ALSA will run instead"))
+                assertTrue(audioFallbackDialog!!.contains("16 KB"))
+            }
+
+            fixture.viewModel.dismissAudioFallbackDialog()
+            assertEquals(null, fixture.viewModel.uiState.value.audioFallbackDialog)
+            assertEquals(AudioBackend.PULSEAUDIO, fixture.viewModel.uiState.value.audioBackend)
+        }
+
+    private fun fixture(
+        pulseProbe: PulseAudioProbe =
+            PulseAudioProbe(
+                platformSupported = true,
+                wineDriver = PulseAudioProbe.WineDriver.PRESENT,
+            ),
+    ): Fixture {
         val preferences = mockk<SharedPreferences>()
+        val editor = mockk<SharedPreferences.Editor>(relaxed = true)
         every { preferences.getString(any(), any()) } answers { secondArg() }
         every { preferences.getBoolean(any(), any()) } answers { secondArg() }
+        every { preferences.edit() } returns editor
         val context = mockk<Context>()
         every {
             context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
@@ -215,6 +253,9 @@ class SettingsViewModelTest {
             DxvkFlavorIds.resolve(firstArg(), vulkanMinor = 3, usesLeegao = false)
         }
 
+        val pulseAudioCapabilities = mockk<PulseAudioCapabilities>()
+        every { pulseAudioCapabilities.probe() } returns pulseProbe
+
         return Fixture(
             viewModel =
             SettingsViewModel(
@@ -230,6 +271,7 @@ class SettingsViewModelTest {
                 updateController = updateController,
                 runtimeSettings = runtimeSettings,
                 graphicsDriverCapabilities = graphicsDriverCapabilities,
+                pulseAudioCapabilities = pulseAudioCapabilities,
             ),
             runtimeState = runtimeState,
             runtimeSettings = runtimeSettings,

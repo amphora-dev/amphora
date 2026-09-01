@@ -69,6 +69,7 @@ internal fun <T> ChoiceSetting(
     values: List<T>,
     label: (T) -> String,
     enabled: Boolean = true,
+    warning: String? = null,
     onSelect: (T) -> Unit,
     onReset: () -> Unit,
 ) {
@@ -117,6 +118,13 @@ internal fun <T> ChoiceSetting(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    warning?.let { text ->
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
         )
     }
 }

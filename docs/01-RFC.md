@@ -221,7 +221,7 @@ winlator native 只是渲染器；X server 的窗口/输入/进程模型在 **Ja
 |------|------|------|
 | **v0.1** | 一个 exe 跑通（显示、输入、ALSA 音频） | ✅ 已完成 |
 | 内容供应 | `RemoteContentSource`、SHA pin、Wine/Box64/DXVK/VKD3D 更新 | ✅ 已完成 |
-| 音频增强 | 可选 PulseAudio/AAudio，ALSA 回退 | ✅ 已实现，待扩大真机回归 |
+| 音频增强 | 可选 PulseAudio/AAudio，ALSA 回退 | ✅ 生产 pin 含 winepulse；真机栈见 `GameSessionPulseAudioTest` |
 | 输入增强 | 手柄、虚拟键盘、自定义布局 | 📋 候选 |
 | 兼容路线 | FEX/arm64ec 与更多设备适配 | 📋 候选 |
 | 商店集成 | Steam/Epic/GOG 独立 feature，不反向侵入内核 | 长期候选 |

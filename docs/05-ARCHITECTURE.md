@@ -1,7 +1,7 @@
 # 05 - As-Built 架构
 
 > 当前实现的架构真源。决议见 [`01-RFC.md`](01-RFC.md)；进度手账见 [`03-TRACKING.md`](03-TRACKING.md)；资产锁见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)。
-> 最后更新: 2026-08-13 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐）
+> 最后更新: 2026-08-30 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐；Pulse 生产 pin 已含 winepulse）
 
 ---
 
@@ -134,7 +134,7 @@ runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagef
 | Native | `vk_renderer.c` + adrenotools | swapchain / AHB 导入 / Turnip 或系统 `libvulkan.so` |
 | X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
 | Guest 图形 | Wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw 在 Dd7to9 / cnc-ddraw / D7VK 中单选；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | 默认 wrapper 包装系统 Adreno，host 直接用同一系统 Vulkan；显式 Turnip 才由 host/guest 共用 adrenotools driver |
-| 音频 | ALSA aserver 或 Wine PulseAudio | 默认 ALSA；可选 `winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`，16 KB 页或驱动不完整时保留 ALSA |
+| 音频 | ALSA aserver 或 Wine PulseAudio | 默认 Pulse（`winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`）；16 KB 页或驱动不完整时回退 ALSA |
 | 性能 HUD | `HostPerformanceMonitor` / `HostPerformanceOverlay` | API 无关的 compositor queue-present FPS；可拖动、可展开。HUD 可见时 native compositor 每 4 帧用 Vulkan timestamp query 报告 GPU 合成时间，驱动支持 `VK_GOOGLE_display_timing` 时每 8 帧 drain 实际 display FPS、present interval/margin；展开后按低频率读取每核 CPU/频率、GPU 负载/频率、帧时间 P95/1% low、guest RSS/进程/线程、温度/电池功耗，以及配置和实际映射中发现的 DXVK/VKD3D/WineD3D |
 
 ### 4.1 RTS 策略触控
@@ -176,8 +176,9 @@ MotionEvent
 - JVM 测试覆盖单指点按、双指右键、框选拖拽、方向键平移和捏合缩放；真机需在
   Wine 会话内继续验证多指事件时序、系统边缘手势冲突和不同屏幕密度。
 
-Pulse 代码与配套 WCP 已在功能分支完成构建验证；生产 manifest 发布含
-`winepulse` 的新 WCP 前，完整性检查会继续选择 ALSA。
+生产 Proton pin（`Proton-11.0-d12a5634a`，2026-08-11 起）已含 `winepulse.so` /
+`winepulse.drv`，`DT_NEEDED=libpulse.so`。4 KB 页设备在设置里选 Pulse 后走
+`winepulse → PulseAudio → module-aaudio-sink → AAudio`；缺驱动或 16 KB 页才回退 ALSA。
 
 HUD 的详细内核指标先使用普通 app 可读的 `/proc`/`sysfs`；展开后本地读失败时，最多每
 秒通过独立、只读、固定 allowlist 的 Shizuku metrics service 回退一次。Shizuku shell
@@ -274,7 +275,7 @@ JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包
 
 ## 9. 当前缺口（v0.2+ 候选）
 
-- `:feature:settings` 续增强；键盘/手柄；PulseAudio 真机延迟、切换与来电中断回归
+- `:feature:settings` 续增强；键盘/手柄；Pulse 来电打断的听感回归（栈已由 `GameSessionPulseAudioTest` 覆盖）
 - Present/DRI3 完善；多容器/prefix
 - 部分 runtime 资产仍 pin 自 WinNative raw（wincomponents / ddrawrapper / meta）；`container_pattern_common` / `layers` 已从默认路径拆除；共享 `fonts.tzst` 提供真实 Microsoft YaHei、SimHei、PMingLiU、Tahoma、Microsoft Sans Serif，并保留 Source Han CN+JP 处理未打包字体；每容器通过 `Fonts/` symlink + FontLink / `FontSubstitutes` / Wine `Fonts\Replacements` 注册。Wine 会直接扫描 `C:\windows\Fonts`，不再向 imagefs `/usr/share/fonts` 重复建链或强制运行 `fc-cache`
 - Exit 真机连点 / FD 泄漏回归

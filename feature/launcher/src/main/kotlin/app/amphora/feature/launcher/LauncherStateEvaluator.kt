@@ -29,6 +29,7 @@ internal object LauncherStateEvaluator {
             !desktopSelected && it.path == state.stagedExePath
         }
 
+    /** Container-wide launch settings. Switching programs does not change these. */
     fun configuration(state: LauncherUiState): List<ConfigurationValue> = listOf(
         ConfigurationValue("Display", state.resolution.label),
         ConfigurationValue("Graphics", state.graphicsDriver.label),

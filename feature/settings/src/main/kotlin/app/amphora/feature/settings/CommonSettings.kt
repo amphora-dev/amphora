@@ -85,14 +85,8 @@ internal fun CommonSettings(
             label = { it.label },
             onSelect = viewModel::selectDxvkFlavor,
             onReset = { viewModel.selectDxvkFlavor(DxvkFlavorSetting.AUTO) },
+            warning = state.dxvkFlavor.warning,
         )
-        state.dxvkFlavor.warning?.let { warning ->
-            Text(
-                warning,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
     }
     SettingSection(
         title = "Compatibility",
@@ -103,7 +97,7 @@ internal fun CommonSettings(
             description =
             "Simulates the Windows system locale for legacy ANSI text and locale-aware " +
                 "font aliases. Automatic follows the Android device language.",
-            impact = "Global default · ANSI codepage and Windows fonts · next launch",
+            impact = state.wineLocaleImpact,
             selected = state.wineLocale,
             defaultValue = WineLocaleOption.AUTO,
             values = WineLocaleOption.entries,
@@ -116,14 +110,23 @@ internal fun CommonSettings(
             description =
             "DxWrapper translates DirectDraw and Direct3D 1–7 to D3D9/DXVK. " +
                 "d7vk translates Direct3D 3–7 directly to Vulkan. " +
-                "cnc-ddraw is tuned for classic software-rendered 2D games.",
-            impact = "Global default · 32-bit DirectDraw titles · next launch",
+                "cnc-ddraw is tuned for classic software-rendered 2D games. " +
+                "These wrappers only ship 32-bit DLLs.",
+            impact =
+            "32-bit titles use the selected wrapper. 64-bit processes always use Proton's " +
+                "builtin DirectDraw and WineD3D.",
             selected = state.directDrawWrapper,
             defaultValue = DirectDrawSetting.DXWRAPPER,
             values = DirectDrawSetting.entries,
             label = { it.label },
             onSelect = viewModel::selectDirectDraw,
             onReset = { viewModel.selectDirectDraw(DirectDrawSetting.DXWRAPPER) },
+        )
+        Text(
+            "64-bit processes always use Proton's builtin DirectDraw and WineD3D. " +
+                "The wrappers above only replace syswow64/ddraw.dll for 32-bit titles.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
     StorageSection(

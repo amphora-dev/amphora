@@ -165,6 +165,28 @@ class LauncherStateEvaluatorTest {
     }
 
     @Test
+    fun configurationDoesNotChangeWhenSwitchingPrograms() {
+        val first = RecentProgram("/games/first.exe", "first.exe", 1L)
+        val second = RecentProgram("/games/second.exe", "second.exe", 2L)
+        val state =
+            LauncherUiState(
+                stagedExePath = first.path,
+                recentPrograms = listOf(first, second),
+                resolution = Resolution.R1280x720,
+                graphicsDriver = GraphicsDriverOption.WRAPPER,
+                directDrawWrapper = DirectDrawWrapperOption.DXWRAPPER,
+            )
+
+        val switched = LauncherStateReducer.selectProgram(state, second.path)
+
+        assertEquals(second.path, switched.stagedExePath)
+        assertEquals(
+            LauncherStateEvaluator.configuration(state),
+            LauncherStateEvaluator.configuration(switched),
+        )
+    }
+
+    @Test
     fun configurationEnumsRoundTripAndRejectUnknownPreferences() {
         Resolution.entries.forEach { option ->
             assertSame(option, Resolution.fromPreference(option.name))

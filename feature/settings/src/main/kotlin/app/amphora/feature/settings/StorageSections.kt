@@ -407,7 +407,7 @@ internal fun StorageSection(
             onClick = onOpenSettings,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(if (granted) "Manage Android file access" else "Allow Android file access")
+            Text(if (granted) "Open Android file-access settings" else "Allow Android file access")
         }
     }
 }

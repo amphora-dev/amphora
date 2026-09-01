@@ -260,8 +260,9 @@ WinNative 与盖世在这里是**同路线的两套实现**。现有证据不能
 - BuildStream 门禁正向验证 `winepulse.so` 的 x86_64 架构和
   `DT_NEEDED=libpulse.so`，并禁止 guest `libpulse` 绕过 Box64 native wrapper。
 
-以上应用与 WCP 改动已在功能分支完成构建验证；生产 manifest 尚未切换到含
-`winepulse` 的新 WCP，因此当前正式 pin 会触发 ALSA 安全回退。
+生产 `wine` Release 已于 2026-08-11 替换为含 `winepulse` 的 WCP（同一 pin 名
+`Proton-11.0-d12a5634a`，SHA `99c664d9…`）。4 KB 页设备选择 Pulse 后走 AAudio；
+缺驱动或 16 KB 页仍回退 ALSA。
 
 ### 三方差异
 
@@ -542,9 +543,9 @@ Task 3 依赖 Task 1/2 完成并发布新 WCP 后。Task 1/2 相互独立，可�
 
 2. **消除 `/proc/self/exe` 运行时 hook**（📋 待办，见 §10）：patch wine `get_self_exe()` + box64 `/proc/self/exe` 用法（`__ANDROID__`），随后移除 `libamphora-exec.so` 的 readlink/realpath hook 和 `AMPHORA_EXEC__PROC_SELF_EXE` env 注入。消除 `exe`/`maps` 不一致与全局 hook 开销，与盖世游戏做法对齐。
 
-3. ~~**PulseAudio → AAudio 可选后端**~~（✅ 代码与构建已落地，⏳ 待发布联动）：
+3. ~~**PulseAudio → AAudio 可选后端**~~（✅ 生产 pin 已含 `winepulse`，2026-08-11）：
    匹配的 PulseAudio 13 运行库、`pactl` 与 AAudio sink 模块随 APK 发布；设置中可选，
-   并保留 ALSA 回退。需发布含 `winepulse` 的 WCP 并更新生产 manifest 后端到端生效。
+   4 KB 页走 AAudio，缺驱动或 16 KB 页回退 ALSA。真机栈回归见 `GameSessionPulseAudioTest`。
 
 ### 中价值（中期）
 

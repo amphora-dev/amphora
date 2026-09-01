@@ -166,7 +166,12 @@ public class PulseAudioComponent extends EnvironmentComponent {
         startPulseAudio();
         if (!waitForSinkReady()) {
           killAllPulseAudioProcesses();
-          throw new IllegalStateException("PulseAudio started without the required AAudio sink");
+          File daemonLog =
+              new File(environment.getContext().getFilesDir(), "pulseaudio/daemon.log");
+          String logTail = daemonLog.isFile() ? FileUtils.readString(daemonLog) : "";
+          throw new IllegalStateException(
+              "PulseAudio started without the required AAudio sink"
+                  + (logTail.isEmpty() ? "" : ":\n" + logTail));
         }
       }
       isPaused = false;
@@ -328,19 +333,7 @@ public class PulseAudioComponent extends EnvironmentComponent {
     File configDir = new File(workingDir, ".config");
     if (configDir.exists()) FileUtils.delete(configDir);
 
-    boolean lowLatency = Options.PERFORMANCE_MODE_LOW_LATENCY.equals(options.performanceMode);
-    String sinkParams =
-        "sink_name="
-            + SINK_NAME
-            + " volume="
-            + volume
-            + " channels="
-            + options.channels
-            + " performance_mode="
-            + performanceModeValue(options.performanceMode)
-            + " low_latency="
-            + lowLatency;
-    if (options.sampleRateOverridden) sinkParams += " rate=" + options.sampleRate;
+    String sinkParams = aaudioSinkArguments(options, volume);
 
     File configFile = new File(workingDir, "default.pa");
     FileUtils.writeString(
@@ -373,14 +366,31 @@ public class PulseAudioComponent extends EnvironmentComponent {
         .put("LD_LIBRARY_PATH", "/system/lib64:" + nativeLibraryDir + ":" + modulesDir);
     processBuilder.environment().put("HOME", workingDir.getAbsolutePath());
     processBuilder.environment().put("TMPDIR", environment.getTmpDir().getAbsolutePath());
-    File nullFile = new File("/dev/null");
-    processBuilder.redirectOutput(nullFile);
-    processBuilder.redirectError(nullFile);
+    File daemonLog = new File(workingDir, "daemon.log");
+    processBuilder.redirectErrorStream(true);
+    processBuilder.redirectOutput(daemonLog);
     try {
       processBuilder.start();
     } catch (IOException e) {
       throw new IllegalStateException("Cannot start PulseAudio daemon", e);
     }
+  }
+
+  /**
+   * Arguments for {@code module-aaudio-sink}. Do not pass {@code channels=}: this module's
+   * sample-spec parser rejects it (initialization fails) even for the default stereo layout.
+   */
+  static String aaudioSinkArguments(Options options, float volume) {
+    boolean lowLatency = Options.PERFORMANCE_MODE_LOW_LATENCY.equals(options.performanceMode);
+    StringBuilder params = new StringBuilder();
+    params.append("sink_name=").append(SINK_NAME);
+    params.append(" volume=").append(clampVolume(volume));
+    params.append(" performance_mode=").append(performanceModeValue(options.performanceMode));
+    params.append(" low_latency=").append(lowLatency);
+    if (options.sampleRateOverridden) {
+      params.append(" rate=").append(options.sampleRate);
+    }
+    return params.toString();
   }
 
   static int performanceModeValue(String performanceMode) {

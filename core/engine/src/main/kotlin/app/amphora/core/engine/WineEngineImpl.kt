@@ -209,6 +209,7 @@ constructor(
                     guestGraphicsBackend =
                     SessionGraphicsLabel.fromDxWrapper(wnContainer.getDXWrapper()),
                     wineVersion = wineVersion,
+                    audioDriver = wnContainer.getAudioDriver(),
                     guestProcessId = guestProcessId.asStateFlow(),
                 )
             // 6. Launch env: container Zink/Turnip defaults + preparer + caller + ALSA.

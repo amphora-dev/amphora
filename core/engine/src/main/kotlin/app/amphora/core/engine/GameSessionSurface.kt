@@ -42,6 +42,8 @@ data class GameSessionSurface(
     val guestGraphicsBackend: String = "WineD3D / auto",
     /** Active Wine content identifier. */
     val wineVersion: String? = null,
+    /** Effective session audio backend (`pulseaudio` or `alsa`) after launch-time fallback. */
+    val audioDriver: String? = null,
     /** Root Box64/Wine launcher PID; descendants make up the measurable guest process tree. */
     val guestProcessId: StateFlow<Int?> = MutableStateFlow<Int?>(null),
 )

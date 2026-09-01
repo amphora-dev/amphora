@@ -59,6 +59,27 @@ public class PulseAudioComponentTest {
   }
 
   @Test
+  public void omitsChannelsFromAAudioSinkArguments() {
+    PulseAudioComponent.Options options = new PulseAudioComponent.Options();
+    String args = PulseAudioComponent.aaudioSinkArguments(options, 1.0f);
+    assertTrue(args.contains("sink_name=AAudioSink"));
+    assertTrue(args.contains("performance_mode=1"));
+    assertTrue(args.contains("low_latency=true"));
+    assertFalse(args.contains("channels="));
+    assertFalse(args.contains("rate="));
+  }
+
+  @Test
+  public void includesSampleRateOnlyWhenOverridden() {
+    PulseAudioComponent.Options options = new PulseAudioComponent.Options();
+    options.sampleRateOverridden = true;
+    options.sampleRate = 44100;
+    String args = PulseAudioComponent.aaudioSinkArguments(options, 0.5f);
+    assertTrue(args.contains("rate=44100"));
+    assertFalse(args.contains("channels="));
+  }
+
+  @Test
   public void detectsOnlyTheConfiguredAAudioSink() {
     assertTrue(
         PulseAudioComponent.containsSink(
