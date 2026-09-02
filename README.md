@@ -85,4 +85,5 @@ Device instrumented coverage stays on Tailscale ADB - see
 | [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) | Cloud build, Tailscale ADB and physical-device testing |
 | [`docs/02-SCAFFOLD.md`](docs/02-SCAFFOLD.md) | Scaffold-era stack & pitfalls |
 | [`docs/00-RESEARCH.md`](docs/00-RESEARCH.md) | WinNative research basis |
+| [`docs/09-FRAME-GENERATION-RESEARCH.md`](docs/09-FRAME-GENERATION-RESEARCH.md) | Frame generation audit (GameHub / WinNative / open-source) |
 <!-- CI push-trigger probe -->

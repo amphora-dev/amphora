@@ -6,6 +6,8 @@
 > 本文描述移植前的 WinNative 样本，不是 Amphora 当前实现清单；当前架构与资产分别以
 > [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) 和
 > [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) 为准。
+> 本文样本早于 WinNative 的插帧实验；相关后续研究见
+> [`09-FRAME-GENERATION-RESEARCH.md`](09-FRAME-GENERATION-RESEARCH.md)。
 
 ---
 
@@ -204,7 +206,7 @@ Box64/DXVK/VKD3D 常见为 xz，消费端必须按 profile/内容探测。
 
 | 组件 | 作用 | 位置/来源 |
 |------|------|----------|
-| **winlator native lib** | X-server + 把 Xvfb framebuffer 用 Vulkan 渲染到 Android Surface -- **技术核心** | WinNative `cpp/winlator/` (9,606 行，含 `vk/vk_renderer.c` 3,238) |
+| **winlator native lib** | X-server + Vulkan renderer -- **技术核心**；“Xvfb framebuffer”是早期概括，不能代表当前 DRI3/AHardwareBuffer scene 路径 | WinNative `cpp/winlator/` (9,606 行，含 `vk/vk_renderer.c` 3,238) |
 | ~~proot~~ | ~~rootfs 隔离/挂载~~ | ~~`cpp/proot/` (18k 行)~~ **死代码**，Bionic 不需（见 §6.1）|
 | ~~patchelf~~ | ~~ELF 路径修复~~ | ~~`cpp/patchelf/` (7.7k 行)~~ **死代码**（零调用者），Bionic 靠 NDK 编译期 interpreter + `LD_LIBRARY_PATH`，无需 patch |
 | box64 | x86_64 -> ARM64 模拟 | 在 rootfs 内 (imagefs Tier9) |
