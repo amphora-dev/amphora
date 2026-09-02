@@ -38,8 +38,7 @@ enum class WineLocaleOption(val preferenceValue: String, val locale: String?, va
         private fun languageOf(locale: String): String =
             locale.substringBefore('.').substringBefore('_').substringBefore('-').lowercase()
 
-        private fun regionOf(locale: String): String =
-            locale.substringBefore('.').substringAfter('_', "").uppercase()
+        private fun regionOf(locale: String): String = locale.substringBefore('.').substringAfter('_', "").uppercase()
 
         fun fromPreference(value: String?): WineLocaleOption =
             entries.firstOrNull { it.preferenceValue == value } ?: AUTO

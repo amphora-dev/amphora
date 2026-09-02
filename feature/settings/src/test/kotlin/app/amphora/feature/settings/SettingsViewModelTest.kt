@@ -153,32 +153,31 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun selectingPulseOnAnUnsupportedDeviceKeepsTheRequestAndShowsFallbackUi() =
-        runTest(dispatchers.testDispatcher) {
-            val fixture =
-                fixture(
-                    PulseAudioProbe(
-                        platformSupported = false,
-                        wineDriver = PulseAudioProbe.WineDriver.PRESENT,
-                    ),
-                )
-            runCurrent()
+    fun selectingPulseOnAnUnsupportedDeviceKeepsTheRequestAndShowsFallbackUi() = runTest(dispatchers.testDispatcher) {
+        val fixture =
+            fixture(
+                PulseAudioProbe(
+                    platformSupported = false,
+                    wineDriver = PulseAudioProbe.WineDriver.PRESENT,
+                ),
+            )
+        runCurrent()
 
-            fixture.viewModel.selectAudioBackend(AudioBackend.PULSEAUDIO)
+        fixture.viewModel.selectAudioBackend(AudioBackend.PULSEAUDIO)
 
-            with(fixture.viewModel.uiState.value) {
-                assertEquals(AudioBackend.PULSEAUDIO, audioBackend)
-                assertEquals(AudioBackend.ALSA, audioStatus.effective)
-                assertEquals("PulseAudio · uses ALSA", audioStatus.chipLabel)
-                assertEquals("PulseAudio → ALSA", audioStatus.summaryLabel)
-                assertTrue(audioStatus.warning!!.contains("ALSA will run instead"))
-                assertTrue(audioFallbackDialog!!.contains("16 KB"))
-            }
-
-            fixture.viewModel.dismissAudioFallbackDialog()
-            assertEquals(null, fixture.viewModel.uiState.value.audioFallbackDialog)
-            assertEquals(AudioBackend.PULSEAUDIO, fixture.viewModel.uiState.value.audioBackend)
+        with(fixture.viewModel.uiState.value) {
+            assertEquals(AudioBackend.PULSEAUDIO, audioBackend)
+            assertEquals(AudioBackend.ALSA, audioStatus.effective)
+            assertEquals("PulseAudio · uses ALSA", audioStatus.chipLabel)
+            assertEquals("PulseAudio → ALSA", audioStatus.summaryLabel)
+            assertTrue(audioStatus.warning!!.contains("ALSA will run instead"))
+            assertTrue(audioFallbackDialog!!.contains("16 KB"))
         }
+
+        fixture.viewModel.dismissAudioFallbackDialog()
+        assertEquals(null, fixture.viewModel.uiState.value.audioFallbackDialog)
+        assertEquals(AudioBackend.PULSEAUDIO, fixture.viewModel.uiState.value.audioBackend)
+    }
 
     private fun fixture(
         pulseProbe: PulseAudioProbe =

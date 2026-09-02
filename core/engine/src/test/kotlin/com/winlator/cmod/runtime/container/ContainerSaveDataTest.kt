@@ -104,7 +104,10 @@ class ContainerSaveDataTest {
             assertEquals("1", reloaded.getExtra("appliedAppVersion"))
             assertEquals("dxvk-a;vkd3d-b;dd7to9|arch=x86_64", reloaded.getExtra("appliedDxwrapper"))
             val savedExtras = JSONObject(root.resolve(".container").readText()).getJSONObject("extraData")
-            assertFalse("loadData must not inject an unused wincomponents key into extraData", savedExtras.has("wincomponents"))
+            assertFalse(
+                "loadData must not inject an unused wincomponents key into extraData",
+                savedExtras.has("wincomponents"),
+            )
         } finally {
             root.deleteRecursively()
         }

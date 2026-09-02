@@ -899,8 +899,7 @@ enum class AudioBackend(val id: String, val label: String) {
     ;
 
     companion object {
-        fun fromId(value: String?): AudioBackend =
-            entries.firstOrNull { it.id == value } ?: PULSEAUDIO
+        fun fromId(value: String?): AudioBackend = entries.firstOrNull { it.id == value } ?: PULSEAUDIO
     }
 }
 

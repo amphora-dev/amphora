@@ -187,11 +187,9 @@ class GameSessionPulseAudioTest {
             .firstOrNull { it.name == "winepulse.so" && it.isFile }
     }
 
-    private fun pulseSocket(): File =
-        File(appContext.filesDir, "imagefs${UnixSocketConfig.PULSE_SERVER_PATH}")
+    private fun pulseSocket(): File = File(appContext.filesDir, "imagefs${UnixSocketConfig.PULSE_SERVER_PATH}")
 
-    private fun alsaSocket(): File =
-        File(appContext.filesDir, "imagefs${UnixSocketConfig.ALSA_SERVER_PATH}")
+    private fun alsaSocket(): File = File(appContext.filesDir, "imagefs${UnixSocketConfig.ALSA_SERVER_PATH}")
 
     private fun containerAudioDriver(): String {
         val container = File(appContext.filesDir, "imagefs/home/xuser-1/.container")

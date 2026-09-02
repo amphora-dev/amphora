@@ -16,9 +16,7 @@ import javax.inject.Singleton
  * that never shipped the driver, unknown when nothing is installed yet.
  */
 @Singleton
-class PulseAudioCapabilities @Inject constructor(
-    @param:ApplicationContext private val context: Context,
-) {
+class PulseAudioCapabilities @Inject constructor(@param:ApplicationContext private val context: Context) {
     fun probe(): PulseAudioProbe = PulseAudioProbe(
         platformSupported = PulseAudioRuntimeSupport.isSupportedPlatform(),
         wineDriver = PulseAudioProbe.wineDriver(wineInstallParents()),
@@ -34,10 +32,7 @@ class PulseAudioCapabilities @Inject constructor(
     }
 }
 
-data class PulseAudioProbe(
-    val platformSupported: Boolean,
-    val wineDriver: WineDriver,
-) {
+data class PulseAudioProbe(val platformSupported: Boolean, val wineDriver: WineDriver) {
     enum class WineDriver { PRESENT, MISSING, UNKNOWN }
 
     /** True when a Pulse request is known to become ALSA. Unknown winepulse still tries Pulse. */
