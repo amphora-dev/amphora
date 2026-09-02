@@ -1,7 +1,6 @@
 package app.amphora.core.engine
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ContentPinResolverTest {

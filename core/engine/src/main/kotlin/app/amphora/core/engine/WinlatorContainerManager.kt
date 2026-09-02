@@ -15,7 +15,6 @@ import com.winlator.cmod.runtime.container.Container as WnContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WnContainerManager
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
-import com.winlator.cmod.runtime.system.GPUInformation
 import com.winlator.cmod.runtime.wine.WineInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File

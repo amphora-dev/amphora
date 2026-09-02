@@ -4,7 +4,6 @@ import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.ContentManifest
 import app.amphora.core.content.RuntimeAssetLocalOverride
 import app.amphora.core.content.model.ContentComponent
-import app.amphora.core.content.model.ManifestEntry
 import app.amphora.core.engine.model.ContentComponentHealth
 import app.amphora.core.engine.model.RuntimeAssetHealth
 import java.io.File

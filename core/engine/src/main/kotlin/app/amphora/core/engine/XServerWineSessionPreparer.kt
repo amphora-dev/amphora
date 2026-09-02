@@ -2,7 +2,6 @@ package app.amphora.core.engine
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.Build
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.core.content.pm.PackageInfoCompat
@@ -31,7 +30,6 @@ import com.winlator.cmod.shared.io.FileUtils
 import com.winlator.cmod.shared.io.TarCompressorUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
-import java.io.IOException
 import java.nio.file.Files
 import java.util.regex.Pattern
 import javax.inject.Inject
