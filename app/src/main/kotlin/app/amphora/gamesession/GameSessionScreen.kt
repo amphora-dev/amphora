@@ -18,6 +18,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -63,12 +65,12 @@ internal fun GameSessionScreen(viewModel: GameSessionViewModel, onExit: () -> Un
     var rendererView by remember { mutableStateOf<XServerSurfaceView?>(null) }
     var touchpadView by remember { mutableStateOf<TouchpadView?>(null) }
     var imeUiState by remember { mutableStateOf(ImeUiState()) }
-    var inputMode by rememberSaveable { mutableStateOf(TouchpadView.MODE_TRACKPAD) }
+    var inputMode by rememberSaveable { mutableIntStateOf(TouchpadView.MODE_TRACKPAD) }
     var rtsGesturesEnabled by rememberSaveable { mutableStateOf(false) }
-    var pointerSensitivity by rememberSaveable { mutableStateOf(1f) }
+    var pointerSensitivity by rememberSaveable { mutableFloatStateOf(1f) }
     var tapToClick by rememberSaveable { mutableStateOf(true) }
     var audioMuted by rememberSaveable { mutableStateOf(false) }
-    var fpsLimit by rememberSaveable { mutableStateOf(viewModel.initialFrameRateLimit) }
+    var fpsLimit by rememberSaveable { mutableIntStateOf(viewModel.initialFrameRateLimit) }
     var stretchToFill by rememberSaveable { mutableStateOf(false) }
     var performanceHudVisible by rememberSaveable {
         mutableStateOf(viewModel.hostPerformanceHudEnabled)
