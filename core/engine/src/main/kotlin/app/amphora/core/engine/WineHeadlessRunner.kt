@@ -15,11 +15,11 @@ import com.winlator.cmod.runtime.wine.LocaleEnv
 import com.winlator.cmod.runtime.wine.WineInfo
 import com.winlator.cmod.shared.io.FileUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.withContext
 
 /**
  * Runs a Wine command **headlessly** -- no X server, no Vulkan render surface,
@@ -70,72 +70,69 @@ class WineHeadlessRunner @Inject constructor(
      * @param timeoutSec hard timeout; on expiry the process is force-killed and
      *   [Result.timedOut] is true with [Result.exitCode] = -1.
      */
-    suspend fun run(
-        container: AmphoraContainer,
-        wineArgs: String,
-        timeoutSec: Long = DEFAULT_TIMEOUT_SEC,
-    ): Result = withContext(dispatchers.io) {
-        contentsManager.syncContents()
-        val wnContainer = resolveWinNativeContainer(container)
-        val wineVersion = wnContainer.getWineVersion()
-        val wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion)
-        imageFs.setWinePath(wineInfo.path)
+    suspend fun run(container: AmphoraContainer, wineArgs: String, timeoutSec: Long = DEFAULT_TIMEOUT_SEC): Result =
+        withContext(dispatchers.io) {
+            contentsManager.syncContents()
+            val wnContainer = resolveWinNativeContainer(container)
+            val wineVersion = wnContainer.getWineVersion()
+            val wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion)
+            imageFs.setWinePath(wineInfo.path)
 
-        val rootDir = imageFs.getRootDir()
-        val env = buildHeadlessEnv(rootDir, wnContainer, wineInfo)
-        val wineBin = File(wineInfo.path, "bin/wine").absolutePath
-        val box64 = File(rootDir, "usr/bin/box64").absolutePath
-        // box64 must be executable (mirror GPLC repairRuntimeExecutablePermissions).
-        if (File(box64).isFile) FileUtils.chmod(File(box64), 493 /* 0755 octal */)
+            val rootDir = imageFs.getRootDir()
+            val env = buildHeadlessEnv(rootDir, wnContainer, wineInfo)
+            val wineBin = File(wineInfo.path, "bin/wine").absolutePath
+            val box64 = File(rootDir, "usr/bin/box64").absolutePath
+            // box64 must be executable (mirror GPLC repairRuntimeExecutablePermissions).
+            if (File(box64).isFile) FileUtils.chmod(File(box64), MODE_0755)
 
-        val outFile = File.createTempFile("wine-headless", ".log", context.cacheDir)
-        val args = splitArgs(wineArgs)
-        val command = ArrayList<String>().apply {
-            add(box64)
-            add(wineBin)
-            addAll(args)
-        }
-        val pb = ProcessBuilder(command).apply {
-            directory(rootDir)
-            redirectErrorStream(true)
-            redirectOutput(ProcessBuilder.Redirect.to(outFile))
-            // Keep the inherited Android env (Bionic may want ANDROID_*), overlay the Wine slice.
-            environment().putAll(env)
-        }
+            val outFile = File.createTempFile("wine-headless", ".log", context.cacheDir)
+            val args = splitArgs(wineArgs)
+            val command = ArrayList<String>().apply {
+                add(box64)
+                add(wineBin)
+                addAll(args)
+            }
+            val pb = ProcessBuilder(command).apply {
+                directory(rootDir)
+                redirectErrorStream(true)
+                redirectOutput(ProcessBuilder.Redirect.to(outFile))
+                // Keep the inherited Android env (Bionic may want ANDROID_*), overlay the Wine slice.
+                environment().putAll(env)
+            }
 
-        Log.i(TAG, "headless exec: ${command.joinToString(" ")}  (cwd=${rootDir.path}, timeout=${timeoutSec}s)")
-        val box64File = File(box64)
-        Log.i(
-            TAG,
-            "pre-exec box64: exists=${box64File.exists()} isFile=${box64File.isFile}" +
-                " len=${if (box64File.isFile) box64File.length() else -1} canExec=${box64File.canExecute()}",
-        )
-        val process = pb.start()
-        val exited = try {
-            process.waitFor(timeoutSec, TimeUnit.SECONDS)
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            false
-        }
-        if (!exited) process.destroyForcibly()
-        val stdout = try {
-            outFile.readText()
-        } catch (e: Exception) {
-            ""
-        }
-        outFile.delete()
-        val exitCode = if (exited) {
-            try {
-                process.exitValue()
-            } catch (e: IllegalThreadStateException) {
+            Log.i(TAG, "headless exec: ${command.joinToString(" ")}  (cwd=${rootDir.path}, timeout=${timeoutSec}s)")
+            val box64File = File(box64)
+            Log.i(
+                TAG,
+                "pre-exec box64: exists=${box64File.exists()} isFile=${box64File.isFile}" +
+                    " len=${if (box64File.isFile) box64File.length() else -1} canExec=${box64File.canExecute()}",
+            )
+            val process = pb.start()
+            val exited = try {
+                process.waitFor(timeoutSec, TimeUnit.SECONDS)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+            if (!exited) process.destroyForcibly()
+            val stdout = try {
+                outFile.readText()
+            } catch (e: Exception) {
+                ""
+            }
+            outFile.delete()
+            val exitCode = if (exited) {
+                try {
+                    process.exitValue()
+                } catch (e: IllegalThreadStateException) {
+                    -1
+                }
+            } else {
                 -1
             }
-        } else {
-            -1
+            Log.i(TAG, "headless result: exit=$exitCode timedOut=${!exited} stdoutLen=${stdout.length}")
+            Result(exitCode, stdout, !exited)
         }
-        Log.i(TAG, "headless result: exit=$exitCode timedOut=${!exited} stdoutLen=${stdout.length}")
-        Result(exitCode, stdout, !exited)
-    }
 
     /**
      * The wineboot-essential env slice (a subset of GPLC `execGuestProgram`):
@@ -143,11 +140,7 @@ class WineHeadlessRunner @Inject constructor(
      * `PATH`, reads the prefix from `WINEPREFIX`. No `DISPLAY`, no
      * `VK_ICD_FILENAMES`, no `GALLIUM_DRIVER`, no `LD_PRELOAD`, no `ALSA_*`.
      */
-    private fun buildHeadlessEnv(
-        rootDir: File,
-        container: WnContainer,
-        wineInfo: WineInfo,
-    ): Map<String, String> {
+    private fun buildHeadlessEnv(rootDir: File, container: WnContainer, wineInfo: WineInfo): Map<String, String> {
         val env = LinkedHashMap<String, String>()
         env["HOME"] = imageFs.home_path
         env["USER"] = ImageFs.USER
@@ -194,5 +187,8 @@ class WineHeadlessRunner @Inject constructor(
     private companion object {
         const val TAG = "WineHeadlessRunner"
         const val DEFAULT_TIMEOUT_SEC = 120L
+
+        /** 0755, the mode GPLC's repairRuntimeExecutablePermissions grants native bins. */
+        const val MODE_0755 = 493
     }
 }

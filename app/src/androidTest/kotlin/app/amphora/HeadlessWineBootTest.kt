@@ -8,6 +8,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.container.model.ContainerId
+import app.amphora.core.engine.GraphicsDriverCapabilities
 import app.amphora.core.engine.WineHeadlessRunner
 import app.amphora.core.engine.XServerWineSessionPreparer
 import com.winlator.cmod.runtime.container.Container as WnContainer
@@ -17,17 +18,17 @@ import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.content.ContentsManager.InstallFailedReason
 import com.winlator.cmod.runtime.content.ContentsManager.OnInstallFinishedCallback
 import com.winlator.cmod.shared.io.TarCompressorUtils
-import kotlinx.coroutines.runBlocking
-import org.json.JSONObject
-import org.junit.Assert.assertTrue
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertNotNull
-import org.junit.Assume.assumeTrue
-import org.junit.Test
-import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
+import org.junit.Test
+import org.junit.runner.RunWith
 
 /**
  * No-GPU test path (RFC §8 minus the Vulkan render): proves the
@@ -80,9 +81,13 @@ class HeadlessWineBootTest {
         val runner = WineHeadlessRunner(appCtx, DefaultDispatcherProvider())
         val result = runner.run(container, "--version")
 
-        println("HEADLESS_WINE_VERSION exit=${result.exitCode} timedOut=${result.timedOut} stdout=${result.stdout.trim()}")
+        println(
+            "HEADLESS_WINE_VERSION exit=${result.exitCode} timedOut=${result.timedOut} stdout=${result.stdout.trim()}",
+        )
         assertTrue(
-            "wine --version did not exit 0 (exit=${result.exitCode} timedOut=${result.timedOut}): ${result.stdout.take(500)}",
+            "wine --version did not exit 0 (exit=${result.exitCode} timedOut=${result.timedOut}): ${result.stdout.take(
+                500,
+            )}",
             result.exitCode == 0,
         )
         assertTrue(
@@ -100,9 +105,13 @@ class HeadlessWineBootTest {
         val runner = WineHeadlessRunner(appCtx, DefaultDispatcherProvider())
         val result = runner.run(container, "wineboot --init", timeoutSec = 180)
 
-        println("HEADLESS_WINEBOOT exit=${result.exitCode} timedOut=${result.timedOut} stdout=${result.stdout.take(500)}")
+        println(
+            "HEADLESS_WINEBOOT exit=${result.exitCode} timedOut=${result.timedOut} stdout=${result.stdout.take(500)}",
+        )
         assertTrue(
-            "wineboot --init did not exit 0 (exit=${result.exitCode} timedOut=${result.timedOut}): ${result.stdout.take(1000)}",
+            "wineboot --init did not exit 0 (exit=${result.exitCode} timedOut=${result.timedOut}): ${result.stdout.take(
+                1000,
+            )}",
             result.exitCode == 0,
         )
         // wineboot updates the prefix registry.
@@ -137,11 +146,13 @@ class HeadlessWineBootTest {
         cm.syncContents()
         var protonProfile = cm.getProfileByEntryName(PROTON_ENTRY)
         if (protonProfile == null || !ContentsManager.getInstallDir(appCtx, protonProfile).isDirectory) {
-            protonProfile = installWcp(cm, protonWcp); cm.syncContents()
+            protonProfile = installWcp(cm, protonWcp)
+            cm.syncContents()
         }
         var box64Profile = cm.getProfileByEntryName(BOX64_ENTRY)
         if (box64Profile == null || !ContentsManager.getInstallDir(appCtx, box64Profile).isDirectory) {
-            box64Profile = installWcp(cm, box64Wcp); cm.syncContents()
+            box64Profile = installWcp(cm, box64Wcp)
+            cm.syncContents()
         }
 
         // Phase 2: create the container (extracts the Wine prefix from the Proton prefixPack).
@@ -172,7 +183,11 @@ class HeadlessWineBootTest {
         // (ensureBox64RuntimeReady -> ContentsManager.applyContent). The headless runner
         // execs box64 directly, so this must run first. (The full launch path does this in
         // WineEngineImpl.launch step 3 via preparer.setupWineSystemFiles.)
-        val preparer = XServerWineSessionPreparer(appCtx, DefaultDispatcherProvider())
+        val preparer = XServerWineSessionPreparer(
+            appCtx,
+            DefaultDispatcherProvider(),
+            GraphicsDriverCapabilities(appCtx),
+        )
         preparer.ensureLaunchRuntimeFilesReady(amphoraContainer)
         assertTrue(
             "box64 binary missing at rootfs/usr/bin/box64 after ensureLaunchRuntimeFilesReady",
@@ -193,7 +208,10 @@ class HeadlessWineBootTest {
         imagefsDir.deleteRecursively()
         assertTrue("mkdirs imagefs failed", imagefsDir.mkdirs())
         val ok = TarCompressorUtils.extract(
-            TarCompressorUtils.Type.ZSTD, testCtx, "imagefs.tzst", imagefsDir,
+            TarCompressorUtils.Type.ZSTD,
+            testCtx,
+            "imagefs.tzst",
+            imagefsDir,
         )
         assertTrue("imagefs extract failed", ok)
     }
@@ -203,27 +221,37 @@ class HeadlessWineBootTest {
         val result = arrayOfNulls<ContentProfile>(1)
         val error = arrayOfNulls<InstallFailedReason>(1)
         val latch = CountDownLatch(1)
-        cm.extraContentFile(Uri.fromFile(wcp), object : OnInstallFinishedCallback {
-            override fun onSucceed(profile: ContentProfile) {
-                cm.finishInstallContent(profile, object : OnInstallFinishedCallback {
-                    override fun onSucceed(p: ContentProfile) {
-                        result[0] = profile; latch.countDown()
-                    }
+        cm.extraContentFile(
+            Uri.fromFile(wcp),
+            object : OnInstallFinishedCallback {
+                override fun onSucceed(profile: ContentProfile) {
+                    cm.finishInstallContent(
+                        profile,
+                        object : OnInstallFinishedCallback {
+                            override fun onSucceed(p: ContentProfile) {
+                                result[0] = profile
+                                latch.countDown()
+                            }
 
-                    override fun onFailed(reason: InstallFailedReason, e: Exception?) {
-                        if (reason == InstallFailedReason.ERROR_EXIST) {
-                            result[0] = profile; latch.countDown()
-                        } else {
-                            error[0] = reason; latch.countDown()
-                        }
-                    }
-                })
-            }
+                            override fun onFailed(reason: InstallFailedReason, e: Exception?) {
+                                if (reason == InstallFailedReason.ERROR_EXIST) {
+                                    result[0] = profile
+                                    latch.countDown()
+                                } else {
+                                    error[0] = reason
+                                    latch.countDown()
+                                }
+                            }
+                        },
+                    )
+                }
 
-            override fun onFailed(reason: InstallFailedReason, e: Exception?) {
-                error[0] = reason; latch.countDown()
-            }
-        })
+                override fun onFailed(reason: InstallFailedReason, e: Exception?) {
+                    error[0] = reason
+                    latch.countDown()
+                }
+            },
+        )
         assertTrue("install timed out: ${wcp.name}", latch.await(180, TimeUnit.SECONDS))
         assertNull("install failed: ${error[0]} (${wcp.name})", error[0])
         assertNotNull("install returned null profile (${wcp.name})", result[0])
