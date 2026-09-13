@@ -859,11 +859,23 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       FileUtils.chmod(box64File, 0755);
     }
 
-    // wineandroid: start.exe/wrapper exiting used to SIGHUP explorer in the same
-    // process group. New session keeps 00cc alive; -w keeps Java waitFor on the tree.
+    // wineandroid: start.exe must not be session leader. A keeper sh stays in
+    // setsid until WINEPREFIX/server-* disappears, so start.exe exit does not
+    // SIGHUP explorer. Java waitFor is on the keeper, not start.exe.
     if ("1".equals(envVars.get("AMPHORA_WINEANDROID")) && !command.isEmpty()) {
-      command = "/system/bin/setsid -w " + command;
-      Log.i(TAG, "AMPHORA_WINEANDROID=1: prefix setsid -w (new session)");
+      String winePrefix = envVars.get("WINEPREFIX");
+      if (winePrefix == null) winePrefix = "";
+      String quotedPrefix = shellSingleQuote(winePrefix);
+      String script =
+          command
+              + " & i=0; while [ $i -lt 20 ]; do ls "
+              + quotedPrefix
+              + "/server-* >/dev/null 2>&1 && break; i=$((i+1)); /system/bin/sleep 1; done; "
+              + "while ls "
+              + quotedPrefix
+              + "/server-* >/dev/null 2>&1; do /system/bin/sleep 1; done";
+      command = "/system/bin/setsid -w /system/bin/sh -c " + shellSingleQuote(script);
+      Log.i(TAG, "AMPHORA_WINEANDROID=1: setsid keeper waits on wineserver dir");
     }
 
     Log.d(
@@ -973,6 +985,10 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     synchronized (lock) {
       if (pid != -1) ProcessHelper.resumeProcess(pid);
     }
+  }
+
+  private static String shellSingleQuote(String value) {
+    return "'" + value.replace("'", "'\\''") + "'";
   }
 
   private String pinWineLoader(String command, String wineLoader) {
