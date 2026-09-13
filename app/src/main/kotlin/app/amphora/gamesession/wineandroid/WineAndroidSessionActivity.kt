@@ -88,15 +88,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 onSurfaceChanged = ::onNativeSurface,
             )
 
-        // Desktop metrics unblock unix ANDROID_CreateDesktop (wine_desktop_changed).
-        root.viewTreeObserver.addOnGlobalLayoutListener {
-            val w = desktop.width
-            val h = desktop.height
-            if (w > 0 && h > 0) {
-                val scale = resources.displayMetrics.density
-                hostBridge?.updateDesktopMetrics(w, h, scale)
-            }
-        }
+        // Desktop size is LaunchSpec / explorer /desktop=shell,WxH — not the
+        // Activity's pixel size (that would overwrite 1280x720 with 3040x1904).
 
         val exePath = intent.getStringExtra(EXTRA_EXE_PATH).orEmpty()
         val width = intent.getIntExtra(EXTRA_WIDTH, DEFAULT_WIDTH)
