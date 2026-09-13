@@ -2,10 +2,9 @@ package app.amphora.gamesession.wineandroid
 
 import android.net.LocalServerSocket
 import android.net.LocalSocket
-import android.net.UnixSocketAddress
+import android.net.LocalSocketAddress
 import android.os.ParcelFileDescriptor
 import android.system.Os
-import android.system.OsConstants
 import android.util.Log
 import java.io.DataInputStream
 import java.io.File
@@ -238,19 +237,37 @@ class WineAndroidHostSocket(private val bridge: WineAndroidHostBridge) {
         const val MAX_PAYLOAD = 64 * 1024
 
         fun bindFilesystem(socketFile: File): LocalServerSocket {
-            val fd: FileDescriptor =
-                Os.socket(OsConstants.AF_UNIX, OsConstants.SOCK_STREAM, 0)
+            // UnixSocketAddress is @SystemApi and absent from the public SDK jar;
+            // bind via LocalSocketAddress(FILESYSTEM), then hand a dup'd FD to
+            // LocalServerSocket (which calls listen()).
+            val local = LocalSocket()
+            var serverFd: FileDescriptor? = null
             try {
-                Os.bind(fd, UnixSocketAddress.createFileSystem(socketFile.absolutePath))
-                Os.listen(fd, 4)
+                local.bind(
+                    LocalSocketAddress(
+                        socketFile.absolutePath,
+                        LocalSocketAddress.Namespace.FILESYSTEM,
+                    ),
+                )
+                val boundFd =
+                    local.fileDescriptor
+                        ?: throw IOException("no FD after bind to ${socketFile.absolutePath}")
+                serverFd = Os.dup(boundFd)
+                local.close()
+                return LocalServerSocket(serverFd)
             } catch (t: Throwable) {
                 try {
-                    Os.close(fd)
+                    local.close()
                 } catch (_: Exception) {
+                }
+                serverFd?.let { fd ->
+                    try {
+                        Os.close(fd)
+                    } catch (_: Exception) {
+                    }
                 }
                 throw t
             }
-            return LocalServerSocket(fd)
         }
     }
 }
