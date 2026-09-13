@@ -1,7 +1,7 @@
 # 08 - 盖世游戏 (egggame) 逆向对比
 
 > 对 `com.xiaoji.egggame` (盖世游戏) APK 的逆向分析，与 Amphora 架构对比。
-> 最后更新: 2026-08-11 · 验证设备: Lenovo TB322FC, Android 16 (API 36)。
+> 最后更新: 2026-09-13 · 验证设备: Lenovo TB322FC, Android 16 (API 36)。
 
 ---
 
@@ -557,8 +557,55 @@ Task 3 依赖 Task 1/2 完成并发布新 WCP 后。Task 1/2 相互独立，可�
 
 ### 低价值（长期/不适用）
 
-5. **C X server**：egggame 的 libxserver.so 功能更完整（触控所有权、手势），但 Amphora 的 Java X server 已满足鼠标/键盘需求，迁移成本极高。
+5. **C X server**：egggame 的 libxserver.so 功能更完整（触控所有权、手势），但 Amphora 的 Java X server 已满足鼠标/键盘需求，迁移成本极高。2026-09-13 复核（§12）：缺 RANDR 与完整扩展集还堵死了外部 WM（jwm）与现代桌面 UI 路线——该迁移的价值应与桌面 UI 路线合并评估。
 
 6. **插件化 APK**：egggame 的运行时插件下载对商业产品有意义，但 Amphora 作为开源项目不需要。
 
 7. **GameScope 插帧二进制**：闭源组件和权重来源不可验证，不直接复用。仅保留独立 Vulkan 实验价值；在多代 Adreno 上证明真实帧率、p95、功耗和画质收益前不进入产品。详见 [`09-FRAME-GENERATION-RESEARCH.md`](09-FRAME-GENERATION-RESEARCH.md)。
+
+---
+
+## 12. 桌面 UI / Shell 对比（2026-09-13 真机复核）
+
+> 样本：EGG 6.2.1 + pcengine 插件 `105-5`；Amphora pin `Proton-11.0-d12a5634a-x86_64-0`。
+> 结论先行：**双方桌面观感差异与 Wine 版本无关（都是 Wine 11 的 explorer），EGG 的壁纸/任务栏/时钟/"应用"菜单全部来自 rootfs 内置的 jwm 窗口管理器。**
+
+### 12.1 会话的实际启动配置（pcLaunchLog 取证）
+
+`files/pcLaunchLog/launchLog*.txt` 的 `WINEMU_LAUNCH_CONFIG` 块：
+
+- `runMode = VirtualDesktop`、`disableWM = false`、`exePath = explorer.exe`、`launchArguments = []`（**裸 explorer，无 `/desktop=`**）
+- `config.resolution = 1280x800`；FEX `Fex_20260813`（box64 共存）；DXVK `v2.6-1-async`、vkd3d `proton-3.0.1`、Turnip `v26.1.0_b8`；`enableOnScreenKeyboard` / `enableWinMonitor` / `enableMangoHUD = true`
+
+`runMode=VirtualDesktop` 是 EGG 自己的概念：由 native X server 的固定 1280x800 screen 实现，**不是** explorer `/desktop=` 虚拟桌面。裸 `explorer.exe` 只做一件事：打开 Desktop 命名空间文件浏览窗（截图中标题为"桌面"的窗口）。
+
+### 12.2 任务栏/壁纸/时钟全部来自 jwm（非 Wine、非 SPI）
+
+rootfs `usr/bin/` 内置 `jwm` 与 `gamescope-wm`；`usr/etc/system.jwmrc` 关键配置：
+
+```xml
+<Background type="image">…/usr/share/pixmap/background-1.jpg</Background>
+<Clock format="%l:%M %p"/>
+<TrayButton label="应用" icon="…/ic_app.png" width="80">root:1</TrayButton>
+<TaskList maxwidth="128"/>
+```
+
+排除法证据：容器注册表 `Wallpaper=""`（空）；`libwinemu.so` 无 SystemParametersInfo/wallpaper 字符串 → **壁纸不是 `SPI_SETDESKWALLPAPER`**，是 jwm `<Background>`；时钟即 jwm `<Clock>`；"应用"按钮即 jwm `<TrayButton>root:1`。
+
+### 12.3 explorer.exe 未定制
+
+EGG 容器 `system32/explorer.exe`（1,245,184 B）与其 Wine 自带 `lib/wine/aarch64-windows/explorer.exe` 二进制 diff 约 212 KB（重编译差异），ASCII/UTF-16 字符串表仅差构建路径（`wine-proton-ec_backup/build2`）→ stock Wine 11 explorer 自家重编译，无 shell 源码改动。
+
+### 12.4 libxserver.so 扩展清单（so 内字符串计数）
+
+GLX(41)、XKB(32)、XINERAMA(4)、DRI3(3)、SYNC/RENDER(2)、XFIXES/SHAPE/RANDR/MIT-SHM/DAMAGE/COMPOSITE/BIG-REQ(1)；NDK 构建路径 `/Users/chenzhiwei/StudioProjects/WinEmuKernel/lib/src/main/cpp/x11/xserver/`。
+
+对比 Amphora Java X server（仅有 BigReq/DRI3/MIT-SHM/Present/Sync/XInput2）：
+
+- **缺 RANDR** → 游戏切分辨率只能靠 explorer `/desktop=` 虚拟桌面绕（Amphora 现行方案仍然必要）
+- **缺 WM 依赖扩展**（RENDER/XFIXES/COMPOSITE/SHAPE 等）→ 外部窗口管理器（jwm 等）跑不起来，现代桌面 UI 路线被 Java X server 卡死
+
+### 12.5 对 Amphora 的含义
+
+- 复刻 EGG 桌面观感的真正前置是把 Java X server 换成 native Xorg 系（Termux:X11 / WinEmuKernel 同路线）；jwm 侧只是 MIT 许可证下的一份 jwmrc 配置（`Background`/`Clock`/`TrayButton` 三行可直接抄）。
+- 在此之前 Amphora 维持 explorer `/desktop=shell` shell；文件浏览已切 `winefile.exe`（`buildWineExplorerCommand`，真机截图验证 2026-09-13，见 [`03-TRACKING.md`](03-TRACKING.md) §P5）。

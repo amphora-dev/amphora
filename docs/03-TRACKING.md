@@ -252,6 +252,8 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 ### P4-followup · no-GPU 测试路径 (headless Wine) -- ✅ mac ARM 模拟器验通 (`feat/headless-wine-test`)
 
+> 注 (2026-09-13): 本节的 `wine-10.0` / `Proton-10.0-4-x86_64.wcp` 是**当时旧 pin** 的实测记录; 当前生产 pin 已是 `Proton-11.0-d12a5634a-x86_64-0` (见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) §5.1, 2026-08-11 起)。本节结论不受版本差异影响。
+
 分支 `feat/headless-wine-test` 加了一条**不碰 GPU** 的测试路径,把 box64+Wine+Bionic-rootfs+prefix 的 CPU 栈从 Adreno Vulkan 渲染里剥出来,能在 mac ARM 模拟器上迭代(无需真机)。
 
 - **`WineHeadlessRunner` (`:core:engine`, 生产 seam)**: `ProcessBuilder` 直接跑 `box64 wine <args>`,不启 X server/不挂 Vulkan surface/不碰音频。env 是 GPLC `execGuestProgram` 的 wineboot-essential 切片(HOME/USER/TMPDIR/LD_LIBRARY_PATH/PATH/WINEPREFIX/box64),不设 DISPLAY/VK_ICD_FILENAMES/GALLIUM_DRIVER。文件式 stdout 捕获 + 超时(避管道死锁/挂起)。`ProcessHelper.exec` 在 `WINEDEBUG=-all` 下把 stdout 丢 /dev/null,故不用它。
@@ -260,6 +262,13 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 - **模拟器三大坑 (已记入测试 KDoc)**: (1) **SELinux** -- AOSP 模拟器 `untrusted_app` 严格策略 deny `execute_no_trans` app_data_file (box64 exec 报 error=13)。userdebug image 需 `adb root && adb shell setenforce 0`。**真机 OEM 策略通常允许**(WinNative 上游在真机跑通即证),故此坑模拟器专属。(2) **磁盘** -- 每次跑抽 ~800MB prefix,5.8G 分区跑 2-3 次满;`pm clear app.amphora` 清(再重 stage .wcp)。(3) **.wcp 暂存** -- API 30+ FUSE 禁 adb push 到 `/sdcard/Android/data/<pkg>/`;改用 `cat /data/local/tmp/x.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/x.wcp'` 灌进内部 filesDir(测试读 `filesDir` 非 `getExternalFilesDir`)。
 - **能验/不能验**: ✅ box64 dynarec / Bionic rootfs / Wine .so 链接 / prefix / wineserver / content+syncContents 链 / (audio AudioTrack 也能模拟器验)。❌ 仍需真机 Adreno: Vulkan 渲染(Turnip/Freedreno)、`vk_renderer` swapchain、DXVK/vkd3d 实跑 D3D、触屏到可见画面 -- 那些是 RFC §8。
 - **未合并**: 在 `feat/headless-wine-test` 分支,基于 P4 `fdaa4e8`。合并前可选清理 runner 的 `pre-exec box64` 调试 log。
+
+### P5 · 桌面/shell 复核 + winefile 切换 (2026-09-13) ✅
+
+- [x] **文件浏览路径切 winefile**: `WineEngineImpl.buildWineExplorerCommand` 的 trailing arg `explorer.exe` → `winefile.exe` (Wine 内建, system32 裸名解析, 无需新增组件 pin); 测试改名 `explorerLaunchOpensWinefileInsideWineDesktop`; 真机 TB322FC 截图验证 (Wine File Manager 在 `/desktop=shell` 桌面内正常显示, 外层容器与 Start 任务栏不变)。游戏路径 (`LaunchTarget.PROGRAM`) 不动。
+- [x] **真机内容 pin 确认**: `files/contents/Proton/11.0-d12a5634a-x86_64-0` (= 2026-08-11 起的生产 pin, 见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) §5.1)。上文 P2/P4-followup 段落里的 `Proton-10.0-4` / `wine-10.0` 均为**当时旧 pin 的历史实测记录**, 不描述当前内容; 与 EGG 的桌面 UI 差异和 Wine 版本无关 (双方都是 Wine 11 explorer)。
+- [x] **EGG (`com.xiaoji.egggame` 6.2.1) 桌面拆解** → [`08-EGGGAME-COMPARISON.md`](08-EGGGAME-COMPARISON.md) §12: 桌面 UI (壁纸/时钟/"应用"任务栏) 全部来自 rootfs 内置 **jwm** (`system.jwmrc` 的 `Background`/`Clock`/`TrayButton`/`TaskList`), **不是** `SPI_SETDESKWALLPAPER` (注册表 `Wallpaper=""`, `libwinemu.so` 无相关调用); explorer.exe 裸跑 (无 `/desktop=`) 且未定制 (字符串表与 Wine 自带一致, 仅重编译); `libxserver.so` = NDK 自编译 Xorg (WinEmuKernel), 含 RANDR/GLX/XKB/XFIXES 等完整扩展集——Amphora Java X server 缺 RANDR (`/desktop=` 绕法仍必要) 与 WM 依赖扩展 (jwm 路线需先换 native X server)。
+- 取证方法可复用: EGG 会话 launch 参数读 `files/pcLaunchLog/launchLog*.txt` 的 `WINEMU_LAUNCH_CONFIG` 块; 容器/rootfs 经 KernelSU `su` 读 `/data/data/com.xiaoji.egggame`。
 
 ---
 

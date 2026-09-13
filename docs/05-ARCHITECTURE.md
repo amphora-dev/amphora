@@ -67,6 +67,7 @@ GameSessionViewModel
        5. XEnvironment + SysV / XServer / ALSA 或 PulseAudio / Net
        6. stageExeIntoPrefix → C:\<exe>              // Z: 映 rootfs，宿主路径不可直传
        7. GuestProgramLauncher: box64 wine explorer /desktop=shell,WxH "C:\..."
+                                            // EXPLORER target 的 trailing arg = winefile.exe (2026-09-13 起)
        8. startEnvironmentComponents()
 
 GameSessionScreen
