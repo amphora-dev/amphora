@@ -37,11 +37,13 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class WineAndroidSessionActivity : ComponentActivity() {
     @Inject lateinit var bootstrap: WineAndroidSessionBootstrap
+    @Inject lateinit var launcher: WineAndroidLauncher
     @Inject lateinit var hostEnvironment: GameSessionHostEnvironment
 
     private lateinit var desktop: WineAndroidDesktop
     private lateinit var statusView: TextView
     private var hostBridge: WineAndroidHostBridge? = null
+    private var runningGuest: WineAndroidLauncher.RunningGuest? = null
     private val processExitScheduled = AtomicBoolean(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,9 +121,16 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 hostBridge?.startSocketStub(prepared.bridgeSocketPath)
                 statusView.text =
                     "wineandroid: prefix ready\n" +
-                        "socket=${prepared.bridgeSocketPath.absolutePath}\n" +
-                        "guest launch + ioctl bridge TODO (needs WCP wineandroid.drv)"
-                Log.i(TAG, "session prepared; waiting for unix bridge / WCP")
+                        "starting box64 wine explorer /desktop=shell…\n" +
+                        "socket=${prepared.bridgeSocketPath.absolutePath}"
+                val guest = launcher.start(prepared)
+                runningGuest = guest
+                statusView.text =
+                    "wineandroid: guest pid=${guest.pid}\n" +
+                        "${guest.guestExecutable}\n" +
+                        "sock=${guest.bridgeSocketPath.absolutePath}\n" +
+                        "ioctl bridge TODO (needs WCP wineandroid.drv)"
+                Log.i(TAG, "wineandroid guest pid=${guest.pid}")
             } catch (t: Throwable) {
                 Log.e(TAG, "wineandroid prepare failed", t)
                 statusView.text = "wineandroid prepare failed: ${t.message ?: t.javaClass.simpleName}"
@@ -135,6 +144,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        runningGuest?.stop()
+        runningGuest = null
         hostBridge?.close()
         hostBridge = null
         super.onDestroy()

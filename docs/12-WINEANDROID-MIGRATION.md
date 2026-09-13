@@ -54,7 +54,9 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
   - MainActivity extra `app.amphora.debug.WINEANDROID=true`（仅 debuggable）
   - 或本地把 `WineAndroidLaunchGate.FORCE_WINEANDROID_HOST = true`
 - [x] `WineAndroidSessionBootstrap`：复用 catalog / runtime / rootfs / container / preparer，**不**起 Java XServer / XServerComponent；socket stub 落在 `filesDir/wineandroid/host.sock`
-- [ ] 等 WCP 含 `wineandroid.drv` 后：unix 侧用 socket/fd 讲清 `ioctl_android_*`（字段名见 `device.c`），再 `box64 wine` 无 X desktop
+- [x] `WineAndroidLauncher`：bare `XEnvironment` + 仅 `GuestProgramLauncherComponent`；命令仍是 `box64 wine explorer /desktop=shell,WxH …`（与 X11 同形）
+- [x] Env：`AMPHORA_WINEANDROID=1` 时 GPLC **丢掉** `DISPLAY=unix:…/X0`、`ANDROID_SYSVSHM_SERVER`、`GST_PLUGIN_FEATURE_RANK=ximagesink…`；写入 `AMPHORA_WINEANDROID_SOCK`
+- [ ] 等 WCP 含 `wineandroid.drv` 后：unix 侧用 socket/fd 讲清 `ioctl_android_*`（字段名见 `device.c`），HWND/Surface 才能上桌面
 - [ ] 输入走 wineandroid，不注入 X
 - **验收**：真机 `HA262AAH` 上 winefile 窗口可见、可点（仍阻塞在新 WCP）
 
@@ -109,7 +111,8 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 
 仍需新 WCP / unix socket 才能完成的：
 
-- guest `box64 wine`（无 `explorer /desktop` X 路径）真正 exec
-- 把 `ioctl_android_create_window` 等帧从驱动送到 `WineAndroidHostBridge`
+- ~~guest `box64 wine explorer /desktop=shell` exec~~（`WineAndroidLauncher` 已启动；无 Java X）
+- 把 `ioctl_android_create_window` 等帧从驱动送到 `WineAndroidHostBridge`（`AMPHORA_WINEANDROID_SOCK`）
 - `wine_surface_changed` 等价：把 `Surface`/`ANativeWindow` 回传 unix 侧 `register_native_window`
+- WCP 内实际存在 `wineandroid.drv` / `wineandroid.so`（imagefs CI）
 

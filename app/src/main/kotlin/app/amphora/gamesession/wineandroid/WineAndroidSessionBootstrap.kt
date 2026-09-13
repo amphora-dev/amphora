@@ -28,8 +28,8 @@ import kotlinx.coroutines.withContext
  * **without** constructing Java [com.winlator.cmod.runtime.display.xserver.XServer]
  * or [com.winlator.cmod.runtime.display.environment.components.XServerComponent].
  *
- * Guest `box64 wine` exec and the ioctl↔socket bridge wait on a WCP that contains
- * `wineandroid.drv` (imagefs CI). This class is the P1 host-side half.
+ * Guest exec is [WineAndroidLauncher] (same `explorer /desktop=shell,WxH` shape as X11,
+ * no Java XServer). The ioctl↔socket bridge still waits on a WCP with `wineandroid.drv`.
  */
 @Singleton
 class WineAndroidSessionBootstrap
@@ -80,8 +80,8 @@ constructor(
                 )
                 Log.i(
                     TAG,
-                    "TODO: guest launch (box64 wine, no explorer /desktop X path) + " +
-                        "unix socket speaking ioctl_android_* once WCP has wineandroid.drv",
+                    "prefix ready for WineAndroidLauncher; unix ioctl bridge still TODO " +
+                        "until WCP ships wineandroid.drv",
                 )
                 Prepared(
                     spec = spec,

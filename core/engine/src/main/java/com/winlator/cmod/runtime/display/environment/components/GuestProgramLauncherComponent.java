@@ -796,6 +796,17 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
     // Preserve launcher-owned LD_PRELOAD while merging upstream env (driver/DXVK/wrapper).
     mergeExternalEnvVars(envVars, envVars.get("LD_PRELOAD"));
+    // Amphora wineandroid host: do not point Wine at the Java fake X server.
+    // Caller sets AMPHORA_WINEANDROID=1 (+ AMPHORA_WINEANDROID_SOCK for the future ioctl bridge).
+    if ("1".equals(envVars.get("AMPHORA_WINEANDROID"))) {
+      envVars.remove("DISPLAY");
+      envVars.remove("ANDROID_SYSVSHM_SERVER");
+      envVars.remove("GST_PLUGIN_FEATURE_RANK");
+      Log.i(
+          TAG,
+          "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
+              + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent)");
+    }
     if (wineInfo == null || !wineInfo.isArm64EC()) {
       configureBox64RcEnv(envVars, rootDir);
     }

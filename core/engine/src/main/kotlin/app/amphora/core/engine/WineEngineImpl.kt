@@ -455,17 +455,17 @@ constructor(
     }
 }
 
-internal fun buildWineExplorerCommand(screenInfo: String): String =
+fun buildWineExplorerCommand(screenInfo: String): String =
     "wine explorer /desktop=shell,$screenInfo winefile.exe"
 
-internal fun buildWineProgramCommand(screenInfo: String, wineExePath: String): String =
+fun buildWineProgramCommand(screenInfo: String, wineExePath: String): String =
     "wine explorer /desktop=shell,$screenInfo \"$wineExePath\""
 
 /**
  * Publishes a changed executable through a same-directory temporary file so a
  * failed copy never truncates the last usable destination.
  */
-internal fun stageExecutable(source: File, destination: File): Boolean {
+fun stageExecutable(source: File, destination: File): Boolean {
     if (!source.isFile) return false
     if (destination.isFile && FileUtils.contentEquals(source, destination)) return true
     val parent = destination.parentFile ?: return false
