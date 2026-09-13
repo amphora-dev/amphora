@@ -61,6 +61,19 @@
 
         <!-- One Wine/Vulkan generation per process. The session process is deliberately
              not isolated: Wine, imagefs and content packages live under this app UID. -->
+
+        <!-- wineandroid host (P1). Same :session process rules as SessionActivity.
+             Not exported; nothing launches it until DisplayBackend.WINEANDROID is wired. -->
+        <activity
+            android:name=".gamesession.wineandroid.WineAndroidSessionActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|locale|layoutDirection|fontScale|uiMode"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":session"
+            android:resizeableActivity="true"
+            tools:ignore="DiscouragedApi" />
+
         <activity
             android:name=".gamesession.SessionActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|locale|layoutDirection|fontScale|uiMode"

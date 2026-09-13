@@ -109,7 +109,8 @@ LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"   # 运行期从设备 /data/
 --with-wine-tools=./wine-tools
 --enable-win64 --disable-win16
 --enable-nls --disable-tests
---enable-wineandroid_drv=no   # 不用旧 wineandroid 驱动
+--enable-wineandroid_drv=no   # WinNative 旧脚本；Amphora WCP 不走这里
+# Amphora 生产构建是 imagefs/ci/wine/build-proton-wcp.sh（--enable-wineandroid_drv=yes，不编 wine-debug.apk）
 --with-alsa --with-fontconfig --with-freetype --with-gnutls --with-gstreamer
 --with-opengl --with-pthread --with-pulse --with-sdl --with-vulkan
 --without-xcomposite/xfixes/xinerama/xrandr/xrender/xshape/xxf86vm
