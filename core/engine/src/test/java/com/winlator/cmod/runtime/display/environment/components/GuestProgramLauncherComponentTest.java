@@ -41,4 +41,19 @@ public class GuestProgramLauncherComponentTest {
     assertTrue(envVars.get("LD_LIBRARY_PATH").startsWith("/files/wineandroid/vkloader:"));
     assertTrue(envVars.get("LD_LIBRARY_PATH").contains("/imagefs/usr/lib"));
   }
+
+  @Test
+  public void wineandroidPathPrependsWsiHelperToLdPreload() {
+    EnvVars envVars = new EnvVars();
+    envVars.put(
+        "LD_PRELOAD",
+        "/imagefs/usr/lib/libandroid-sysvshm.so:/system/lib64/libjpeg.so");
+
+    GuestProgramLauncherComponent.applyWineAndroidWsiHelperPreloadEnv(
+        envVars, "/files/wineandroid/libamphora_wsi.so");
+
+    assertEquals(
+        "/files/wineandroid/libamphora_wsi.so:/imagefs/usr/lib/libandroid-sysvshm.so:/system/lib64/libjpeg.so",
+        envVars.get("LD_PRELOAD"));
+  }
 }

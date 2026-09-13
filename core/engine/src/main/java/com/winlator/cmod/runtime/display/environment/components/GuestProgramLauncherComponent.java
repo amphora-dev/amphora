@@ -803,12 +803,14 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       envVars.remove("ANDROID_SYSVSHM_SERVER");
       envVars.remove("GST_PLUGIN_FEATURE_RANK");
       applyWineAndroidSystemVulkan(context, envVars);
+      applyWineAndroidWsiHelperPreload(context, envVars);
       Log.i(
           TAG,
           "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
               + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); "
               + "system Vulkan /system/lib64/libvulkan.so "
-              + "(dropped wrapper_icd / ADRENOTOOLS)");
+              + "(dropped wrapper_icd / ADRENOTOOLS); "
+              + "LD_PRELOAD libamphora_wsi.so");
     }
     if (wineInfo == null || !wineInfo.isArm64EC()) {
       configureBox64RcEnv(envVars, rootDir);
@@ -1000,6 +1002,29 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             + vkDir.getAbsolutePath()
             + " -> "
             + systemVulkan.getAbsolutePath());
+  }
+
+  /**
+   * PE Win32 WSI helper is aarch64-native; Box64 guests cannot dlopen it. Host-side
+   * {@code LD_PRELOAD} of {@code filesDir/wineandroid/libamphora_wsi.so} runs its ctor
+   * in the box64 process (unix socket present bridge). Prefer this over replacing
+   * imagefs {@code libandroid-sysvshm.so} with a ctor shim.
+   */
+  static void applyWineAndroidWsiHelperPreloadEnv(EnvVars envVars, String helperPath) {
+    if (helperPath == null || helperPath.isEmpty()) {
+      return;
+    }
+    envVars.put("LD_PRELOAD", mergePreloadValue(helperPath, envVars.get("LD_PRELOAD")));
+  }
+
+  private static void applyWineAndroidWsiHelperPreload(Context context, EnvVars envVars) {
+    File helper = new File(context.getFilesDir(), "wineandroid/libamphora_wsi.so");
+    if (!helper.isFile()) {
+      Log.w(TAG, "AMPHORA_WINEANDROID: missing WSI helper " + helper.getAbsolutePath());
+      return;
+    }
+    applyWineAndroidWsiHelperPreloadEnv(envVars, helper.getAbsolutePath());
+    Log.i(TAG, "AMPHORA_WINEANDROID: LD_PRELOAD " + helper.getAbsolutePath());
   }
 
   static void configureBox64RcEnv(EnvVars envVars, File rootDir) {
