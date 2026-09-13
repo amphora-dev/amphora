@@ -31,9 +31,8 @@ import kotlinx.coroutines.launch
  *
  * WCP already ships `wineandroid.drv`. Wine still starts via box64 exec, so the
  * pin's in-process JNI (ntdll java_vm / RegisterNatives) does not apply.
- * [WineAndroidHostBridge] owns the HWND/Surface contract; unix ioctl client
- * connect to `AMPHORA_WINEANDROID_SOCK` is still TODO (drv still JNI until a
- * sibling change lands).
+ * [WineAndroidHostBridge] owns the HWND/Surface contract over
+ * `AMPHORA_WINEANDROID_SOCK` (incl. desktop metrics + surface buffer-op fds).
  */
 @AndroidEntryPoint
 class WineAndroidSessionActivity : ComponentActivity() {
@@ -85,6 +84,16 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 onSurfaceChanged = ::onNativeSurface,
             )
 
+        // Desktop metrics unblock unix ANDROID_CreateDesktop (wine_desktop_changed).
+        root.viewTreeObserver.addOnGlobalLayoutListener {
+            val w = desktop.width
+            val h = desktop.height
+            if (w > 0 && h > 0) {
+                val scale = resources.displayMetrics.density
+                hostBridge?.updateDesktopMetrics(w, h, scale)
+            }
+        }
+
         val exePath = intent.getStringExtra(EXTRA_EXE_PATH).orEmpty()
         val width = intent.getIntExtra(EXTRA_WIDTH, DEFAULT_WIDTH)
         val height = intent.getIntExtra(EXTRA_HEIGHT, DEFAULT_HEIGHT)
@@ -120,6 +129,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     )
                 val prepared = bootstrap.prepare(spec)
                 hostBridge?.startHostSocket(prepared.bridgeSocketPath)
+                hostBridge?.updateDesktopMetrics(width, height, resources.displayMetrics.density)
                 statusView.text =
                     "wineandroid: prefix ready\n" +
                         "starting box64 wine explorer /desktop=shell…\n" +
@@ -168,9 +178,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     private fun onNativeSurface(hwnd: Int, surface: android.view.Surface, opengl: Boolean) {
-        // HostBridge also emits WineAndroidProtocol.HOST_SURFACE_CHANGED (hwnd/opengl/ready).
-        // Native handle / fd for unix register_native_window is still TODO after WCP.
-        Log.i(TAG, "HWND $hwnd surface=$surface opengl=$opengl (HOST_SURFACE_CHANGED notified)")
+        // HostBridge emits HOST_SURFACE_CHANGED + SCM_RIGHTS buffer-op fd.
+        Log.i(TAG, "HWND $hwnd surface=$surface opengl=$opengl (HOST_SURFACE_CHANGED + anw fd)")
     }
 
     companion object {

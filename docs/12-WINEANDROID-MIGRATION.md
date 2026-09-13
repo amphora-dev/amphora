@@ -58,8 +58,10 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 - [x] `WineAndroidSessionBootstrap`：复用 catalog / runtime / rootfs / container / preparer，**不**起 Java XServer / XServerComponent；socket stub 落在 `filesDir/wineandroid/host.sock`
 - [x] `WineAndroidLauncher`：bare `XEnvironment` + 仅 `GuestProgramLauncherComponent`；命令仍是 `box64 wine explorer /desktop=shell,WxH …`（与 X11 同形）
 - [x] Env：`AMPHORA_WINEANDROID=1` 时 GPLC **丢掉** `DISPLAY=unix:…/X0`、`ANDROID_SYSVSHM_SERVER`、`GST_PLUGIN_FEATURE_RANK=ximagesink…`；写入 `AMPHORA_WINEANDROID_SOCK`
-- [x] Host socket：`WineAndroidHostSocket` 在 `filesDir/wineandroid/host.sock` 上 listen；帧为 `opcode+nbytes+payload`，payload 字段顺序对齐 `device.c` 的 `ioctl_android_create_window` / destroy / window_pos_changed / set_window_parent；派发到 `WineAndroidHostBridge`（主线程 UI）。`HOST_SURFACE_CHANGED` 仅回传 hwnd/opengl/ready，**不含** native handle。
-- [ ] **仍阻塞**：unix 侧改连 `AMPHORA_WINEANDROID_SOCK`（替代 JNI `RegisterNatives`），并实现 `register_native_window` / Surface fd 回传（WCP 已含 drv，但 drv 仍走 JNI，直到 sibling 改动落地）
+- [x] Host socket：`WineAndroidHostSocket` 在 `filesDir/wineandroid/host.sock` 上 listen；帧为 `opcode+nbytes+payload`，payload 字段顺序对齐 `device.c` 的 `ioctl_android_create_window` / destroy / window_pos_changed / set_window_parent；派发到 `WineAndroidHostBridge`（主线程 UI）。
+- [x] `HOST_DESKTOP_CHANGED`（101）：Activity 尺寸 → unix `screen_width/height`（解除 CreateDesktop 2s 超时）。
+- [x] `HOST_SURFACE_CHANGED`（100）+ SCM_RIGHTS：`:session` 内 `ANativeWindow_fromSurface`，每 HWND socketpair；wine 端 `register_native_window` 转发 parent，buffer ops 走 native_handle（与 device.c 同合同）。Surface 本身是 Binder，不是 fd。
+- [ ] **仍阻塞（真机）**：新 WCP 装到 HA262AAH 后验证 winefile 可见；输入尚未走 wineandroid。
 - [ ] 输入走 wineandroid，不注入 X
 - **验收**：真机 `HA262AAH` 上 winefile 窗口可见、可点（阻塞在 unix socket / JNI→ioctl 桥）
 
@@ -119,6 +121,6 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 
 - ~~guest `box64 wine explorer /desktop=shell` exec~~（`WineAndroidLauncher` 已启动；无 Java X）
 - ~~把 `ioctl_android_*` 帧送到 HostBridge~~（Kotlin listen/decode 已就绪；**unix 驱动尚未 connect**）
-- `wine_surface_changed` 完整等价：Surface/`ANativeWindow` fd 回传 + unix `register_native_window`（`HOST_SURFACE_CHANGED` 目前只有 hwnd/opengl/ready）
+- ~~`wine_surface_changed` 完整等价~~（socketpair + native_handle 转发；等新 WCP）
 - ~~WCP 内实际存在 `wineandroid.drv` / `wineandroid.so`~~（imagefs CI 绿；`Proton-11.0-8573c4b5e-x86_64.wcp`）
 

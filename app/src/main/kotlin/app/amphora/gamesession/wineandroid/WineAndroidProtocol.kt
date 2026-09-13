@@ -19,6 +19,12 @@ import java.nio.ByteOrder
  * u8[nbytes]     // packed fields
  * ```
  *
+ * [HOST_SURFACE_CHANGED] may carry one SCM_RIGHTS fd (per-HWND buffer-op
+ * socketpair peer). That is the transferable handle for unix
+ * `register_native_window` — Surface itself is Binder-backed, not an fd;
+ * ANativeWindow stays in `:session` and serves native_handle dequeue/queue
+ * over the socketpair (same contract as device.c buffer ioctls).
+ *
  * Wine sizes: `int`/`BOOL`/`LONG` = int32, `float` = float32, `RECT` =
  * `{ LONG left, top, right, bottom }` (device.c / windef.h).
  */
@@ -34,12 +40,18 @@ object WineAndroidProtocol {
     // 4..11 = buffer/query/cursor — stay on unix once ANativeWindow is registered
 
     /**
-     * Amphora host→unix (not an ioctl). Documents the future
-     * `wine_surface_changed(hwnd, surface, opengl)` replacement.
-     * Payload today: hwnd, opengl, ready (1=Surface available). Native handle /
-     * fd for `register_native_window` is **not** sent this turn.
+     * Amphora host→unix (not an ioctl). Replaces JNI
+     * `wine_surface_changed(hwnd, surface, opengl)`.
+     * Payload: hwnd, opengl, ready, width, height.
+     * When ready!=0, one SCM_RIGHTS fd = wine end of the buffer-op socketpair.
      */
     const val HOST_SURFACE_CHANGED = 100
+
+    /**
+     * Amphora host→unix. Replaces JNI `wine_desktop_changed(width, height)`.
+     * Payload: width, height, scale (float). Unblocks ANDROID_CreateDesktop.
+     */
+    const val HOST_DESKTOP_CHANGED = 101
 
     /** ioctl_header { int hwnd; BOOL opengl; } */
     const val SIZE_HEADER = 8
@@ -56,8 +68,11 @@ object WineAndroidProtocol {
     /** ioctl_android_set_window_parent { hdr; int parent; float scale; } + int pid */
     const val SIZE_SET_WINDOW_PARENT = SIZE_HEADER + 4 + 4 + 4
 
-    /** HOST_SURFACE_CHANGED { int hwnd; BOOL opengl; int ready } */
-    const val SIZE_SURFACE_CHANGED = 12
+    /** HOST_SURFACE_CHANGED { int hwnd; BOOL opengl; int ready; int width; int height } */
+    const val SIZE_SURFACE_CHANGED = 20
+
+    /** HOST_DESKTOP_CHANGED { int width; int height; float scale } */
+    const val SIZE_DESKTOP_CHANGED = 12
 
     sealed class HostMessage {
         data class CreateWindow(
@@ -94,7 +109,6 @@ object WineAndroidProtocol {
         return when (opcode) {
             IOCTL_CREATE_WINDOW -> {
                 requireSize(payload, SIZE_CREATE_WINDOW, "create_window")
-                // ioctl_android_create_window then WineActivity pid
                 val hwnd = buf.int
                 val opengl = buf.int != 0
                 val parent = buf.int
@@ -110,7 +124,6 @@ object WineAndroidProtocol {
             }
             IOCTL_WINDOW_POS_CHANGED -> {
                 requireSize(payload, SIZE_WINDOW_POS_CHANGED, "window_pos_changed")
-                // device.c order: hdr, window_rect, client_rect, visible_rect, style, flags, after, owner
                 val hwnd = buf.int
                 buf.int // hdr.opengl
                 val windowRect = readRect(buf)
@@ -120,8 +133,6 @@ object WineAndroidProtocol {
                 val flags = buf.int
                 val after = buf.int
                 val owner = buf.int
-                // WineActivity / bridge method arg order:
-                // hwnd, flags, insert_after, owner, style, window, client, visible
                 HostMessage.WindowPosChanged(
                     hwnd = hwnd,
                     flags = flags,
@@ -146,15 +157,32 @@ object WineAndroidProtocol {
         }
     }
 
-    /** Encode host→unix SURFACE_CHANGED stub (no native handle yet). */
-    fun encodeSurfaceChanged(hwnd: Int, opengl: Boolean, ready: Boolean): ByteArray {
+    fun encodeSurfaceChanged(
+        hwnd: Int,
+        opengl: Boolean,
+        ready: Boolean,
+        width: Int = 0,
+        height: Int = 0,
+    ): ByteArray {
         val payload =
             ByteBuffer.allocate(SIZE_SURFACE_CHANGED).order(ORDER).apply {
                 putInt(hwnd)
                 putInt(if (opengl) 1 else 0)
                 putInt(if (ready) 1 else 0)
+                putInt(width)
+                putInt(height)
             }.array()
         return encodeFrame(HOST_SURFACE_CHANGED, payload)
+    }
+
+    fun encodeDesktopChanged(width: Int, height: Int, scale: Float = 1f): ByteArray {
+        val payload =
+            ByteBuffer.allocate(SIZE_DESKTOP_CHANGED).order(ORDER).apply {
+                putInt(width)
+                putInt(height)
+                putFloat(scale)
+            }.array()
+        return encodeFrame(HOST_DESKTOP_CHANGED, payload)
     }
 
     fun encodeFrame(opcode: Int, payload: ByteArray): ByteArray =

@@ -7,22 +7,13 @@ import androidx.activity.ComponentActivity
 import java.io.File
 
 /**
- * Kotlin stand-in for WineActivity's public HWND/Surface surface — **no JNI**.
+ * Kotlin stand-in for WineActivity's public HWND/Surface surface — **no WineActivity.java**.
  *
- * Field / method names mirror pin `WineActivity.java` and
- * `dlls/wineandroid.drv/device.c` ioctl structs. Amphora runs Wine via box64
- * exec in `:session`; [WineAndroidHostSocket] accepts the same messages over
- * `AMPHORA_WINEANDROID_SOCK` (see [WineAndroidProtocol]).
- *
- * ioctl ops (device.c `enum android_ioctl`):
- * - IOCTL_CREATE_WINDOW      -> createWindow(hwnd, opengl, parent, scale, pid)
- * - IOCTL_DESTROY_WINDOW     -> destroyWindow(hwnd)
- * - IOCTL_WINDOW_POS_CHANGED -> windowPosChanged(…)
- * - IOCTL_SET_WINDOW_PARENT  -> setParent(hwnd, parent, scale, pid)
- *
- * Surface feedback replaces JNI `wine_surface_changed(hwnd, surface, opengl)`
- * with [WineAndroidProtocol.HOST_SURFACE_CHANGED] (hwnd/opengl/ready only;
- * native handle / `register_native_window` waits for proton-wine after WCP).
+ * Surface feedback replaces JNI `wine_surface_changed(hwnd, surface, opengl)`:
+ * [WineAndroidNative] keeps `ANativeWindow` in `:session`, opens a socketpair,
+ * serves native_handle dequeue/queue, and sends the wine peer fd via
+ * [WineAndroidProtocol.HOST_SURFACE_CHANGED] SCM_RIGHTS so unix can
+ * `register_native_window` a forwarding parent.
  */
 class WineAndroidHostBridge(
     private val activity: ComponentActivity,
@@ -31,6 +22,12 @@ class WineAndroidHostBridge(
 ) {
     private val windows = LinkedHashMap<Int, WineAndroidWindow>()
     private var hostSocket: WineAndroidHostSocket? = null
+    private val surfaceSessions = LinkedHashMap<Int, SurfaceSession>()
+
+    private data class SurfaceSession(
+        val servePtr: Long,
+        val opengl: Boolean,
+    )
 
     fun createDesktopWindow(hwnd: Int) {
         Log.i(TAG, "createDesktopWindow hwnd=$hwnd")
@@ -48,7 +45,8 @@ class WineAndroidHostBridge(
                 )
             windows[hwnd] = window
             desktop.attachWindow(window) { attachedHwnd, surface ->
-                notifySurface(attachedHwnd, surface, opengl, ready = true)
+                if (surface != null) notifySurface(attachedHwnd, surface, opengl, ready = true)
+                else releaseSurfaceSession(attachedHwnd, notify = true)
             }
         }
     }
@@ -58,9 +56,7 @@ class WineAndroidHostBridge(
         activity.runOnUiThread {
             val existing = windows.remove(hwnd)
             desktop.detachWindow(hwnd)
-            if (existing != null) {
-                hostSocket?.sendSurfaceChanged(hwnd, existing.isClient, ready = false)
-            }
+            releaseSurfaceSession(hwnd, notify = existing != null)
         }
     }
 
@@ -101,10 +97,6 @@ class WineAndroidHostBridge(
         }
     }
 
-    /**
-     * Bind/listen on [socketFile] (`AMPHORA_WINEANDROID_SOCK`) and decode
-     * ioctl-shaped frames into the methods above.
-     */
     fun startHostSocket(socketFile: File) {
         hostSocket?.close()
         val socket = WineAndroidHostSocket(this)
@@ -113,10 +105,15 @@ class WineAndroidHostBridge(
         Log.i(TAG, "host socket started at ${socketFile.absolutePath}")
     }
 
+    fun updateDesktopMetrics(width: Int, height: Int, scale: Float = 1f) {
+        hostSocket?.updateDesktopMetrics(width, height, scale)
+    }
+
     @Deprecated("Use startHostSocket", ReplaceWith("startHostSocket(socketFile)"))
     fun startSocketStub(socketFile: File) = startHostSocket(socketFile)
 
     fun close() {
+        surfaceSessions.keys.toList().forEach { releaseSurfaceSession(it, notify = false) }
         hostSocket?.close()
         hostSocket = null
         activity.runOnUiThread {
@@ -127,7 +124,90 @@ class WineAndroidHostBridge(
 
     private fun notifySurface(hwnd: Int, surface: Surface, opengl: Boolean, ready: Boolean) {
         onSurfaceChanged(hwnd, surface, opengl)
-        hostSocket?.sendSurfaceChanged(hwnd, opengl, ready)
+        if (!ready) {
+            releaseSurfaceSession(hwnd, notify = true)
+            return
+        }
+        releaseSurfaceSession(hwnd, notify = false)
+
+        val windowHandle =
+            try {
+                WineAndroidNative.nativeAcquireWindow(surface)
+            } catch (t: Throwable) {
+                Log.e(TAG, "nativeAcquireWindow failed hwnd=$hwnd", t)
+                0L
+            }
+        if (windowHandle == 0L) {
+            Log.w(TAG, "no ANativeWindow for hwnd=$hwnd — surface_changed without fd")
+            hostSocket?.sendSurfaceChanged(hwnd, opengl, ready = true)
+            return
+        }
+
+        val pair =
+            try {
+                createBufferSocketPair()
+            } catch (t: Throwable) {
+                Log.e(TAG, "socketpair failed hwnd=$hwnd", t)
+                WineAndroidNative.nativeReleaseWindow(windowHandle)
+                hostSocket?.sendSurfaceChanged(hwnd, opengl, ready = true)
+                return
+            }
+        val wineEnd = pair.first
+        val hostEnd = pair.second
+
+        val width = WineAndroidNative.nativeWindowWidth(windowHandle)
+        val height = WineAndroidNative.nativeWindowHeight(windowHandle)
+        val hostFd =
+            try {
+                hostEnd.detachFd()
+            } catch (t: Throwable) {
+                Log.e(TAG, "detachFd failed hwnd=$hwnd", t)
+                wineEnd.close()
+                hostEnd.close()
+                WineAndroidNative.nativeReleaseWindow(windowHandle)
+                return
+            }
+
+        val servePtr =
+            WineAndroidNative.nativeStartBufferServe(windowHandle, hwnd, hostFd)
+        if (servePtr == 0L) {
+            Log.e(TAG, "nativeStartBufferServe failed hwnd=$hwnd")
+            wineEnd.close()
+            WineAndroidNative.nativeReleaseWindow(windowHandle)
+            hostSocket?.sendSurfaceChanged(hwnd, opengl, ready = true)
+            return
+        }
+
+        surfaceSessions[hwnd] = SurfaceSession(servePtr = servePtr, opengl = opengl)
+
+        try {
+            hostSocket?.sendSurfaceChanged(
+                hwnd = hwnd,
+                opengl = opengl,
+                ready = true,
+                width = width,
+                height = height,
+                wineBufferFd = wineEnd.fileDescriptor,
+            )
+        } finally {
+            try {
+                wineEnd.close()
+            } catch (_: Exception) {
+            }
+        }
+        // Serve thread holds its own ANativeWindow ref.
+        WineAndroidNative.nativeReleaseWindow(windowHandle)
+    }
+
+    private fun releaseSurfaceSession(hwnd: Int, notify: Boolean) {
+        val session = surfaceSessions.remove(hwnd) ?: run {
+            if (notify) hostSocket?.sendSurfaceChanged(hwnd, opengl = false, ready = false)
+            return
+        }
+        WineAndroidNative.nativeStopBufferServe(session.servePtr, -1)
+        if (notify) {
+            hostSocket?.sendSurfaceChanged(hwnd, session.opengl, ready = false)
+        }
     }
 
     private companion object {
