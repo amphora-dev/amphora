@@ -9,6 +9,7 @@ import app.amphora.core.engine.buildWineExplorerCommand
 import app.amphora.core.engine.buildWineProgramCommand
 import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.LaunchTarget
+import app.amphora.core.engine.resolveWineDosPath
 import app.amphora.core.engine.stageExecutable
 import com.winlator.cmod.runtime.container.Container as WinNativeContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WinNativeContainerManager
@@ -149,6 +150,7 @@ constructor(
     }
 
     private fun stageExeIntoPrefix(container: WinNativeContainer, exePath: String): String {
+        resolveWineDosPath(exePath)?.let { return it }
         val src = File(exePath)
         val exeName = src.name.ifEmpty { "amphora-game.exe" }
         val driveC = File(container.getRootDir(), ".wine/drive_c").apply { mkdirs() }

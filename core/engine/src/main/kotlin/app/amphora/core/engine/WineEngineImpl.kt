@@ -437,6 +437,7 @@ constructor(
      * (createDosdevicesSymlinks), so `C:\<name>` resolves to the copied file.
      */
     private fun stageExeIntoPrefix(container: WinNativeContainer, exePath: String): String {
+        resolveWineDosPath(exePath)?.let { return it }
         val src = File(exePath)
         val exeName = src.name.ifEmpty { "amphora-game.exe" }
         val driveC = File(container.getRootDir(), ".wine/drive_c").apply { mkdirs() }
@@ -455,10 +456,20 @@ constructor(
     }
 }
 
-fun buildWineExplorerCommand(screenInfo: String): String = "wine explorer /desktop=shell,$screenInfo winefile.exe"
+fun buildWineExplorerCommand(screenInfo: String): String =
+    "wine start /wait explorer /desktop=shell,$screenInfo winefile.exe"
 
 fun buildWineProgramCommand(screenInfo: String, wineExePath: String): String =
-    "wine explorer /desktop=shell,$screenInfo \"$wineExePath\""
+    "wine start /wait explorer /desktop=shell,$screenInfo \"$wineExePath\""
+
+/** Already a Wine DOS path (`C:\foo.exe` or `C:/foo.exe`), not an Android file. */
+fun resolveWineDosPath(path: String): String? {
+    val p = path.trim()
+    if (p.length < 3) return null
+    if (!p[0].isLetter() || p[1] != ':') return null
+    if (p[2] != '\\' && p[2] != '/') return null
+    return p.replace('/', '\\')
+}
 
 /**
  * Publishes a changed executable through a same-directory temporary file so a

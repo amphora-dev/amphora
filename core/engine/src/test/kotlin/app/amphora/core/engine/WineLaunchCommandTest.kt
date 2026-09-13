@@ -10,7 +10,7 @@ class WineLaunchCommandTest {
     @Test
     fun explorerLaunchOpensWinefileInsideWineDesktop() {
         assertEquals(
-            "wine explorer /desktop=shell,1280x720 winefile.exe",
+            "wine start /wait explorer /desktop=shell,1280x720 winefile.exe",
             buildWineExplorerCommand("1280x720"),
         )
     }
@@ -18,7 +18,7 @@ class WineLaunchCommandTest {
     @Test
     fun programLaunchKeepsQuotedWindowsPath() {
         assertEquals(
-            "wine explorer /desktop=shell,1920x1080 \"C:\\My Game\\game.exe\"",
+            "wine start /wait explorer /desktop=shell,1920x1080 \"C:\\My Game\\game.exe\"",
             buildWineProgramCommand("1920x1080", "C:\\My Game\\game.exe"),
         )
     }
@@ -55,5 +55,13 @@ class WineLaunchCommandTest {
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    @Test
+    fun dosPathIsPassedThroughWithoutStaging() {
+        assertEquals("C:\\windows\\system32\\winefile.exe", resolveWineDosPath("C:\\windows\\system32\\winefile.exe"))
+        assertEquals("C:\\winefile.exe", resolveWineDosPath("C:/winefile.exe"))
+        assertEquals(null, resolveWineDosPath("/data/local/tmp/winefile.exe"))
+        assertEquals(null, resolveWineDosPath("C:windowssystem32winefile.exe"))
     }
 }
