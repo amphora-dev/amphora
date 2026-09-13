@@ -17,6 +17,7 @@ import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.display.environment.ImageFsInstaller
 import com.winlator.cmod.runtime.system.ProcessHelper
+import com.winlator.cmod.runtime.wine.WineRegistryEditor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -70,6 +71,7 @@ constructor(
             progressBus.update(ProvisionProgress(stage = "prefix", detail = "Setting up Wine prefix…"))
             preparer.setupWineSystemFiles(spec, container)
             preparer.extractGraphicsDriverFiles(container)
+            pinAndroidGraphicsDriver(container)
             val env = preparer.envVars() + spec.env
             val socketDir = File(context.filesDir, BRIDGE_DIR).apply { mkdirs() }
             val socketPath = File(socketDir, BRIDGE_SOCK)
@@ -78,11 +80,7 @@ constructor(
                 "wineandroid prefix ready container=${container.id.value} " +
                     "exe=${spec.exePath} envKeys=${env.keys.sorted()} socket=${socketPath.absolutePath}",
             )
-            Log.i(
-                TAG,
-                "prefix ready for WineAndroidLauncher; unix ioctl bridge still TODO " +
-                    "until WCP ships wineandroid.drv",
-            )
+            Log.i(TAG, "prefix ready; HKCU Software\\Wine\\Drivers Graphics=android")
             Prepared(
                 spec = spec,
                 container = container,
@@ -106,6 +104,26 @@ constructor(
             )
         check(installed) {
             "Rootfs installation failed while preparing wineandroid session"
+        }
+    }
+
+
+    /**
+     * Explorer default_driver is mac,x11,wayland; android is not on that list.
+     * Without this, winefile loads winex11.drv and dies looking for DISPLAY.
+     */
+    private fun pinAndroidGraphicsDriver(container: Container) {
+        val userReg = File(container.winePrefixPath, "user.reg")
+        if (!userReg.isFile) {
+            Log.w(TAG, "missing $userReg, cannot pin Graphics=android")
+            return
+        }
+        WineRegistryEditor(userReg).use { editor ->
+            val current = editor.getStringValue("Software\\Wine\\Drivers", "Graphics")
+            if (current != "android") {
+                editor.setStringValue("Software\\Wine\\Drivers", "Graphics", "android")
+                Log.i(TAG, "Wine graphics driver set to android (was $current)")
+            }
         }
     }
 

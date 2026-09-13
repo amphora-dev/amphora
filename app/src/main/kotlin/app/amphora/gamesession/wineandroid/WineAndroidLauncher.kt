@@ -126,7 +126,7 @@ constructor(
         val envVars = EnvVars()
         envVars.put("LC_ALL", app.amphora.core.engine.WineLocalePreferences.resolve(context))
         envVars.put("WINEPREFIX", imageFs.wineprefix)
-        envVars.put("WINEDEBUG", "-all")
+        envVars.put("WINEDEBUG", "+err,+android,+module,+loaddll")
         for ((key, value) in prepared.envVars) {
             envVars.put(key, value)
         }
