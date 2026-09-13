@@ -59,6 +59,17 @@
             </intent-filter>
         </activity>
 
+        <!-- P3 v1 PC-mode desktop (wallpaper + icon grid + taskbar). Not SECONDARY_HOME.
+             Open via launcher "Desktop" button or debug extra app.amphora.debug.DESKTOP. -->
+        <activity
+            android:name=".desktop.DesktopActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|locale|layoutDirection|fontScale|uiMode"
+            android:exported="false"
+            android:label="Amphora Desktop"
+            android:resizeableActivity="true"
+            android:theme="@style/Theme.Amphora"
+            tools:ignore="DiscouragedApi" />
+
         <!-- One Wine/Vulkan generation per process. The session process is deliberately
              not isolated: Wine, imagefs and content packages live under this app UID. -->
 
@@ -83,6 +94,7 @@
             android:exported="false"
             android:launchMode="singleTask"
             android:process=":session"
+            android:resizeableActivity="true"
             android:screenOrientation="sensorLandscape"
             tools:ignore="DiscouragedApi" />
 

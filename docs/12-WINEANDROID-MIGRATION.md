@@ -68,10 +68,12 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 
 ### P3 外层壳
 
-- 网格（`LauncherProgramLibrary` 已有 exe 名单）+ 底栏
-- `SessionActivity` 改为 resizeable / freeform
-- 可选 `SECONDARY_HOME`
-- **验收**：电脑模式副屏能拉起 Amphora 桌面，点图标开一个会话窗
+- [x] v1 `DesktopActivity`：壁纸 + `LauncherProgramLibrary` 图标网格 + 底栏（本会话 / Explorer / Settings / 返回）
+- [x] 点图标 → `SessionLaunch` → `SessionActivity`（默认 X11；尊重 `WineAndroidLaunchGate`）
+- [x] `SessionActivity` `resizeableActivity=true`（一程序一会话窗；不是每 HWND 一个系统 freeform）
+- [x] 入口：启动器顶栏 **Desktop**；或 debuggable `app.amphora.debug.DESKTOP`。**不**注册 `SECONDARY_HOME`（避免抢平板主屏）
+- [ ] 可选 `SECONDARY_HOME` / 电脑模式副屏（以后）
+- **验收（真机）**：副屏或桌面 Activity 能点图标开会话窗
 
 ## 3. 本机做不到、需要人的
 

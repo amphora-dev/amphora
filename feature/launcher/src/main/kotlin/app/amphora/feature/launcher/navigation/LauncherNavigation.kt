@@ -10,12 +10,14 @@ fun NavGraphBuilder.launcherScreen(
     onLaunch: (exePath: String, width: Int, height: Int) -> Unit,
     onOpenExplorer: (width: Int, height: Int) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDesktop: () -> Unit = {},
 ) {
     composable(route = LAUNCHER_ROUTE) {
         ModernLauncherScreen(
             onLaunch = onLaunch,
             onOpenExplorer = onOpenExplorer,
             onOpenSettings = onOpenSettings,
+            onOpenDesktop = onOpenDesktop,
         )
     }
 }

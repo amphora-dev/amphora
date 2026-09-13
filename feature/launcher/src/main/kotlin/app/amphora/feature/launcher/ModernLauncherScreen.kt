@@ -79,6 +79,7 @@ fun ModernLauncherScreen(
     onLaunch: (exePath: String, width: Int, height: Int) -> Unit,
     onOpenExplorer: (width: Int, height: Int) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDesktop: () -> Unit = {},
     viewModel: LauncherViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -107,6 +108,7 @@ fun ModernLauncherScreen(
                 onAddProgram = { pickExe.launch(arrayOf("*/*")) },
                 onRefresh = viewModel::refreshContentInfo,
                 onOpenSettings = onOpenSettings,
+                onOpenDesktop = onOpenDesktop,
             )
         },
     ) { padding ->
@@ -210,6 +212,7 @@ private fun LauncherTopBar(
     onAddProgram: () -> Unit,
     onRefresh: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDesktop: () -> Unit,
 ) {
     val compact =
         with(LocalDensity.current) {
@@ -255,6 +258,12 @@ private fun LauncherTopBar(
                 modifier = Modifier.width(if (compact) 56.dp else 140.dp),
             ) {
                 Text(if (compact) "Add" else "+ Add program")
+            }
+            TextButton(
+                onClick = onOpenDesktop,
+                modifier = Modifier.width(if (compact) 64.dp else 88.dp),
+            ) {
+                Text(if (compact) "PC" else "Desktop")
             }
             TextButton(
                 onClick = onOpenSettings,

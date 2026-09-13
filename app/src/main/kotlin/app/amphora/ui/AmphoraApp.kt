@@ -15,6 +15,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -22,13 +23,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
+import app.amphora.feature.settings.navigation.SETTINGS_ROUTE
 import app.amphora.ui.theme.AmphoraTheme
 
 @Composable
-fun AmphoraApp() {
+fun AmphoraApp(initialOpenSettings: Boolean = false) {
     AmphoraTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             val navController = rememberNavController()
+            LaunchedEffect(initialOpenSettings) {
+                if (initialOpenSettings) {
+                    navController.navigate(SETTINGS_ROUTE)
+                }
+            }
             AmphoraNavHost(navController = navController)
             StartupUpdatePrompt()
         }

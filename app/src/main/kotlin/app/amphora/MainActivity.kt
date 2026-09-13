@@ -5,10 +5,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import app.amphora.core.engine.model.DisplayBackend
-import app.amphora.gamesession.SessionActivity
+import app.amphora.desktop.DesktopActivity
 import app.amphora.gamesession.wineandroid.WineAndroidSessionActivity
 import app.amphora.ui.AmphoraApp
+import app.amphora.ui.SessionLaunch
 import app.amphora.ui.WineAndroidLaunchGate
 import app.amphora.ui.stageDebugWineExe
 import dagger.hilt.android.AndroidEntryPoint
@@ -19,50 +19,57 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val isDebuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        setContent { AmphoraApp() }
+        val openSettings = intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)
+        setContent {
+            AmphoraApp(initialOpenSettings = openSettings)
+        }
         if (savedInstanceState == null && isDebuggable) {
-            val useWineAndroid =
+            when {
+                intent.getBooleanExtra(EXTRA_DEBUG_DESKTOP, false) -> {
+                    DesktopActivity.launch(this)
+                }
                 intent.getBooleanExtra(EXTRA_DEBUG_WINEANDROID, false) ||
-                    WineAndroidLaunchGate.FORCE_WINEANDROID_HOST
-            val smoke = intent.getBooleanExtra(EXTRA_DEBUG_WINE_SMOKE, false)
-            if (smoke || useWineAndroid) {
-                val exePath =
-                    intent
-                        .getStringExtra(EXTRA_DEBUG_WINE_EXE)
-                        ?.takeIf { it.isNotBlank() }
-                        ?: stageDebugWineExe(this)
-                val width = intent.getIntExtra(EXTRA_DEBUG_WIDTH, 1280)
-                val height = intent.getIntExtra(EXTRA_DEBUG_HEIGHT, 720)
-                val graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false)
-                if (useWineAndroid) {
+                    (WineAndroidLaunchGate.FORCE_WINEANDROID_HOST &&
+                        intent.getBooleanExtra(EXTRA_DEBUG_WINE_SMOKE, false)) -> {
+                    val exePath =
+                        intent
+                            .getStringExtra(EXTRA_DEBUG_WINE_EXE)
+                            ?.takeIf { it.isNotBlank() }
+                            ?: stageDebugWineExe(this)
                     WineAndroidSessionActivity.launch(
                         context = this,
                         exePath = exePath,
-                        width = width,
-                        height = height,
-                        graphicsDiag = graphicsDiag,
+                        width = intent.getIntExtra(EXTRA_DEBUG_WIDTH, 1280),
+                        height = intent.getIntExtra(EXTRA_DEBUG_HEIGHT, 720),
+                        graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
                     )
-                } else {
-                    SessionActivity.launch(
+                }
+                intent.getBooleanExtra(EXTRA_DEBUG_WINE_SMOKE, false) -> {
+                    SessionLaunch.program(
                         context = this,
-                        exePath = exePath,
-                        width = width,
-                        height = height,
-                        graphicsDiag = graphicsDiag,
-                        displayBackend = DisplayBackend.X11,
+                        exePath =
+                        intent
+                            .getStringExtra(EXTRA_DEBUG_WINE_EXE)
+                            ?.takeIf { it.isNotBlank() }
+                            ?: stageDebugWineExe(this),
+                        width = intent.getIntExtra(EXTRA_DEBUG_WIDTH, 1280),
+                        height = intent.getIntExtra(EXTRA_DEBUG_HEIGHT, 720),
+                        graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
                     )
                 }
             }
         }
     }
 
-    private companion object {
-        const val EXTRA_DEBUG_WINE_SMOKE = "app.amphora.debug.WINE_SMOKE"
-        const val EXTRA_DEBUG_WINE_EXE = "app.amphora.debug.WINE_EXE"
-        const val EXTRA_DEBUG_WIDTH = "app.amphora.debug.WIDTH"
-        const val EXTRA_DEBUG_HEIGHT = "app.amphora.debug.HEIGHT"
-        const val EXTRA_DEBUG_GRAPHICS_DIAG = "app.amphora.debug.GRAPHICS_DIAG"
-        /** Debug-only: open [WineAndroidSessionActivity] instead of the X11 SessionActivity. */
-        const val EXTRA_DEBUG_WINEANDROID = "app.amphora.debug.WINEANDROID"
+    companion object {
+        const val EXTRA_OPEN_SETTINGS = "app.amphora.desktop.OPEN_SETTINGS"
+        private const val EXTRA_DEBUG_WINE_SMOKE = "app.amphora.debug.WINE_SMOKE"
+        private const val EXTRA_DEBUG_WINE_EXE = "app.amphora.debug.WINE_EXE"
+        private const val EXTRA_DEBUG_WIDTH = "app.amphora.debug.WIDTH"
+        private const val EXTRA_DEBUG_HEIGHT = "app.amphora.debug.HEIGHT"
+        private const val EXTRA_DEBUG_GRAPHICS_DIAG = "app.amphora.debug.GRAPHICS_DIAG"
+        private const val EXTRA_DEBUG_WINEANDROID = "app.amphora.debug.WINEANDROID"
+        /** Debug-only: open [DesktopActivity]. Default home stays the phone/tablet launcher. */
+        private const val EXTRA_DEBUG_DESKTOP = "app.amphora.debug.DESKTOP"
     }
 }
