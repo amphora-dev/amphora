@@ -7,6 +7,7 @@ import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.WineEngine
 import app.amphora.core.engine.model.AudioSink
+import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.LaunchTarget
@@ -53,6 +54,7 @@ class GameSessionViewModelTest {
         assertEquals("/games/example.exe", spec.captured.exePath)
         assertEquals(DisplaySize(1920, 1080), spec.captured.displaySize)
         assertEquals(LaunchTarget.PROGRAM, spec.captured.target)
+        assertEquals(DisplayBackend.X11, spec.captured.displayBackend)
         assertTrue(spec.captured.env.isEmpty())
         assertEquals(0, fixture.hostEnvironment.diagnosticRequests)
     }

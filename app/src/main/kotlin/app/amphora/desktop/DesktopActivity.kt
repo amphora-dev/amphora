@@ -16,7 +16,7 @@ import dagger.hilt.android.AndroidEntryPoint
  *
  * Not ZUI Work / ZuiLauncherPC. Not SECONDARY_HOME (would steal tablet home).
  * Icons come from [app.amphora.feature.launcher.LauncherProgramLibrary] only.
- * Session launch uses [SessionLaunch] (default X11; honors WineAndroidLaunchGate).
+ * Session launch uses [SessionLaunch] (default wineandroid; X11 via displayBackend=X11).
  */
 @AndroidEntryPoint
 class DesktopActivity : ComponentActivity() {

@@ -1,14 +1,14 @@
 package app.amphora.ui
 
 /**
- * Dev switch for the wineandroid host path.
+ * Product default is wineandroid ([FORCE_WINEANDROID_HOST] = true).
  *
- * Keep [FORCE_WINEANDROID_HOST] false in committed trees so the default UI still
- * opens X11 [app.amphora.gamesession.SessionActivity]. Flip locally, or pass
- * MainActivity extra `app.amphora.debug.WINEANDROID=true` (debuggable builds).
+ * Fall back to the legacy Java X11 host with an explicit
+ * `displayBackend = DisplayBackend.X11` (e.g. [SessionLaunch.program]) or the
+ * debuggable MainActivity extra `app.amphora.debug.X11=true`.
  *
- * See docs/12-WINEANDROID-MIGRATION.md §P1.
+ * See docs/12-WINEANDROID-MIGRATION.md.
  */
 object WineAndroidLaunchGate {
-    const val FORCE_WINEANDROID_HOST = false
+    const val FORCE_WINEANDROID_HOST = true
 }

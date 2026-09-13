@@ -24,15 +24,16 @@ import javax.inject.Inject
 import kotlinx.coroutines.launch
 
 /**
- * P1 host for [DisplayBackend.WINEANDROID].
+ * P1 host for [DisplayBackend.WINEANDROID] (product default).
  *
  * Real Activity + [WineAndroidDesktop] (SurfaceView children). Not Compose,
  * not Winlator XServerSurfaceView, not org.winehq.wine.WineActivity.
  *
- * Not the default launch path. Wine is still started with box64 exec, so the
+ * WCP already ships `wineandroid.drv`. Wine still starts via box64 exec, so the
  * pin's in-process JNI (ntdll java_vm / RegisterNatives) does not apply.
- * [WineAndroidHostBridge] owns the HWND/Surface contract; the unix socket is
- * stubbed until WCP ships wineandroid.drv.
+ * [WineAndroidHostBridge] owns the HWND/Surface contract; unix ioctl client
+ * connect to `AMPHORA_WINEANDROID_SOCK` is still TODO (drv still JNI until a
+ * sibling change lands).
  */
 @AndroidEntryPoint
 class WineAndroidSessionActivity : ComponentActivity() {

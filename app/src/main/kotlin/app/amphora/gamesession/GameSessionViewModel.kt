@@ -9,6 +9,7 @@ import app.amphora.core.container.model.DEFAULT_CONTAINER_ID
 import app.amphora.core.engine.GameSessionSurface
 import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.WineEngine
+import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.LaunchTarget
@@ -74,6 +75,7 @@ constructor(
                             containerId = DEFAULT_CONTAINER_ID,
                             displaySize = DisplaySize(request.width, request.height),
                             target = request.target,
+                            displayBackend = DisplayBackend.X11,
                             env = diagEnv,
                         ),
                     )

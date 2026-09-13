@@ -9,7 +9,7 @@ enum class LaunchTarget {
     EXPLORER,
 }
 
-/** Which display stack hosts this session. X11 is the live control path until P1. */
+/** Which display stack hosts this session. Wineandroid is the default; X11 is opt-in. */
 enum class DisplayBackend {
     X11,
     WINEANDROID,
@@ -27,7 +27,7 @@ data class LaunchSpec(
     val containerId: ContainerId,
     val displaySize: DisplaySize,
     val target: LaunchTarget = LaunchTarget.PROGRAM,
-    val displayBackend: DisplayBackend = DisplayBackend.X11,
+    val displayBackend: DisplayBackend = DisplayBackend.WINEANDROID,
     val env: Map<String, String> = emptyMap(),
     val workingDirectory: String? = null,
 )

@@ -29,7 +29,8 @@ import kotlinx.coroutines.withContext
  * or [com.winlator.cmod.runtime.display.environment.components.XServerComponent].
  *
  * Guest exec is [WineAndroidLauncher] (same `explorer /desktop=shell,WxH` shape as X11,
- * no Java XServer). The ioctl↔socket bridge still waits on a WCP with `wineandroid.drv`.
+ * no Java XServer). WCP already ships `wineandroid.drv`; unix ioctl client connect
+ * to the host socket is still TODO (drv still JNI until a sibling change lands).
  */
 @Singleton
 class WineAndroidSessionBootstrap

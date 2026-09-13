@@ -8,33 +8,45 @@ import app.amphora.gamesession.wineandroid.WineAndroidSessionActivity
 
 /**
  * Single place for "open a Wine session" from UI surfaces (NavHost, PC desktop).
- * Honors [WineAndroidLaunchGate]; does not flip the committed default off X11.
+ *
+ * Default backend is [resolveDisplayBackend] (wineandroid when
+ * [WineAndroidLaunchGate.FORCE_WINEANDROID_HOST] is true). Callers may pass
+ * [DisplayBackend.X11] explicitly for the legacy Java X11 host.
  */
 object SessionLaunch {
+    fun resolveDisplayBackend(): DisplayBackend =
+        if (WineAndroidLaunchGate.FORCE_WINEANDROID_HOST) {
+            DisplayBackend.WINEANDROID
+        } else {
+            DisplayBackend.X11
+        }
+
     fun program(
         context: Context,
         exePath: String,
         width: Int = 1280,
         height: Int = 720,
         graphicsDiag: Boolean = false,
+        displayBackend: DisplayBackend = resolveDisplayBackend(),
     ) {
-        if (WineAndroidLaunchGate.FORCE_WINEANDROID_HOST) {
-            WineAndroidSessionActivity.launch(
-                context = context,
-                exePath = exePath,
-                width = width,
-                height = height,
-                graphicsDiag = graphicsDiag,
-            )
-        } else {
-            SessionActivity.launch(
-                context = context,
-                exePath = exePath,
-                width = width,
-                height = height,
-                graphicsDiag = graphicsDiag,
-                displayBackend = DisplayBackend.X11,
-            )
+        when (displayBackend) {
+            DisplayBackend.X11 ->
+                SessionActivity.launch(
+                    context = context,
+                    exePath = exePath,
+                    width = width,
+                    height = height,
+                    graphicsDiag = graphicsDiag,
+                    displayBackend = DisplayBackend.X11,
+                )
+            DisplayBackend.WINEANDROID ->
+                WineAndroidSessionActivity.launch(
+                    context = context,
+                    exePath = exePath,
+                    width = width,
+                    height = height,
+                    graphicsDiag = graphicsDiag,
+                )
         }
     }
 
@@ -42,24 +54,26 @@ object SessionLaunch {
         context: Context,
         width: Int = 1280,
         height: Int = 720,
+        displayBackend: DisplayBackend = resolveDisplayBackend(),
     ) {
-        if (WineAndroidLaunchGate.FORCE_WINEANDROID_HOST) {
-            WineAndroidSessionActivity.launch(
-                context = context,
-                exePath = "",
-                width = width,
-                height = height,
-                target = LaunchTarget.EXPLORER,
-            )
-        } else {
-            SessionActivity.launch(
-                context = context,
-                exePath = "",
-                width = width,
-                height = height,
-                target = LaunchTarget.EXPLORER,
-                displayBackend = DisplayBackend.X11,
-            )
+        when (displayBackend) {
+            DisplayBackend.X11 ->
+                SessionActivity.launch(
+                    context = context,
+                    exePath = "",
+                    width = width,
+                    height = height,
+                    target = LaunchTarget.EXPLORER,
+                    displayBackend = DisplayBackend.X11,
+                )
+            DisplayBackend.WINEANDROID ->
+                WineAndroidSessionActivity.launch(
+                    context = context,
+                    exePath = "",
+                    width = width,
+                    height = height,
+                    target = LaunchTarget.EXPLORER,
+                )
         }
     }
 }

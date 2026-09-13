@@ -41,8 +41,9 @@ import kotlinx.coroutines.withContext
  * - `AMPHORA_WINEANDROID=1`
  * - `AMPHORA_WINEANDROID_SOCK=<filesDir>/wineandroid/host.sock`
  *
- * Still needs a WCP that ships `wineandroid.drv` and a unix ioctl↔socket bridge
- * before HWND/Surface appear on [WineAndroidDesktop].
+ * WCP already ships `wineandroid.drv`. Unix ioctl client connect to
+ * `AMPHORA_WINEANDROID_SOCK` is still TODO before HWND/Surface appear on
+ * [WineAndroidDesktop] (drv still JNI until a sibling change lands).
  */
 @Singleton
 class WineAndroidLauncher
