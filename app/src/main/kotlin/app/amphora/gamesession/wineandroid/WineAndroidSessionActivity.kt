@@ -118,7 +118,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                         env = diagEnv,
                     )
                 val prepared = bootstrap.prepare(spec)
-                hostBridge?.startSocketStub(prepared.bridgeSocketPath)
+                hostBridge?.startHostSocket(prepared.bridgeSocketPath)
                 statusView.text =
                     "wineandroid: prefix ready\n" +
                         "starting box64 wine explorer /desktop=shell…\n" +
@@ -129,7 +129,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     "wineandroid: guest pid=${guest.pid}\n" +
                         "${guest.guestExecutable}\n" +
                         "sock=${guest.bridgeSocketPath.absolutePath}\n" +
-                        "ioctl bridge TODO (needs WCP wineandroid.drv)"
+                        "host socket listening; unix ioctl client needs WCP wineandroid.drv"
                 Log.i(TAG, "wineandroid guest pid=${guest.pid}")
             } catch (t: Throwable) {
                 Log.e(TAG, "wineandroid prepare failed", t)
@@ -167,9 +167,9 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     private fun onNativeSurface(hwnd: Int, surface: android.view.Surface, opengl: Boolean) {
-        // Future: encode wine_surface_changed equivalent onto the host socket so
-        // wineandroid.drv can register ANativeWindow (register_native_window).
-        Log.i(TAG, "HWND $hwnd surface=$surface opengl=$opengl (socket send TODO)")
+        // HostBridge also emits WineAndroidProtocol.HOST_SURFACE_CHANGED (hwnd/opengl/ready).
+        // Native handle / fd for unix register_native_window is still TODO after WCP.
+        Log.i(TAG, "HWND $hwnd surface=$surface opengl=$opengl (HOST_SURFACE_CHANGED notified)")
     }
 
     companion object {
