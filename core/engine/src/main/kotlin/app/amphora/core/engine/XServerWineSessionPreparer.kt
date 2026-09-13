@@ -1276,7 +1276,10 @@ class XServerWineSessionPreparer @Inject constructor(
             }
         }
 
-        envState.put("ADRENOTOOLS_DRIVER_PATH", vendorHal.parent + "/")
+        val vendorHalDirectory = requireNotNull(vendorHal.parent) {
+            "Leegao adrenotools dependency has no parent directory: ${vendorHal.absolutePath}"
+        }
+        envState.put("ADRENOTOOLS_DRIVER_PATH", "$vendorHalDirectory/")
         envState.put("ADRENOTOOLS_DRIVER_NAME", vendorHal.name)
         envState.put("ADRENOTOOLS_HOOKS_PATH", cleanHooksDir.absolutePath)
         envState.put("ADRENOTOOLS_DRIVER_CUSTOM", "1")
