@@ -1,5 +1,6 @@
 package app.amphora.gamesession.wineandroid
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -35,6 +36,7 @@ import kotlinx.coroutines.launch
  * `AMPHORA_WINEANDROID_SOCK` (incl. desktop metrics + surface buffer-op fds).
  */
 @AndroidEntryPoint
+@SuppressLint("SetTextI18n")
 class WineAndroidSessionActivity : ComponentActivity() {
     @Inject lateinit var bootstrap: WineAndroidSessionBootstrap
 
