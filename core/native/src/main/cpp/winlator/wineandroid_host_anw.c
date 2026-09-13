@@ -222,30 +222,62 @@ static int register_buf(struct serve_ctx *ctx, struct wine_native_buffer *buffer
 static void *serve_thread(void *arg)
 {
     struct serve_ctx *ctx = arg;
+    int32_t last_cmd = 0;
+    int last_op_ret = 0;
+    int saw_queue = 0;
+    int queue_ret = 0;
+    const char *exit_why = "loop-end";
+    int exit_errno = 0;
+
     LOGI("buffer serve start hwnd=%08x sock=%d", ctx->hwnd, ctx->sock);
 
     for (;;) {
         int32_t cmd;
-        if (read_full(ctx->sock, &cmd, sizeof(cmd))) break;
+        if (read_full(ctx->sock, &cmd, sizeof(cmd))) {
+            exit_errno = errno;
+            exit_why = (exit_errno == 0) ? "read-cmd-EOF" : "read-cmd-err";
+            break;
+        }
+        last_cmd = cmd;
 
-        if (cmd == CMD_STOP) break;
+        if (cmd == CMD_STOP) {
+            exit_why = "CMD_STOP";
+            break;
+        }
 
         if (cmd == CMD_DEQUEUE) {
             struct wine_native_buffer *buffer = NULL;
             int fence = -1;
             int ret = ctx->win->dequeueBuffer(ctx->win, &buffer, &fence);
             int id = -1;
+            last_op_ret = ret;
             if (fence >= 0) close(fence);
             if (!ret && buffer) id = register_buf(ctx, buffer);
-            if (send_handle_reply(ctx->sock, ret, buffer, id, ctx->generation)) break;
+            LOGI("serve DEQUEUE hwnd=%08x ret=%d id=%d gen=%d %dx%d fmt=%d",
+                 ctx->hwnd, ret, id, ctx->generation,
+                 buffer ? buffer->width : -1, buffer ? buffer->height : -1,
+                 buffer ? buffer->format : -1);
+            if (send_handle_reply(ctx->sock, ret, buffer, id, ctx->generation)) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "dequeue-reply-EOF" : "dequeue-reply-err";
+                break;
+            }
             continue;
         }
 
         if (cmd == CMD_QUEUE || cmd == CMD_CANCEL) {
             int32_t buffer_id = -1, generation = 0;
             int ret = -EINVAL;
-            if (read_full(ctx->sock, &buffer_id, sizeof(buffer_id))) break;
-            if (read_full(ctx->sock, &generation, sizeof(generation))) break;
+            if (read_full(ctx->sock, &buffer_id, sizeof(buffer_id))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "queue-read-id-EOF" : "queue-read-id-err";
+                break;
+            }
+            if (read_full(ctx->sock, &generation, sizeof(generation))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "queue-read-gen-EOF" : "queue-read-gen-err";
+                break;
+            }
             if (generation == ctx->generation && buffer_id >= 0 && buffer_id < NB_BUFFERS &&
                 ctx->buffers[buffer_id]) {
                 if (cmd == CMD_QUEUE)
@@ -255,25 +287,65 @@ static void *serve_thread(void *arg)
             } else {
                 ret = 0; /* obsolete */
             }
-            if (write_full(ctx->sock, &ret, sizeof(ret))) break;
+            last_op_ret = ret;
+            if (cmd == CMD_QUEUE) {
+                saw_queue = 1;
+                queue_ret = ret;
+            }
+            LOGI("serve %s hwnd=%08x id=%d gen=%d/%d ret=%d",
+                 cmd == CMD_QUEUE ? "QUEUE" : "CANCEL",
+                 ctx->hwnd, buffer_id, generation, ctx->generation, ret);
+            if (write_full(ctx->sock, &ret, sizeof(ret))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "queue-write-ret-EOF" : "queue-write-ret-err";
+                break;
+            }
             continue;
         }
 
         if (cmd == CMD_QUERY) {
             int32_t what = 0, value = 0, ret;
-            if (read_full(ctx->sock, &what, sizeof(what))) break;
+            if (read_full(ctx->sock, &what, sizeof(what))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "query-read-EOF" : "query-read-err";
+                break;
+            }
             ret = ctx->win->query(ctx->win, what, &value);
-            if (write_full(ctx->sock, &ret, sizeof(ret))) break;
-            if (write_full(ctx->sock, &value, sizeof(value))) break;
+            last_op_ret = ret;
+            if (write_full(ctx->sock, &ret, sizeof(ret))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "query-write-ret-EOF" : "query-write-ret-err";
+                break;
+            }
+            if (write_full(ctx->sock, &value, sizeof(value))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "query-write-val-EOF" : "query-write-val-err";
+                break;
+            }
             continue;
         }
 
         if (cmd == CMD_PERFORM) {
             int32_t op = 0, nargs = 0, args[4], ret = -ENOENT;
-            if (read_full(ctx->sock, &op, sizeof(op))) break;
-            if (read_full(ctx->sock, &nargs, sizeof(nargs))) break;
-            if (nargs < 0 || nargs > 4) break;
-            if (nargs && read_full(ctx->sock, args, sizeof(int32_t) * (size_t)nargs)) break;
+            if (read_full(ctx->sock, &op, sizeof(op))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "perform-read-op-EOF" : "perform-read-op-err";
+                break;
+            }
+            if (read_full(ctx->sock, &nargs, sizeof(nargs))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "perform-read-nargs-EOF" : "perform-read-nargs-err";
+                break;
+            }
+            if (nargs < 0 || nargs > 4) {
+                exit_why = "perform-bad-nargs";
+                break;
+            }
+            if (nargs && read_full(ctx->sock, args, sizeof(int32_t) * (size_t)nargs)) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "perform-read-args-EOF" : "perform-read-args-err";
+                break;
+            }
             switch (op) {
             case 0: /* SET_USAGE */
             case 6: /* SET_BUFFERS_TRANSFORM */
@@ -302,23 +374,41 @@ static void *serve_thread(void *arg)
                 ret = -ENOENT;
                 break;
             }
-            if (write_full(ctx->sock, &ret, sizeof(ret))) break;
+            last_op_ret = ret;
+            LOGI("serve PERFORM hwnd=%08x op=%d nargs=%d ret=%d", ctx->hwnd, op, nargs, ret);
+            if (write_full(ctx->sock, &ret, sizeof(ret))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "perform-write-ret-EOF" : "perform-write-ret-err";
+                break;
+            }
             continue;
         }
 
         if (cmd == CMD_SET_SWAP) {
             int32_t interval = 0, ret;
-            if (read_full(ctx->sock, &interval, sizeof(interval))) break;
+            if (read_full(ctx->sock, &interval, sizeof(interval))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "setswap-read-EOF" : "setswap-read-err";
+                break;
+            }
             ret = ctx->win->setSwapInterval(ctx->win, interval);
-            if (write_full(ctx->sock, &ret, sizeof(ret))) break;
+            last_op_ret = ret;
+            if (write_full(ctx->sock, &ret, sizeof(ret))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "setswap-write-ret-EOF" : "setswap-write-ret-err";
+                break;
+            }
             continue;
         }
 
         LOGW("unknown buffer cmd %d hwnd=%08x", cmd, ctx->hwnd);
+        exit_why = "unknown-cmd";
         break;
     }
 
-    LOGI("buffer serve exit hwnd=%08x", ctx->hwnd);
+    LOGI("buffer serve exit hwnd=%08x why=%s errno=%d(%s) last_cmd=%d last_op_ret=%d queue_seen=%d queue_ret=%d",
+         ctx->hwnd, exit_why, exit_errno, exit_errno ? strerror(exit_errno) : "ok",
+         last_cmd, last_op_ret, saw_queue, queue_ret);
     close(ctx->sock);
     ANativeWindow_release((ANativeWindow *)ctx->win);
     free(ctx);
