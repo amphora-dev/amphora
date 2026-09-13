@@ -20,9 +20,9 @@ class WineAndroidHostBridge(
     private val desktop: WineAndroidDesktop,
     private val onSurfaceChanged: (hwnd: Int, surface: Surface, opengl: Boolean) -> Unit,
 ) {
-    private val windows = LinkedHashMap<Int, WineAndroidWindow>()
+    private val windows = LinkedHashMap<Pair<Int, Boolean>, WineAndroidWindow>()
     private var hostSocket: WineAndroidHostSocket? = null
-    private val surfaceSessions = LinkedHashMap<Int, SurfaceSession>()
+    private val surfaceSessions = LinkedHashMap<Pair<Int, Boolean>, SurfaceSession>()
 
     private data class SurfaceSession(val servePtr: Long, val opengl: Boolean)
 
@@ -33,6 +33,7 @@ class WineAndroidHostBridge(
     fun createWindow(hwnd: Int, opengl: Boolean, parent: Int, scale: Float, pid: Int) {
         Log.i(TAG, "createWindow hwnd=$hwnd opengl=$opengl parent=$parent scale=$scale pid=$pid")
         activity.runOnUiThread {
+            val sibling = windows[hwnd to !opengl]
             val window =
                 WineAndroidWindow(
                     hwnd = hwnd,
@@ -40,12 +41,16 @@ class WineAndroidHostBridge(
                     isClient = opengl,
                     scale = scale,
                 )
-            windows[hwnd] = window
+            if (sibling != null) {
+                window.windowRect = android.graphics.Rect(sibling.windowRect)
+                window.clientRect = android.graphics.Rect(sibling.clientRect)
+            }
+            windows[hwnd to opengl] = window
             desktop.attachWindow(window) { attachedHwnd, surface ->
                 if (surface != null) {
                     notifySurface(attachedHwnd, surface, opengl, ready = true)
                 } else {
-                    releaseSurfaceSession(attachedHwnd, notify = true)
+                    releaseSurfaceSession(attachedHwnd, opengl, notify = true)
                 }
             }
         }
@@ -54,19 +59,23 @@ class WineAndroidHostBridge(
     fun destroyWindow(hwnd: Int) {
         Log.i(TAG, "destroyWindow hwnd=$hwnd")
         activity.runOnUiThread {
-            val existing = windows.remove(hwnd)
+            val gdi = windows.remove(hwnd to false)
+            val client = windows.remove(hwnd to true)
             desktop.detachWindow(hwnd)
-            releaseSurfaceSession(hwnd, notify = existing != null)
+            if (gdi != null) releaseSurfaceSession(hwnd, false, notify = true)
+            if (client != null) releaseSurfaceSession(hwnd, true, notify = true)
         }
     }
 
     fun setParent(hwnd: Int, parent: Int, scale: Float, pid: Int) {
         Log.i(TAG, "setParent hwnd=$hwnd parent=$parent scale=$scale pid=$pid")
         activity.runOnUiThread {
-            val existing = windows[hwnd] ?: return@runOnUiThread
-            val updated = existing.copy(parentHwnd = parent, scale = scale)
-            windows[hwnd] = updated
-            desktop.updateWindow(updated)
+            listOf(false, true).forEach { isClient ->
+                val existing = windows[hwnd to isClient] ?: return@forEach
+                val updated = existing.copy(parentHwnd = parent, scale = scale)
+                windows[hwnd to isClient] = updated
+                desktop.updateWindow(updated)
+            }
         }
     }
 
@@ -86,14 +95,7 @@ class WineAndroidHostBridge(
                 "style=$style window=$windowRect client=$clientRect visible=$visibleRect",
         )
         activity.runOnUiThread {
-            val existing = windows[hwnd] ?: return@runOnUiThread
-            val updated =
-                existing.copy().also {
-                    it.windowRect = Rect(windowRect)
-                    it.clientRect = Rect(clientRect)
-                }
-            windows[hwnd] = updated
-            desktop.updateWindow(updated)
+            desktop.updateHwndRects(hwnd, windowRect, clientRect)
         }
     }
 
@@ -113,11 +115,13 @@ class WineAndroidHostBridge(
     fun startSocketStub(socketFile: File) = startHostSocket(socketFile)
 
     fun close() {
-        surfaceSessions.keys.toList().forEach { releaseSurfaceSession(it, notify = false) }
+        surfaceSessions.keys.toList().forEach { (hwnd, opengl) ->
+            releaseSurfaceSession(hwnd, opengl, notify = false)
+        }
         hostSocket?.close()
         hostSocket = null
         activity.runOnUiThread {
-            windows.keys.toList().forEach { desktop.detachWindow(it) }
+            windows.keys.map { it.first }.distinct().forEach { desktop.detachWindow(it) }
             windows.clear()
         }
     }
@@ -125,10 +129,10 @@ class WineAndroidHostBridge(
     private fun notifySurface(hwnd: Int, surface: Surface, opengl: Boolean, ready: Boolean) {
         onSurfaceChanged(hwnd, surface, opengl)
         if (!ready) {
-            releaseSurfaceSession(hwnd, notify = true)
+            releaseSurfaceSession(hwnd, opengl, notify = true)
             return
         }
-        releaseSurfaceSession(hwnd, notify = false)
+        releaseSurfaceSession(hwnd, opengl, notify = false)
 
         val windowHandle =
             try {
@@ -178,7 +182,7 @@ class WineAndroidHostBridge(
             return
         }
 
-        surfaceSessions[hwnd] = SurfaceSession(servePtr = servePtr, opengl = opengl)
+        surfaceSessions[hwnd to opengl] = SurfaceSession(servePtr = servePtr, opengl = opengl)
 
         try {
             hostSocket?.sendSurfaceChanged(
@@ -199,9 +203,9 @@ class WineAndroidHostBridge(
         WineAndroidNative.nativeReleaseWindow(windowHandle)
     }
 
-    private fun releaseSurfaceSession(hwnd: Int, notify: Boolean) {
-        val session = surfaceSessions.remove(hwnd) ?: run {
-            if (notify) hostSocket?.sendSurfaceChanged(hwnd, opengl = false, ready = false)
+    private fun releaseSurfaceSession(hwnd: Int, opengl: Boolean, notify: Boolean) {
+        val session = surfaceSessions.remove(hwnd to opengl) ?: run {
+            if (notify) hostSocket?.sendSurfaceChanged(hwnd, opengl = opengl, ready = false)
             return
         }
         WineAndroidNative.nativeStopBufferServe(session.servePtr, -1)

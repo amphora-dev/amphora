@@ -249,4 +249,4 @@ target_link_options(amphora-android-shim PRIVATE "-Wl,-soname,libandroid.so")
 
 # wineandroid host: ANativeWindow_fromSurface + buffer-op socket for Amphora
 # (Surface stays in :session; wine gets a per-HWND socketpair via SCM_RIGHTS).
-target_sources(winlator PRIVATE winlator/wineandroid_host_anw.c)
+target_sources(winlator PRIVATE winlator/wineandroid_host_anw.c winlator/wineandroid_host_vk.c)

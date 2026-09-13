@@ -79,8 +79,11 @@ enum {
     CMD_QUERY = 4,
     CMD_PERFORM = 5,
     CMD_SET_SWAP = 6,
+    CMD_VK_PRESENT = 7,
     CMD_STOP = 99,
 };
+
+extern int wineandroid_host_vk_present(void *anw, int32_t out[4]);
 
 #define NB_BUFFERS 8
 
@@ -379,6 +382,20 @@ static void *serve_thread(void *arg)
             if (write_full(ctx->sock, &ret, sizeof(ret))) {
                 exit_errno = errno;
                 exit_why = (exit_errno == 0) ? "perform-write-ret-EOF" : "perform-write-ret-err";
+                break;
+            }
+            continue;
+        }
+
+        if (cmd == CMD_VK_PRESENT) {
+            int32_t reply[4] = { -1, -1, -1, -1 };
+            int pret = wineandroid_host_vk_present(ctx->win, reply);
+            last_op_ret = pret;
+            LOGI("serve VK_PRESENT hwnd=%08x surface=%d swap=%d present=%d frames=%d",
+                 ctx->hwnd, reply[0], reply[1], reply[2], reply[3]);
+            if (write_full(ctx->sock, reply, sizeof(reply))) {
+                exit_errno = errno;
+                exit_why = (exit_errno == 0) ? "vkpresent-write-EOF" : "vkpresent-write-err";
                 break;
             }
             continue;
