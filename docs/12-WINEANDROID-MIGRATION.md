@@ -80,3 +80,10 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 - 替换 ZUI Work 桌面 priv-app
 - 每个 HWND 一个系统 freeform（P3 之后）
 - wine 补丁里写 adrenotools
+
+## 5. 宿主原则（2026-09-13）
+
+- 新代码只写 **Kotlin**。不移植 `WineActivity.java`，不对齐 Winlator。
+- 长期去掉 `com.winlator` 那层（Java X server / TextureView compositor）。X11 只是现包还能跑的对照，不是目标。
+- pin 里 wineandroid 的 JNI 假定：Wine 从某个 Java 对象 `wine_init` 启动，`ntdll` 带上 `java_vm`，unix 驱动 `RegisterNatives`。Amphora 实际是 **`:session` 进程 `box64 exec wine`**，Wine 不在 JVM 里，这条接不上。
+- 因此 P1 的桥是 Amphora 自己的：Kotlin `WineAndroidDesktop` 管 HWND→SurfaceView；unix 侧只要 `ANativeWindow`。不使用 `org.winehq.wine.WineActivity` 类名。
