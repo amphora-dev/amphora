@@ -16,40 +16,59 @@ import android.widget.FrameLayout
  * Until that bridge exists, [attachWindow] is what P1 tests call directly.
  *
  * Surface buffer size must match the Win32 window rect (launcher /desktop=WxH),
- * not the Activity display (often 1920×1200 on redroid). Without
- * [SurfaceHolder.setFixedSize], a SurfaceView created before windowPosChanged
- * (empty rect → MATCH_PARENT) allocates an ANW at display size and never
- * rebinds — GDI then paints a letterboxed desktop into a larger buffer.
+ * not the Activity display (often 1920×1200 on redroid). createWindow arrives
+ * before windowPosChanged with an empty rect; if we addView then, SurfaceView
+ * allocates MATCH_PARENT (= display) and a later setFixedSize rebind races GDI
+ * LOCK. Defer addView until the rect is known, setFixedSize before the surface
+ * is created, and notify HostBridge once from surfaceChanged (not also
+ * surfaceCreated) so HOST_SURFACE_CHANGED reports the guest size once.
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private val windows = LinkedHashMap<Int, WindowSurface>()
 
     fun attachWindow(window: WineAndroidWindow, onSurface: (hwnd: Int, surface: Surface?) -> Unit) {
         val existing = windows.remove(window.hwnd)
-        existing?.let { removeView(it.view) }
-        val view = WindowSurface(context, window, onSurface)
-        windows[window.hwnd] = view
-        addView(view.view, childParams(window))
-        applyFixedSize(view, window)
+        existing?.let {
+            if (it.view.parent === this) removeView(it.view)
+        }
+        val held = WindowSurface(context, window, onSurface)
+        windows[window.hwnd] = held
+        maybeAttachView(held, window)
     }
 
     fun detachWindow(hwnd: Int) {
-        windows.remove(hwnd)?.let { removeView(it.view) }
+        windows.remove(hwnd)?.let {
+            if (it.view.parent === this) removeView(it.view)
+        }
     }
 
     fun updateWindow(window: WineAndroidWindow) {
         val held = windows[window.hwnd] ?: return
         held.window = window
-        held.view.layoutParams = childParams(window)
+        maybeAttachView(held, window)
+        if (held.view.parent === this) {
+            held.view.layoutParams = childParams(window)
+            applyFixedSize(held, window)
+            held.view.requestLayout()
+        }
+    }
+
+    private fun maybeAttachView(held: WindowSurface, window: WineAndroidWindow) {
+        val r = window.windowRect
+        if (r.width() <= 0 || r.height() <= 0) {
+            Log.i(TAG, "defer SurfaceView hwnd=${window.hwnd} until windowPosChanged")
+            return
+        }
         applyFixedSize(held, window)
-        held.view.requestLayout()
+        if (held.view.parent !== this) {
+            Log.i(TAG, "addView hwnd=${window.hwnd} ${r.width()}x${r.height()}")
+            addView(held.view, childParams(window))
+        }
     }
 
     private fun childParams(window: WineAndroidWindow): LayoutParams {
         val r = window.windowRect
-        val width = if (r.width() > 0) r.width() else LayoutParams.MATCH_PARENT
-        val height = if (r.height() > 0) r.height() else LayoutParams.MATCH_PARENT
-        return LayoutParams(width, height).apply {
+        return LayoutParams(r.width(), r.height()).apply {
             leftMargin = r.left
             topMargin = r.top
         }
@@ -78,9 +97,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             holder.addCallback(
                 object : SurfaceHolder.Callback {
                     override fun surfaceCreated(holder: SurfaceHolder) {
-                        val surface = holder.surface
-                        window.surface = surface
-                        onSurface(window.hwnd, surface)
+                        // surfaceChanged follows immediately with WxH; notify there
+                        // so HostBridge acquires ANW once at the fixed size.
                     }
 
                     override fun surfaceChanged(
@@ -89,9 +107,6 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                         width: Int,
                         height: Int,
                     ) {
-                        // setFixedSize / layout resize: re-notify so HostBridge
-                        // re-acquires ANativeWindow and HOST_SURFACE_CHANGED
-                        // reports the buffer size Wine actually LOCKs.
                         Log.i(TAG, "surfaceChanged hwnd=${window.hwnd} ${width}x$height")
                         val surface = holder.surface
                         window.surface = surface
