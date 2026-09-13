@@ -95,12 +95,12 @@ fun DesktopScreen(
             )
             when {
                 state.loading -> {
-                    Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Text("Loading programs…", color = Color.White.copy(alpha = 0.8f))
                     }
                 }
                 state.programs.isEmpty() -> {
-                    Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
                                 Icons.Default.Apps,
