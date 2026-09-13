@@ -50,10 +50,10 @@ public class GuestProgramLauncherComponentTest {
         "/imagefs/usr/lib/libandroid-sysvshm.so:/system/lib64/libjpeg.so");
 
     GuestProgramLauncherComponent.applyWineAndroidWsiHelperPreloadEnv(
-        envVars, "/files/wineandroid/libamphora_wsi.so");
+        envVars, "/data/app/app.amphora/lib/arm64/libamphora_wsi.so");
 
     assertEquals(
-        "/files/wineandroid/libamphora_wsi.so:/imagefs/usr/lib/libandroid-sysvshm.so:/system/lib64/libjpeg.so",
+        "/data/app/app.amphora/lib/arm64/libamphora_wsi.so:/imagefs/usr/lib/libandroid-sysvshm.so:/system/lib64/libjpeg.so",
         envVars.get("LD_PRELOAD"));
   }
 }

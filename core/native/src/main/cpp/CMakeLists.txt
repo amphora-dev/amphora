@@ -244,6 +244,14 @@ add_library(amphora-android-shim SHARED
 target_compile_options(amphora-android-shim PRIVATE -Wall -Wextra)
 target_link_options(amphora-android-shim PRIVATE "-Wl,-soname,libandroid.so")
 
+# aarch64 PE Win32 WSI helper. Box64 guests cannot dlopen this; host LD_PRELOAD
+# of nativeLibraryDir/libamphora_wsi.so runs the ctor (unix-socket present bridge).
+add_library(amphora_wsi SHARED
+        winlator/amphora_wsi.c
+)
+target_compile_options(amphora_wsi PRIVATE -Wall -Wextra)
+target_link_libraries(amphora_wsi PRIVATE log dl)
+
 # fakeinput LD_PRELOAD shim intentionally not built (MVP input is XServer inject).
 # Source removed from tree; reintroduce from WinNative when native gamepad returns.
 

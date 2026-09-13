@@ -43,7 +43,7 @@ import kotlinx.coroutines.withContext
  * - `AMPHORA_WINEANDROID=1`
  * - `AMPHORA_WINEANDROID_SOCK=<filesDir>/wineandroid/host.sock`
  * - `LD_LIBRARY_PATH` prefix `filesDir/wineandroid/vkloader` → `/system/lib64/libvulkan.so` (+ `.so.1`)
- * - `LD_PRELOAD` prefix `filesDir/wineandroid/libamphora_wsi.so` (aarch64 PE WSI helper ctor)
+ * - `LD_PRELOAD` prefix `nativeLibraryDir/libamphora_wsi.so` (APK-packaged aarch64 PE WSI helper ctor)
  *
  * WCP already ships `wineandroid.drv`. Unix ioctl client connect to
  * `AMPHORA_WINEANDROID_SOCK` is still TODO before HWND/Surface appear on

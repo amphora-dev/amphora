@@ -1006,9 +1006,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
   /**
    * PE Win32 WSI helper is aarch64-native; Box64 guests cannot dlopen it. Host-side
-   * {@code LD_PRELOAD} of {@code filesDir/wineandroid/libamphora_wsi.so} runs its ctor
-   * in the box64 process (unix socket present bridge). Prefer this over replacing
-   * imagefs {@code libandroid-sysvshm.so} with a ctor shim.
+   * {@code LD_PRELOAD} of {@code nativeLibraryDir/libamphora_wsi.so} (APK-packaged)
+   * runs its ctor in the box64 process (unix socket present bridge). Prefer this
+   * over replacing imagefs {@code libandroid-sysvshm.so} with a ctor shim.
    */
   static void applyWineAndroidWsiHelperPreloadEnv(EnvVars envVars, String helperPath) {
     if (helperPath == null || helperPath.isEmpty()) {
@@ -1018,7 +1018,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
   }
 
   private static void applyWineAndroidWsiHelperPreload(Context context, EnvVars envVars) {
-    File helper = new File(context.getFilesDir(), "wineandroid/libamphora_wsi.so");
+    File helper = new File(context.getApplicationInfo().nativeLibraryDir, "libamphora_wsi.so");
     if (!helper.isFile()) {
       Log.w(TAG, "AMPHORA_WINEANDROID: missing WSI helper " + helper.getAbsolutePath());
       return;
