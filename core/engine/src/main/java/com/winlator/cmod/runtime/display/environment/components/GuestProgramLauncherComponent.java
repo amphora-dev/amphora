@@ -990,6 +990,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
     File link = new File(vkDir, "libvulkan.so");
     FileUtils.symlink(systemVulkan.getAbsolutePath(), link.getAbsolutePath());
+    /* box64/win32u also resolve SONAME libvulkan.so.1 (imagefs Khronos). */
+    FileUtils.symlink(
+        systemVulkan.getAbsolutePath(), new File(vkDir, "libvulkan.so.1").getAbsolutePath());
     applyWineAndroidSystemVulkanEnv(envVars, vkDir.getAbsolutePath());
     Log.i(
         TAG,
