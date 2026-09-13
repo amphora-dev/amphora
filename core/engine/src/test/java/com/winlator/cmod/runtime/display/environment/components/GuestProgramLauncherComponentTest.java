@@ -2,6 +2,7 @@ package com.winlator.cmod.runtime.display.environment.components;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import com.winlator.cmod.runtime.wine.EnvVars;
 import java.io.File;
@@ -18,5 +19,26 @@ public class GuestProgramLauncherComponentTest {
 
     assertFalse(envVars.has("BOX64_NORCFILES"));
     assertEquals("/imagefs/etc/config.box64rc", envVars.get("BOX64_RCFILE"));
+  }
+
+  @Test
+  public void wineandroidPathDropsWrapperIcdAndAdrenotools() {
+    EnvVars envVars = new EnvVars();
+    envVars.put("VK_ICD_FILENAMES", "/imagefs/usr/share/vulkan/icd.d/wrapper_icd.aarch64.json");
+    envVars.put("ADRENOTOOLS_DRIVER_NAME", "vulkan.broadcom.so");
+    envVars.put("ADRENOTOOLS_DRIVER_PATH", "/vendor/lib64/hw/");
+    envVars.put("ADRENOTOOLS_HOOKS_PATH", "/imagefs/usr/lib");
+    envVars.put("ADRENOTOOLS_DRIVER_CUSTOM", "1");
+    envVars.put("LD_LIBRARY_PATH", "/imagefs/usr/lib:/system/lib64");
+
+    GuestProgramLauncherComponent.applyWineAndroidSystemVulkanEnv(envVars, "/files/wineandroid/vkloader");
+
+    assertFalse(envVars.has("VK_ICD_FILENAMES"));
+    assertFalse(envVars.has("ADRENOTOOLS_DRIVER_NAME"));
+    assertFalse(envVars.has("ADRENOTOOLS_DRIVER_PATH"));
+    assertFalse(envVars.has("ADRENOTOOLS_HOOKS_PATH"));
+    assertFalse(envVars.has("ADRENOTOOLS_DRIVER_CUSTOM"));
+    assertTrue(envVars.get("LD_LIBRARY_PATH").startsWith("/files/wineandroid/vkloader:"));
+    assertTrue(envVars.get("LD_LIBRARY_PATH").contains("/imagefs/usr/lib"));
   }
 }

@@ -802,10 +802,13 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       envVars.remove("DISPLAY");
       envVars.remove("ANDROID_SYSVSHM_SERVER");
       envVars.remove("GST_PLUGIN_FEATURE_RANK");
+      applyWineAndroidSystemVulkan(context, envVars);
       Log.i(
           TAG,
           "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
-              + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent)");
+              + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); "
+              + "system Vulkan /system/lib64/libvulkan.so "
+              + "(dropped wrapper_icd / ADRENOTOOLS)");
     }
     if (wineInfo == null || !wineInfo.isArm64EC()) {
       configureBox64RcEnv(envVars, rootDir);
@@ -950,6 +953,50 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         envVars.put("BOX86_CPULIST", cpuList);
       }
     }
+  }
+
+
+  /**
+   * wineandroid WSI needs the Android platform loader ({@code /system/lib64/libvulkan.so},
+   * pastel/SwiftShader on redroid or the vendor HAL on a phone). The guest Khronos
+   * wrapper ICD + adrenotools HAL redirect is the X11/Adreno path and stays intact
+   * when {@code AMPHORA_WINEANDROID} is unset.
+   */
+  static void applyWineAndroidSystemVulkanEnv(EnvVars envVars, String vkLoaderDir) {
+    envVars.remove("VK_ICD_FILENAMES");
+    envVars.remove("VK_DRIVER_FILES");
+    envVars.remove("ADRENOTOOLS_DRIVER_PATH");
+    envVars.remove("ADRENOTOOLS_DRIVER_NAME");
+    envVars.remove("ADRENOTOOLS_HOOKS_PATH");
+    envVars.remove("ADRENOTOOLS_DRIVER_CUSTOM");
+    if (vkLoaderDir != null && !vkLoaderDir.isEmpty()) {
+      String ld = envVars.get("LD_LIBRARY_PATH");
+      envVars.put("LD_LIBRARY_PATH", vkLoaderDir + (ld.isEmpty() ? "" : ":" + ld));
+    }
+  }
+
+  private static void applyWineAndroidSystemVulkan(Context context, EnvVars envVars) {
+    File systemVulkan = new File("/system/lib64/libvulkan.so");
+    if (!systemVulkan.isFile()) {
+      applyWineAndroidSystemVulkanEnv(envVars, null);
+      Log.w(TAG, "AMPHORA_WINEANDROID: missing " + systemVulkan.getAbsolutePath());
+      return;
+    }
+    File vkDir = new File(context.getFilesDir(), "wineandroid/vkloader");
+    if (!vkDir.isDirectory() && !vkDir.mkdirs()) {
+      applyWineAndroidSystemVulkanEnv(envVars, null);
+      Log.w(TAG, "AMPHORA_WINEANDROID: cannot create " + vkDir.getAbsolutePath());
+      return;
+    }
+    File link = new File(vkDir, "libvulkan.so");
+    FileUtils.symlink(systemVulkan.getAbsolutePath(), link.getAbsolutePath());
+    applyWineAndroidSystemVulkanEnv(envVars, vkDir.getAbsolutePath());
+    Log.i(
+        TAG,
+        "AMPHORA_WINEANDROID: LD_LIBRARY_PATH prefix "
+            + vkDir.getAbsolutePath()
+            + " -> "
+            + systemVulkan.getAbsolutePath());
   }
 
   static void configureBox64RcEnv(EnvVars envVars, File rootDir) {

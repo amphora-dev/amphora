@@ -37,10 +37,12 @@ import kotlinx.coroutines.withContext
  * - `DISPLAY=unix:…/X0` (Java fake X)
  * - `ANDROID_SYSVSHM_SERVER` (no SysVSharedMemoryComponent)
  * - `GST_PLUGIN_FEATURE_RANK=ximagesink:…` (X sink ranking)
+ * - `VK_ICD_FILENAMES=…/wrapper_icd` and `ADRENOTOOLS_*` (guest Khronos/wrapper)
  *
  * Added:
  * - `AMPHORA_WINEANDROID=1`
  * - `AMPHORA_WINEANDROID_SOCK=<filesDir>/wineandroid/host.sock`
+ * - `LD_LIBRARY_PATH` prefix `filesDir/wineandroid/vkloader` → `/system/lib64/libvulkan.so`
  *
  * WCP already ships `wineandroid.drv`. Unix ioctl client connect to
  * `AMPHORA_WINEANDROID_SOCK` is still TODO before HWND/Surface appear on
