@@ -15,7 +15,6 @@ enum class DisplayBackend {
     WINEANDROID,
 }
 
-
 /**
  * What the engine needs to start a Wine session (RFC §6 / §8). The launch
  * command itself (`box64 wine explorer /desktop=WxH exe`) is constructed by the

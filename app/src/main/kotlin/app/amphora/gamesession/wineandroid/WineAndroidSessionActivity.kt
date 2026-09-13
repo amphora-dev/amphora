@@ -37,7 +37,9 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class WineAndroidSessionActivity : ComponentActivity() {
     @Inject lateinit var bootstrap: WineAndroidSessionBootstrap
+
     @Inject lateinit var launcher: WineAndroidLauncher
+
     @Inject lateinit var hostEnvironment: GameSessionHostEnvironment
 
     private lateinit var desktop: WineAndroidDesktop
@@ -132,15 +134,15 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 hostBridge?.updateDesktopMetrics(width, height, resources.displayMetrics.density)
                 statusView.text =
                     "wineandroid: prefix ready\n" +
-                        "starting box64 wine explorer /desktop=shell…\n" +
-                        "socket=${prepared.bridgeSocketPath.absolutePath}"
+                    "starting box64 wine explorer /desktop=shell…\n" +
+                    "socket=${prepared.bridgeSocketPath.absolutePath}"
                 val guest = launcher.start(prepared)
                 runningGuest = guest
                 statusView.text =
                     "wineandroid: guest pid=${guest.pid}\n" +
-                        "${guest.guestExecutable}\n" +
-                        "sock=${guest.bridgeSocketPath.absolutePath}\n" +
-                        "host socket listening; unix ioctl client needs WCP wineandroid.drv"
+                    "${guest.guestExecutable}\n" +
+                    "sock=${guest.bridgeSocketPath.absolutePath}\n" +
+                    "host socket listening; unix ioctl client needs WCP wineandroid.drv"
                 Log.i(TAG, "wineandroid guest pid=${guest.pid}")
             } catch (t: Throwable) {
                 Log.e(TAG, "wineandroid prepare failed", t)
@@ -201,15 +203,14 @@ class WineAndroidSessionActivity : ComponentActivity() {
             height: Int = DEFAULT_HEIGHT,
             target: LaunchTarget = LaunchTarget.PROGRAM,
             graphicsDiag: Boolean = false,
-        ): Intent =
-            Intent(context, WineAndroidSessionActivity::class.java).apply {
-                putExtra(EXTRA_EXE_PATH, exePath)
-                putExtra(EXTRA_WIDTH, width)
-                putExtra(EXTRA_HEIGHT, height)
-                putExtra(EXTRA_TARGET, target.name)
-                putExtra(EXTRA_GRAPHICS_DIAG, graphicsDiag)
-                putExtra(EXTRA_DISPLAY_BACKEND, DisplayBackend.WINEANDROID.name)
-            }
+        ): Intent = Intent(context, WineAndroidSessionActivity::class.java).apply {
+            putExtra(EXTRA_EXE_PATH, exePath)
+            putExtra(EXTRA_WIDTH, width)
+            putExtra(EXTRA_HEIGHT, height)
+            putExtra(EXTRA_TARGET, target.name)
+            putExtra(EXTRA_GRAPHICS_DIAG, graphicsDiag)
+            putExtra(EXTRA_DISPLAY_BACKEND, DisplayBackend.WINEANDROID.name)
+        }
 
         fun launch(
             context: Context,

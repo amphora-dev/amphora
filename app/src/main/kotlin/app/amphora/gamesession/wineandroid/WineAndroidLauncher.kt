@@ -7,9 +7,9 @@ import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.buildWineExplorerCommand
 import app.amphora.core.engine.buildWineProgramCommand
-import app.amphora.core.engine.stageExecutable
 import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.LaunchTarget
+import app.amphora.core.engine.stageExecutable
 import com.winlator.cmod.runtime.container.Container as WinNativeContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WinNativeContainerManager
 import com.winlator.cmod.runtime.content.ContentsManager
@@ -65,68 +65,64 @@ constructor(
         }
     }
 
-    suspend fun start(prepared: WineAndroidSessionBootstrap.Prepared): RunningGuest =
-        withContext(dispatchers.default) {
-            require(prepared.spec.displayBackend == DisplayBackend.WINEANDROID)
-            ProcessHelper.init(context)
+    suspend fun start(prepared: WineAndroidSessionBootstrap.Prepared): RunningGuest = withContext(dispatchers.default) {
+        require(prepared.spec.displayBackend == DisplayBackend.WINEANDROID)
+        ProcessHelper.init(context)
 
-            val imageFs = ImageFs.find(context)
-            val contentsManager = ContentsManager(context).also { it.syncContents() }
-            val wnContainer = resolveWinNativeContainer(prepared.container)
-            val wineVersion = wnContainer.getWineVersion()
-            val wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion)
-            imageFs.setWinePath(wineInfo.path)
+        val imageFs = ImageFs.find(context)
+        val contentsManager = ContentsManager(context).also { it.syncContents() }
+        val wnContainer = resolveWinNativeContainer(prepared.container)
+        val wineVersion = wnContainer.getWineVersion()
+        val wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion)
+        imageFs.setWinePath(wineInfo.path)
 
-            val screenInfo = "${prepared.spec.displaySize.width}x${prepared.spec.displaySize.height}"
-            val guestExecutable =
-                when (prepared.spec.target) {
-                    LaunchTarget.EXPLORER -> buildWineExplorerCommand(screenInfo)
-                    LaunchTarget.PROGRAM -> {
-                        val wineExePath = stageExeIntoPrefix(wnContainer, prepared.spec.exePath)
-                        buildWineProgramCommand(screenInfo, wineExePath)
-                    }
+        val screenInfo = "${prepared.spec.displaySize.width}x${prepared.spec.displaySize.height}"
+        val guestExecutable =
+            when (prepared.spec.target) {
+                LaunchTarget.EXPLORER -> buildWineExplorerCommand(screenInfo)
+                LaunchTarget.PROGRAM -> {
+                    val wineExePath = stageExeIntoPrefix(wnContainer, prepared.spec.exePath)
+                    buildWineProgramCommand(screenInfo, wineExePath)
                 }
+            }
 
-            val envVars = buildWineAndroidEnv(imageFs, prepared)
-            val wineProfile = contentsManager.getProfileByEntryName(wnContainer.getWineVersion())
-            val launcher = GuestProgramLauncherComponent(contentsManager, wineProfile)
-            launcher.setContainer(wnContainer)
-            launcher.setWineInfo(wineInfo)
-            launcher.setGuestExecutable(guestExecutable)
-            launcher.setEnvVars(envVars)
-            launcher.setBox64Preset(AdvancedRuntimePreferences.box64Preset(context))
-            prepared.spec.workingDirectory?.let { launcher.setWorkingDir(File(it)) }
+        val envVars = buildWineAndroidEnv(imageFs, prepared)
+        val wineProfile = contentsManager.getProfileByEntryName(wnContainer.getWineVersion())
+        val launcher = GuestProgramLauncherComponent(contentsManager, wineProfile)
+        launcher.setContainer(wnContainer)
+        launcher.setWineInfo(wineInfo)
+        launcher.setGuestExecutable(guestExecutable)
+        launcher.setEnvVars(envVars)
+        launcher.setBox64Preset(AdvancedRuntimePreferences.box64Preset(context))
+        prepared.spec.workingDirectory?.let { launcher.setWorkingDir(File(it)) }
 
-            // Bare environment: only GPLC. No XServerComponent / SysV / ALSA here.
-            val environment = XEnvironment(context, imageFs)
-            environment.addComponent(launcher)
+        // Bare environment: only GPLC. No XServerComponent / SysV / ALSA here.
+        val environment = XEnvironment(context, imageFs)
+        environment.addComponent(launcher)
 
-            Log.i(
-                TAG,
-                "starting wineandroid guestExecutable=$guestExecutable " +
-                    "sock=${prepared.bridgeSocketPath.absolutePath}",
-            )
-            environment.startEnvironmentComponents()
-            val pid = launcher.pid
-            check(pid > 0) { "wineandroid guest failed to start (pid=$pid)" }
-            Log.i(TAG, "wineandroid guest running pid=$pid")
-            RunningGuest(
-                pid = pid,
-                guestExecutable = guestExecutable,
-                bridgeSocketPath = prepared.bridgeSocketPath,
-                launcher = launcher,
-                environment = environment,
-            )
-        }
+        Log.i(
+            TAG,
+            "starting wineandroid guestExecutable=$guestExecutable " +
+                "sock=${prepared.bridgeSocketPath.absolutePath}",
+        )
+        environment.startEnvironmentComponents()
+        val pid = launcher.pid
+        check(pid > 0) { "wineandroid guest failed to start (pid=$pid)" }
+        Log.i(TAG, "wineandroid guest running pid=$pid")
+        RunningGuest(
+            pid = pid,
+            guestExecutable = guestExecutable,
+            bridgeSocketPath = prepared.bridgeSocketPath,
+            launcher = launcher,
+            environment = environment,
+        )
+    }
 
     /**
      * Caller env merged by GPLC. Must include the wineandroid markers so GPLC
      * clears Java-X DISPLAY after its defaults.
      */
-    private fun buildWineAndroidEnv(
-        imageFs: ImageFs,
-        prepared: WineAndroidSessionBootstrap.Prepared,
-    ): EnvVars {
+    private fun buildWineAndroidEnv(imageFs: ImageFs, prepared: WineAndroidSessionBootstrap.Prepared): EnvVars {
         val envVars = EnvVars()
         envVars.put("LC_ALL", app.amphora.core.engine.WineLocalePreferences.resolve(context))
         envVars.put("WINEPREFIX", imageFs.wineprefix)

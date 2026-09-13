@@ -14,12 +14,11 @@ import app.amphora.gamesession.wineandroid.WineAndroidSessionActivity
  * [DisplayBackend.X11] explicitly for the legacy Java X11 host.
  */
 object SessionLaunch {
-    fun resolveDisplayBackend(): DisplayBackend =
-        if (WineAndroidLaunchGate.FORCE_WINEANDROID_HOST) {
-            DisplayBackend.WINEANDROID
-        } else {
-            DisplayBackend.X11
-        }
+    fun resolveDisplayBackend(): DisplayBackend = if (WineAndroidLaunchGate.FORCE_WINEANDROID_HOST) {
+        DisplayBackend.WINEANDROID
+    } else {
+        DisplayBackend.X11
+    }
 
     fun program(
         context: Context,

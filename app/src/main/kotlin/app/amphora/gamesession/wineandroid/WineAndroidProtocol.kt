@@ -75,13 +75,8 @@ object WineAndroidProtocol {
     const val SIZE_DESKTOP_CHANGED = 12
 
     sealed class HostMessage {
-        data class CreateWindow(
-            val hwnd: Int,
-            val opengl: Boolean,
-            val parent: Int,
-            val scale: Float,
-            val pid: Int,
-        ) : HostMessage()
+        data class CreateWindow(val hwnd: Int, val opengl: Boolean, val parent: Int, val scale: Float, val pid: Int) :
+            HostMessage()
 
         data class DestroyWindow(val hwnd: Int) : HostMessage()
 
@@ -96,12 +91,7 @@ object WineAndroidProtocol {
             val visibleRect: Rect,
         ) : HostMessage()
 
-        data class SetParent(
-            val hwnd: Int,
-            val parent: Int,
-            val scale: Float,
-            val pid: Int,
-        ) : HostMessage()
+        data class SetParent(val hwnd: Int, val parent: Int, val scale: Float, val pid: Int) : HostMessage()
     }
 
     fun decode(opcode: Int, payload: ByteArray): HostMessage? {
@@ -157,13 +147,7 @@ object WineAndroidProtocol {
         }
     }
 
-    fun encodeSurfaceChanged(
-        hwnd: Int,
-        opengl: Boolean,
-        ready: Boolean,
-        width: Int = 0,
-        height: Int = 0,
-    ): ByteArray {
+    fun encodeSurfaceChanged(hwnd: Int, opengl: Boolean, ready: Boolean, width: Int = 0, height: Int = 0): ByteArray {
         val payload =
             ByteBuffer.allocate(SIZE_SURFACE_CHANGED).order(ORDER).apply {
                 putInt(hwnd)

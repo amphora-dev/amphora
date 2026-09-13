@@ -53,47 +53,46 @@ constructor(
         val bridgeSocketPath: File,
     )
 
-    suspend fun prepare(spec: LaunchSpec): Prepared =
-        withContext(dispatchers.default) {
-            require(spec.displayBackend == DisplayBackend.WINEANDROID) {
-                "WineAndroidSessionBootstrap requires DisplayBackend.WINEANDROID, got ${spec.displayBackend}"
-            }
-            ProcessHelper.init(context)
-            try {
-                progressBus.update(ProvisionProgress(stage = "manifest", detail = "Fetching content manifest…"))
-                catalog.require()
-                progressBus.update(ProvisionProgress(stage = "runtime", detail = "Preparing runtime assets…"))
-                runtimeAssets.ensureAvailable()
-                progressBus.update(ProvisionProgress(stage = "rootfs", detail = "Checking imagefs…"))
-                ensureRootfs()
-                progressBus.update(ProvisionProgress(stage = "container", detail = "Preparing Wine container…"))
-                val container = containerManager.getOrCreate(spec.containerId)
-                progressBus.update(ProvisionProgress(stage = "prefix", detail = "Setting up Wine prefix…"))
-                preparer.setupWineSystemFiles(spec, container)
-                preparer.extractGraphicsDriverFiles(container)
-                val env = preparer.envVars() + spec.env
-                val socketDir = File(context.filesDir, BRIDGE_DIR).apply { mkdirs() }
-                val socketPath = File(socketDir, BRIDGE_SOCK)
-                Log.i(
-                    TAG,
-                    "wineandroid prefix ready container=${container.id.value} " +
-                        "exe=${spec.exePath} envKeys=${env.keys.sorted()} socket=${socketPath.absolutePath}",
-                )
-                Log.i(
-                    TAG,
-                    "prefix ready for WineAndroidLauncher; unix ioctl bridge still TODO " +
-                        "until WCP ships wineandroid.drv",
-                )
-                Prepared(
-                    spec = spec,
-                    container = container,
-                    envVars = env,
-                    bridgeSocketPath = socketPath,
-                )
-            } finally {
-                progressBus.clear()
-            }
+    suspend fun prepare(spec: LaunchSpec): Prepared = withContext(dispatchers.default) {
+        require(spec.displayBackend == DisplayBackend.WINEANDROID) {
+            "WineAndroidSessionBootstrap requires DisplayBackend.WINEANDROID, got ${spec.displayBackend}"
         }
+        ProcessHelper.init(context)
+        try {
+            progressBus.update(ProvisionProgress(stage = "manifest", detail = "Fetching content manifest…"))
+            catalog.require()
+            progressBus.update(ProvisionProgress(stage = "runtime", detail = "Preparing runtime assets…"))
+            runtimeAssets.ensureAvailable()
+            progressBus.update(ProvisionProgress(stage = "rootfs", detail = "Checking imagefs…"))
+            ensureRootfs()
+            progressBus.update(ProvisionProgress(stage = "container", detail = "Preparing Wine container…"))
+            val container = containerManager.getOrCreate(spec.containerId)
+            progressBus.update(ProvisionProgress(stage = "prefix", detail = "Setting up Wine prefix…"))
+            preparer.setupWineSystemFiles(spec, container)
+            preparer.extractGraphicsDriverFiles(container)
+            val env = preparer.envVars() + spec.env
+            val socketDir = File(context.filesDir, BRIDGE_DIR).apply { mkdirs() }
+            val socketPath = File(socketDir, BRIDGE_SOCK)
+            Log.i(
+                TAG,
+                "wineandroid prefix ready container=${container.id.value} " +
+                    "exe=${spec.exePath} envKeys=${env.keys.sorted()} socket=${socketPath.absolutePath}",
+            )
+            Log.i(
+                TAG,
+                "prefix ready for WineAndroidLauncher; unix ioctl bridge still TODO " +
+                    "until WCP ships wineandroid.drv",
+            )
+            Prepared(
+                spec = spec,
+                container = container,
+                envVars = env,
+                bridgeSocketPath = socketPath,
+            )
+        } finally {
+            progressBus.clear()
+        }
+    }
 
     private suspend fun ensureRootfs() {
         val imageFs = ImageFs.find(context)

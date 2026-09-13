@@ -17,10 +17,7 @@ import android.widget.FrameLayout
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private val windows = LinkedHashMap<Int, WindowSurface>()
 
-    fun attachWindow(
-        window: WineAndroidWindow,
-        onSurface: (hwnd: Int, surface: Surface?) -> Unit,
-    ) {
+    fun attachWindow(window: WineAndroidWindow, onSurface: (hwnd: Int, surface: Surface?) -> Unit) {
         val existing = windows.remove(window.hwnd)
         existing?.let { removeView(it.view) }
         val view = WindowSurface(context, window, onSurface)
@@ -64,12 +61,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                         onSurface(window.hwnd, surface)
                     }
 
-                    override fun surfaceChanged(
-                        holder: SurfaceHolder,
-                        format: Int,
-                        width: Int,
-                        height: Int,
-                    ) = Unit
+                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
 
                     override fun surfaceDestroyed(holder: SurfaceHolder) {
                         window.surface = null

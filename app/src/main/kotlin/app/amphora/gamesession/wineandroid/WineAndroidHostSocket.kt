@@ -24,17 +24,18 @@ import kotlin.concurrent.thread
  * [WineAndroidProtocol.HOST_DESKTOP_CHANGED]) may include SCM_RIGHTS fds via
  * [LocalSocket.setFileDescriptorsForSend].
  */
-class WineAndroidHostSocket(
-    private val bridge: WineAndroidHostBridge,
-) {
+class WineAndroidHostSocket(private val bridge: WineAndroidHostBridge) {
     private val running = AtomicBoolean(false)
     private var server: LocalServerSocket? = null
     private var acceptThread: Thread? = null
+
     @Volatile private var peer: LocalSocket? = null
 
     /** Last known desktop metrics — resent when a peer connects. */
     @Volatile private var desktopWidth: Int = 0
+
     @Volatile private var desktopHeight: Int = 0
+
     @Volatile private var desktopScale: Float = 1f
 
     fun start(socketFile: File) {

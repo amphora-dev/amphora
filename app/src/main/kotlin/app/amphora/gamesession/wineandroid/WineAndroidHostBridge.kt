@@ -24,10 +24,7 @@ class WineAndroidHostBridge(
     private var hostSocket: WineAndroidHostSocket? = null
     private val surfaceSessions = LinkedHashMap<Int, SurfaceSession>()
 
-    private data class SurfaceSession(
-        val servePtr: Long,
-        val opengl: Boolean,
-    )
+    private data class SurfaceSession(val servePtr: Long, val opengl: Boolean)
 
     fun createDesktopWindow(hwnd: Int) {
         Log.i(TAG, "createDesktopWindow hwnd=$hwnd")
@@ -45,8 +42,11 @@ class WineAndroidHostBridge(
                 )
             windows[hwnd] = window
             desktop.attachWindow(window) { attachedHwnd, surface ->
-                if (surface != null) notifySurface(attachedHwnd, surface, opengl, ready = true)
-                else releaseSurfaceSession(attachedHwnd, notify = true)
+                if (surface != null) {
+                    notifySurface(attachedHwnd, surface, opengl, ready = true)
+                } else {
+                    releaseSurfaceSession(attachedHwnd, notify = true)
+                }
             }
         }
     }
