@@ -859,23 +859,33 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       FileUtils.chmod(box64File, 0755);
     }
 
-    // wineandroid: start.exe must not be session leader. A keeper sh stays in
-    // setsid until WINEPREFIX/server-* disappears, so start.exe exit does not
-    // SIGHUP explorer. Java waitFor is on the keeper, not start.exe.
+    // wineandroid: write a keeper script (no sh -c quoting). Session leader is
+    // the keeper; it waits on $WINEPREFIX/server-* so start.exe exit does not
+    // SIGHUP explorer. Java waitFor is on the keeper.
     if ("1".equals(envVars.get("AMPHORA_WINEANDROID")) && !command.isEmpty()) {
-      String winePrefix = envVars.get("WINEPREFIX");
-      if (winePrefix == null) winePrefix = "";
-      String quotedPrefix = shellSingleQuote(winePrefix);
+      File keeper = new File(imageFs.getRootDir(), "tmp/wineandroid-keep.sh");
+      File keeperDir = keeper.getParentFile();
+      if (keeperDir != null) keeperDir.mkdirs();
       String script =
-          command
-              + " & i=0; while [ $i -lt 20 ]; do ls "
-              + quotedPrefix
-              + "/server-* >/dev/null 2>&1 && break; i=$((i+1)); /system/bin/sleep 1; done; "
-              + "while ls "
-              + quotedPrefix
-              + "/server-* >/dev/null 2>&1; do /system/bin/sleep 1; done";
-      command = "/system/bin/setsid -w /system/bin/sh -c " + shellSingleQuote(script);
-      Log.i(TAG, "AMPHORA_WINEANDROID=1: setsid keeper waits on wineserver dir");
+          "#!/system/bin/sh\n"
+              + command
+              + " &\n"
+              + "i=0\n"
+              + "while [ $i -lt 20 ]; do\n"
+              + "  ls \"$WINEPREFIX\"/server-* >/dev/null 2>&1 && break\n"
+              + "  i=$((i+1))\n"
+              + "  /system/bin/sleep 1\n"
+              + "done\n"
+              + "while ls \"$WINEPREFIX\"/server-* >/dev/null 2>&1; do\n"
+              + "  /system/bin/sleep 1\n"
+              + "done\n";
+      if (!FileUtils.writeString(keeper, script)) {
+        Log.e(TAG, "failed to write wineandroid keeper " + keeper);
+      } else {
+        FileUtils.chmod(keeper, 0755);
+        command = "/system/bin/setsid -w /system/bin/sh " + keeper.getAbsolutePath();
+        Log.i(TAG, "AMPHORA_WINEANDROID=1: setsid keeper " + keeper.getAbsolutePath());
+      }
     }
 
     Log.d(
@@ -985,10 +995,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     synchronized (lock) {
       if (pid != -1) ProcessHelper.resumeProcess(pid);
     }
-  }
-
-  private static String shellSingleQuote(String value) {
-    return "'" + value.replace("'", "'\\''") + "'";
   }
 
   private String pinWineLoader(String command, String wineLoader) {
