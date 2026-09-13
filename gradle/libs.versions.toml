@@ -1,5 +1,5 @@
 [versions]
-agp = "9.2.1"
+agp = "9.4.0"
 kotlin = "2.3.21"
 ksp = "2.3.9"
 coreKtx = "1.19.0"
@@ -17,6 +17,8 @@ espresso = "3.7.0"
 mockk = "1.14.11"
 turbine = "1.2.1"
 spotless = "8.0.0"
+# Used by Spotless in the root build script; the IDE cannot match dynamic accessor usage here.
+# noinspection UnusedVersionCatalogEntry
 ktlint = "1.7.1"
 orgJson = "20240303"
 shizuku = "13.1.5"
@@ -45,11 +47,18 @@ androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "l
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 
 # Compose (versions via BOM)
+# Consumed by convention plugins through VersionCatalog.findLibrary.
+# noinspection UnusedVersionCatalogEntry
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+# noinspection UnusedVersionCatalogEntry
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+# noinspection UnusedVersionCatalogEntry
 androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+# noinspection UnusedVersionCatalogEntry
 androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+# noinspection UnusedVersionCatalogEntry
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+# noinspection UnusedVersionCatalogEntry
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 
@@ -57,8 +66,12 @@ androidx-compose-material-icons-extended = { group = "androidx.compose.material"
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 
 # Hilt
+# Consumed by convention plugins through VersionCatalog.findLibrary.
+# noinspection UnusedVersionCatalogEntry
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+# noinspection UnusedVersionCatalogEntry
 hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
+# noinspection UnusedVersionCatalogEntry
 hilt-android-testing = { group = "com.google.dagger", name = "hilt-android-testing", version.ref = "hilt" }
 androidx-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
 
@@ -68,13 +81,22 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 
 # Testing
 junit4 = { group = "junit", name = "junit", version.ref = "junit4" }
+# Consumed by convention plugins through VersionCatalog.findLibrary.
+# noinspection UnusedVersionCatalogEntry
 androidx-test-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestJunit" }
+# noinspection UnusedVersionCatalogEntry
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
+# noinspection UnusedVersionCatalogEntry
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestCore" }
+# noinspection UnusedVersionCatalogEntry
 androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "androidxTestCore" }
+# noinspection UnusedVersionCatalogEntry
 espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+# noinspection UnusedVersionCatalogEntry
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+# noinspection UnusedVersionCatalogEntry
 mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
+# noinspection UnusedVersionCatalogEntry
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 # org.json ships with Android at runtime; JVM unit tests need the standalone jar.
 org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
