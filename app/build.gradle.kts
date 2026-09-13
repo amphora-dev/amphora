@@ -56,6 +56,8 @@ dependencies {
     implementation(project(":feature:settings"))
     implementation(project(":core:common"))
     implementation(project(":core:engine"))
+    // WineAndroidSessionBootstrap needs RootfsInstaller (engine keeps rootfs as implementation).
+    implementation(project(":core:rootfs"))
 
     testImplementation(testFixtures(project(":core:common")))
 

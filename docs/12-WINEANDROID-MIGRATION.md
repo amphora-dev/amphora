@@ -13,11 +13,11 @@
 
 | 项 | 事实 |
 |---|---|
-| Proton pin | `d12a5634aa4`，Wine 11.0 名，`WINE_VULKAN_DRIVER_VERSION` **47** |
+| Proton pin | Amphora `proton_11.0` @ `a0b4f11`（含 wineandroid Vulkan stub + ABI fix），Wine 11.0 名，`WINE_VULKAN_DRIVER_VERSION` **47** |
 | 上游 11.17/master | 版本 **48**，签名不同；**仍无** `vulkan.c` |
 | WCP 旧开关 | `--enable-wineandroid_drv=no`（已改 yes） |
 | Wine 自带 APK | `Makefile.in` 的 `EXTRA_TARGETS = wine-debug.apk` 会拉 gradle；已去掉，只要 `.so` |
-| 宿主现状 | Java X + TextureView + `explorer /desktop=shell` |
+| 宿主现状 | 默认仍 Java X + TextureView + `explorer /desktop=shell`；P1 `WineAndroidSessionActivity` 可 debug 打开，尚未默认 |
 | Compose | `SurfaceView` 的 surface 不会创建，wineandroid 宿主必须是普通 Activity |
 
 `p_vulkan_surface_create`（pin / v47）：
@@ -39,17 +39,24 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 - [x] WCP 安装后断言 `x86_64-unix/wineandroid.so` 与 `x86_64-windows/wineandroid.drv`
 - [x] `dlls/wineandroid.drv/vulkan.c` + `ANDROID_VulkanInit`（v47 签名）
 - [x] `winevulkan/make_vulkan`：android 列入 UNEXPOSED（生成类型，不把 `VK_KHR_android_surface` 直接暴露给 Win32 应用）
-- [ ] **提交并推送** `amphora-dev/proton-wine` + `amphora-dev/imagefs`（bst `ref` 仍指向旧 commit，推送 proton-wine 后要更新 bst）
-- [ ] GitHub Actions `build-proton-wine` 打出新 WCP，更新 `content_manifest` SHA
+- [x] **提交并推送** `amphora-dev/proton-wine` `a0b4f11c0a75877c5cf3ee0b7633e0d2ea54cc27`（`wineandroid: match pinned Proton WindowPosChanged and GL surface_create ABI.`）
+- [x] **提交并推送** `amphora-dev/imagefs` `9c33c921ea0021ca5f363d66cfd3769d8b1f1493`（bst `ref` / `PROTON_COMMIT` → a0b4f11）
+- [ ] GitHub Actions `build-proton-wine` 跑绿并打出新 WCP，更新 `content_manifest` SHA（run https://github.com/amphora-dev/imagefs/actions/runs/34748539257 ）
 - **验收**：新 WCP 内存在上述两个文件；旧 X11 路径暂不强制切换
+- **注意**：不会把 Amphora 的 `proton_11.0` 回并进 Valve `proton_11.0`；Amphora fork 是真源。
 
 ### P1 宿主 2D Spike
 
-- 普通 `Activity`（非 Compose `AndroidView`）承载 per-HWND `Surface`
-- 对照 pin 里 `WineActivity.java` 的桌面 View / `wine_surface_changed`
-- 启动 `winefile`（或 notepad），**无 X server 进程**
-- 输入走 wineandroid，不注入 X
-- **验收**：真机 `HA262AAH` 上 winefile 窗口可见、可点
+- [x] 普通 `WineAndroidSessionActivity`（非 Compose `AndroidView`）+ `WineAndroidDesktop` per-HWND `SurfaceView`
+- [x] `WineAndroidHostBridge`：Kotlin 侧对齐 WineActivity 公开面（`createWindow` / `destroyWindow` / `windowPosChanged` / `setParent` + Surface 回调）；**无 JNI**、不移植 `WineActivity.java`
+- [x] Launch 接线：`SessionActivity.intent/launch` 增加 `displayBackend`（默认仍 `X11`；`WINEANDROID` 时转调 `WineAndroidSessionActivity`）
+- [x] Debug 入口（**不改变默认用户路径**）：
+  - MainActivity extra `app.amphora.debug.WINEANDROID=true`（仅 debuggable）
+  - 或本地把 `WineAndroidLaunchGate.FORCE_WINEANDROID_HOST = true`
+- [x] `WineAndroidSessionBootstrap`：复用 catalog / runtime / rootfs / container / preparer，**不**起 Java XServer / XServerComponent；socket stub 落在 `filesDir/wineandroid/host.sock`
+- [ ] 等 WCP 含 `wineandroid.drv` 后：unix 侧用 socket/fd 讲清 `ioctl_android_*`（字段名见 `device.c`），再 `box64 wine` 无 X desktop
+- [ ] 输入走 wineandroid，不注入 X
+- **验收**：真机 `HA262AAH` 上 winefile 窗口可见、可点（仍阻塞在新 WCP）
 
 ### P2 Vulkan（游戏）
 
@@ -68,10 +75,10 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 
 ## 3. 本机做不到、需要人的
 
-1. **推送三个仓库的提交**（我这边只有 clone）。
-2. **跑 imagefs 的 `build-proton-wine` workflow**（ubuntu-24.04，最长 6 小时）。我这边没有 NDK + BuildStream 沙箱，编不了 WCP。
+1. ~~推送 proton-wine / imagefs~~（已推：proton-wine `a0b4f11`，imagefs `9c33c92`）。amphora 宿主接线可随本提交推。
+2. **等 imagefs `build-proton-wine` 跑绿**（run 34748539257）。这边没有 NDK + BuildStream 沙箱，编不了 WCP。
 3. **真机** `HA262AAH`：P1/P2 安装与看画面。
-4. P0 打出新包后：**更新 bst `ref` + manifest SHA**（或授权我推）。
+4. WCP 绿了之后：**更新 `content_manifest` SHA**（bst 已指向 ABI fix commit）。
 
 ## 4. 明确不做
 
@@ -87,3 +94,20 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 - 长期去掉 `com.winlator` 那层（Java X server / TextureView compositor）。X11 只是现包还能跑的对照，不是目标。
 - pin 里 wineandroid 的 JNI 假定：Wine 从某个 Java 对象 `wine_init` 启动，`ntdll` 带上 `java_vm`，unix 驱动 `RegisterNatives`。Amphora 实际是 **`:session` 进程 `box64 exec wine`**，Wine 不在 JVM 里，这条接不上。
 - 因此 P1 的桥是 Amphora 自己的：Kotlin `WineAndroidDesktop` 管 HWND→SurfaceView；unix 侧只要 `ANativeWindow`。不使用 `org.winehq.wine.WineActivity` 类名。
+
+### P1 宿主启动接线（2026-09-13）
+
+| 怎么打开 wineandroid Activity | 说明 |
+|---|---|
+| `adb shell am start -n app.amphora/.MainActivity --ez app.amphora.debug.WINEANDROID true` | debuggable 包；会 stage debug exe 并进 `WineAndroidSessionActivity` |
+| `WineAndroidLaunchGate.FORCE_WINEANDROID_HOST = true` 后重编 | 启动器点图标也走 wineandroid（仅本地） |
+| `SessionActivity.launch(..., displayBackend = WINEANDROID)` | API 层转调 |
+
+`LaunchSpec.displayBackend` 默认仍是 `X11`。在设备 WCP 尚未带上 `wineandroid.drv` 之前不要改默认。
+
+仍需新 WCP / unix socket 才能完成的：
+
+- guest `box64 wine`（无 `explorer /desktop` X 路径）真正 exec
+- 把 `ioctl_android_create_window` 等帧从驱动送到 `WineAndroidHostBridge`
+- `wine_surface_changed` 等价：把 `Surface`/`ANativeWindow` 回传 unix 侧 `register_native_window`
+

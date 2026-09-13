@@ -63,7 +63,9 @@
              not isolated: Wine, imagefs and content packages live under this app UID. -->
 
         <!-- wineandroid host (P1). Same :session process rules as SessionActivity.
-             Not exported; nothing launches it until DisplayBackend.WINEANDROID is wired. -->
+             Not exported. Open via WineAndroidSessionActivity.launch, SessionActivity
+             with displayBackend=WINEANDROID, or MainActivity debug extra
+             app.amphora.debug.WINEANDROID (debuggable). Default user path stays X11. -->
         <activity
             android:name=".gamesession.wineandroid.WineAndroidSessionActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|locale|layoutDirection|fontScale|uiMode"

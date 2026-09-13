@@ -12,7 +12,9 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.LaunchTarget
+import app.amphora.gamesession.wineandroid.WineAndroidSessionActivity
 import app.amphora.ui.theme.AmphoraTheme
 import com.winlator.cmod.runtime.system.ProcessHelper
 import dagger.hilt.android.AndroidEntryPoint
@@ -81,6 +83,7 @@ class SessionActivity : ComponentActivity() {
         private const val EXTRA_HEIGHT = "height"
         private const val EXTRA_TARGET = "target"
         private const val EXTRA_GRAPHICS_DIAG = "graphicsDiag"
+        private const val EXTRA_DISPLAY_BACKEND = "displayBackend"
         private const val SESSION_PROCESS_EXIT_GRACE_MS = 2_000L
 
         fun intent(
@@ -90,12 +93,26 @@ class SessionActivity : ComponentActivity() {
             height: Int = 720,
             target: LaunchTarget = LaunchTarget.PROGRAM,
             graphicsDiag: Boolean = false,
-        ): Intent = Intent(context, SessionActivity::class.java).apply {
-            putExtra(EXTRA_EXE_PATH, exePath)
-            putExtra(EXTRA_WIDTH, width)
-            putExtra(EXTRA_HEIGHT, height)
-            putExtra(EXTRA_TARGET, target.name)
-            putExtra(EXTRA_GRAPHICS_DIAG, graphicsDiag)
+            displayBackend: DisplayBackend = DisplayBackend.X11,
+        ): Intent {
+            if (displayBackend == DisplayBackend.WINEANDROID) {
+                return WineAndroidSessionActivity.intent(
+                    context = context,
+                    exePath = exePath,
+                    width = width,
+                    height = height,
+                    target = target,
+                    graphicsDiag = graphicsDiag,
+                )
+            }
+            return Intent(context, SessionActivity::class.java).apply {
+                putExtra(EXTRA_EXE_PATH, exePath)
+                putExtra(EXTRA_WIDTH, width)
+                putExtra(EXTRA_HEIGHT, height)
+                putExtra(EXTRA_TARGET, target.name)
+                putExtra(EXTRA_GRAPHICS_DIAG, graphicsDiag)
+                putExtra(EXTRA_DISPLAY_BACKEND, displayBackend.name)
+            }
         }
 
         fun launch(
@@ -105,6 +122,7 @@ class SessionActivity : ComponentActivity() {
             height: Int = 720,
             target: LaunchTarget = LaunchTarget.PROGRAM,
             graphicsDiag: Boolean = false,
+            displayBackend: DisplayBackend = DisplayBackend.X11,
         ) {
             context.startActivity(
                 intent(
@@ -114,6 +132,7 @@ class SessionActivity : ComponentActivity() {
                     height = height,
                     target = target,
                     graphicsDiag = graphicsDiag,
+                    displayBackend = displayBackend,
                 ),
             )
         }
