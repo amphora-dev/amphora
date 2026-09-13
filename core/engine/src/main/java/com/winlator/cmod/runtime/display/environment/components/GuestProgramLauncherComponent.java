@@ -859,6 +859,13 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       FileUtils.chmod(box64File, 0755);
     }
 
+    // wineandroid: start.exe/wrapper exiting used to SIGHUP explorer in the same
+    // process group. New session keeps 00cc alive; -w keeps Java waitFor on the tree.
+    if ("1".equals(envVars.get("AMPHORA_WINEANDROID")) && !command.isEmpty()) {
+      command = "/system/bin/setsid -w " + command;
+      Log.i(TAG, "AMPHORA_WINEANDROID=1: prefix setsid -w (new session)");
+    }
+
     Log.d(
         "GuestProgramLauncherComponent",
         "Launch env excerpt: "
