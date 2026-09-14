@@ -339,3 +339,9 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 - amphora `344f731` / proton-wine `1c62dd9a8ba`
 - HA262AAH：`import=ok`，Present≥50，guest-readback MAGENTA @50，无 CPU fill
 - 下一刀：HWND Surface 零拷贝（清 host blit）；不得退回 AHB import
+
+## 2026-09-14 · HWND Surface 零拷贝验收关门
+
+- 热路径已零拷贝（无 ImageReader / HostVk blit）；本拍不改 Present
+- HA262AAH：`DIRECT hwnd-ANW` + `import=ok` + MAGENTA@50/100；无 `WineAndroidHostVk` / `GUEST_CPU_FILL`
+- 可选后续：清 `CMD_VK_PRESENT` 死码；禁止动 AHB CreateSwapchain

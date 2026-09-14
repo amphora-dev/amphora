@@ -153,3 +153,15 @@ Present 落到 HWND / 会话 Activity 自己的 `Surface`，去掉仍经 host Im
 |---|---|---|---|
 | 2026-09-14 | amphora | `344f731` | AHB-import swapchain；wsi-sc；create win_queue |
 | 2026-09-14 | proton-wine | `1c62dd9a8ba` | bind WSI；note/flush acquire；present wait+fence |
+
+---
+
+## 2026-09-14 · HWND Surface zero-copy 验收
+
+热路径已是 Present → HWND sock-proxy ANW → 同一批 AHB（create 时 `win_queue`），**无** ImageReader / HostVk blit。
+
+HA262AAH logcat 证明：
+- 有：`DIRECT hwnd-ANW (no ImageReader)`、`AHB_SC create images=3 import=ok`、`guest-readback CLASS=MAGENTA` @50/@100
+- 无：`WineAndroidHostVk`、`GUEST_CPU_FILL`
+
+详见 `/workspace/swapchain-knife/HWND-SURFACE-MAP.md`（本机）与仓库内后续若同步的 map。本拍 **0 行 Present 改动**；勿退 AHB import CreateSwapchain。
