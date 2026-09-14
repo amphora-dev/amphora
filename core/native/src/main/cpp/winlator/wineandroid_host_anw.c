@@ -16,6 +16,9 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
 #define LOG_TAG "WineAndroidHostAnw"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -126,6 +129,134 @@ static int read_full(int fd, void *buf, size_t len)
         len -= (size_t)n;
     }
     return 0;
+}
+
+
+/* ONE-SHOT diag: mmap client GraphicBuffer on QUEUE and classify magenta clear. */
+static int g_anw_mmap_dump_done;
+
+static int anw_mmap_try(const native_handle_t *nh, size_t size, void **out)
+{
+    int i;
+    if (!nh || nh->numFds < 1 || !size) return -1;
+    for (i = 0; i < nh->numFds; i++) {
+        void *p = mmap(NULL, size, PROT_READ, MAP_SHARED, nh->data[i], 0);
+        if (p != MAP_FAILED) {
+            *out = p;
+            return nh->data[i];
+        }
+    }
+    return -1;
+}
+
+static void anw_write_bmp_crop(const char *path, const uint8_t *bits, int stride_px,
+                               int width, int height, int cx, int cy, int cw, int ch)
+{
+    /* Uncompressed BGR BMP, bottom-up. */
+    int x0 = cx - cw / 2, y0 = cy - ch / 2, row_bytes, x, y, fd;
+    uint8_t hdr[54];
+    uint32_t file_size, off = 54, dib = 40;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x0 + cw > width) cw = width - x0;
+    if (y0 + ch > height) ch = height - y0;
+    if (cw < 1 || ch < 1) return;
+    row_bytes = (cw * 3 + 3) & ~3;
+    file_size = off + (uint32_t)row_bytes * (uint32_t)ch;
+    memset(hdr, 0, sizeof(hdr));
+    hdr[0] = 'B'; hdr[1] = 'M';
+    memcpy(hdr + 2, &file_size, 4);
+    memcpy(hdr + 10, &off, 4);
+    memcpy(hdr + 14, &dib, 4);
+    memcpy(hdr + 18, &cw, 4);
+    memcpy(hdr + 22, &ch, 4);
+    hdr[26] = 1; hdr[28] = 24;
+    fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0666);
+    if (fd < 0) {
+        LOGW("mmap-dump open %s failed errno=%d", path, errno);
+        return;
+    }
+    if (write_full(fd, hdr, sizeof(hdr))) {
+        close(fd);
+        return;
+    }
+    for (y = ch - 1; y >= 0; y--) {
+        uint8_t row[64 * 3 + 4];
+        memset(row, 0, (size_t)row_bytes);
+        for (x = 0; x < cw; x++) {
+            const uint8_t *px = bits + ((size_t)(y0 + y) * (size_t)stride_px + (size_t)(x0 + x)) * 4u;
+            row[x * 3 + 0] = px[2]; /* B */
+            row[x * 3 + 1] = px[1]; /* G */
+            row[x * 3 + 2] = px[0]; /* R */
+        }
+        if (write_full(fd, row, (size_t)row_bytes)) break;
+    }
+    close(fd);
+    LOGI("mmap-dump wrote %s crop=%dx%d@%d,%d", path, cw, ch, x0, y0);
+}
+
+static void anw_dump_client_queue_pixels(struct wine_native_buffer *buf, int hwnd)
+{
+    const native_handle_t *nh;
+    size_t map_size;
+    void *bits = NULL;
+    int fd, stride_px, cx, cy;
+    const uint8_t *p;
+    int r, g, b, a;
+    int r2, g2, b2;
+    const char *cls;
+    char path[128];
+
+    if (g_anw_mmap_dump_done) return;
+    if (!buf || !buf->handle) return;
+    /* Client DXGI smoke is 632x446; skip desktop/taskbar. */
+    if (buf->width < 200 || buf->height < 200) return;
+    if (buf->width > 900 || buf->height > 700) return;
+
+    nh = (const native_handle_t *)buf->handle;
+    stride_px = buf->stride > 0 ? buf->stride : buf->width;
+    map_size = (size_t)stride_px * (size_t)buf->height * 4u;
+    fd = anw_mmap_try(nh, map_size, &bits);
+    if (fd < 0 || !bits) {
+        LOGW("mmap-dump FAIL hwnd=%08x %dx%d fmt=%d stride=%d numFds=%d errno=%d",
+             hwnd, buf->width, buf->height, buf->format, buf->stride,
+             nh ? nh->numFds : -1, errno);
+        return;
+    }
+
+    cx = buf->width / 2;
+    cy = buf->height / 2;
+    p = (const uint8_t *)bits + ((size_t)cy * (size_t)stride_px + (size_t)cx) * 4u;
+    r = p[0]; g = p[1]; b = p[2]; a = p[3];
+    /* also sample near-top-left interior */
+    p = (const uint8_t *)bits + ((size_t)16 * (size_t)stride_px + (size_t)16) * 4u;
+    r2 = p[0]; g2 = p[1]; b2 = p[2];
+
+    /* DXVK clear ~0.85/0.10/0.70 -> ~217,26,179 */
+    if ((r > 217 ? r - 217 : 217 - r) <= 40 &&
+        (g > 26 ? g - 26 : 26 - g) <= 40 &&
+        (b > 179 ? b - 179 : 179 - b) <= 40)
+        cls = "MAGENTA";
+    else if (r >= 240 && g >= 240 && b >= 240)
+        cls = "WHITE";
+    else if (r <= 15 && g <= 15 && b <= 15)
+        cls = "BLACK";
+    else
+        cls = "OTHER";
+
+    snprintf(path, sizeof(path),
+             "/data/data/app.amphora/files/tmp/anw-mmap-%dx%d.bmp",
+             buf->width, buf->height);
+    anw_write_bmp_crop(path, (const uint8_t *)bits, stride_px,
+                       buf->width, buf->height, cx, cy, 64, 64);
+
+    LOGI("mmap-dump CLASS=%s hwnd=%08x %dx%d fmt=%d stride=%d "
+         "centerRGBA=%d,%d,%d,%d tlRGBA=%d,%d,%d fd=%d path=%s",
+         cls, hwnd, buf->width, buf->height, buf->format, buf->stride,
+         r, g, b, a, r2, g2, b2, fd, path);
+
+    munmap(bits, map_size);
+    g_anw_mmap_dump_done = 1;
 }
 
 static int send_handle_reply(int sock, int status, struct wine_native_buffer *buffer,
@@ -283,9 +414,11 @@ static void *serve_thread(void *arg)
             }
             if (generation == ctx->generation && buffer_id >= 0 && buffer_id < NB_BUFFERS &&
                 ctx->buffers[buffer_id]) {
-                if (cmd == CMD_QUEUE)
+                if (cmd == CMD_QUEUE) {
+                    /* Sample pixels after PE Present wrote them, before consumer takes buffer. */
+                    anw_dump_client_queue_pixels(ctx->buffers[buffer_id], ctx->hwnd);
                     ret = ctx->win->queueBuffer(ctx->win, ctx->buffers[buffer_id], -1);
-                else
+                } else
                     ret = ctx->win->cancelBuffer(ctx->win, ctx->buffers[buffer_id], -1);
             } else {
                 ret = 0; /* obsolete */
