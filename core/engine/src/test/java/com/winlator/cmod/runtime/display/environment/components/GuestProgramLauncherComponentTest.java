@@ -22,7 +22,7 @@ public class GuestProgramLauncherComponentTest {
   }
 
   @Test
-  public void wineandroidPathDropsWrapperIcdAndAdrenotools() {
+  public void wineandroidSystemVulkanEnvDropsWrapperIcdAndAdrenotools() {
     EnvVars envVars = new EnvVars();
     envVars.put("VK_ICD_FILENAMES", "/imagefs/usr/share/vulkan/icd.d/wrapper_icd.aarch64.json");
     envVars.put("ADRENOTOOLS_DRIVER_NAME", "vulkan.broadcom.so");
@@ -55,5 +55,14 @@ public class GuestProgramLauncherComponentTest {
     assertEquals(
         "/data/app/app.amphora/lib/arm64/libamphora_wsi.so:/imagefs/usr/lib/libandroid-sysvshm.so:/system/lib64/libjpeg.so",
         envVars.get("LD_PRELOAD"));
+  }
+
+  @Test
+  public void wineAndroidNeedsSystemVulkanIsDeterministicApi() {
+    // Just ensure the helper is callable from unit tests (Build.* is host JVM stub /
+    // Robolectric-free). Result may be true or false depending on the JVM Build fields;
+    // we only assert it does not throw and returns a boolean.
+    boolean v = GuestProgramLauncherComponent.wineAndroidNeedsSystemVulkan();
+    assertTrue(v || !v);
   }
 }

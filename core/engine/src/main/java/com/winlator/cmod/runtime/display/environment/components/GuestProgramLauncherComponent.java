@@ -802,15 +802,26 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       envVars.remove("DISPLAY");
       envVars.remove("ANDROID_SYSVSHM_SERVER");
       envVars.remove("GST_PLUGIN_FEATURE_RANK");
-      applyWineAndroidSystemVulkan(context, envVars);
+      // Pastel/SwiftShader (redroid/emulator) needs the Android platform loader.
+      // Real Adreno devices must keep Turnip via wrapper_icd + ADRENOTOOLS_*.
+      if (wineAndroidNeedsSystemVulkan()) {
+        applyWineAndroidSystemVulkan(context, envVars);
+        Log.i(
+            TAG,
+            "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
+                + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); "
+                + "system Vulkan /system/lib64/libvulkan.so "
+                + "(dropped wrapper_icd / ADRENOTOOLS) for redroid/emulator; "
+                + "LD_PRELOAD libamphora_wsi.so");
+      } else {
+        Log.i(
+            TAG,
+            "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
+                + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); "
+                + "keeping VK_ICD_FILENAMES / ADRENOTOOLS_* (Turnip/wrapper) "
+                + "on real device; LD_PRELOAD libamphora_wsi.so");
+      }
       applyWineAndroidWsiHelperPreload(context, envVars);
-      Log.i(
-          TAG,
-          "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
-              + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); "
-              + "system Vulkan /system/lib64/libvulkan.so "
-              + "(dropped wrapper_icd / ADRENOTOOLS); "
-              + "LD_PRELOAD libamphora_wsi.so");
     }
     if (wineInfo == null || !wineInfo.isArm64EC()) {
       configureBox64RcEnv(envVars, rootDir);
@@ -959,10 +970,47 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
 
   /**
-   * wineandroid WSI needs the Android platform loader ({@code /system/lib64/libvulkan.so},
-   * pastel/SwiftShader on redroid or the vendor HAL on a phone). The guest Khronos
-   * wrapper ICD + adrenotools HAL redirect is the X11/Adreno path and stays intact
-   * when {@code AMPHORA_WINEANDROID} is unset.
+   * True on redroid / AVD / qemu-style hosts where wineandroid must bind the Android
+   * platform loader (pastel SwiftShader). False on real devices (e.g. HA262AAH /
+   * Adreno) so Turnip via {@code VK_ICD_FILENAMES=wrapper_icd} + {@code ADRENOTOOLS_*}
+   * survives {@code AMPHORA_WINEANDROID=1}.
+   */
+  static boolean wineAndroidNeedsSystemVulkan() {
+    // Prefer fingerprint/hardware tokens: Build.IS_EMULATOR needs a higher
+    // compileSdk than this module's current Android stubs expose.
+    String blob =
+        (nullToEmpty(android.os.Build.FINGERPRINT)
+                + "|"
+                + nullToEmpty(android.os.Build.HARDWARE)
+                + "|"
+                + nullToEmpty(android.os.Build.PRODUCT)
+                + "|"
+                + nullToEmpty(android.os.Build.MODEL)
+                + "|"
+                + nullToEmpty(android.os.Build.DEVICE)
+                + "|"
+                + nullToEmpty(android.os.Build.BRAND)
+                + "|"
+                + nullToEmpty(android.os.Build.MANUFACTURER))
+            .toLowerCase(java.util.Locale.ROOT);
+    return blob.contains("redroid")
+        || blob.contains("ranchu")
+        || blob.contains("goldfish")
+        || blob.contains("sdk_gphone")
+        || blob.contains("vsoc_")
+        || blob.contains("generic_x86")
+        || blob.contains("emulator");
+  }
+
+  private static String nullToEmpty(String s) {
+    return s == null ? "" : s;
+  }
+
+  /**
+   * Pastel/SwiftShader (redroid/emulator) needs the Android platform loader
+   * ({@code /system/lib64/libvulkan.so}). Real-device Turnip keeps guest
+   * {@code wrapper_icd} + {@code ADRENOTOOLS_*} when {@link #wineAndroidNeedsSystemVulkan()}
+   * is false. X11 path is unchanged when {@code AMPHORA_WINEANDROID} is unset.
    */
   static void applyWineAndroidSystemVulkanEnv(EnvVars envVars, String vkLoaderDir) {
     envVars.remove("VK_ICD_FILENAMES");

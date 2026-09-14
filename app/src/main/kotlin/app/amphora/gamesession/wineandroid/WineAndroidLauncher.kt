@@ -37,12 +37,14 @@ import kotlinx.coroutines.withContext
  * - `DISPLAY=unix:…/X0` (Java fake X)
  * - `ANDROID_SYSVSHM_SERVER` (no SysVSharedMemoryComponent)
  * - `GST_PLUGIN_FEATURE_RANK=ximagesink:…` (X sink ranking)
- * - `VK_ICD_FILENAMES=…/wrapper_icd` and `ADRENOTOOLS_*` (guest Khronos/wrapper)
+ * - On redroid/emulator only: `VK_ICD_FILENAMES=…/wrapper_icd` and `ADRENOTOOLS_*`
+ *   (platform pastel/SwiftShader loader). Real devices keep Turnip wrapper ICD.
  *
  * Added:
  * - `AMPHORA_WINEANDROID=1`
  * - `AMPHORA_WINEANDROID_SOCK=<filesDir>/wineandroid/host.sock`
- * - `LD_LIBRARY_PATH` prefix `filesDir/wineandroid/vkloader` → `/system/lib64/libvulkan.so` (+ `.so.1`)
+ * - On redroid/emulator only: `LD_LIBRARY_PATH` prefix `filesDir/wineandroid/vkloader`
+ *   → `/system/lib64/libvulkan.so` (+ `.so.1`)
  * - `LD_PRELOAD` prefix `nativeLibraryDir/libamphora_wsi.so` (APK-packaged aarch64 PE WSI helper ctor)
  *
  * WCP already ships `wineandroid.drv`. Unix ioctl client connect to
