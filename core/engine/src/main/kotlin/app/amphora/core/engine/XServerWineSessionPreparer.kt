@@ -1122,10 +1122,12 @@ class XServerWineSessionPreparer @Inject constructor(
             }
             val libraryName = adrenotoolsManager.getLibraryName(effectiveDriverId)
                 .ifEmpty { driverLibrary }
-            // Guest: wrapper ICD + adrenotools backend. For the default wrapper
-            // id leave PATH/NAME unset so wrapper uses system Adreno. For an
-            // optional Turnip package (libraryName=libvulkan_freedreno.so), set
-            // PATH/NAME/HOOKS like WinNative setDriverById.
+            // Guest: wrapper ICD + adrenotools backend.
+            // Optional Turnip package (libvulkan_freedreno.so): PATH/NAME → package dir.
+            // Default wrapper: still set PATH/NAME to the platform Adreno HAL so
+            // wineandroid/winevulkan createInstance sees a real driver. Leaving
+            // them unset left adrenotools=(unset) and DXVK createInstance failed
+            // on HA262AAH (Adreno 830) despite VK_ICD=wrapper_icd.
             if (libraryName == "libvulkan_freedreno.so" &&
                 adrenotoolsManager.isInstalled(effectiveDriverId)
             ) {
@@ -1141,6 +1143,23 @@ class XServerWineSessionPreparer @Inject constructor(
                     TAG,
                     "Guest adrenotools backend: PATH=${driverDir.path} NAME=$libraryName",
                 )
+            } else if (libraryName.isEmpty() || libraryName == "libvulkan_wrapper.so") {
+                val adrenoHal = File("/vendor/lib64/hw/vulkan.adreno.so")
+                if (adrenoHal.isFile) {
+                    envState.put("ADRENOTOOLS_DRIVER_PATH", "/vendor/lib64/hw/")
+                    envState.put("ADRENOTOOLS_DRIVER_NAME", "vulkan.adreno.so")
+                    envState.put("ADRENOTOOLS_HOOKS_PATH", adrenotoolsHooksPath())
+                    envState.put("ADRENOTOOLS_DRIVER_CUSTOM", "1")
+                    Log.i(
+                        TAG,
+                        "Guest adrenotools backend: PATH=/vendor/lib64/hw NAME=vulkan.adreno.so",
+                    )
+                } else {
+                    Log.w(
+                        TAG,
+                        "Guest adrenotools: vulkan.adreno.so missing; PATH/NAME stay unset",
+                    )
+                }
             }
         }
         // No `else` log here: the two ids that skip this block already say what
