@@ -8,6 +8,7 @@
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <jni.h>
 #include <pthread.h>
@@ -19,6 +20,8 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <poll.h>
 
 #define LOG_TAG "WineAndroidHostAnw"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -132,8 +135,18 @@ static int read_full(int fd, void *buf, size_t len)
 }
 
 
-/* ONE-SHOT diag: mmap client GraphicBuffer on QUEUE and classify magenta clear. */
-static int g_anw_mmap_dump_done;
+/* Post-Present diag: mmap/AHB-lock client GraphicBuffer on QUEUE N=50/100. */
+static int g_anw_client_queue_n;       /* hwnd-sized client QUEUE count */
+static int g_anw_mmap_dumps;           /* successful dumps so far (max 2) */
+static int g_anw_dump50_was_black;     /* dump on q100 only if q50 was BLACK */
+
+/* NDK AHardwareBuffer usage CPU read bits (hardware_buffer.h). */
+#ifndef AHARDWAREBUFFER_USAGE_CPU_READ_RARELY
+#define AHARDWAREBUFFER_USAGE_CPU_READ_RARELY  2ULL  /* 1ULL<<1 */
+#endif
+#ifndef AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN
+#define AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN   3ULL  /* rarely|often; NOT 1ULL<<3 */
+#endif
 
 static int anw_mmap_try(const native_handle_t *nh, size_t size, void **out)
 {
@@ -195,35 +208,221 @@ static void anw_write_bmp_crop(const char *path, const uint8_t *bits, int stride
     LOGI("mmap-dump wrote %s crop=%dx%d@%d,%d", path, cw, ch, x0, y0);
 }
 
-static void anw_dump_client_queue_pixels(struct wine_native_buffer *buf, int hwnd)
+/* Cross-process buffer: Adreno Mapper5 needs AHardwareBuffer_send/recv, not raw SCM_RIGHTS. */
+enum { AMPHORA_AHB_NUMFDS = -1 };
+typedef void *(*pfn_anwb_get_ahb)(const struct wine_native_buffer *);
+typedef int (*pfn_ahb_send_handle)(const void *, int);
+typedef void (*pfn_ahb_acquire)(void *);
+typedef void (*pfn_ahb_release)(void *);
+typedef int (*pfn_ahb_lock)(void *buffer, uint64_t usage, int32_t fence,
+                            const void *rect, void **outVirt);
+typedef int (*pfn_ahb_unlock)(void *buffer, int32_t *fence);
+typedef const native_handle_t *(*pfn_ahb_get_native_handle)(void *);
+
+static pfn_anwb_get_ahb g_anwb_get_ahb;
+static pfn_ahb_send_handle g_ahb_send;
+static pfn_ahb_acquire g_ahb_acquire;
+static pfn_ahb_release g_ahb_release;
+static pfn_ahb_lock g_ahb_lock;
+static pfn_ahb_unlock g_ahb_unlock;
+static pfn_ahb_get_native_handle g_ahb_get_native_handle;
+static int g_ahb_host_resolved;
+
+static void host_resolve_ahb(void)
+{
+    void *lib;
+    if (g_ahb_host_resolved) return;
+    g_ahb_host_resolved = 1;
+    lib = dlopen("libnativewindow.so", RTLD_NOW);
+    if (!lib) { LOGE("dlopen libnativewindow: %s", dlerror()); return; }
+    /* Official: AHB from dequeued ANativeWindowBuffer — does not steal BufferQueue slot. */
+    g_anwb_get_ahb = (pfn_anwb_get_ahb)dlsym(lib, "ANativeWindowBuffer_getHardwareBuffer");
+    g_ahb_send = (pfn_ahb_send_handle)dlsym(lib, "AHardwareBuffer_sendHandleToUnixSocket");
+    g_ahb_acquire = (pfn_ahb_acquire)dlsym(lib, "AHardwareBuffer_acquire");
+    g_ahb_release = (pfn_ahb_release)dlsym(lib, "AHardwareBuffer_release");
+    g_ahb_lock = (pfn_ahb_lock)dlsym(lib, "AHardwareBuffer_lock");
+    g_ahb_unlock = (pfn_ahb_unlock)dlsym(lib, "AHardwareBuffer_unlock");
+    g_ahb_get_native_handle = (pfn_ahb_get_native_handle)dlsym(lib, "AHardwareBuffer_getNativeHandle");
+    LOGI("AHB_SEND symbols getHwBuf=%p send=%p acquire=%p release=%p lock=%p unlock=%p getNh=%p",
+         (void *)g_anwb_get_ahb, (void *)g_ahb_send, (void *)g_ahb_acquire,
+         (void *)g_ahb_release, (void *)g_ahb_lock, (void *)g_ahb_unlock,
+         (void *)g_ahb_get_native_handle);
+}
+
+/* knife7: fstat native_handle fds for buffer-fork identity match. */
+static void anw_log_nh_fstat(const char *tag, const native_handle_t *nh)
+{
+    int i, nints;
+    if (!nh) {
+        LOGW("%s nh=null", tag);
+        return;
+    }
+    LOGI("%s numFds=%d numInts=%d", tag, nh->numFds, nh->numInts);
+    for (i = 0; i < nh->numFds; i++) {
+        struct stat st;
+        if (fstat(nh->data[i], &st) == 0)
+            LOGI("%s fd[%d]=%d st_dev=%llu st_ino=%llu st_size=%lld",
+                 tag, i, nh->data[i],
+                 (unsigned long long)st.st_dev,
+                 (unsigned long long)st.st_ino,
+                 (long long)st.st_size);
+        else
+            LOGW("%s fd[%d]=%d fstat errno=%d", tag, i, nh->data[i], errno);
+    }
+    nints = nh->numInts < 4 ? nh->numInts : 4;
+    if (nints > 0) {
+        int a = nh->data[nh->numFds + 0];
+        int b = nints > 1 ? nh->data[nh->numFds + 1] : 0;
+        int c = nints > 2 ? nh->data[nh->numFds + 2] : 0;
+        int d = nints > 3 ? nh->data[nh->numFds + 3] : 0;
+        LOGI("%s ints[0..3]=%d,%d,%d,%d (n=%d)", tag, a, b, c, d, nh->numInts);
+    }
+}
+
+static void anw_log_ahb_identity(const char *tag, int id, int hwnd, void *ahb,
+                                 struct wine_native_buffer *buf)
+{
+    const native_handle_t *nh = NULL;
+    if (!buf) return;
+    LOGI("%s id=%d hwnd=%08x ahb=%p %dx%d stride=%d fmt=%d usage=0x%x",
+         tag, id, hwnd, ahb,
+         buf->width, buf->height, buf->stride, buf->format, buf->usage);
+    host_resolve_ahb();
+    if (ahb && g_ahb_get_native_handle)
+        nh = g_ahb_get_native_handle(ahb);
+    if (!nh && buf->handle)
+        nh = (const native_handle_t *)buf->handle;
+    anw_log_nh_fstat(tag, nh);
+}
+
+static void anw_fence_wait_brief(int fenceFd)
+{
+    struct pollfd pfd;
+    int pr;
+    if (fenceFd < 0) {
+        LOGI("mmap-dump fenceFd=-1 (guest waits before QUEUE; host has none) — dump anyway");
+        return;
+    }
+    pfd.fd = fenceFd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    pr = poll(&pfd, 1, 100); /* 100ms brief wait */
+    LOGI("mmap-dump fenceFd=%d poll=%d revents=0x%x errno=%d", fenceFd, pr, pfd.revents, errno);
+    close(fenceFd);
+}
+
+/* Prefer AHardwareBuffer_lock (CPU cache sync); fall back to raw mmap. */
+static int anw_lock_pixels(struct wine_native_buffer *buf, void **out_bits,
+                           size_t *out_map_size, int *out_via_ahb, void **out_ahb)
 {
     const native_handle_t *nh;
     size_t map_size;
+    void *ahb = NULL;
     void *bits = NULL;
-    int fd, stride_px, cx, cy;
+    int fd, rc;
+
+    *out_bits = NULL;
+    *out_via_ahb = 0;
+    *out_ahb = NULL;
+    if (!buf || !buf->handle) return -1;
+
+    nh = (const native_handle_t *)buf->handle;
+    map_size = (size_t)(buf->stride > 0 ? buf->stride : buf->width) *
+               (size_t)buf->height * 4u;
+    *out_map_size = map_size;
+
+    host_resolve_ahb();
+    if (g_anwb_get_ahb && g_ahb_lock && g_ahb_unlock) {
+        ahb = g_anwb_get_ahb(buf);
+        if (ahb) {
+            if (g_ahb_acquire) g_ahb_acquire(ahb);
+            rc = g_ahb_lock(ahb, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, -1, NULL, &bits);
+            if (rc != 0 || !bits) {
+                LOGW("mmap-dump AHB_lock OFTEN rc=%d errno=%d — retry RARELY", rc, errno);
+                bits = NULL;
+                rc = g_ahb_lock(ahb, AHARDWAREBUFFER_USAGE_CPU_READ_RARELY, -1, NULL, &bits);
+            }
+            if (rc == 0 && bits) {
+                *out_bits = bits;
+                *out_via_ahb = 1;
+                *out_ahb = ahb;
+                return 0;
+            }
+            LOGW("mmap-dump AHB_lock FAIL rc=%d errno=%d — fall back mmap", rc, errno);
+            if (g_ahb_release) g_ahb_release(ahb);
+            ahb = NULL;
+            bits = NULL;
+        } else {
+            LOGW("mmap-dump getHardwareBuffer null — fall back mmap");
+        }
+    } else {
+        LOGW("mmap-dump AHB lock symbols missing — fall back mmap");
+    }
+
+    fd = anw_mmap_try(nh, map_size, &bits);
+    if (fd < 0 || !bits) {
+        LOGW("mmap-dump mmap FAIL numFds=%d errno=%d", nh ? nh->numFds : -1, errno);
+        return -1;
+    }
+    *out_bits = bits;
+    *out_via_ahb = 0;
+    return fd; /* mmap fd for logging; >= 0 */
+}
+
+static void anw_unlock_pixels(void *bits, size_t map_size, int via_ahb, void *ahb)
+{
+    if (via_ahb && ahb) {
+        if (g_ahb_unlock) g_ahb_unlock(ahb, NULL);
+        if (g_ahb_release) g_ahb_release(ahb);
+    } else if (bits && map_size) {
+        munmap(bits, map_size);
+    }
+}
+
+static void anw_dump_client_queue_pixels(struct wine_native_buffer *buf, int hwnd,
+                                         int buffer_id, int fenceFd)
+{
+    size_t map_size = 0;
+    void *bits = NULL;
+    void *ahb = NULL;
+    void *id_ahb = NULL;
+    int via_ahb = 0, stride_px, cx, cy, mmap_fd;
     const uint8_t *p;
     int r, g, b, a;
     int r2, g2, b2;
     const char *cls;
-    char path[128];
+    char path[160];
+    int queue_n;
 
-    if (g_anw_mmap_dump_done) return;
     if (!buf || !buf->handle) return;
     /* Client DXGI smoke is 632x446; skip desktop/taskbar. */
     if (buf->width < 200 || buf->height < 200) return;
     if (buf->width > 900 || buf->height > 700) return;
 
-    nh = (const native_handle_t *)buf->handle;
-    stride_px = buf->stride > 0 ? buf->stride : buf->width;
-    map_size = (size_t)stride_px * (size_t)buf->height * 4u;
-    fd = anw_mmap_try(nh, map_size, &bits);
-    if (fd < 0 || !bits) {
-        LOGW("mmap-dump FAIL hwnd=%08x %dx%d fmt=%d stride=%d numFds=%d errno=%d",
-             hwnd, buf->width, buf->height, buf->format, buf->stride,
-             nh ? nh->numFds : -1, errno);
+    g_anw_client_queue_n++;
+    queue_n = g_anw_client_queue_n;
+    /* knife7: always dump both QUEUE 50 and 100 (no BLACK gate). */
+    if (queue_n != 50 && queue_n != 100) return;
+
+    anw_fence_wait_brief(fenceFd);
+
+    /* HOST_ID before CLASS — identity of buffer being locked. */
+    host_resolve_ahb();
+    if (g_anwb_get_ahb) {
+        id_ahb = g_anwb_get_ahb(buf);
+        if (id_ahb && g_ahb_acquire) g_ahb_acquire(id_ahb);
+    }
+    anw_log_ahb_identity("HOST_ID", buffer_id, hwnd, id_ahb, buf);
+    if (id_ahb && g_ahb_release) g_ahb_release(id_ahb);
+
+    mmap_fd = anw_lock_pixels(buf, &bits, &map_size, &via_ahb, &ahb);
+    if (mmap_fd < 0 || !bits) {
+        LOGW("mmap-dump FAIL queue_n=%d hwnd=%08x %dx%d fmt=%d stride=%d",
+             queue_n, hwnd, buf->width, buf->height, buf->format, buf->stride);
         return;
     }
 
+    stride_px = buf->stride > 0 ? buf->stride : buf->width;
     cx = buf->width / 2;
     cy = buf->height / 2;
     p = (const uint8_t *)bits + ((size_t)cy * (size_t)stride_px + (size_t)cx) * 4u;
@@ -245,19 +444,37 @@ static void anw_dump_client_queue_pixels(struct wine_native_buffer *buf, int hwn
         cls = "OTHER";
 
     snprintf(path, sizeof(path),
-             "/data/data/app.amphora/files/tmp/anw-mmap-%dx%d.bmp",
-             buf->width, buf->height);
+             "/data/data/app.amphora/files/tmp/anw-mmap-q%d-%dx%d.bmp",
+             queue_n, buf->width, buf->height);
     anw_write_bmp_crop(path, (const uint8_t *)bits, stride_px,
                        buf->width, buf->height, cx, cy, 64, 64);
 
-    LOGI("mmap-dump CLASS=%s hwnd=%08x %dx%d fmt=%d stride=%d "
-         "centerRGBA=%d,%d,%d,%d tlRGBA=%d,%d,%d fd=%d path=%s",
-         cls, hwnd, buf->width, buf->height, buf->format, buf->stride,
-         r, g, b, a, r2, g2, b2, fd, path);
+    LOGI("mmap-dump CLASS=%s queue_n=%d hwnd=%08x %dx%d fmt=%d stride=%d "
+         "centerRGBA=%d,%d,%d,%d tlRGBA=%d,%d,%d via=%s path=%s",
+         cls, queue_n, hwnd, buf->width, buf->height, buf->format, buf->stride,
+         r, g, b, a, r2, g2, b2, via_ahb ? "AHB_lock" : "mmap", path);
 
-    munmap(bits, map_size);
-    g_anw_mmap_dump_done = 1;
+    anw_unlock_pixels(bits, map_size, via_ahb, ahb);
+    g_anw_mmap_dumps++;
+    if (queue_n == 50)
+        g_anw_dump50_was_black = (cls[0] == 'B'); /* retained for log continuity */
 }
+
+static void *host_ahb_from_buffer(struct wine_native_buffer *buffer)
+{
+    void *ahb;
+    host_resolve_ahb();
+    if (!g_anwb_get_ahb || !g_ahb_send || !g_ahb_release || !buffer) return NULL;
+    ahb = g_anwb_get_ahb(buffer);
+    if (!ahb) {
+        LOGW("AHB_SEND ANativeWindowBuffer_getHardwareBuffer returned null");
+        return NULL;
+    }
+    /* getHardwareBuffer does not always acquire — acquire so release is safe after send. */
+    if (g_ahb_acquire) g_ahb_acquire(ahb);
+    return ahb;
+}
+
 
 static int send_handle_reply(int sock, int status, struct wine_native_buffer *buffer,
                              int buffer_id, int generation)
@@ -274,6 +491,7 @@ static int send_handle_reply(int sock, int status, struct wine_native_buffer *bu
     char control[CMSG_SPACE(sizeof(int) * 64)];
     size_t ints_bytes = 0;
     const int *ints = NULL;
+    void *ahb = NULL;
 
     memset(&hdr, 0, sizeof(hdr));
     hdr.status = status;
@@ -290,6 +508,14 @@ static int send_handle_reply(int sock, int status, struct wine_native_buffer *bu
         hdr.numInts = nh->numInts;
         ints = &nh->data[nh->numFds];
         ints_bytes = (size_t)nh->numInts * sizeof(int);
+        /* Create AHB first so we only advertise numFds=-1 when send can succeed. */
+        ahb = host_ahb_from_buffer(buffer);
+        if (ahb) {
+            hdr.numFds = AMPHORA_AHB_NUMFDS;
+            hdr.numInts = 0;
+            ints = NULL;
+            ints_bytes = 0;
+        }
     }
 
     memset(&msg, 0, sizeof(msg));
@@ -298,10 +524,13 @@ static int send_handle_reply(int sock, int status, struct wine_native_buffer *bu
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
 
-    if (nh && nh->numFds > 0) {
+    if (!ahb && nh && nh->numFds > 0) {
         struct cmsghdr *cmsg;
         size_t fdbytes = sizeof(int) * (size_t)nh->numFds;
-        if (fdbytes > sizeof(control) - sizeof(struct cmsghdr)) return -1;
+        if (fdbytes > sizeof(control) - sizeof(struct cmsghdr)) {
+            if (ahb && g_ahb_release) g_ahb_release(ahb);
+            return -1;
+        }
         msg.msg_control = control;
         msg.msg_controllen = CMSG_SPACE(fdbytes);
         cmsg = CMSG_FIRSTHDR(&msg);
@@ -315,11 +544,25 @@ static int send_handle_reply(int sock, int status, struct wine_native_buffer *bu
         ssize_t n = sendmsg(sock, &msg, 0);
         if (n < 0) {
             if (errno == EINTR) continue;
+            if (ahb && g_ahb_release) g_ahb_release(ahb);
             return -1;
         }
         break;
     }
-    /* Ints as a follow-up write so wine can recvmsg(hdr+fds) then read(ints). */
+    if (ahb) {
+        int rc = g_ahb_send(ahb, sock);
+        if (rc != 0) {
+            LOGE("AHB_SEND sendHandle failed rc=%d id=%d", rc, buffer_id);
+            g_ahb_release(ahb);
+            return -1;
+        }
+        LOGI("AHB_SEND ok id=%d %dx%d fmt=%d usage=0x%x",
+             buffer_id, hdr.width, hdr.height, hdr.format, hdr.usage);
+        /* knife7: identity of buffer just sent — guest GUEST_RECV can match. */
+        anw_log_ahb_identity("HOST_SEND", buffer_id, 0, ahb, buffer);
+        g_ahb_release(ahb);
+        return 0;
+    }
     if (ints_bytes && write_full(sock, ints, ints_bytes)) return -1;
     return 0;
 }
@@ -415,8 +658,8 @@ static void *serve_thread(void *arg)
             if (generation == ctx->generation && buffer_id >= 0 && buffer_id < NB_BUFFERS &&
                 ctx->buffers[buffer_id]) {
                 if (cmd == CMD_QUEUE) {
-                    /* Sample pixels after PE Present wrote them, before consumer takes buffer. */
-                    anw_dump_client_queue_pixels(ctx->buffers[buffer_id], ctx->hwnd);
+                    /* Sample after Present wrote pixels (QUEUE n=50/100); fence always -1 here. */
+                    anw_dump_client_queue_pixels(ctx->buffers[buffer_id], ctx->hwnd, buffer_id, -1);
                     ret = ctx->win->queueBuffer(ctx->win, ctx->buffers[buffer_id], -1);
                 } else
                     ret = ctx->win->cancelBuffer(ctx->win, ctx->buffers[buffer_id], -1);
@@ -448,6 +691,7 @@ static void *serve_thread(void *arg)
             }
             ret = ctx->win->query(ctx->win, what, &value);
             last_op_ret = ret;
+            LOGI("serve QUERY hwnd=%08x what=%d ret=%d val=%d", ctx->hwnd, what, ret, value);
             if (write_full(ctx->sock, &ret, sizeof(ret))) {
                 exit_errno = errno;
                 exit_why = (exit_errno == 0) ? "query-write-ret-EOF" : "query-write-ret-err";
