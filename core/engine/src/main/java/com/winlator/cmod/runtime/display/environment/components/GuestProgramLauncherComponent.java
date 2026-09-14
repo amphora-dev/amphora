@@ -802,25 +802,18 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       envVars.remove("DISPLAY");
       envVars.remove("ANDROID_SYSVSHM_SERVER");
       envVars.remove("GST_PLUGIN_FEATURE_RANK");
-      // Pastel/SwiftShader (redroid/emulator) needs the Android platform loader.
-      // Real Adreno devices must keep Turnip via wrapper_icd + ADRENOTOOLS_*.
-      if (wineAndroidNeedsSystemVulkan()) {
-        applyWineAndroidSystemVulkan(context, envVars);
-        Log.i(
-            TAG,
-            "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
-                + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); "
-                + "system Vulkan /system/lib64/libvulkan.so "
-                + "(dropped wrapper_icd / ADRENOTOOLS) for redroid/emulator; "
-                + "LD_PRELOAD libamphora_wsi.so");
-      } else {
-        Log.i(
-            TAG,
-            "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
-                + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); "
-                + "keeping VK_ICD_FILENAMES / ADRENOTOOLS_* (Turnip/wrapper) "
-                + "on real device; LD_PRELOAD libamphora_wsi.so");
-      }
+      // Guest always uses the Android platform loader (/system/lib64/libvulkan.so):
+      // redroid → pastel/SwiftShader; HA262AAH → Adreno. wrapper_icd + ADRENOTOOLS
+      // made win32u vulkan_init_once fail vkEnumerateInstanceExtensionProperties
+      // with VK_ERROR_INCOMPATIBLE_DRIVER (-9) before DXVK createInstance.
+      applyWineAndroidSystemVulkan(context, envVars);
+      Log.i(
+          TAG,
+          "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
+              + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); "
+              + "system Vulkan /system/lib64/libvulkan.so "
+              + "(dropped wrapper_icd / ADRENOTOOLS); "
+              + "LD_PRELOAD libamphora_wsi.so");
       applyWineAndroidWsiHelperPreload(context, envVars);
     }
     if (wineInfo == null || !wineInfo.isArm64EC()) {
@@ -1007,10 +1000,11 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
   }
 
   /**
-   * Pastel/SwiftShader (redroid/emulator) needs the Android platform loader
-   * ({@code /system/lib64/libvulkan.so}). Real-device Turnip keeps guest
-   * {@code wrapper_icd} + {@code ADRENOTOOLS_*} when {@link #wineAndroidNeedsSystemVulkan()}
-   * is false. X11 path is unchanged when {@code AMPHORA_WINEANDROID} is unset.
+   * Point wineandroid guest at the Android platform loader
+   * ({@code /system/lib64/libvulkan.so}) and drop {@code wrapper_icd} /
+   * {@code ADRENOTOOLS_*}. Used for every Amphora wineandroid session (emulator
+   * pastel and real-device Adreno). X11 path is unchanged when
+   * {@code AMPHORA_WINEANDROID} is unset.
    */
   static void applyWineAndroidSystemVulkanEnv(EnvVars envVars, String vkLoaderDir) {
     envVars.remove("VK_ICD_FILENAMES");

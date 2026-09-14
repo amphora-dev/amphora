@@ -37,8 +37,8 @@ import kotlinx.coroutines.withContext
  * - `DISPLAY=unix:…/X0` (Java fake X)
  * - `ANDROID_SYSVSHM_SERVER` (no SysVSharedMemoryComponent)
  * - `GST_PLUGIN_FEATURE_RANK=ximagesink:…` (X sink ranking)
- * - On redroid/emulator only: `VK_ICD_FILENAMES=…/wrapper_icd` and `ADRENOTOOLS_*`
- *   (platform pastel/SwiftShader loader). Real devices keep Turnip wrapper ICD.
+ * - `VK_ICD_FILENAMES=…/wrapper_icd` and `ADRENOTOOLS_*` (guest uses platform
+ *   `/system/lib64/libvulkan.so` instead: pastel on redroid, Adreno on device).
  *
  * Added:
  * - `AMPHORA_WINEANDROID=1`
