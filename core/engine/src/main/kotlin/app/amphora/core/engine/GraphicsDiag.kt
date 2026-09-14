@@ -46,7 +46,7 @@ object GraphicsDiag {
         // Override WINEDEBUG=-all so ProcessHelper captures wine_stderr.log.
         // Do NOT enable +seh: Box64 SEH traces flood the log and stall session start
         // for minutes (observed on TB322FC with AIO DX8/9).
-        "WINEDEBUG" to "+err,+android",  // keep wineandroid LOCK TRACE when diag lifts -all
+        "WINEDEBUG" to "+err,+android", // keep wineandroid LOCK TRACE when diag lifts -all
         // Harmless on stock DXVK; required on binsem builds if we trial those later.
         "DXVK_DISABLE_TIMELINE_SEMAPHORES" to "1",
     )
