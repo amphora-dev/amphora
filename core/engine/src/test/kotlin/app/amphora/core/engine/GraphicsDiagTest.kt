@@ -23,7 +23,7 @@ class GraphicsDiagTest {
         assertEquals("info", env["DXVK_LOG_LEVEL"])
         assertEquals(logDir.absolutePath, env["DXVK_LOG_PATH"])
         assertEquals(dumpDir.absolutePath, env["DXVK_SHADER_DUMP_PATH"])
-        assertEquals("+err", env["WINEDEBUG"])
+        assertEquals("+err,+android", env["WINEDEBUG"])
         assertEquals("1", env["DXVK_DISABLE_TIMELINE_SEMAPHORES"])
     }
 
