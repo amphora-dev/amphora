@@ -330,3 +330,12 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
   不再作为开放阻塞项
 - [x] ~~13 个 JNI 绑定类全放 :core:engine 还是 leaf 下沉~~ ✅ 已定: 11 个全落 `:core:engine` (leaf 下沉不可行, 见关键发现 #2)
 - [x] ~~P2/P4: `RootfsInstaller` + `WineSessionPreparer` + `ContainerManager` 已真实现~~ ✅ `RootfsInstaller` (P2 `c593021`) + `WineSessionPreparer` (P2 `829e83b`, `XServerWineSessionPreparer` 849 行) + `ContainerManager` (P4, `WinlatorContainerManager`) concretion 均在 `:core:engine` (DIP -- `:core:rootfs`/`:core:container` 不可见 kernel). `:core:rootfs`/`:core:container` 无需 Hilt. **`EngineModule` 零 stub 剩余** (三个 sibling 接口全毕业, `StubContainerManager` 删除).
+
+---
+
+## 2026-09-14 · AHB import Present≥50 关门
+
+- 文档：[`13-AHB-IMPORT-PRESENT.md`](13-AHB-IMPORT-PRESENT.md)
+- amphora `344f731` / proton-wine `1c62dd9a8ba`
+- HA262AAH：`import=ok`，Present≥50，guest-readback MAGENTA @50，无 CPU fill
+- 下一刀：HWND Surface 零拷贝（清 host blit）；不得退回 AHB import

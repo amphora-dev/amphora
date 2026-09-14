@@ -1,7 +1,8 @@
 # 12 · wineandroid 切换工程计划
 
-> 状态：进行中（2026-09-13）。当前设计真源；X11 只作对照/回退，不作为长期内层。
-> 相关：[`11-ANDROID-NATIVE-VULKAN-PLAN.md`](11-ANDROID-NATIVE-VULKAN-PLAN.md)（接口以 **本 pin** 为准，不要抄 master）。
+> 状态：进行中（2026-09-14）。当前设计真源；X11 只作对照/回退，不作为长期内层。
+> 相关：[`11-ANDROID-NATIVE-VULKAN-PLAN.md`](11-ANDROID-NATIVE-VULKAN-PLAN.md)（接口以 **本 pin** 为准，不要抄 master）；
+> AHB import + Present≥50 关键门见 [`13-AHB-IMPORT-PRESENT.md`](13-AHB-IMPORT-PRESENT.md)。
 
 ## 0. 产品形态
 
