@@ -344,4 +344,11 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 - 热路径已零拷贝（无 ImageReader / HostVk blit）；本拍不改 Present
 - HA262AAH：`DIRECT hwnd-ANW` + `import=ok` + MAGENTA@50/100；无 `WineAndroidHostVk` / `GUEST_CPU_FILL`
-- 可选后续：清 `CMD_VK_PRESENT` 死码；禁止动 AHB CreateSwapchain
+- ✅ 已清 `CMD_VK_PRESENT` / HostVk 死码 + fs_hack guard；禁止动 AHB CreateSwapchain
+
+## 2026-09-14 · Cleanup for CI smoke
+
+- Removed HostVk Present dead code (`wineandroid_host_vk.c`); stub `CMD_VK_PRESENT`
+- proton-wine: drop `amphora_parent_vk_present`; `surface_get_fshack_dpi` → 0 under `amphora_wsi_wanted()`
+- AHB CreateSwapchain / import / create-time `win_queue` **untouched**
+- Next: bump imagefs Proton WCP pin → CI WCP + Amphora APK; sideload CI arts on HA262AAH
