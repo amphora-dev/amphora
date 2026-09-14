@@ -82,12 +82,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                         onSurface(window.hwnd, surface)
                     }
 
-                    override fun surfaceChanged(
-                        holder: SurfaceHolder,
-                        format: Int,
-                        width: Int,
-                        height: Int,
-                    ) = Unit
+                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
 
                     override fun surfaceDestroyed(holder: SurfaceHolder) {
                         window.surface = null

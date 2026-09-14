@@ -107,7 +107,6 @@ constructor(
         }
     }
 
-
     /**
      * Explorer default_driver is mac,x11,wayland; android is not on that list.
      * Without this, winefile loads winex11.drv and dies looking for DISPLAY.
