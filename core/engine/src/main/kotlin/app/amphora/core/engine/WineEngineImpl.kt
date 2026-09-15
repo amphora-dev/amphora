@@ -356,6 +356,8 @@ constructor(
             envVars.put("ANDROID_ALSA_SERVER", rootPath + UnixSocketConfig.ALSA_SERVER_PATH)
             envVars.put("ANDROID_ASERVER_USE_SHM", "true")
         }
+        // After LaunchSpec/container env: Valve Proton esync defaults (not WINEESYNC_WINLATOR).
+        GuestProgramLauncherComponent.normalizeSyncEnvVars(envVars)
         return envVars
     }
 

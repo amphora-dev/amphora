@@ -224,8 +224,8 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       envVars.put("LD_PRELOAD", ldPreload.toString());
       Log.d("GuestLauncher", "execShellCommand LD_PRELOAD=" + ldPreload.toString());
     }
-    if (!"1".equals(envVars.get("PROTON_NO_ESYNC"))) envVars.put("WINEESYNC_WINLATOR", "1");
     mergeExternalEnvVars(envVars, envVars.get("LD_PRELOAD"));
+    normalizeSyncEnvVars(envVars);
     if (wineInfo != null && wineInfo.isArm64EC()) {
       FEXCorePresetManager.normalizeSmcChecksEnvVars(envVars, this.envVars);
     }
@@ -816,6 +816,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
               + "LD_PRELOAD libamphora_wsi.so");
       applyWineAndroidWsiHelperPreload(context, envVars);
     }
+    normalizeSyncEnvVars(envVars);
     if (wineInfo == null || !wineInfo.isArm64EC()) {
       configureBox64RcEnv(envVars, rootDir);
     }
@@ -1067,6 +1068,40 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
     applyWineAndroidWsiHelperPreloadEnv(envVars, helper.getAbsolutePath());
     Log.i(TAG, "AMPHORA_WINEANDROID: LD_PRELOAD " + helper.getAbsolutePath());
+  }
+
+
+  /**
+   * Valve Proton sync defaults (mirrors WinNative {@code normalizeSyncEnvVars}):
+   * strip {@code WINEFSYNC}, force {@code PROTON_NO_FSYNC=1}, default {@code WINEESYNC=1}.
+   * Explicit {@code WINEESYNC=0}/{@code false} disables esync. Drop dead
+   * {@code WINEESYNC_WINLATOR} (Winlator-only; ignored by Valve Proton).
+   */
+  public static void normalizeSyncEnvVars(EnvVars envVars) {
+    envVars.remove("WINEFSYNC");
+    envVars.put("PROTON_NO_FSYNC", "1");
+    envVars.remove("WINEESYNC_WINLATOR");
+
+    String esyncVal = envVars.get("WINEESYNC");
+    boolean esyncOff = "0".equals(esyncVal) || "false".equalsIgnoreCase(esyncVal);
+    boolean ntSync =
+        "1".equals(envVars.get("WINENTSYNC")) || "1".equals(envVars.get("PROTON_USE_NTSYNC"));
+
+    if (ntSync) {
+      envVars.put("WINENTSYNC", "1");
+      envVars.put("PROTON_USE_NTSYNC", "1");
+    } else {
+      envVars.remove("WINENTSYNC");
+      envVars.remove("PROTON_USE_NTSYNC");
+    }
+
+    if (esyncOff) {
+      envVars.remove("WINEESYNC");
+      envVars.put("PROTON_NO_ESYNC", "1");
+    } else {
+      envVars.put("WINEESYNC", "1");
+      envVars.remove("PROTON_NO_ESYNC");
+    }
   }
 
   static void configureBox64RcEnv(EnvVars envVars, File rootDir) {

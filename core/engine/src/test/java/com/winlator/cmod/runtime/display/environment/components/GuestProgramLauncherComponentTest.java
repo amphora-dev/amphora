@@ -65,4 +65,33 @@ public class GuestProgramLauncherComponentTest {
     boolean v = GuestProgramLauncherComponent.wineAndroidNeedsSystemVulkan();
     assertTrue(v || !v);
   }
+
+  @Test
+  public void defaultSyncEnvEnablesEsyncWithoutWinlatorFlag() {
+    EnvVars envVars = new EnvVars();
+
+    GuestProgramLauncherComponent.normalizeSyncEnvVars(envVars);
+
+    assertEquals("1", envVars.get("WINEESYNC"));
+    assertEquals("1", envVars.get("PROTON_NO_FSYNC"));
+    assertFalse(envVars.has("WINEESYNC_WINLATOR"));
+    assertFalse(envVars.has("WINEFSYNC"));
+    assertFalse(envVars.has("PROTON_NO_ESYNC"));
+  }
+
+  @Test
+  public void explicitWineesyncZeroDisablesEsync() {
+    EnvVars envVars = new EnvVars();
+    envVars.put("WINEESYNC", "0");
+    envVars.put("WINEFSYNC", "1");
+    envVars.put("WINEESYNC_WINLATOR", "1");
+
+    GuestProgramLauncherComponent.normalizeSyncEnvVars(envVars);
+
+    assertFalse(envVars.has("WINEESYNC"));
+    assertEquals("1", envVars.get("PROTON_NO_ESYNC"));
+    assertEquals("1", envVars.get("PROTON_NO_FSYNC"));
+    assertFalse(envVars.has("WINEFSYNC"));
+    assertFalse(envVars.has("WINEESYNC_WINLATOR"));
+  }
 }
