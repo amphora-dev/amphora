@@ -2,6 +2,8 @@
 
 Android 上的 Wine 模拟器。模块与启动链见 `docs/05-ARCHITECTURE.md`。
 
+**新 agent 从零开工**：先读 [`docs/19-AGENT-BOOTSTRAP.md`](docs/19-AGENT-BOOTSTRAP.md) 与 [`.cursor/skills/amphora-from-zero/SKILL.md`](.cursor/skills/amphora-from-zero/SKILL.md)（clone / 编译 / 冒烟 / 多 bot）。
+
 **现在是开发阶段。** 当前设计是唯一真源。设备上的旧 prefix、旧 applied mark、旧 WinNative/Winlator 布局都不是兼容面。
 
 ## 不要做
