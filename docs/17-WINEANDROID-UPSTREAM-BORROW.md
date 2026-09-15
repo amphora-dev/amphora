@@ -8,6 +8,12 @@
 Amphora 实现面：`WineAndroidDesktop` / `WineAndroidHostBridge` /
 `WineAndroidWindow`（Kotlin，无 `WineActivity.java`）。总览仍见
 [`16-WINEANDROID-DISPLAY.md`](16-WINEANDROID-DISPLAY.md)。
+X11 对照与踩坑见 [`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md)。
+
+**已落地（`wip/ha262-paint`）**：嵌套 WindowGroup、visible_rect、surface 尺寸再
+register、WS_VISIBLE / z-order、min 2×2；**保留 statusView**。提交示例：
+`a5a0b0e`。
+**尚未借 / 尚未做**：推迟第一次 register 到真实尺寸（见 docs/18 §5）。
 
 ---
 

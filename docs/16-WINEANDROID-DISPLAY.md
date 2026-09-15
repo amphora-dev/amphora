@@ -4,6 +4,8 @@ Amphora 的 `:session` 宿主用 Kotlin `WineAndroidDesktop` / `WineAndroidHostB
 对齐上游 `dlls/wineandroid.drv/WineActivity.java` 的窗口树与 Surface 生命周期，
 **不是** Winlator X11，也不是把每个 HWND 做成系统 freeform Activity。
 可借上游细则：[`17-WINEANDROID-UPSTREAM-BORROW.md`](17-WINEANDROID-UPSTREAM-BORROW.md)。
+与 X11 单 TextureView 对照、多 Surface 成本、尺寸延迟、**一路踩坑**：
+[`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md)。
 
 ## 布局：嵌套 + visible_rect
 
@@ -13,6 +15,7 @@ Amphora 的 `:session` 宿主用 Kotlin `WineAndroidDesktop` / `WineAndroidHostB
 3. **每个 HWND**：一个 `WindowGroup`（FrameLayout），内含：
    - GDI / OpenGL `SurfaceView`（`match_parent` 填满该组）
    - 子 HWND 的 `WindowGroup`（嵌套在父组里）
+   - 各层由 **SurfaceFlinger** 合成（每层通常自有 BufferQueue；对照见 docs/18）
 4. **定位用 visible_rect**（不是单独的 window_rect）。上游 win32u `window.c`
    给出的 visible_* 是相对**父客户区**的坐标；Start `(0,0)-(126,46)` 相对
    taskbar，不得当成桌面绝对坐标贴到 contentHost 原点。
@@ -41,6 +44,10 @@ Amphora 路径：
 
 logcat 验收：`registerSurface` / native `registerSurface hwnd=… WxH` 在
 `windowPosChanged` 之后应出现 **~1280×46**（taskbar），不是一直 1×1。
+
+**下一步（尚未实现）**：推迟 **第一次** `nativeRegisterSurface`，等到真实
+guest w/h > 0（或 ≥2）；之后的 resize 仍按上面再 bind。详见 docs/18 §5 / §9。
+当前仍用 min 2×2 占位，避免 ANW 0/1。
 
 ## Session status TextView
 
