@@ -181,7 +181,7 @@ data class ComponentInstallStatus(
     val pinned: String?,
     val installed: String?,
     val matchesPin: Boolean,
-    /** Dev/test inject armed via `<asset>.local-override`; remote pin is ignored. */
+    /** True when health is LOCAL_OVERRIDE (catalog `dev_pins.json` overlay). */
     val localOverride: Boolean = false,
 ) {
     val label: String get() = component.name.lowercase(Locale.ROOT)

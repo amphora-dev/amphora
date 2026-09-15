@@ -18,10 +18,14 @@ data class ContentComponentHealth(
 ) {
     enum class State {
         READY,
+        /** Installed at the effective catalog pin which came from [app.amphora.core.content.DevPinOverlay]. */
+        LOCAL_OVERRIDE,
         MISSING,
         UPDATE,
         NO_PIN,
     }
+
+    val healthy: Boolean get() = state == State.READY || state == State.LOCAL_OVERRIDE
 }
 
 /** SHA and installation state for one manifest `runtimeAssets[]` entry. */
@@ -37,6 +41,7 @@ data class RuntimeAssetHealth(
         MISSING,
         MISMATCH,
         UNVERIFIED,
+        /** Matches the effective pin from [app.amphora.core.content.DevPinOverlay]. */
         LOCAL_OVERRIDE,
     }
 

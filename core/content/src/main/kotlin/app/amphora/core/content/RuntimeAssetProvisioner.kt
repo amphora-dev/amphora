@@ -12,11 +12,11 @@ import java.io.IOException
  * by asset path.
  *
  * Order per entry:
- * 1. Trust a `.local-override` inject (dev/test — skips remote pin).
- * 2. Trust an already-verified file under `filesDir/runtime-assets/`.
- * 3. Copy from the APK asset of the same relative path when present (offline
+ * 1. Trust an already-verified file under `filesDir/runtime-assets/` that
+ *    matches the **effective** catalog pin ([ContentCatalog] ⊕ [DevPinOverlay]).
+ * 2. Copy from the APK asset of the same relative path when present (offline
  *    fallback for patched AIO Graphics Test PEs).
- * 4. Fall back to HTTPS download via [VerifiedAssetDownloader].
+ * 3. Fall back to HTTPS download via [VerifiedAssetDownloader].
  */
 class RuntimeAssetProvisioner(
     private val context: Context,
@@ -29,10 +29,6 @@ class RuntimeAssetProvisioner(
         val root = runtimeAssetsDir(context)
         for (entry in manifest.runtimeAssets()) {
             val destination = File(root, entry.assetPath)
-            if (RuntimeAssetLocalOverride.isActive(destination)) {
-                Log.i(TAG, "Skipping remote pin for ${entry.assetPath} (local-override)")
-                continue
-            }
             if (isVerified(destination, entry)) continue
             if (installFromApkAsset(entry, destination)) continue
             progressBus?.update(

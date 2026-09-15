@@ -2,7 +2,6 @@ package app.amphora.core.engine
 
 import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.ContentManifest
-import app.amphora.core.content.RuntimeAssetLocalOverride
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.engine.model.ContentComponentHealth
 import app.amphora.core.engine.model.RuntimeAssetHealth
@@ -115,10 +114,7 @@ class ContentHealthScannerTest {
         runtimeAssets.resolve("mismatch.bin").writePinned("data", otherSha)
         runtimeAssets.resolve("wrong-size.bin").writePinned("data", expectedSha)
         runtimeAssets.resolve("unverified.bin").writeText("data")
-        runtimeAssets.resolve("local.bin").apply {
-            writePinned("local", localSha)
-            File(absolutePath + RuntimeAssetLocalOverride.SUFFIX).writeText(localSha)
-        }
+        runtimeAssets.resolve("local.bin").writePinned("local", localSha)
         val scanner =
             ContentHealthScanner(
                 runtimeAssetsDirectory = runtimeAssets,
@@ -127,6 +123,7 @@ class ContentHealthScannerTest {
                 ContentHealthScanner.ContentTypeDirectoryResolver { null },
                 currentRootfsVersion = { "42" },
                 isComponentInstalled = { true },
+                isRuntimeAssetOverridden = { it == "local.bin" },
             )
         val manifest =
             manifest(
@@ -137,7 +134,8 @@ class ContentHealthScannerTest {
                     RuntimeAsset("mismatch.bin", expectedSha, 4),
                     RuntimeAsset("wrong-size.bin", expectedSha, 5),
                     RuntimeAsset("unverified.bin", expectedSha, 4),
-                    RuntimeAsset("local.bin", expectedSha, 5),
+                    // Effective catalog pin already reflects the overlay SHA.
+                    RuntimeAsset("local.bin", localSha, 5),
                 ),
             )
 
@@ -150,10 +148,41 @@ class ContentHealthScannerTest {
         assertEquals(RuntimeAssetHealth.State.UNVERIFIED, snapshot.asset("unverified.bin").state)
         assertEquals(RuntimeAssetHealth.State.LOCAL_OVERRIDE, snapshot.asset("local.bin").state)
         assertEquals(localSha, snapshot.asset("local.bin").installedSha)
-        assertEquals(expectedSha, snapshot.asset("local.bin").pinnedSha)
+        assertEquals(localSha, snapshot.asset("local.bin").pinnedSha)
         assertTrue(snapshot.asset("local.bin").healthy)
         assertFalse(snapshot.asset("mismatch.bin").healthy)
         assertTrue(snapshot.imageFsResidue)
+    }
+
+    @Test
+    fun componentScanReportsLocalOverrideWhenCatalogPinIsOverridden() = runBlocking {
+        val runtimeAssets = temporaryFolder.newFolder("runtime-assets-override")
+        val residue = File(temporaryFolder.root, "imagefs.olddead-override")
+        val scanner =
+            ContentHealthScanner(
+                runtimeAssetsDirectory = runtimeAssets,
+                imageFsResidue = residue,
+                contentTypeDirectoryResolver =
+                ContentHealthScanner.ContentTypeDirectoryResolver { null },
+                currentRootfsVersion = { "42" },
+                isComponentInstalled = { true },
+                isComponentOverridden = { it == ContentComponent.WINE },
+            )
+
+        val snapshot = scanner.scan(manifest())
+
+        assertEquals(
+            ContentComponentHealth.State.LOCAL_OVERRIDE,
+            snapshot.component(ContentComponent.WINE).state,
+        )
+        assertEquals(
+            ContentComponentHealth.State.READY,
+            snapshot.component(ContentComponent.VKD3D).state,
+        )
+        assertEquals(
+            ContentComponentHealth.State.READY,
+            snapshot.component(ContentComponent.ROOTFS).state,
+        )
     }
 
     private fun app.amphora.core.engine.model.ContentHealthSnapshot.component(

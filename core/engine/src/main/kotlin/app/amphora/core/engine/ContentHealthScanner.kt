@@ -3,8 +3,8 @@ package app.amphora.core.engine
 import android.content.Context
 import app.amphora.core.content.AssetDigest
 import app.amphora.core.content.ContentAssetInstaller
+import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ContentManifest
-import app.amphora.core.content.RuntimeAssetLocalOverride
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.content.model.ManifestEntry
@@ -34,12 +34,15 @@ internal constructor(
     private val contentTypeDirectoryResolver: ContentTypeDirectoryResolver,
     private val currentRootfsVersion: suspend () -> String?,
     private val isComponentInstalled: (ManifestEntry) -> Boolean,
+    private val isComponentOverridden: (ContentComponent) -> Boolean = { false },
+    private val isRuntimeAssetOverridden: (String) -> Boolean = { false },
 ) {
     @Inject
     constructor(
         @ApplicationContext context: Context,
         rootfsInstaller: RootfsInstaller,
         assetInstaller: ContentAssetInstaller,
+        catalog: ContentCatalog,
     ) : this(
         runtimeAssetsDirectory = RuntimeAssetProvisioner.runtimeAssetsDir(context),
         imageFsResidue = File(context.filesDir, IMAGE_FS_RESIDUE_NAME),
@@ -51,6 +54,8 @@ internal constructor(
         },
         currentRootfsVersion = rootfsInstaller::currentVersion,
         isComponentInstalled = assetInstaller::isInstalled,
+        isComponentOverridden = catalog::isComponentOverridden,
+        isRuntimeAssetOverridden = catalog::isRuntimeAssetOverridden,
     )
 
     suspend fun scan(manifest: ContentManifest): ContentHealthSnapshot = ContentHealthSnapshot(
@@ -81,6 +86,7 @@ internal constructor(
                         ContentComponentHealth.State.UPDATE
                     component != ContentComponent.ROOTFS && !installedAtPin ->
                         ContentComponentHealth.State.UPDATE
+                    isComponentOverridden(component) -> ContentComponentHealth.State.LOCAL_OVERRIDE
                     else -> ContentComponentHealth.State.READY
                 }
             ContentComponentHealth(
@@ -94,27 +100,25 @@ internal constructor(
     private fun scanRuntimeAssets(manifest: ContentManifest): List<RuntimeAssetHealth> =
         manifest.runtimeAssets().map { entry ->
             val file = File(runtimeAssetsDirectory, entry.assetPath)
-            val localOverrideSha =
-                if (RuntimeAssetLocalOverride.isActive(file)) {
-                    RuntimeAssetLocalOverride.markerFile(file).readText().trim().lowercase()
-                } else {
-                    null
-                }
             val installedSha = AssetDigest.pinnedSha(file)
+            val matchesPin =
+                file.isFile &&
+                    installedSha != null &&
+                    installedSha == entry.sha256.lowercase() &&
+                    (entry.size == null || file.length() == entry.size)
+            val overridden = isRuntimeAssetOverridden(entry.assetPath)
             val state =
                 when {
-                    localOverrideSha != null -> RuntimeAssetHealth.State.LOCAL_OVERRIDE
                     !file.isFile -> RuntimeAssetHealth.State.MISSING
                     installedSha == null -> RuntimeAssetHealth.State.UNVERIFIED
-                    installedSha != entry.sha256.lowercase() -> RuntimeAssetHealth.State.MISMATCH
-                    entry.size != null && file.length() != entry.size ->
-                        RuntimeAssetHealth.State.MISMATCH
+                    !matchesPin -> RuntimeAssetHealth.State.MISMATCH
+                    overridden -> RuntimeAssetHealth.State.LOCAL_OVERRIDE
                     else -> RuntimeAssetHealth.State.READY
                 }
             RuntimeAssetHealth(
                 assetPath = entry.assetPath,
                 pinnedSha = entry.sha256.lowercase(),
-                installedSha = localOverrideSha ?: installedSha,
+                installedSha = installedSha,
                 sizeBytes = entry.size,
                 state = state,
             )

@@ -625,6 +625,7 @@ private fun ContentHealthSnapshot.toComponentStatuses(): List<ComponentStatus> =
         health =
         when (component.state) {
             ContentComponentHealth.State.READY -> ComponentHealth.READY
+            ContentComponentHealth.State.LOCAL_OVERRIDE -> ComponentHealth.LOCAL
             ContentComponentHealth.State.MISSING -> ComponentHealth.MISSING
             ContentComponentHealth.State.UPDATE -> ComponentHealth.UPDATE
             ContentComponentHealth.State.NO_PIN -> ComponentHealth.NO_PIN
@@ -702,10 +703,12 @@ data class SettingsUiState(
     val imagefsResidue: Boolean = false,
     val error: String? = null,
 ) {
-    val unhealthyComponents: Int get() = components.count { it.health != ComponentHealth.READY }
+    val unhealthyComponents: Int
+        get() = components.count { it.health !in setOf(ComponentHealth.READY, ComponentHealth.LOCAL) }
     val unhealthyAssets: Int
         get() = runtimeAssets.count { it.health !in setOf(AssetHealth.READY, AssetHealth.LOCAL) }
     val localAssets: Int get() = runtimeAssets.count { it.health == AssetHealth.LOCAL }
+    val localComponents: Int get() = components.count { it.health == ComponentHealth.LOCAL }
 }
 
 /**
@@ -875,7 +878,7 @@ data class ComponentStatus(
     val health: ComponentHealth,
 )
 
-enum class ComponentHealth { READY, MISSING, UPDATE, NO_PIN }
+enum class ComponentHealth { READY, LOCAL, MISSING, UPDATE, NO_PIN }
 
 data class RuntimeAssetHealth(val path: String, val health: AssetHealth)
 

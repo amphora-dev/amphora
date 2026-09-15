@@ -28,7 +28,39 @@ class ContentManifest private constructor(
 
     fun runtimeAssets(): List<RuntimeAssetEntry> = runtimeAssetEntries
 
+    /** Apply development-time catalog pins; see [DevPinOverlay]. */
+    fun withDevPins(pins: DevPins): Pair<ContentManifest, DevPinApplication> =
+        DevPinOverlay.apply(this, pins)
+
     companion object {
+        /**
+         * Build a manifest from already-validated pieces (overlay / tests).
+         * Re-checks that every [ManifestEntry.assetPath] and runtime assetPath
+         * is unique across the catalog.
+         */
+        internal fun of(
+            entries: Map<ComponentId, ManifestEntry>,
+            wcpCatalogUrl: String?,
+            runtimeAssets: List<RuntimeAssetEntry>,
+        ): ContentManifest {
+            val assetPaths = linkedSetOf<String>()
+            for (entry in entries.values) {
+                require(assetPaths.add(entry.assetPath)) {
+                    "Duplicate assetPath: ${entry.assetPath}"
+                }
+            }
+            for (asset in runtimeAssets) {
+                require(assetPaths.add(asset.assetPath)) {
+                    "Duplicate assetPath: ${asset.assetPath}"
+                }
+            }
+            return ContentManifest(
+                entries = entries,
+                wcpCatalogUrl = wcpCatalogUrl,
+                runtimeAssetEntries = runtimeAssets,
+            )
+        }
+
         /** Parse a manifest JSON string. JVM-testable (no Android deps). */
         fun parse(json: String): ContentManifest {
             val root = JSONObject(json)

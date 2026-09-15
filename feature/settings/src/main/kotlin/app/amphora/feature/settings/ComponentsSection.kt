@@ -38,6 +38,13 @@ internal fun ComponentSection(state: SettingsUiState, onRefresh: () -> Unit) {
         state.components.forEach { component ->
             ComponentRow(component)
         }
+        if (state.localComponents > 0) {
+            Text(
+                "${state.localComponents} local override",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (state.imagefsResidue) {
             NoticeRow("Old imagefs residue found", "It is not used, but cleanup is recommended.")
         }
@@ -104,6 +111,7 @@ private fun ComponentRow(component: ComponentStatus) {
     val tone =
         when (component.health) {
             ComponentHealth.READY -> HealthTone.GOOD
+            ComponentHealth.LOCAL -> HealthTone.LOCAL
             ComponentHealth.MISSING, ComponentHealth.UPDATE -> HealthTone.BAD
             ComponentHealth.NO_PIN -> HealthTone.NEUTRAL
         }
@@ -196,6 +204,7 @@ private val ComponentHealth.label: String
     get() =
         when (this) {
             ComponentHealth.READY -> "Ready"
+            ComponentHealth.LOCAL -> "Local override"
             ComponentHealth.MISSING -> "Missing"
             ComponentHealth.UPDATE -> "Update needed"
             ComponentHealth.NO_PIN -> "No published version"

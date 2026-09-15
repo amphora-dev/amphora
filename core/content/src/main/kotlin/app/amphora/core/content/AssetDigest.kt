@@ -13,9 +13,8 @@ import java.security.MessageDigest
  * destination and recorded size still match, avoiding both missing/truncated-file
  * false positives and re-hashing hundreds of megabytes. The suffix and hashing loop
  * used to be spelled out separately in [VerifiedAssetDownloader],
- * [RuntimeAssetProvisioner], [RuntimeAssetLocalOverride], the launcher and the
- * session preparer — five places that had to agree on a filename for the cache to
- * work at all.
+ * [RuntimeAssetProvisioner], the launcher and the session preparer — places that
+ * had to agree on a filename for the cache to work at all.
  *
  * `:app:stageBundledContent` hashes the same way but lives in `build-logic`, a
  * separate build with its own classpath, so it cannot share this code.

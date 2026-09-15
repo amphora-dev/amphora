@@ -77,26 +77,31 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
     override fun createWindow(hwnd: Int, isDesktop: Boolean, opengl: Boolean, parent: Int) {
         Log.i(TAG, "createWindow hwnd=$hwnd desktop=$isDesktop opengl=$opengl parent=$parent")
         activity.runOnUiThread {
+            // Desktop is also a GDI HWND: attach SurfaceView + registerSurface.
+            // Skipping left LOCK at -11 (no ANW). Force GDI for desktop only —
+            // do not force CPU/GDI on real OpenGL client windows.
+            val useOpengl = if (isDesktop) false else opengl
             if (isDesktop) {
-                // Desktop HWND: metrics already pushed via event pipe; optional full-bleed view.
-                Log.i(TAG, "desktop hwnd=$hwnd (no per-hwnd SurfaceView)")
-                return@runOnUiThread
+                Log.i(TAG, "desktop hwnd=$hwnd attaching GDI SurfaceView")
             }
-            val sibling = windows[hwnd to !opengl]
+            val sibling = windows[hwnd to !useOpengl]
             val window =
                 WineAndroidWindow(
                     hwnd = hwnd,
                     parentHwnd = parent,
-                    isClient = opengl,
+                    isClient = useOpengl,
                     scale = 1f,
                 )
             if (sibling != null) {
                 window.windowRect = Rect(sibling.windowRect)
                 window.clientRect = Rect(sibling.clientRect)
+            } else if (isDesktop && desktopWidth > 0 && desktopHeight > 0) {
+                window.windowRect = Rect(0, 0, desktopWidth, desktopHeight)
+                window.clientRect = Rect(0, 0, desktopWidth, desktopHeight)
             }
-            windows[hwnd to opengl] = window
+            windows[hwnd to useOpengl] = window
             desktop.attachWindow(window) { attachedHwnd, surface ->
-                onSurface(attachedHwnd, surface, opengl)
+                onSurface(attachedHwnd, surface, useOpengl)
             }
         }
     }

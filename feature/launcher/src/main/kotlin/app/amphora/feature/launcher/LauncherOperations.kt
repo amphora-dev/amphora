@@ -141,7 +141,10 @@ private fun ContentHealthSnapshot.toLauncherSnapshot(): ContentSnapshot = Conten
             component = health.component,
             pinned = health.pinned,
             installed = health.installed,
-            matchesPin = health.state == ContentComponentHealth.State.READY,
+            matchesPin =
+            health.state == ContentComponentHealth.State.READY ||
+                health.state == ContentComponentHealth.State.LOCAL_OVERRIDE,
+            localOverride = health.state == ContentComponentHealth.State.LOCAL_OVERRIDE,
         )
     },
     runtimeAssets =

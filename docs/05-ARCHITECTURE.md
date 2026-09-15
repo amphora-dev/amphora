@@ -215,6 +215,7 @@ queue-present 无样本时才回退到 XServer Source FPS，渲染与 Present �
 ## 5. 内容与资产
 
 - **真源**：`amphora-dev/content_manifest` 的 `content_manifest.json`，运行时按 `amphora.contentManifest.url`（`gradle.properties`）拉取；仓库内不留副本。校验由该仓的 `validate_manifest.py` 在 push 时执行
+- **Effective pins**：运行时 `ContentCatalog` 在每次成功 load 后叠加 `filesDir/content/dev_pins.json`（开发态 overlay，见 `15-DEV-PIN-OVERLAY.md`）。远程 manifest 仍是发版真源；overlay 不是 release 通道。
 - **组件**（`ContentComponent`）：Wine Proton / Box64 / DXVK / VKD3D / ROOTFS（后者由 `RootfsInstaller` 独占）。Mesa vulkan wrapper 不是 component，它是 `runtimeAssets[]` 条目，由 `RuntimeAssetProvisioner` 装进 `filesDir/runtime-assets/`；ALSA aserver 随 imagefs
 - **安装路径**：
   - `WCP` → `ContentsManager.extraContentFile` + `finishInstallContent` → `filesDir/contents/...`

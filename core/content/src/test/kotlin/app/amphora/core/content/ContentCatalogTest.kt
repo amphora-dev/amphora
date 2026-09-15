@@ -1,6 +1,7 @@
 package app.amphora.core.content
 
 import app.amphora.core.common.dispatcher.DispatcherProvider
+import app.amphora.core.content.model.ContentComponent
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -92,6 +94,86 @@ class ContentCatalogTest {
         assertSame(expected, thrown)
         assertEquals(ContentCatalog.Status.Failed("offline"), catalog.status.value)
         assertEquals(null, catalog.peek())
+    }
+
+
+    @Test
+    fun requireAppliesDevPinOverlayToDiskCache() = runBlocking {
+        val cacheFile = cacheFile().apply { writeText(ContentManifestTest.SAMPLE) }
+        val contentDir = cacheFile.parentFile!!
+        val newSha = "9".repeat(64)
+        DevPinOverlay.write(
+            contentDir,
+            DevPins(
+                components =
+                mapOf("box64" to ComponentPinPatch(sha256 = newSha, size = 123L)),
+            ),
+        )
+        val catalog = catalog(cacheFile) { error("should not fetch") }
+
+        val manifest = catalog.require()
+
+        assertEquals(newSha, manifest.entry(ContentComponent.BOX64)!!.sha256)
+        assertTrue(catalog.isComponentOverridden(ContentComponent.BOX64))
+        assertFalse(catalog.isComponentOverridden(ContentComponent.WINE))
+        val status = catalog.status.value as ContentCatalog.Status.Ready
+        assertEquals(setOf(ContentComponent.BOX64), status.overriddenComponents)
+    }
+
+    @Test
+    fun clearOverlayRestoresRemotePinOnNextRequire() = runBlocking {
+        val cacheFile = cacheFile().apply { writeText(ContentManifestTest.SAMPLE) }
+        val contentDir = cacheFile.parentFile!!
+        DevPinOverlay.write(
+            contentDir,
+            DevPins(components = mapOf("box64" to ComponentPinPatch(sha256 = "8".repeat(64)))),
+        )
+        val catalog = catalog(cacheFile) { error("should not fetch") }
+        assertEquals("8".repeat(64), catalog.require().entry(ContentComponent.BOX64)!!.sha256)
+
+        DevPinOverlay.clear(contentDir)
+        // Force reload: drop Ready by constructing a fresh catalog on the same cache.
+        val catalog2 = catalog(cacheFile) { error("should not fetch") }
+        val restored = catalog2.require()
+        assertEquals(
+            ContentManifest.parse(ContentManifestTest.SAMPLE).entry(ContentComponent.BOX64)!!.sha256,
+            restored.entry(ContentComponent.BOX64)!!.sha256,
+        )
+        assertFalse(catalog2.isComponentOverridden(ContentComponent.BOX64))
+    }
+
+    @Test
+    fun malformedOverlayIsIgnored() = runBlocking {
+        val cacheFile = cacheFile().apply { writeText(ContentManifestTest.SAMPLE) }
+        DevPinOverlay.file(cacheFile.parentFile!!).writeText("{broken")
+        val catalog = catalog(cacheFile) { error("should not fetch") }
+
+        val manifest = catalog.require()
+        assertEquals(
+            ContentManifest.parse(ContentManifestTest.SAMPLE).entry(ContentComponent.BOX64)!!.sha256,
+            manifest.entry(ContentComponent.BOX64)!!.sha256,
+        )
+        assertTrue(catalog.overriddenComponents.isEmpty())
+    }
+
+    @Test
+    fun refreshStillAppliesOverlayAfterRemoteFetch() = runBlocking {
+        val cacheFile = cacheFile()
+        val contentDir = cacheFile.parentFile!!
+        val overlaySha = "7".repeat(64)
+        DevPinOverlay.write(
+            contentDir,
+            DevPins(components = mapOf("box64" to ComponentPinPatch(sha256 = overlaySha))),
+        )
+        val remoteSha = "d".repeat(64) // SAMPLE box64 sha
+        val catalog = catalog(cacheFile) { ContentManifestTest.SAMPLE }
+
+        val refreshed = catalog.refresh()
+
+        assertEquals(overlaySha, refreshed.entry(ContentComponent.BOX64)!!.sha256)
+        assertTrue(catalog.isComponentOverridden(ContentComponent.BOX64))
+        // Disk cache still stores the remote (unpatched) JSON.
+        assertTrue(cacheFile.readText().contains(remoteSha))
     }
 
     private fun cacheFile(): File = File(temporaryFolder.root, "content/content_manifest.json").also {
