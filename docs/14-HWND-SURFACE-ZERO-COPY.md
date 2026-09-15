@@ -36,8 +36,10 @@ knife13 hot path is already HWND Surface AHB zero-copy. Present does **not** go 
 - CI/release wine pin `Proton-11.0-ab04edc49` does **not** contain AHB / wsi-sc
   client strings in `wineandroid.so` / `win32u.so` (no `amphora`, `AHB_SC`,
   `import=ok`, `DIRECT`).
-- Knife tip `1c62dd9a8ba` (bind WSI / note+flush acquire / present wait+fence)
-  is **not** on `amphora-dev/proton-wine` remote as of 2026-09-16 discovery
+- Knife tip `1c62dd9a8ba0418595f3365a736ece715a592254` (AHB client + DXVK-queue
+  present fix) **exists on GitHub by SHA** (2026-09-14) but is **not** on
+  `origin/proton_11.0` history and is **not** an ancestor of WCP pin `ab04edc49`
+  (dangling / no branch tip). Discovery corrected 2026-09-16.
   (`proton_11.0` tip is ab04 + BGRA→RGBA GDI flush only).
 - Amphora **server** (`libamphora_wsi`) is in CI APK; without the Wine-side
   client, pure CI artifact smoke **cannot** hit `import=ok`.
