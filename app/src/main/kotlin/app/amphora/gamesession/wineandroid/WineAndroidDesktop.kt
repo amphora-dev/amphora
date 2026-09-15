@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.util.Log
+import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -11,6 +12,7 @@ import android.view.View
 import android.widget.FrameLayout
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Kotlin desktop shaped like upstream [WineActivity] window groups:
@@ -25,6 +27,9 @@ import kotlin.math.min
  * - **Defer first** nativeRegisterSurface until guest rects have a real
  *   positive w×h from WINDOW_POS / create (not the artificial MIN 2×2 alone).
  *   After the first successful register, keep re-binding on size changes.
+ * - Touch: [WindowGroup] / [SurfaceView] → [WineAndroidNative.nativeSendMotionEvent]
+ *   (MOTION_EVENT on the desktop event pipe). Coords = contentHost-local host px /
+ *   [hostScale] → guest desktop px. Not X inject.
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
@@ -364,9 +369,76 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             }
 
         init {
+            // Receive taps even though SurfaceView is not clickable by default.
+            isClickable = true
             addView(
                 surfaceView,
                 LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
+            )
+            surfaceView.setOnTouchListener { _, event -> handleTouch(event) }
+            surfaceView.setOnGenericMotionListener { _, event -> handleGenericMotion(event) }
+        }
+
+        /**
+         * Map a SurfaceView-local event to guest desktop px (Wine ABSOLUTE coords).
+         * Walk view offsets up to [contentHost], then divide by [hostScale].
+         */
+        private fun guestDesktopPos(event: MotionEvent): Pair<Int, Int> {
+            var x = event.x
+            var y = event.y
+            var v: View = surfaceView
+            while (v !== contentHost) {
+                x += v.left
+                y += v.top
+                val parent = v.parent as? View ?: break
+                if (parent === contentHost) break
+                v = parent
+            }
+            val scale = if (hostScale > 0f) hostScale else 1f
+            return (x / scale).roundToInt() to (y / scale).roundToInt()
+        }
+
+        private fun handleTouch(event: MotionEvent): Boolean {
+            val (gx, gy) = guestDesktopPos(event)
+            val ok =
+                WineAndroidNative.nativeSendMotionEvent(
+                    window.hwnd,
+                    event.action,
+                    gx,
+                    gy,
+                    event.buttonState,
+                    0,
+                )
+            if (event.actionMasked == MotionEvent.ACTION_DOWN ||
+                event.actionMasked == MotionEvent.ACTION_UP
+            ) {
+                Log.i(
+                    TAG,
+                    "motion hwnd=${window.hwnd} action=${event.actionMasked} " +
+                        "guest=$gx,$gy buttons=${event.buttonState} ok=$ok",
+                )
+            }
+            return true
+        }
+
+        private fun handleGenericMotion(event: MotionEvent): Boolean {
+            // Mouse hover / wheel (upstream WineView.onGenericMotionEvent).
+            if (event.actionMasked != MotionEvent.ACTION_SCROLL &&
+                event.actionMasked != MotionEvent.ACTION_HOVER_MOVE &&
+                event.actionMasked != MotionEvent.ACTION_BUTTON_PRESS &&
+                event.actionMasked != MotionEvent.ACTION_BUTTON_RELEASE
+            ) {
+                return false
+            }
+            val (gx, gy) = guestDesktopPos(event)
+            val vscroll = event.getAxisValue(MotionEvent.AXIS_VSCROLL).roundToInt()
+            return WineAndroidNative.nativeSendMotionEvent(
+                window.hwnd,
+                event.action,
+                gx,
+                gy,
+                event.buttonState,
+                vscroll,
             )
         }
 

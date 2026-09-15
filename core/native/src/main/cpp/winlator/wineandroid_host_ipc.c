@@ -15,6 +15,7 @@
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include <android/input.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -126,6 +127,25 @@ enum event_type {
     EVENT_MOTION = 3,
     EVENT_KEYBOARD = 4,
 };
+
+/* Win64 INPUT / MOUSEINPUT field values (winuser.h) — guest is x86_64 Wine. */
+#define WA_INPUT_MOUSE              0
+#define WA_MOUSEEVENTF_MOVE         0x0001
+#define WA_MOUSEEVENTF_LEFTDOWN     0x0002
+#define WA_MOUSEEVENTF_LEFTUP       0x0004
+#define WA_MOUSEEVENTF_RIGHTDOWN    0x0008
+#define WA_MOUSEEVENTF_RIGHTUP      0x0010
+#define WA_MOUSEEVENTF_MIDDLEDOWN   0x0020
+#define WA_MOUSEEVENTF_MIDDLEUP     0x0040
+#define WA_MOUSEEVENTF_WHEEL        0x0800
+#define WA_MOUSEEVENTF_ABSOLUTE     0x8000
+#define WA_WHEEL_DELTA              120
+
+/*
+ * Win64 union event_data.motion wire offsets (matches surface packing + probe):
+ *   type@0, hwnd@8, INPUT.type@16, mi.dx@24, mi.dy@28, mouseData@32,
+ *   dwFlags@36, time@40, dwExtraInfo@48; total EVENT_DATA_SIZE=64.
+ */
 
 /* ---- AHB helpers (dlsym, same as former host_anw) ---- */
 typedef void *(*pfn_anwb_get_ahb)(struct wine_native_buffer *);
@@ -323,6 +343,87 @@ static int send_surface_changed_event(int32_t hwnd, int client, unsigned width,
         memcpy(buf + 20, &width, 4);
         memcpy(buf + 24, &height, 4);
     }
+    return send_event_bytes(buf, sizeof(buf));
+}
+
+/* Port of dlls/wineandroid.drv/window.c motion_event → desktop event pipe. */
+static int send_motion_event(int32_t hwnd, int action, int x, int y, int state,
+                             int vscroll)
+{
+    static int button_state;
+    uint8_t buf[EVENT_DATA_SIZE];
+    uint64_t hwnd64 = (uint32_t)hwnd;
+    uint32_t evtype = EVENT_MOTION;
+    uint32_t input_type = WA_INPUT_MOUSE;
+    int32_t dx = x;
+    int32_t dy = y;
+    uint32_t mouse_data = 0;
+    uint32_t dw_flags = WA_MOUSEEVENTF_MOVE | WA_MOUSEEVENTF_ABSOLUTE;
+    uint32_t time = 0;
+    uint64_t extra = 0;
+    int mask = action & AMOTION_EVENT_ACTION_MASK;
+    int prev_state;
+    int send_state = state;
+
+    if (!(mask == AMOTION_EVENT_ACTION_DOWN || mask == AMOTION_EVENT_ACTION_UP ||
+          mask == AMOTION_EVENT_ACTION_CANCEL || mask == AMOTION_EVENT_ACTION_SCROLL ||
+          mask == AMOTION_EVENT_ACTION_MOVE || mask == AMOTION_EVENT_ACTION_HOVER_MOVE ||
+          mask == AMOTION_EVENT_ACTION_BUTTON_PRESS ||
+          mask == AMOTION_EVENT_ACTION_BUTTON_RELEASE))
+        return -1;
+
+    /* Match upstream: BUTTON_RELEASE must not look like a bare touch UP. */
+    if (mask == AMOTION_EVENT_ACTION_BUTTON_RELEASE)
+        send_state |= (int)0x80000000;
+
+    prev_state = button_state;
+    button_state = send_state;
+
+    switch (mask) {
+    case AMOTION_EVENT_ACTION_DOWN:
+    case AMOTION_EVENT_ACTION_BUTTON_PRESS:
+        if ((send_state & ~prev_state) & AMOTION_EVENT_BUTTON_PRIMARY)
+            dw_flags |= WA_MOUSEEVENTF_LEFTDOWN;
+        if ((send_state & ~prev_state) & AMOTION_EVENT_BUTTON_SECONDARY)
+            dw_flags |= WA_MOUSEEVENTF_RIGHTDOWN;
+        if ((send_state & ~prev_state) & AMOTION_EVENT_BUTTON_TERTIARY)
+            dw_flags |= WA_MOUSEEVENTF_MIDDLEDOWN;
+        if (!(send_state & ~prev_state)) /* finger touch */
+            dw_flags |= WA_MOUSEEVENTF_LEFTDOWN;
+        break;
+    case AMOTION_EVENT_ACTION_UP:
+    case AMOTION_EVENT_ACTION_CANCEL:
+    case AMOTION_EVENT_ACTION_BUTTON_RELEASE:
+        if ((prev_state & ~send_state) & AMOTION_EVENT_BUTTON_PRIMARY)
+            dw_flags |= WA_MOUSEEVENTF_LEFTUP;
+        if ((prev_state & ~send_state) & AMOTION_EVENT_BUTTON_SECONDARY)
+            dw_flags |= WA_MOUSEEVENTF_RIGHTUP;
+        if ((prev_state & ~send_state) & AMOTION_EVENT_BUTTON_TERTIARY)
+            dw_flags |= WA_MOUSEEVENTF_MIDDLEUP;
+        if (!(prev_state & ~send_state)) /* finger touch */
+            dw_flags |= WA_MOUSEEVENTF_LEFTUP;
+        break;
+    case AMOTION_EVENT_ACTION_SCROLL:
+        dw_flags |= WA_MOUSEEVENTF_WHEEL;
+        mouse_data = (uint32_t)(vscroll < 0 ? -WA_WHEEL_DELTA : WA_WHEEL_DELTA);
+        break;
+    case AMOTION_EVENT_ACTION_MOVE:
+    case AMOTION_EVENT_ACTION_HOVER_MOVE:
+        break;
+    default:
+        return -1;
+    }
+
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf + 0, &evtype, 4);
+    memcpy(buf + 8, &hwnd64, 8);
+    memcpy(buf + 16, &input_type, 4);
+    memcpy(buf + 24, &dx, 4);
+    memcpy(buf + 28, &dy, 4);
+    memcpy(buf + 32, &mouse_data, 4);
+    memcpy(buf + 36, &dw_flags, 4);
+    memcpy(buf + 40, &time, 4);
+    memcpy(buf + 48, &extra, 8);
     return send_event_bytes(buf, sizeof(buf));
 }
 
@@ -1118,4 +1219,20 @@ Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeNotifyConfigCha
     pthread_mutex_lock(&g_lock);
     send_event_bytes(buf, sizeof(buf));
     pthread_mutex_unlock(&g_lock);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeSendMotionEvent(
+    JNIEnv *env, jclass clazz, jint hwnd, jint action, jint x, jint y, jint state,
+    jint vscroll)
+{
+    int rc;
+    (void)env;
+    (void)clazz;
+    pthread_mutex_lock(&g_lock);
+    rc = send_motion_event((int32_t)hwnd, (int)action, (int)x, (int)y, (int)state,
+                           (int)vscroll);
+    pthread_mutex_unlock(&g_lock);
+    if (rc != 0) return JNI_FALSE;
+    return JNI_TRUE;
 }

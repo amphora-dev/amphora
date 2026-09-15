@@ -52,4 +52,6 @@ object WineAndroidProtocol {
     const val EVENT_DESKTOP_CHANGED = 0
     const val EVENT_CONFIG_CHANGED = 1
     const val EVENT_SURFACE_CHANGED = 2
+    const val EVENT_MOTION = 3
+    const val EVENT_KEYBOARD = 4
 }

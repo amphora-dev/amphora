@@ -41,6 +41,15 @@ class WineAndroidProtocolTest {
     }
 
     @Test
+    fun eventTypeOrderMatchesUpstreamAndroidH() {
+        assertEquals(0, WineAndroidProtocol.EVENT_DESKTOP_CHANGED)
+        assertEquals(1, WineAndroidProtocol.EVENT_CONFIG_CHANGED)
+        assertEquals(2, WineAndroidProtocol.EVENT_SURFACE_CHANGED)
+        assertEquals(3, WineAndroidProtocol.EVENT_MOTION)
+        assertEquals(4, WineAndroidProtocol.EVENT_KEYBOARD)
+    }
+
+    @Test
     fun abstractNameIsUpstreamWineAndroidDevice() {
         // Leading NUL + \Device\WineAndroid (20 bytes on the wire).
         assertEquals(0, WineAndroidProtocol.ABSTRACT_NAME[0].code)
