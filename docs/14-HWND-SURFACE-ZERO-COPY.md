@@ -48,6 +48,10 @@ knife13 hot path is already HWND Surface AHB zero-copy. Present does **not** go 
 
 1. Land AHB client + win32u present/flush (+ `amphora_wsi_wanted` fs_hack guard)
    on `amphora-dev/proton-wine` `proton_11.0`.
+   **In progress (2026-09-16):** branch `wip/ahb-dxvk-from-knife-tip` from
+   `ed592594a25` — tip-final-state subset `9284e259ea8` + Amphora ANW stream
+   adapter (no stubs) `69bc79bcc6e`. Not merged to `proton_11.0` yet; needs
+   imagefs link proof before pin bump.
 2. imagefs `build-proton-wine` republishes a new WCP; bump `content_manifest` wine pin.
 3. **Then** CI Present smoke on HA262AAH (APK + new WCP; no knife `.so`).
 
