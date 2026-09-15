@@ -25,7 +25,8 @@ WCP component pin 必须带 identity（`version`/`verName`/`verCode`/`contentTyp
 ## wineandroid 宿主出画（勿旁路）
 
 - GDI 建窗：`wineandroid_host_ipc.c` `create_native_win_data` 设 `api=NATIVE_WINDOW_API_CPU(2)`，registerSurface 才会 `API_CONNECT`。勿对 OpenGL 窗强制 CPU。
-- GDI 颜色：Surface 路径保持 `PF_RGBA_8888(1)`（HA262AAH 上 BGRA=5 曾整机闪退）；勿对 BufferQueue 强推 BGRA，颜色用宿主 R/B 交换修正。
+- GDI 颜色：Surface 路径保持 `PF_RGBA_8888(1)`（HA262AAH 上 BGRA=5 曾整机闪退）；勿对 BufferQueue 强推 BGRA；颜色在 guest `wineandroid.drv` flush 里 R↔B（`AMPHORA_WINEANDROID=1`）。
 - 桌面 hwnd：必须走与普通 GDI 窗相同的 `attachWindow` + `nativeRegisterSurface`；`createWindow` 不得因 `isDesktop` 早退跳过 SurfaceView（否则 LOCK -11）。
 - 禁 CreateSwapchain / 私有 host.sock。
 - 桌面铺满：宿主 `WineAndroidDesktop` 对 HWND SurfaceView 做等比 scale-to-fill（letterbox）；Wine `/desktop=WxH` 仍可配。用 `setFixedSize(guest)` 保 ANW 尺寸，勿靠改 guest 分辨率铺屏。
+- Wine DPI：虚拟桌面用 Winlator `ScreenInfo` 公式（毫米 = 像素÷10 → 约 254）。**禁止**在 720p 虚拟桌面上直传 Android `densityDpi`（HA262=440 会导致控件巨化）。详见 `docs/16-WINEANDROID-DISPLAY.md`。

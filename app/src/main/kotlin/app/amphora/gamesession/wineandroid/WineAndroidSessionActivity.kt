@@ -88,7 +88,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
 
         // Desktop size is LaunchSpec / explorer /desktop=shell,WxH — not the
         // Activity's pixel size (that would overwrite 1280x720 with 3040x1904).
-        // Host scale-to-fill maps that guest size onto the Activity view.
+        // Host scale-to-fill letterboxes that guest size onto the Activity view.
+        // Wine DPI uses Winlator ScreenInfo (px/10 mm ≈ 254), not Android densityDpi.
 
         val exePath = intent.getStringExtra(EXTRA_EXE_PATH).orEmpty()
         val width = intent.getIntExtra(EXTRA_WIDTH, DEFAULT_WIDTH)
@@ -126,10 +127,13 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     )
                 val prepared = bootstrap.prepare(spec)
                 hostBridge?.startServer()
+                // Winlator ScreenInfo DPI (~254), not Android densityDpi.
+                val wineDpi = WineAndroidDpi.fromGuestDesktop(width, height)
+                Log.i(TAG, "wine DPI=$wineDpi (Winlator px/10mm); android densityDpi=${resources.displayMetrics.densityDpi} unused")
                 hostBridge?.updateDesktopMetrics(
                     width,
                     height,
-                    resources.displayMetrics.densityDpi,
+                    wineDpi,
                 )
                 statusView.text =
                     "wineandroid: prefix ready\n" +
