@@ -68,7 +68,7 @@
 - 成本主要是 **SurfaceFlinger 层数 / BufferQueue**，不是玄学税。
 - 原生 Android 游戏层通常更少；Wine shell（taskbar、Start、菜单）会更碎、更吵。
 - 改进由轻到重（都还没当默认真源）：
-  1. **推迟 / 晚创建** Surface（见 §5、§9）
+  1. ~~**推迟 / 晚创建** Surface~~ **已做**（`5515738`；见 §5、§9）
   2. 可选改 **TextureView**（打磨，非欠账）
   3. **只给顶层 HWND 建 Surface**，子窗画进父层（一般仍保游戏全屏 ANW
      零拷贝；伤的是很多小 child HWND 分层）
@@ -165,7 +165,7 @@
 
 - 正式 WCP pin 路径；需要时用 `inject-dev-pin` 钉本地 Box64（identity 写全）。
 - `wip/ha262-paint` 上嵌套 `WindowGroup` + visible_rect 等 borrow（`8a494cc`）。
-- 推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸（见 §5 / §9.1）。
+- ~~推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸~~ **已做**（`5515738`；见 §5 / §9.1）。
 - 出画：GDI `api=CPU`、桌面 SurfaceView、RGBA + swizzle、host scale-to-fill。
 - 硬冒烟脚本 + 仓库旁 **`amphora-progress.md` 作单一进度源**（下一会话先读它）。
 
@@ -173,7 +173,7 @@
 
 ## 9. 下一步（尚未实现则别写成已做）
 
-1. ~~**推迟第一次 Surface register**~~ **已做**：等到真实 w/h > 0（rect，非单靠
+1. ~~**推迟第一次 Surface register**~~ **已做**（`5515738`）：等到真实 w/h > 0（rect，非单靠
    MIN 2×2）；之后 resize 仍再 bind（`WineAndroidDesktop.WindowGroup.tryEmitSurface`）。
 2. TextureView：可选打磨，非第一优先级。
 3. 只给顶层建 Surface：更大改动；游戏全屏 ANW 零拷贝通常仍可接受。

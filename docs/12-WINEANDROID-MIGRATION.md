@@ -62,9 +62,10 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 - [x] Host socket：`WineAndroidHostSocket` 在 `filesDir/wineandroid/host.sock` 上 listen；帧为 `opcode+nbytes+payload`，payload 字段顺序对齐 `device.c` 的 `ioctl_android_create_window` / destroy / window_pos_changed / set_window_parent；派发到 `WineAndroidHostBridge`（主线程 UI）。
 - [x] `HOST_DESKTOP_CHANGED`（101）：Activity 尺寸 → unix `screen_width/height`（解除 CreateDesktop 2s 超时）。
 - [x] `HOST_SURFACE_CHANGED`（100）+ SCM_RIGHTS：`:session` 内 `ANativeWindow_fromSurface`，每 HWND socketpair；wine 端 `register_native_window` 转发 parent，buffer ops 走 native_handle（与 device.c 同合同）。Surface 本身是 Binder，不是 fd。
-- [ ] **仍阻塞（真机）**：新 WCP 装到 HA262AAH 后验证 winefile 可见；输入尚未走 wineandroid。
+- [x] Host IPC：upstream SEQPACKET `\\0\\Device\\WineAndroid`（`a17810b`）已落地；不再阻塞在「unix socket / JNI→ioctl 桥」。
+- [ ] **真机验收（仍开）**：HA262AAH 上显式确认 winefile 窗口可见、可点（shell 出画已通；winefile 可见仍需人工核对）。
 - [ ] 输入走 wineandroid，不注入 X
-- **验收**：真机 `HA262AAH` 上 winefile 窗口可见、可点（阻塞在 unix socket / JNI→ioctl 桥）
+- **验收**：真机 `HA262AAH` 上 winefile 窗口可见、可点；输入经 wineandroid（非 X inject）
 
 ### P2 Vulkan（游戏）
 
@@ -88,8 +89,8 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 1. ~~推送 proton-wine / imagefs~~（已推：proton-wine `8573c4b5e`，imagefs `a5f118f`）。
 2. ~~imagefs `build-proton-wine` 跑绿~~（run 34754885882；产物 `Proton-11.0-8573c4b5e-x86_64.wcp`）。
 3. ~~更新 `content_manifest` SHA~~（`d2967a1`）。
-4. **真机** `HA262AAH`：P1/P2 安装与看画面（仍等 unix socket 桥）。
-5. **sibling**：unix drv 改连 `AMPHORA_WINEANDROID_SOCK`（替代 JNI）。
+4. **真机** `HA262AAH`：P1/P2 安装与看画面（SEQPACKET/`a17810b` 已通；shell 出画可用；winefile 可见仍需显式核对）。
+5. ~~**sibling**：unix drv 改连 `AMPHORA_WINEANDROID_SOCK`（替代 JNI）~~（已由 SEQPACKET `\\0\\Device\\WineAndroid` 路径取代/落地，见 `a17810b`）。
 
 ## 4. 明确不做
 
@@ -118,10 +119,12 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 
 `LaunchSpec.displayBackend` 默认是 `WINEANDROID`。X11 `GameSessionViewModel` 仍显式传 `DisplayBackend.X11`。
 
-仍需 unix socket 才能完成的（WCP 已含 drv）：
+Host IPC / drv 桥（已落地；WCP 已含 drv）：
 
 - ~~guest `box64 wine explorer /desktop=shell` exec~~（`WineAndroidLauncher` 已启动；无 Java X）
-- ~~把 `ioctl_android_*` 帧送到 HostBridge~~（Kotlin listen/decode 已就绪；**unix 驱动尚未 connect**）
-- ~~`wine_surface_changed` 完整等价~~（socketpair + native_handle 转发；等新 WCP）
+- ~~把 `ioctl_android_*` 帧送到 HostBridge~~（Kotlin listen/decode + SEQPACKET `a17810b` 已通）
+- ~~`wine_surface_changed` 完整等价~~（socketpair + native_handle 转发；已通）
 - ~~WCP 内实际存在 `wineandroid.drv` / `wineandroid.so`~~（imagefs CI 绿；`Proton-11.0-8573c4b5e-x86_64.wcp`）
+
+仍开：输入走 wineandroid（非 X inject）；真机 winefile 可见核对。
 

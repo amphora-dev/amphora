@@ -13,7 +13,8 @@ X11 对照与踩坑见 [`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X
 **已落地（`wip/ha262-paint`）**：嵌套 WindowGroup、visible_rect、surface 尺寸再
 register、WS_VISIBLE / z-order、min 2×2；**保留 statusView**。提交示例：
 `8a494cc`。
-**尚未借 / 尚未做**：推迟第一次 register 到真实尺寸（见 docs/18 §5）。
+~~推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸~~ **已做**（`5515738`；
+见 docs/18 §5 / §9）。
 
 ---
 
