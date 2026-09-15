@@ -35,7 +35,7 @@
 ## 2. Amphora wineandroid 路径（当前）
 
 - **每个 HWND** 一块 `SurfaceView`，包在嵌套的 `WindowGroup` 里（借上游
-  WineActivity 布局，见 docs/17；落地提交 `a5a0b0e`）。
+  WineActivity 布局，见 docs/17；落地提交 `8a494cc`）。
 - 布局：`visible_rect × hostScale`；buffer 用 `setFixedSize(guest px)`（最小
   2×2）。
 - `surfaceChanged` → 再 `nativeRegisterSurface`（对齐上游
@@ -145,7 +145,7 @@
 
 ### 7.7 借上游该借什么、不借什么
 
-- **已借（`a5a0b0e`）**：嵌套组、visible_rect、尺寸变化再 register、
+- **已借（`8a494cc`）**：嵌套组、visible_rect、尺寸变化再 register、
   WS_VISIBLE / z-order、最小 2×2；**statusView 不动**。
 - **保持 Amphora 自己的**：SurfaceView、`setFixedSize(guest)`、host letterbox、
   DPI 策略；不要为了「像上游」切 TextureView 或删 status。
@@ -163,7 +163,7 @@
 ## 8. 已落地（正反馈）
 
 - 正式 WCP pin 路径；需要时用 `inject-dev-pin` 钉本地 Box64（identity 写全）。
-- `wip/ha262-paint` 上嵌套 `WindowGroup` + visible_rect 等 borrow（`a5a0b0e`）。
+- `wip/ha262-paint` 上嵌套 `WindowGroup` + visible_rect 等 borrow（`8a494cc`）。
 - 出画：GDI `api=CPU`、桌面 SurfaceView、RGBA + swizzle、host scale-to-fill。
 - 硬冒烟脚本 + 仓库旁 **`amphora-progress.md` 作单一进度源**（下一会话先读它）。
 
