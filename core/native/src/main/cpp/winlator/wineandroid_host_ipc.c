@@ -208,7 +208,9 @@ static struct native_win_data *create_native_win_data(int32_t hwnd, int opengl)
      * producer so nativeRegisterSurface's API_CONNECT actually runs. OpenGL
      * stays 0 until EGL connect (do not force CPU on GL windows). */
     data->api = opengl ? 0 : 2; /* NATIVE_WINDOW_API_CPU */
-    data->buffer_format = 1; /* RGBA_8888-ish default; Surface sets real fmt */
+    /* Upstream wineandroid GDI uses PF_BGRA_8888 (=5 / HAL BGRA_8888).
+     * OpenGL windows keep RGBA(=1) until SET_BUFFERS_FORMAT / EGL. */
+    data->buffer_format = opengl ? 1 : 5; /* PF_RGBA_8888 : PF_BGRA_8888 */
     data->swap_interval = 1;
     for (i = 0; i < NB_CACHED_BUFFERS; i++) data->buffer_lru[i] = -1;
     return data;

@@ -24,5 +24,6 @@ Android 上的 Wine 模拟器。模块与启动链见 `docs/05-ARCHITECTURE.md`�
 ## wineandroid 宿主出画（勿旁路）
 
 - GDI 建窗：`wineandroid_host_ipc.c` `create_native_win_data` 设 `api=NATIVE_WINDOW_API_CPU(2)`，registerSurface 才会 `API_CONNECT`。勿对 OpenGL 窗强制 CPU。
+- GDI `buffer_format` 默认 `PF_BGRA_8888(5)`（对齐上游）；OpenGL 默认 RGBA(1)。
 - 桌面 hwnd：必须走与普通 GDI 窗相同的 `attachWindow` + `nativeRegisterSurface`；`createWindow` 不得因 `isDesktop` 早退跳过 SurfaceView（否则 LOCK -11）。
 - 禁 CreateSwapchain / 私有 host.sock。
