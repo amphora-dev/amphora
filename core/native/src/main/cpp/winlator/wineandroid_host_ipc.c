@@ -609,6 +609,14 @@ static int ioctl_perform(void *data, size_t in_size, size_t *ret_size, int *repl
     if (!win->parent) return -EWOULDBLOCK;
     switch (res->operation) {
     case NATIVE_WINDOW_SET_BUFFERS_FORMAT:
+        /* HA262AAH / some SF stacks abort on producer BGRA(5). Keep RGBA(1)
+         * on the real ANativeWindow; remember guest request only for logging. */
+        if (res->args[0] == 5 /* PF_BGRA_8888 */) {
+            LOGW("SET_BUFFERS_FORMAT BGRA ignored (keep RGBA); hwnd=%08x", res->hdr.hwnd);
+            win->buffer_format = 1;
+            ret = 0;
+            break;
+        }
         ret = win->parent->perform(win->parent, res->operation, res->args[0]);
         if (!ret) win->buffer_format = res->args[0];
         break;
