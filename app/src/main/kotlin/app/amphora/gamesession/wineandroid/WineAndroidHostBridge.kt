@@ -46,6 +46,7 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
         if (width > 0 && height > 0) {
             desktopWidth = width
             desktopHeight = height
+            activity.runOnUiThread { desktop.setGuestDesktopSize(width, height) }
         }
         if (densityDpi > 0) desktopDpi = densityDpi
         maybeNotifyDesktop()

@@ -18,6 +18,7 @@ Android 上的 Wine 模拟器。模块与启动链见 `docs/05-ARCHITECTURE.md`�
 ## 开发态换包
 
 设备上临时钉本地 WCP / runtime 资产：用 catalog overlay `filesDir/content/dev_pins.json`（见 `docs/15-DEV-PIN-OVERLAY.md`），脚本 `scripts/inject-dev-pin.sh`。
+WCP component pin 必须带 identity（`version`/`verName`/`verCode`/`contentType`/`kind`，来自 `profile.json`）；`inject-dev-pin.sh --component` 会自动写入。
 
 **不要**再用 `<file>.local-override` 旁路（已移除）。正式发版仍走 imagefs publish + bump-manifest。
 
@@ -27,3 +28,4 @@ Android 上的 Wine 模拟器。模块与启动链见 `docs/05-ARCHITECTURE.md`�
 - GDI 颜色：Surface 路径保持 `PF_RGBA_8888(1)`（HA262AAH 上 BGRA=5 曾整机闪退）；勿对 BufferQueue 强推 BGRA，颜色用宿主 R/B 交换修正。
 - 桌面 hwnd：必须走与普通 GDI 窗相同的 `attachWindow` + `nativeRegisterSurface`；`createWindow` 不得因 `isDesktop` 早退跳过 SurfaceView（否则 LOCK -11）。
 - 禁 CreateSwapchain / 私有 host.sock。
+- 桌面铺满：宿主 `WineAndroidDesktop` 对 HWND SurfaceView 做等比 scale-to-fill（letterbox）；Wine `/desktop=WxH` 仍可配。用 `setFixedSize(guest)` 保 ANW 尺寸，勿靠改 guest 分辨率铺屏。

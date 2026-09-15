@@ -3,21 +3,47 @@ package app.amphora.gamesession.wineandroid
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.FrameLayout
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Kotlin desktop: one [FrameLayout], per-(HWND, client) [SurfaceView] children.
  *
  * GDI uses isClient=false (parent ANW). Vulkan smoke uses isClient=true so
  * vkCreateAndroidSurfaceKHR has its own Surface/fd, not the GDI parent.
+ *
+ * Host scale-to-fill: guest HWND rects stay in Wine desktop pixels (e.g. 1280x720);
+ * views are laid out scaled to fill this FrameLayout while preserving aspect
+ * (letterbox OK). [SurfaceHolder.setFixedSize] keeps the buffer at guest size so
+ * ANativeWindow dimensions match Wine, and Android scales the buffer to the view.
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
 
     private val windows = LinkedHashMap<Key, WindowSurface>()
+
+    /** Guest / Wine desktop size (explorer /desktop=shell,WxH). */
+    private var guestDesktopWidth: Int = 0
+    private var guestDesktopHeight: Int = 0
+
+    /** Uniform scale + letterbox offsets mapping guest px → this view's px. */
+    private var hostScale: Float = 1f
+    private var offsetX: Int = 0
+    private var offsetY: Int = 0
+
+    fun setGuestDesktopSize(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        if (width == guestDesktopWidth && height == guestDesktopHeight) return
+        guestDesktopWidth = width
+        guestDesktopHeight = height
+        recalculateScale("setGuestDesktopSize")
+        relayoutAll()
+    }
 
     fun attachWindow(window: WineAndroidWindow, onSurface: (hwnd: Int, surface: Surface?) -> Unit) {
         val key = Key(window.hwnd, window.isClient)
@@ -25,6 +51,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         val view = WindowSurface(context, window, onSurface)
         windows[key] = view
         addView(view.view, childParams(window))
+        view.applyFixedBufferSize()
     }
 
     fun detachWindow(hwnd: Int) {
@@ -37,6 +64,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         val held = windows[Key(window.hwnd, window.isClient)] ?: return
         held.window = window
         held.view.layoutParams = childParams(window)
+        held.applyFixedBufferSize()
         held.view.requestLayout()
     }
 
@@ -45,22 +73,68 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             held.window.windowRect = Rect(windowRect)
             held.window.clientRect = Rect(clientRect)
             held.view.layoutParams = childParams(held.window)
+            held.applyFixedBufferSize()
             held.view.requestLayout()
         }
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w == oldw && h == oldh) return
+        recalculateScale("onSizeChanged ${w}x${h}")
+        relayoutAll()
+    }
+
+    private fun recalculateScale(reason: String) {
+        val gw = guestDesktopWidth
+        val gh = guestDesktopHeight
+        if (gw <= 0 || gh <= 0 || width <= 0 || height <= 0) {
+            hostScale = 1f
+            offsetX = 0
+            offsetY = 0
+            return
+        }
+        val scale = min(width.toFloat() / gw, height.toFloat() / gh)
+        hostScale = scale
+        val scaledW = (gw * scale).toInt()
+        val scaledH = (gh * scale).toInt()
+        offsetX = (width - scaledW) / 2
+        offsetY = (height - scaledH) / 2
+        Log.i(
+            TAG,
+            "hostScale-to-fill $reason guest=${gw}x${gh} host=${width}x${height} " +
+                "scale=$scale offset=${offsetX},${offsetY} content=${scaledW}x${scaledH}",
+        )
+    }
+
+    private fun relayoutAll() {
+        windows.values.forEach { held ->
+            held.view.layoutParams = childParams(held.window)
+            held.applyFixedBufferSize()
+            held.view.requestLayout()
+        }
+    }
+
+    private fun guestRect(window: WineAndroidWindow): Rect {
+        return if (window.isClient && window.clientRect.width() > 0 && window.clientRect.height() > 0) {
+            window.clientRect
+        } else {
+            window.windowRect
+        }
+    }
+
     private fun childParams(window: WineAndroidWindow): LayoutParams {
-        val r =
-            if (window.isClient && window.clientRect.width() > 0 && window.clientRect.height() > 0) {
-                window.clientRect
-            } else {
-                window.windowRect
-            }
-        val width = if (r.width() > 0) r.width() else LayoutParams.MATCH_PARENT
-        val height = if (r.height() > 0) r.height() else LayoutParams.MATCH_PARENT
+        val r = guestRect(window)
+        val gw = if (r.width() > 0) r.width() else if (guestDesktopWidth > 0) guestDesktopWidth else LayoutParams.MATCH_PARENT
+        val gh = if (r.height() > 0) r.height() else if (guestDesktopHeight > 0) guestDesktopHeight else LayoutParams.MATCH_PARENT
+        val scale = hostScale
+        val width = if (gw == LayoutParams.MATCH_PARENT) LayoutParams.MATCH_PARENT else max(1, (gw * scale).toInt())
+        val height = if (gh == LayoutParams.MATCH_PARENT) LayoutParams.MATCH_PARENT else max(1, (gh * scale).toInt())
+        val left = if (r.width() > 0 || r.height() > 0) offsetX + (r.left * scale).toInt() else 0
+        val top = if (r.width() > 0 || r.height() > 0) offsetY + (r.top * scale).toInt() else 0
         return LayoutParams(width, height).apply {
-            leftMargin = r.left
-            topMargin = r.top
+            leftMargin = left
+            topMargin = top
         }
     }
 
@@ -91,5 +165,24 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                 },
             )
         }
+
+        fun applyFixedBufferSize() {
+            val r =
+                if (window.isClient && window.clientRect.width() > 0 && window.clientRect.height() > 0) {
+                    window.clientRect
+                } else {
+                    window.windowRect
+                }
+            val bw = r.width()
+            val bh = r.height()
+            if (bw > 0 && bh > 0) {
+                // Keep ANativeWindow / Wine buffer at guest px; view layout is host-scaled.
+                view.holder.setFixedSize(bw, bh)
+            }
+        }
+    }
+
+    private companion object {
+        const val TAG = "WineAndroidDesktop"
     }
 }

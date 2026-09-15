@@ -88,10 +88,12 @@ class WineAndroidSessionActivity : ComponentActivity() {
 
         // Desktop size is LaunchSpec / explorer /desktop=shell,WxH — not the
         // Activity's pixel size (that would overwrite 1280x720 with 3040x1904).
+        // Host scale-to-fill maps that guest size onto the Activity view.
 
         val exePath = intent.getStringExtra(EXTRA_EXE_PATH).orEmpty()
         val width = intent.getIntExtra(EXTRA_WIDTH, DEFAULT_WIDTH)
         val height = intent.getIntExtra(EXTRA_HEIGHT, DEFAULT_HEIGHT)
+        desktop.setGuestDesktopSize(width, height)
         val target =
             intent
                 .getStringExtra(EXTRA_TARGET)
