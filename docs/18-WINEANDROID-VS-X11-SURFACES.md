@@ -82,8 +82,9 @@
   / 我们也用 **最小 2×2**。
 - 若先以 2×2（或 1×1）`registerSurface`，后来只 `setFixedSize` 到真尺寸却
   **不** 再 register → guest 卡在小 buffer（taskbar 扭曲就是这类）。
-- **更好（尚未落地）**：推迟 **第一次** register，等到真实 w/h > 0（或 ≥2）；
-  **之后** 的 resize 仍要再 bind（与上游 `onSurfaceTextureSizeChanged` 同类）。
+- **更好（已落地）**：推迟 **第一次** register，等到真实 w/h > 0（visible /
+  window / client rect，不是单靠 MIN 2×2）；**之后** 的 resize 仍要再 bind（与
+  上游 `onSurfaceTextureSizeChanged` 同类）。
 - X11 路径没有「每窗 Surface 先注册再改尺寸」这一环，所以少踩这类坑。
 
 ---
@@ -164,6 +165,7 @@
 
 - 正式 WCP pin 路径；需要时用 `inject-dev-pin` 钉本地 Box64（identity 写全）。
 - `wip/ha262-paint` 上嵌套 `WindowGroup` + visible_rect 等 borrow（`8a494cc`）。
+- 推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸（见 §5 / §9.1）。
 - 出画：GDI `api=CPU`、桌面 SurfaceView、RGBA + swizzle、host scale-to-fill。
 - 硬冒烟脚本 + 仓库旁 **`amphora-progress.md` 作单一进度源**（下一会话先读它）。
 
@@ -171,8 +173,8 @@
 
 ## 9. 下一步（尚未实现则别写成已做）
 
-1. **推迟第一次 Surface register**，等到真实 w/h > 0（或 ≥2）；之后 resize 仍再
-   bind。（优先、改动面小）
+1. ~~**推迟第一次 Surface register**~~ **已做**：等到真实 w/h > 0（rect，非单靠
+   MIN 2×2）；之后 resize 仍再 bind（`WineAndroidDesktop.WindowGroup.tryEmitSurface`）。
 2. TextureView：可选打磨，非第一优先级。
 3. 只给顶层建 Surface：更大改动；游戏全屏 ANW 零拷贝通常仍可接受。
 4. 单合成器 X11 风格：另开大项。

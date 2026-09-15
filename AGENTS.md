@@ -37,4 +37,4 @@ WCP component pin 必须带 identity（`version`/`verName`/`verCode`/`contentTyp
 - **WS_VISIBLE / z-order**：跟 style 显隐；`!(flags & SWP_NOZORDER)` 时按 insertAfter 重排。
 - 桌面铺满：contentHost 等比 scale-to-fill（letterbox）；Wine `/desktop=WxH` 仍可配。用 `setFixedSize(guest)` 保 ANW 尺寸，勿靠改 guest 分辨率铺屏。
 - Wine DPI：虚拟桌面 + 宿主铺满时用经典 **96**；跨机 hostScale 实时算（多设备 TODO）。勿把 Android `densityDpi`（如 440）配 720p。上游窗口布局见 `docs/17-WINEANDROID-UPSTREAM-BORROW.md`；X11 对照与踩坑见 `docs/18-WINEANDROID-VS-X11-SURFACES.md`。
-- **下一步**：推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸；勿删 statusView；TextureView / 只给顶层 HWND 建 Surface 都是以后可选，不是现在必须先做（见 docs/18）。
+- **已做**：推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸（非单靠 MIN 2×2）；resize 仍再 bind。勿删 statusView；TextureView / 只给顶层 HWND 建 Surface 都是以后可选（见 docs/18）。

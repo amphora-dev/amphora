@@ -45,9 +45,9 @@ Amphora 路径：
 logcat 验收：`registerSurface` / native `registerSurface hwnd=… WxH` 在
 `windowPosChanged` 之后应出现 **~1280×46**（taskbar），不是一直 1×1。
 
-**下一步（尚未实现）**：推迟 **第一次** `nativeRegisterSurface`，等到真实
-guest w/h > 0（或 ≥2）；之后的 resize 仍按上面再 bind。详见 docs/18 §5 / §9。
-当前仍用 min 2×2 占位，避免 ANW 0/1。
+**已做**：推迟 **第一次** `nativeRegisterSurface`，等到真实 guest w/h > 0
+（visible/window/client rect，不是单靠 MIN 2×2 占位）；之后的 resize 仍按上面再
+bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1。
 
 ## Session status TextView
 

@@ -22,6 +22,9 @@ import kotlin.math.min
  * - [SurfaceHolder.setFixedSize] keeps the buffer at guest px (min 2×2); on
  *   [surfaceChanged] we re-invoke onSurface so native re-registers and sends
  *   SURFACE_CHANGED with the new w/h (upstream TextureView size-changed path).
+ * - **Defer first** nativeRegisterSurface until guest rects have a real
+ *   positive w×h from WINDOW_POS / create (not the artificial MIN 2×2 alone).
+ *   After the first successful register, keep re-binding on size changes.
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
@@ -65,7 +68,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         if (window.visibleRect.width() <= 0 && window.windowRect.width() > 0) {
             window.visibleRect = Rect(window.windowRect)
         }
-        // Non-desktop windows may start at 0×0 until WINDOW_POS; setFixedSize uses min 2×2.
+        // Non-desktop windows may start at 0×0 until WINDOW_POS; setFixedSize uses min 2×2
+        // but first nativeRegisterSurface is deferred until rects have real w×h.
 
         val group = WindowGroup(context, window, onSurface)
         groups[key] = group
@@ -309,6 +313,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         private var lastBufferW: Int = -1
         private var lastBufferH: Int = -1
         private var surfaceValid: Boolean = false
+        /** True after the first non-deferred nativeRegisterSurface for this surface. */
+        private var firstRegisterDone: Boolean = false
 
         val surfaceView =
             SurfaceView(context).apply {
@@ -322,7 +328,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                             val surface = holder.surface
                             window.surface = surface
                             surfaceValid = true
-                            onSurface(window.hwnd, surface)
+                            // Defer first register if guest size is still placeholder.
+                            tryEmitSurface(surface, "surfaceCreated")
                         }
 
                         override fun surfaceChanged(
@@ -341,13 +348,14 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                             Log.i(
                                 TAG,
                                 "surfaceChanged hwnd=${window.hwnd} buffer=${width}x$height " +
-                                    "client=${window.isClient} → re-register",
+                                    "client=${window.isClient} firstDone=$firstRegisterDone",
                             )
-                            onSurface(window.hwnd, surface)
+                            tryEmitSurface(surface, "surfaceChanged")
                         }
 
                         override fun surfaceDestroyed(holder: SurfaceHolder) {
                             surfaceValid = false
+                            firstRegisterDone = false
                             window.surface = null
                             onSurface(window.hwnd, null)
                         }
@@ -364,8 +372,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
         fun applyFixedBufferSize(forceReregister: Boolean) {
             val r = bufferRect(window)
-            val bw = max(MIN_GUEST_PX, if (r.width() > 0) r.width() else MIN_GUEST_PX)
-            val bh = max(MIN_GUEST_PX, if (r.height() > 0) r.height() else MIN_GUEST_PX)
+            val realW = r.width()
+            val realH = r.height()
+            val bw = max(MIN_GUEST_PX, if (realW > 0) realW else MIN_GUEST_PX)
+            val bh = max(MIN_GUEST_PX, if (realH > 0) realH else MIN_GUEST_PX)
             val changed = bw != lastBufferW || bh != lastBufferH
             if (changed || lastBufferW < 0) {
                 // Keep ANativeWindow / Wine buffer at guest px; view layout is host-scaled.
@@ -373,21 +383,65 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                 Log.i(
                     TAG,
                     "setFixedSize hwnd=${window.hwnd} ${bw}x$bh " +
-                        "(was ${lastBufferW}x$lastBufferH) visible=${window.visibleRect} " +
-                        "window=${window.windowRect}",
+                        "(was ${lastBufferW}x$lastBufferH) real=${realW}x$realH " +
+                        "visible=${window.visibleRect} window=${window.windowRect}",
                 )
                 lastBufferW = bw
                 lastBufferH = bh
             }
-            if (changed && forceReregister && surfaceValid) {
-                val surface = window.surface
-                if (surface != null && surface.isValid) {
-                    // setFixedSize may not always deliver surfaceChanged immediately;
-                    // ensure native gets SURFACE_CHANGED with the new size.
-                    surfaceView.requestLayout()
-                    onSurface(window.hwnd, surface)
-                }
+            if (!surfaceValid) return
+            val surface = window.surface
+            if (surface == null || !surface.isValid) return
+            // First register once real guest dims are known (even if forceReregister
+            // is false — e.g. attach after sibling copy / desktop create size).
+            // After that, keep the existing re-bind on setFixedSize changes.
+            if (!firstRegisterDone) {
+                tryEmitSurface(surface, "applyFixedBufferSize")
+            } else if (changed && forceReregister) {
+                // setFixedSize may not always deliver surfaceChanged immediately;
+                // ensure native gets SURFACE_CHANGED with the new size.
+                surfaceView.requestLayout()
+                tryEmitSurface(surface, "applyFixedBufferSize-reregister")
             }
+        }
+
+        /**
+         * Guest buffer size from WINDOW_POS / create rects — **before** MIN 2×2 clamp.
+         * Placeholder 0/0 (or one zero edge) must not count as real.
+         */
+        private fun hasRealGuestSize(): Boolean {
+            val r = bufferRect(window)
+            return r.width() > 0 && r.height() > 0
+        }
+
+        /**
+         * Gate [onSurface] → nativeRegisterSurface:
+         * - first call waits for [hasRealGuestSize]; artificial MIN 2×2 alone is not enough.
+         * - after first success, always re-bind (surfaceChanged / setFixedSize).
+         */
+        private fun tryEmitSurface(surface: Surface, reason: String) {
+            if (!surface.isValid) return
+            if (!firstRegisterDone) {
+                if (!hasRealGuestSize()) {
+                    val r = bufferRect(window)
+                    Log.i(
+                        TAG,
+                        "defer first register hwnd=${window.hwnd} reason=$reason " +
+                            "rect=${r.width()}x${r.height()} (placeholder / awaiting WINDOW_POS)",
+                    )
+                    return
+                }
+                firstRegisterDone = true
+                val r = bufferRect(window)
+                Log.i(
+                    TAG,
+                    "first register hwnd=${window.hwnd} reason=$reason " +
+                        "guest=${r.width()}x${r.height()}",
+                )
+                onSurface(window.hwnd, surface)
+                return
+            }
+            onSurface(window.hwnd, surface)
         }
 
         private fun bufferRect(window: WineAndroidWindow): Rect {
