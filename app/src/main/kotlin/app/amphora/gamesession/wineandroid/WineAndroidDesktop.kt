@@ -21,6 +21,9 @@ import kotlin.math.min
  * views are laid out scaled to fill this FrameLayout while preserving aspect
  * (letterbox OK). [SurfaceHolder.setFixedSize] keeps the buffer at guest size so
  * ANativeWindow dimensions match Wine, and Android scales the buffer to the view.
+ *
+ * Never size an empty (not-yet-positioned) HWND to the full desktop — that
+ * registered a full-screen ANW and stretched thin Wine paints (taskbar glitch).
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
@@ -125,13 +128,16 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
     private fun childParams(window: WineAndroidWindow): LayoutParams {
         val r = guestRect(window)
-        val gw = if (r.width() > 0) r.width() else if (guestDesktopWidth > 0) guestDesktopWidth else LayoutParams.MATCH_PARENT
-        val gh = if (r.height() > 0) r.height() else if (guestDesktopHeight > 0) guestDesktopHeight else LayoutParams.MATCH_PARENT
+        // Empty rect must NOT fall back to full desktop size — that made child
+        // HWNDs register a 3040x1710 ANW, then Wine painted a thin strip and
+        // Android stretched it (taskbar/title distortion on HA262).
+        val gw = if (r.width() > 0) r.width() else 1
+        val gh = if (r.height() > 0) r.height() else 1
         val scale = hostScale
-        val width = if (gw == LayoutParams.MATCH_PARENT) LayoutParams.MATCH_PARENT else max(1, (gw * scale).toInt())
-        val height = if (gh == LayoutParams.MATCH_PARENT) LayoutParams.MATCH_PARENT else max(1, (gh * scale).toInt())
-        val left = if (r.width() > 0 || r.height() > 0) offsetX + (r.left * scale).toInt() else 0
-        val top = if (r.width() > 0 || r.height() > 0) offsetY + (r.top * scale).toInt() else 0
+        val width = max(1, (gw * scale).toInt())
+        val height = max(1, (gh * scale).toInt())
+        val left = offsetX + (r.left * scale).toInt()
+        val top = offsetY + (r.top * scale).toInt()
         return LayoutParams(width, height).apply {
             leftMargin = left
             topMargin = top
@@ -173,12 +179,12 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                 } else {
                     window.windowRect
                 }
-            val bw = r.width()
-            val bh = r.height()
-            if (bw > 0 && bh > 0) {
-                // Keep ANativeWindow / Wine buffer at guest px; view layout is host-scaled.
-                view.holder.setFixedSize(bw, bh)
-            }
+            // Always pin buffer to guest px (1x1 until first real WINDOW_POS).
+            // Leaving unset lets SurfaceView use the view's host-scaled size as ANW,
+            // which with the old desktop fallback became a full-screen buffer.
+            val bw = max(1, r.width())
+            val bh = max(1, r.height())
+            view.holder.setFixedSize(bw, bh)
         }
     }
 

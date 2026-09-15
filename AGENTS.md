@@ -29,4 +29,5 @@ WCP component pin 必须带 identity（`version`/`verName`/`verCode`/`contentTyp
 - 桌面 hwnd：必须走与普通 GDI 窗相同的 `attachWindow` + `nativeRegisterSurface`；`createWindow` 不得因 `isDesktop` 早退跳过 SurfaceView（否则 LOCK -11）。
 - 禁 CreateSwapchain / 私有 host.sock。
 - 桌面铺满：宿主 `WineAndroidDesktop` 对 HWND SurfaceView 做等比 scale-to-fill（letterbox）；Wine `/desktop=WxH` 仍可配。用 `setFixedSize(guest)` 保 ANW 尺寸，勿靠改 guest 分辨率铺屏。
+- Surface 尺寸：空 HWND 矩形不得回退成整桌面；`setFixedSize` 始终钉 guest 像素（未定位前用 1×1），否则小窗 ANW=整屏会拉花底栏。
 - Wine DPI：虚拟桌面用 Winlator `ScreenInfo` 公式（毫米 = 像素÷10 → 约 254）。**禁止**在 720p 虚拟桌面上直传 Android `densityDpi`（HA262=440 会导致控件巨化）。详见 `docs/16-WINEANDROID-DISPLAY.md`。

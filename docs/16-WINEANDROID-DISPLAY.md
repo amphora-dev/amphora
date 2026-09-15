@@ -66,3 +66,10 @@ Windows / Proton / CrossOver **并不**统一用 254：Linux Wine 默认常 96�
 ## 后置
 
 DXVK / Vulkan / AHB present 另轨；勿用 GDI LOCK 扛游戏性能。
+
+## Surface 尺寸陷阱
+
+`createWindow` 时许多 HWND 还没有 `WINDOW_POS`（矩形 0×0）。若宿主把空矩形回退成「整桌面」再 `registerSurface`，ANW 会变成宿主铺满尺寸（HA262 上约 3040×1710），而 Wine 仍按真实小窗画像素 → Android 把一条内容拉成整块（底栏/标题扭曲）。
+
+正确做法：空矩形先 `1×1` + `setFixedSize(1,1)`；收到真实坐标后再改 layout 与 fixed size。
+
