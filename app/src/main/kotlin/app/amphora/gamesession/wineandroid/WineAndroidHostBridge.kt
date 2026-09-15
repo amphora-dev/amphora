@@ -11,6 +11,9 @@ import androidx.activity.ComponentActivity
  * Implements [WineAndroidIpcCallbacks] for the native SEQPACKET server. Surface
  * ready → [WineAndroidNative.nativeRegisterSurface] (local ANativeWindow + event
  * pipe SURFACE_CHANGED). No private HOST_* frames.
+ *
+ * Layout follows upstream: nested WindowGroups, parent-relative visible_rect,
+ * re-register on buffer size change.
  */
 class WineAndroidHostBridge(private val activity: ComponentActivity, private val desktop: WineAndroidDesktop) :
     WineAndroidIpcCallbacks {
@@ -48,7 +51,14 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
             desktopHeight = height
             activity.runOnUiThread { desktop.setGuestDesktopSize(width, height) }
         }
-        if (densityDpi > 0) desktopDpi = densityDpi
+        // Prefer caller wineDpi (SessionActivity passes classic 96). Never invent Android densityDpi.
+        desktopDpi =
+            when {
+                densityDpi > 0 -> densityDpi
+                width > 0 -> WineAndroidDpi.forVirtualDesktopWithHostScale()
+                else -> desktopDpi
+            }
+        Log.i(TAG, "updateDesktopMetrics ${desktopWidth}x${desktopHeight} wineDpi=$desktopDpi")
         maybeNotifyDesktop()
     }
 
@@ -84,6 +94,7 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
             val useOpengl = if (isDesktop) false else opengl
             if (isDesktop) {
                 Log.i(TAG, "desktop hwnd=$hwnd attaching GDI SurfaceView")
+                desktop.setDesktopHwnd(hwnd)
             }
             val sibling = windows[hwnd to !useOpengl]
             val window =
@@ -96,9 +107,13 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
             if (sibling != null) {
                 window.windowRect = Rect(sibling.windowRect)
                 window.clientRect = Rect(sibling.clientRect)
+                window.visibleRect = Rect(sibling.visibleRect)
+                window.style = sibling.style
+                window.visible = sibling.visible
             } else if (isDesktop && desktopWidth > 0 && desktopHeight > 0) {
                 window.windowRect = Rect(0, 0, desktopWidth, desktopHeight)
                 window.clientRect = Rect(0, 0, desktopWidth, desktopHeight)
+                window.visibleRect = Rect(0, 0, desktopWidth, desktopHeight)
             }
             windows[hwnd to useOpengl] = window
             desktop.attachWindow(window) { attachedHwnd, surface ->
@@ -123,10 +138,10 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
         activity.runOnUiThread {
             listOf(false, true).forEach { isClient ->
                 val existing = windows[hwnd to isClient] ?: return@forEach
-                val updated = existing.copy(parentHwnd = parent)
-                windows[hwnd to isClient] = updated
-                desktop.updateWindow(updated)
+                existing.parentHwnd = parent
+                windows[hwnd to isClient] = existing
             }
+            desktop.reparent(hwnd, parent)
         }
     }
 
@@ -151,13 +166,22 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
     ) {
         val windowRect = Rect(windowLeft, windowTop, windowRight, windowBottom)
         val clientRect = Rect(clientLeft, clientTop, clientRight, clientBottom)
+        val visibleRect = Rect(visibleLeft, visibleTop, visibleRight, visibleBottom)
         Log.i(
             TAG,
             "windowPosChanged hwnd=$hwnd flags=$flags after=$insertAfter owner=$owner " +
-                "style=$style window=$windowRect client=$clientRect",
+                "style=$style window=$windowRect client=$clientRect visible=$visibleRect",
         )
         activity.runOnUiThread {
-            desktop.updateHwndRects(hwnd, windowRect, clientRect)
+            listOf(false, true).forEach { isClient ->
+                val existing = windows[hwnd to isClient] ?: return@forEach
+                existing.windowRect = Rect(windowRect)
+                existing.clientRect = Rect(clientRect)
+                existing.visibleRect = Rect(visibleRect)
+                existing.style = style
+                existing.visible = (style and WS_VISIBLE) != 0
+            }
+            desktop.updateHwndRects(hwnd, windowRect, clientRect, visibleRect, style, flags, insertAfter)
         }
     }
 
@@ -192,5 +216,6 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
 
     private companion object {
         const val TAG = "WineAndroidHostBridge"
+        const val WS_VISIBLE = 0x10000000
     }
 }
