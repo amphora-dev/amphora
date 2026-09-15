@@ -3,30 +3,26 @@ package app.amphora.gamesession.wineandroid
 import android.view.Surface
 
 /**
- * JNI bridge for wineandroid host Surfaces.
+ * JNI for the upstream wineandroid host IPC server.
  *
- * [android.view.Surface] → `ANativeWindow` stays in the `:session` process.
- * Each HWND gets a socketpair; the peer fd is sent to unix wineandroid.drv via
- * SCM_RIGHTS on [WineAndroidProtocol.HOST_SURFACE_CHANGED]. Wine installs a
- * forwarding parent for `register_native_window`; buffer ops use the same
- * native_handle fd layout as `dlls/wineandroid.drv/device.c`.
+ * Binds abstract `\0\Device\WineAndroid` (SEQPACKET) and serves device.c ioctls.
+ * Surfaces stay in `:session`; [nativeRegisterSurface] attaches ANativeWindow
+ * for buffer ioctls and writes SURFACE_CHANGED on the desktop event pipe.
  */
 object WineAndroidNative {
     init {
         System.loadLibrary("winlator")
     }
 
-    external fun nativeAcquireWindow(surface: Surface): Long
+    external fun nativeStartServer(callbacks: WineAndroidIpcCallbacks): Boolean
 
-    external fun nativeReleaseWindow(handle: Long)
+    external fun nativeStopServer()
 
-    external fun nativeStartBufferServe(windowHandle: Long, hwnd: Int, sockFd: Int): Long
+    external fun nativeRegisterSurface(hwnd: Int, surface: Surface, opengl: Boolean): Boolean
 
-    external fun nativeStopBufferServe(servePtr: Long, sockFd: Int)
+    external fun nativeUnregisterSurface(hwnd: Int, opengl: Boolean)
 
-    external fun nativeBumpGeneration(servePtr: Long)
+    external fun nativeNotifyDesktopChanged(width: Int, height: Int)
 
-    external fun nativeWindowWidth(windowHandle: Long): Int
-
-    external fun nativeWindowHeight(windowHandle: Long): Int
+    external fun nativeNotifyConfigChanged(dpi: Int)
 }

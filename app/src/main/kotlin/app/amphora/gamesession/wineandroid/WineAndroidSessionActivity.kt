@@ -30,10 +30,9 @@ import kotlinx.coroutines.launch
  * Real Activity + [WineAndroidDesktop] (SurfaceView children). Not Compose,
  * not Winlator XServerSurfaceView, not org.winehq.wine.WineActivity.
  *
- * WCP already ships `wineandroid.drv`. Wine still starts via box64 exec, so the
- * pin's in-process JNI (ntdll java_vm / RegisterNatives) does not apply.
- * [WineAndroidHostBridge] owns the HWND/Surface contract over
- * `AMPHORA_WINEANDROID_SOCK` (incl. desktop metrics + surface buffer-op fds).
+ * Host speaks upstream wineandroid wire protocol on abstract SEQPACKET
+ * `\0\Device\WineAndroid` ([WineAndroidHostBridge] / native IPC). Pair with
+ * proton branch `amphora/wineandroid-backport`.
  */
 @AndroidEntryPoint
 @SuppressLint("SetTextI18n")
@@ -85,7 +84,6 @@ class WineAndroidSessionActivity : ComponentActivity() {
             WineAndroidHostBridge(
                 activity = this,
                 desktop = desktop,
-                onSurfaceChanged = ::onNativeSurface,
             )
 
         // Desktop size is LaunchSpec / explorer /desktop=shell,WxH — not the
@@ -125,19 +123,22 @@ class WineAndroidSessionActivity : ComponentActivity() {
                         env = diagEnv,
                     )
                 val prepared = bootstrap.prepare(spec)
-                hostBridge?.startHostSocket(prepared.bridgeSocketPath)
-                hostBridge?.updateDesktopMetrics(width, height, resources.displayMetrics.density)
+                hostBridge?.startServer()
+                hostBridge?.updateDesktopMetrics(
+                    width,
+                    height,
+                    resources.displayMetrics.densityDpi,
+                )
                 statusView.text =
                     "wineandroid: prefix ready\n" +
                     "starting box64 wine explorer /desktop=shell…\n" +
-                    "socket=${prepared.bridgeSocketPath.absolutePath}"
+                    "IPC abstract \\0\\Device\\WineAndroid"
                 val guest = launcher.start(prepared)
                 runningGuest = guest
                 statusView.text =
                     "wineandroid: guest pid=${guest.pid}\n" +
                     "${guest.guestExecutable}\n" +
-                    "sock=${guest.bridgeSocketPath.absolutePath}\n" +
-                    "host socket listening; unix ioctl client needs WCP wineandroid.drv"
+                    "IPC \\0\\Device\\WineAndroid (upstream)"
                 Log.i(TAG, "wineandroid guest pid=${guest.pid}")
             } catch (t: Throwable) {
                 Log.e(TAG, "wineandroid prepare failed", t)
@@ -172,11 +173,6 @@ class WineAndroidSessionActivity : ComponentActivity() {
             },
             "WineAndroidSessionExit",
         ).start()
-    }
-
-    private fun onNativeSurface(hwnd: Int, surface: android.view.Surface, opengl: Boolean) {
-        // HostBridge emits HOST_SURFACE_CHANGED + SCM_RIGHTS buffer-op fd.
-        Log.i(TAG, "HWND $hwnd surface=$surface opengl=$opengl (HOST_SURFACE_CHANGED + anw fd)")
     }
 
     companion object {

@@ -30,26 +30,21 @@ import kotlinx.coroutines.withContext
  * Starts `box64 wine explorer /desktop=shell,WxH …` for [DisplayBackend.WINEANDROID]
  * **without** constructing Java XServer / XServerComponent.
  *
- * Reuses [GuestProgramLauncherComponent] + a bare [XEnvironment] (only the launcher
- * component is added). Env differs from the X11 path:
+ * Env differs from the X11 path:
  *
  * Dropped vs X11 (via GPLC when `AMPHORA_WINEANDROID=1`):
- * - `DISPLAY=unix:…/X0` (Java fake X)
- * - `ANDROID_SYSVSHM_SERVER` (no SysVSharedMemoryComponent)
- * - `GST_PLUGIN_FEATURE_RANK=ximagesink:…` (X sink ranking)
- * - `VK_ICD_FILENAMES=…/wrapper_icd` and `ADRENOTOOLS_*` (guest uses platform
- *   `/system/lib64/libvulkan.so` instead: pastel on redroid, Adreno on device).
+ * - `DISPLAY=unix:…/X0`
+ * - `ANDROID_SYSVSHM_SERVER`
+ * - `GST_PLUGIN_FEATURE_RANK=ximagesink:…`
+ * - `VK_ICD_FILENAMES=…/wrapper_icd` and `ADRENOTOOLS_*` on device path
  *
  * Added:
- * - `AMPHORA_WINEANDROID=1`
- * - `AMPHORA_WINEANDROID_SOCK=<filesDir>/wineandroid/host.sock`
- * - On redroid/emulator only: `LD_LIBRARY_PATH` prefix `filesDir/wineandroid/vkloader`
- *   → `/system/lib64/libvulkan.so` (+ `.so.1`)
- * - `LD_PRELOAD` prefix `nativeLibraryDir/libamphora_wsi.so` (APK-packaged aarch64 PE WSI helper ctor)
+ * - `AMPHORA_WINEANDROID=1` (GPLC gates + WSI preload; **not** a socket path)
+ * - On redroid/emulator only: `LD_LIBRARY_PATH` prefix for system Vulkan
+ * - `LD_PRELOAD` prefix `libamphora_wsi.so`
  *
- * WCP already ships `wineandroid.drv`. Unix ioctl client connect to
- * `AMPHORA_WINEANDROID_SOCK` is still TODO before HWND/Surface appear on
- * [WineAndroidDesktop] (drv still JNI until a sibling change lands).
+ * Wine connects to host via fixed abstract `\0\Device\WineAndroid` (upstream).
+ * Former `AMPHORA_WINEANDROID_SOCK` / filesystem host.sock is removed.
  */
 @Singleton
 class WineAndroidLauncher
@@ -61,7 +56,6 @@ constructor(
     data class RunningGuest(
         val pid: Int,
         val guestExecutable: String,
-        val bridgeSocketPath: File,
         private val launcher: GuestProgramLauncherComponent,
         private val environment: XEnvironment,
     ) {
@@ -102,15 +96,10 @@ constructor(
         launcher.setBox64Preset(AdvancedRuntimePreferences.box64Preset(context))
         prepared.spec.workingDirectory?.let { launcher.setWorkingDir(File(it)) }
 
-        // Bare environment: only GPLC. No XServerComponent / SysV / ALSA here.
         val environment = XEnvironment(context, imageFs)
         environment.addComponent(launcher)
 
-        Log.i(
-            TAG,
-            "starting wineandroid guestExecutable=$guestExecutable " +
-                "sock=${prepared.bridgeSocketPath.absolutePath}",
-        )
+        Log.i(TAG, "starting wineandroid guestExecutable=$guestExecutable ipc=abstract\\\\0\\\\Device\\\\WineAndroid")
         environment.startEnvironmentComponents()
         val pid = launcher.pid
         check(pid > 0) { "wineandroid guest failed to start (pid=$pid)" }
@@ -118,16 +107,11 @@ constructor(
         RunningGuest(
             pid = pid,
             guestExecutable = guestExecutable,
-            bridgeSocketPath = prepared.bridgeSocketPath,
             launcher = launcher,
             environment = environment,
         )
     }
 
-    /**
-     * Caller env merged by GPLC. Must include the wineandroid markers so GPLC
-     * clears Java-X DISPLAY after its defaults.
-     */
     private fun buildWineAndroidEnv(imageFs: ImageFs, prepared: WineAndroidSessionBootstrap.Prepared): EnvVars {
         val envVars = EnvVars()
         envVars.put("LC_ALL", app.amphora.core.engine.WineLocalePreferences.resolve(context))
@@ -136,10 +120,9 @@ constructor(
         for ((key, value) in prepared.envVars) {
             envVars.put(key, value)
         }
-        // Markers / bridge path — must win over any accidental DISPLAY from prefs.
         envVars.put(ENV_WINEANDROID, "1")
-        envVars.put(ENV_WINEANDROID_SOCK, prepared.bridgeSocketPath.absolutePath)
-        // Ensure we do not carry a stale DISPLAY into merge (GPLC still sets then clears).
+        // Drop obsolete private sock path if preparer/prefs ever set it.
+        envVars.remove(ENV_WINEANDROID_SOCK_OBSOLETE)
         envVars.remove("DISPLAY")
         return envVars
     }
@@ -169,6 +152,8 @@ constructor(
     companion object {
         private const val TAG = "WineAndroidLauncher"
         const val ENV_WINEANDROID = "AMPHORA_WINEANDROID"
-        const val ENV_WINEANDROID_SOCK = "AMPHORA_WINEANDROID_SOCK"
+
+        /** Former filesystem host.sock path — no longer set. */
+        const val ENV_WINEANDROID_SOCK_OBSOLETE = "AMPHORA_WINEANDROID_SOCK"
     }
 }

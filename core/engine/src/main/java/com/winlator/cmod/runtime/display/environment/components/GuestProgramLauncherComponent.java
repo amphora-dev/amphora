@@ -797,7 +797,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     // Preserve launcher-owned LD_PRELOAD while merging upstream env (driver/DXVK/wrapper).
     mergeExternalEnvVars(envVars, envVars.get("LD_PRELOAD"));
     // Amphora wineandroid host: do not point Wine at the Java fake X server.
-    // Caller sets AMPHORA_WINEANDROID=1 (+ AMPHORA_WINEANDROID_SOCK for the future ioctl bridge).
+    // Caller sets AMPHORA_WINEANDROID=1 (host binds abstract \0\Device\WineAndroid; no host.sock).
     if ("1".equals(envVars.get("AMPHORA_WINEANDROID"))) {
       envVars.remove("DISPLAY");
       envVars.remove("ANDROID_SYSVSHM_SERVER");

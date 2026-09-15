@@ -4,213 +4,183 @@ import android.graphics.Rect
 import android.util.Log
 import android.view.Surface
 import androidx.activity.ComponentActivity
-import java.io.File
 
 /**
- * Kotlin stand-in for WineActivity's public HWND/Surface surface — **no WineActivity.java**.
+ * Kotlin stand-in for WineActivity's HWND/Surface surface — **no WineActivity.java**.
  *
- * Surface feedback replaces JNI `wine_surface_changed(hwnd, surface, opengl)`:
- * [WineAndroidNative] keeps `ANativeWindow` in `:session`, opens a socketpair,
- * serves native_handle dequeue/queue, and sends the wine peer fd via
- * [WineAndroidProtocol.HOST_SURFACE_CHANGED] SCM_RIGHTS so unix can
- * `register_native_window` a forwarding parent.
+ * Implements [WineAndroidIpcCallbacks] for the native SEQPACKET server. Surface
+ * ready → [WineAndroidNative.nativeRegisterSurface] (local ANativeWindow + event
+ * pipe SURFACE_CHANGED). No private HOST_* frames.
  */
-class WineAndroidHostBridge(
-    private val activity: ComponentActivity,
-    private val desktop: WineAndroidDesktop,
-    private val onSurfaceChanged: (hwnd: Int, surface: Surface, opengl: Boolean) -> Unit,
-) {
+class WineAndroidHostBridge(private val activity: ComponentActivity, private val desktop: WineAndroidDesktop) :
+    WineAndroidIpcCallbacks {
     private val windows = LinkedHashMap<Pair<Int, Boolean>, WineAndroidWindow>()
-    private var hostSocket: WineAndroidHostSocket? = null
-    private val surfaceSessions = LinkedHashMap<Pair<Int, Boolean>, SurfaceSession>()
 
-    private data class SurfaceSession(val servePtr: Long, val opengl: Boolean)
+    @Volatile private var desktopWidth: Int = 0
 
-    fun createDesktopWindow(hwnd: Int) {
-        Log.i(TAG, "createDesktopWindow hwnd=$hwnd")
-    }
+    @Volatile private var desktopHeight: Int = 0
 
-    fun createWindow(hwnd: Int, opengl: Boolean, parent: Int, scale: Float, pid: Int) {
-        Log.i(TAG, "createWindow hwnd=$hwnd opengl=$opengl parent=$parent scale=$scale pid=$pid")
-        activity.runOnUiThread {
-            val sibling = windows[hwnd to !opengl]
-            val window =
-                WineAndroidWindow(
-                    hwnd = hwnd,
-                    parentHwnd = parent,
-                    isClient = opengl,
-                    scale = scale,
-                )
-            if (sibling != null) {
-                window.windowRect = android.graphics.Rect(sibling.windowRect)
-                window.clientRect = android.graphics.Rect(sibling.clientRect)
+    @Volatile private var desktopDpi: Int = 0
+
+    @Volatile private var serverStarted: Boolean = false
+
+    fun startServer() {
+        if (serverStarted) return
+        val ok =
+            try {
+                WineAndroidNative.nativeStartServer(this)
+            } catch (t: Throwable) {
+                Log.e(TAG, "nativeStartServer failed", t)
+                false
             }
-            windows[hwnd to opengl] = window
-            desktop.attachWindow(window) { attachedHwnd, surface ->
-                if (surface != null) {
-                    notifySurface(attachedHwnd, surface, opengl, ready = true)
-                } else {
-                    releaseSurfaceSession(attachedHwnd, opengl, notify = true)
-                }
-            }
+        serverStarted = ok
+        if (ok) {
+            Log.i(TAG, "IPC server listening on abstract \\0\\Device\\WineAndroid")
+            maybeNotifyDesktop()
+        } else {
+            Log.e(TAG, "IPC server failed to start")
         }
     }
 
-    fun destroyWindow(hwnd: Int) {
-        Log.i(TAG, "destroyWindow hwnd=$hwnd")
-        activity.runOnUiThread {
-            val gdi = windows.remove(hwnd to false)
-            val client = windows.remove(hwnd to true)
-            desktop.detachWindow(hwnd)
-            if (gdi != null) releaseSurfaceSession(hwnd, false, notify = true)
-            if (client != null) releaseSurfaceSession(hwnd, true, notify = true)
+    fun updateDesktopMetrics(width: Int, height: Int, densityDpi: Int = 0) {
+        if (width > 0 && height > 0) {
+            desktopWidth = width
+            desktopHeight = height
         }
+        if (densityDpi > 0) desktopDpi = densityDpi
+        maybeNotifyDesktop()
     }
-
-    fun setParent(hwnd: Int, parent: Int, scale: Float, pid: Int) {
-        Log.i(TAG, "setParent hwnd=$hwnd parent=$parent scale=$scale pid=$pid")
-        activity.runOnUiThread {
-            listOf(false, true).forEach { isClient ->
-                val existing = windows[hwnd to isClient] ?: return@forEach
-                val updated = existing.copy(parentHwnd = parent, scale = scale)
-                windows[hwnd to isClient] = updated
-                desktop.updateWindow(updated)
-            }
-        }
-    }
-
-    fun windowPosChanged(
-        hwnd: Int,
-        flags: Int,
-        insertAfter: Int,
-        owner: Int,
-        style: Int,
-        windowRect: Rect,
-        clientRect: Rect,
-        visibleRect: Rect,
-    ) {
-        Log.i(
-            TAG,
-            "windowPosChanged hwnd=$hwnd flags=$flags after=$insertAfter owner=$owner " +
-                "style=$style window=$windowRect client=$clientRect visible=$visibleRect",
-        )
-        activity.runOnUiThread {
-            desktop.updateHwndRects(hwnd, windowRect, clientRect)
-        }
-    }
-
-    fun startHostSocket(socketFile: File) {
-        hostSocket?.close()
-        val socket = WineAndroidHostSocket(this)
-        hostSocket = socket
-        socket.start(socketFile)
-        Log.i(TAG, "host socket started at ${socketFile.absolutePath}")
-    }
-
-    fun updateDesktopMetrics(width: Int, height: Int, scale: Float = 1f) {
-        hostSocket?.updateDesktopMetrics(width, height, scale)
-    }
-
-    @Deprecated("Use startHostSocket", ReplaceWith("startHostSocket(socketFile)"))
-    fun startSocketStub(socketFile: File) = startHostSocket(socketFile)
 
     fun close() {
-        surfaceSessions.keys.toList().forEach { (hwnd, opengl) ->
-            releaseSurfaceSession(hwnd, opengl, notify = false)
+        windows.keys.toList().forEach { (hwnd, opengl) ->
+            WineAndroidNative.nativeUnregisterSurface(hwnd, opengl)
         }
-        hostSocket?.close()
-        hostSocket = null
+        if (serverStarted) {
+            try {
+                WineAndroidNative.nativeStopServer()
+            } catch (t: Throwable) {
+                Log.w(TAG, "nativeStopServer", t)
+            }
+            serverStarted = false
+        }
         activity.runOnUiThread {
             windows.keys.map { it.first }.distinct().forEach { desktop.detachWindow(it) }
             windows.clear()
         }
     }
 
-    private fun notifySurface(hwnd: Int, surface: Surface, opengl: Boolean, ready: Boolean) {
-        onSurfaceChanged(hwnd, surface, opengl)
-        if (!ready) {
-            releaseSurfaceSession(hwnd, opengl, notify = true)
-            return
-        }
-        releaseSurfaceSession(hwnd, opengl, notify = false)
-
-        val windowHandle =
-            try {
-                WineAndroidNative.nativeAcquireWindow(surface)
-            } catch (t: Throwable) {
-                Log.e(TAG, "nativeAcquireWindow failed hwnd=$hwnd", t)
-                0L
-            }
-        if (windowHandle == 0L) {
-            Log.w(TAG, "no ANativeWindow for hwnd=$hwnd — surface_changed without fd")
-            hostSocket?.sendSurfaceChanged(hwnd, opengl, ready = true)
-            return
-        }
-
-        val pair =
-            try {
-                createBufferSocketPair()
-            } catch (t: Throwable) {
-                Log.e(TAG, "socketpair failed hwnd=$hwnd", t)
-                WineAndroidNative.nativeReleaseWindow(windowHandle)
-                hostSocket?.sendSurfaceChanged(hwnd, opengl, ready = true)
-                return
-            }
-        val wineEnd = pair.first
-        val hostEnd = pair.second
-
-        val width = WineAndroidNative.nativeWindowWidth(windowHandle)
-        val height = WineAndroidNative.nativeWindowHeight(windowHandle)
-        val hostFd =
-            try {
-                hostEnd.detachFd()
-            } catch (t: Throwable) {
-                Log.e(TAG, "detachFd failed hwnd=$hwnd", t)
-                wineEnd.close()
-                hostEnd.close()
-                WineAndroidNative.nativeReleaseWindow(windowHandle)
-                return
-            }
-
-        val servePtr =
-            WineAndroidNative.nativeStartBufferServe(windowHandle, hwnd, hostFd)
-        if (servePtr == 0L) {
-            Log.e(TAG, "nativeStartBufferServe failed hwnd=$hwnd")
-            wineEnd.close()
-            WineAndroidNative.nativeReleaseWindow(windowHandle)
-            hostSocket?.sendSurfaceChanged(hwnd, opengl, ready = true)
-            return
-        }
-
-        surfaceSessions[hwnd to opengl] = SurfaceSession(servePtr = servePtr, opengl = opengl)
-
-        try {
-            hostSocket?.sendSurfaceChanged(
-                hwnd = hwnd,
-                opengl = opengl,
-                ready = true,
-                width = width,
-                height = height,
-                wineBufferFd = wineEnd.fileDescriptor,
-            )
-        } finally {
-            try {
-                wineEnd.close()
-            } catch (_: Exception) {
-            }
-        }
-        // Serve thread holds its own ANativeWindow ref.
-        WineAndroidNative.nativeReleaseWindow(windowHandle)
+    override fun createDesktopView() {
+        Log.i(TAG, "createDesktopView")
+        activity.runOnUiThread { maybeNotifyDesktop() }
     }
 
-    private fun releaseSurfaceSession(hwnd: Int, opengl: Boolean, notify: Boolean) {
-        val session = surfaceSessions.remove(hwnd to opengl) ?: run {
-            if (notify) hostSocket?.sendSurfaceChanged(hwnd, opengl = opengl, ready = false)
+    override fun createWindow(hwnd: Int, isDesktop: Boolean, opengl: Boolean, parent: Int) {
+        Log.i(TAG, "createWindow hwnd=$hwnd desktop=$isDesktop opengl=$opengl parent=$parent")
+        activity.runOnUiThread {
+            if (isDesktop) {
+                // Desktop HWND: metrics already pushed via event pipe; optional full-bleed view.
+                Log.i(TAG, "desktop hwnd=$hwnd (no per-hwnd SurfaceView)")
+                return@runOnUiThread
+            }
+            val sibling = windows[hwnd to !opengl]
+            val window =
+                WineAndroidWindow(
+                    hwnd = hwnd,
+                    parentHwnd = parent,
+                    isClient = opengl,
+                    scale = 1f,
+                )
+            if (sibling != null) {
+                window.windowRect = Rect(sibling.windowRect)
+                window.clientRect = Rect(sibling.clientRect)
+            }
+            windows[hwnd to opengl] = window
+            desktop.attachWindow(window) { attachedHwnd, surface ->
+                onSurface(attachedHwnd, surface, opengl)
+            }
+        }
+    }
+
+    override fun destroyWindow(hwnd: Int) {
+        Log.i(TAG, "destroyWindow hwnd=$hwnd")
+        activity.runOnUiThread {
+            val gdi = windows.remove(hwnd to false)
+            val client = windows.remove(hwnd to true)
+            desktop.detachWindow(hwnd)
+            if (gdi != null) WineAndroidNative.nativeUnregisterSurface(hwnd, false)
+            if (client != null) WineAndroidNative.nativeUnregisterSurface(hwnd, true)
+        }
+    }
+
+    override fun setParent(hwnd: Int, parent: Int) {
+        Log.i(TAG, "setParent hwnd=$hwnd parent=$parent")
+        activity.runOnUiThread {
+            listOf(false, true).forEach { isClient ->
+                val existing = windows[hwnd to isClient] ?: return@forEach
+                val updated = existing.copy(parentHwnd = parent)
+                windows[hwnd to isClient] = updated
+                desktop.updateWindow(updated)
+            }
+        }
+    }
+
+    override fun windowPosChanged(
+        hwnd: Int,
+        flags: Int,
+        insertAfter: Int,
+        owner: Int,
+        style: Int,
+        windowLeft: Int,
+        windowTop: Int,
+        windowRight: Int,
+        windowBottom: Int,
+        clientLeft: Int,
+        clientTop: Int,
+        clientRight: Int,
+        clientBottom: Int,
+        visibleLeft: Int,
+        visibleTop: Int,
+        visibleRight: Int,
+        visibleBottom: Int,
+    ) {
+        val windowRect = Rect(windowLeft, windowTop, windowRight, windowBottom)
+        val clientRect = Rect(clientLeft, clientTop, clientRight, clientBottom)
+        Log.i(
+            TAG,
+            "windowPosChanged hwnd=$hwnd flags=$flags after=$insertAfter owner=$owner " +
+                "style=$style window=$windowRect client=$clientRect",
+        )
+        activity.runOnUiThread {
+            desktop.updateHwndRects(hwnd, windowRect, clientRect)
+        }
+    }
+
+    override fun setCapture(hwnd: Int) {
+        Log.i(TAG, "setCapture hwnd=$hwnd")
+    }
+
+    override fun setCursor(id: Int, width: Int, height: Int, hotspotX: Int, hotspotY: Int, bits: IntArray?) {
+        Log.i(TAG, "setCursor id=$id ${width}x$height hotspot=$hotspotX,$hotspotY bits=${bits?.size ?: 0}")
+    }
+
+    private fun onSurface(hwnd: Int, surface: Surface?, opengl: Boolean) {
+        if (surface == null) {
+            WineAndroidNative.nativeUnregisterSurface(hwnd, opengl)
             return
         }
-        WineAndroidNative.nativeStopBufferServe(session.servePtr, -1)
-        if (notify) {
-            hostSocket?.sendSurfaceChanged(hwnd, session.opengl, ready = false)
+        val ok = WineAndroidNative.nativeRegisterSurface(hwnd, surface, opengl)
+        Log.i(TAG, "registerSurface hwnd=$hwnd opengl=$opengl ok=$ok")
+    }
+
+    private fun maybeNotifyDesktop() {
+        val w = desktopWidth
+        val h = desktopHeight
+        if (w <= 0 || h <= 0 || !serverStarted) return
+        try {
+            WineAndroidNative.nativeNotifyDesktopChanged(w, h)
+            if (desktopDpi > 0) WineAndroidNative.nativeNotifyConfigChanged(desktopDpi)
+        } catch (t: Throwable) {
+            Log.w(TAG, "notifyDesktop failed", t)
         }
     }
 

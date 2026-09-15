@@ -26,12 +26,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * Prepares rootfs / container / prefix / drivers for a wineandroid session
- * **without** constructing Java [com.winlator.cmod.runtime.display.xserver.XServer]
- * or [com.winlator.cmod.runtime.display.environment.components.XServerComponent].
+ * **without** constructing Java XServer / XServerComponent.
  *
- * Guest exec is [WineAndroidLauncher] (same `explorer /desktop=shell,WxH` shape as X11,
- * no Java XServer). WCP already ships `wineandroid.drv`; unix ioctl client connect
- * to the host socket is still TODO (drv still JNI until a sibling change lands).
+ * Guest exec is [WineAndroidLauncher]. Wine connects to the host via upstream
+ * abstract `\0\Device\WineAndroid` (no filesystem host.sock).
  */
 @Singleton
 class WineAndroidSessionBootstrap
@@ -46,13 +44,7 @@ constructor(
     private val progressBus: ProvisionProgressBus,
     private val dispatchers: DispatcherProvider,
 ) {
-    data class Prepared(
-        val spec: LaunchSpec,
-        val container: Container,
-        val envVars: Map<String, String>,
-        /** Well-known path the future unix bridge will connect to. */
-        val bridgeSocketPath: File,
-    )
+    data class Prepared(val spec: LaunchSpec, val container: Container, val envVars: Map<String, String>)
 
     suspend fun prepare(spec: LaunchSpec): Prepared = withContext(dispatchers.default) {
         require(spec.displayBackend == DisplayBackend.WINEANDROID) {
@@ -73,19 +65,17 @@ constructor(
             preparer.extractGraphicsDriverFiles(container)
             pinAndroidGraphicsDriver(container)
             val env = preparer.envVars() + spec.env
-            val socketDir = File(context.filesDir, BRIDGE_DIR).apply { mkdirs() }
-            val socketPath = File(socketDir, BRIDGE_SOCK)
             Log.i(
                 TAG,
                 "wineandroid prefix ready container=${container.id.value} " +
-                    "exe=${spec.exePath} envKeys=${env.keys.sorted()} socket=${socketPath.absolutePath}",
+                    "exe=${spec.exePath} envKeys=${env.keys.sorted()} " +
+                    "ipc=abstract\\\\0\\\\Device\\\\WineAndroid",
             )
             Log.i(TAG, "prefix ready; HKCU Software\\Wine\\Drivers Graphics=android")
             Prepared(
                 spec = spec,
                 container = container,
                 envVars = env,
-                bridgeSocketPath = socketPath,
             )
         } finally {
             progressBus.clear()
@@ -128,7 +118,5 @@ constructor(
 
     companion object {
         private const val TAG = "WineAndroidBootstrap"
-        const val BRIDGE_DIR = "wineandroid"
-        const val BRIDGE_SOCK = "host.sock"
     }
 }
