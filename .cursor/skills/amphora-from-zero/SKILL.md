@@ -68,8 +68,8 @@ adb -s HA262AAH install -r app/build/outputs/apk/debug/app-debug.apk
 
 1. `adb devices` → require `HA262AAH` `device` or **stop**.
 2. Launch `app.amphora/.MainActivity` → Open desktop → `WineAndroidSessionActivity`.
-3. Logcat filters: `WineAndroidDesktop|WineAndroidHostBridge|defer first register|registerSurface|motion`.
-4. PASS examples: defer then real-size register; `motion … ok=true` + visible click; no FATAL/BGRA crash.
+3. Logcat filters: `WineAndroidDesktop|WineAndroidHostBridge|defer first register|registerSurface|motion|key hwnd|keyboard hwnd`.
+4. PASS examples: defer then real-size register; `motion … ok=true` + visible click; hardware key → `key hwnd=… ok=true` / `keyboard hwnd=…` (IME still open); no FATAL/BGRA crash.
 5. Save log/screencap under Mac `…/smoke-artifacts/` (not only `/tmp` if you need CopyToBox).
 6. **One owner** installs; no parallel adb install wars.
 

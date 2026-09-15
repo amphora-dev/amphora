@@ -173,6 +173,8 @@
 
 ## 9. 下一步（尚未实现则别写成已做）
 
+输入：MOTION + 硬件 KEYBOARD **已落地**（`d3a7bd5` / `35c9921`）；IME 仍开。壳层下一拍优先多设备 hostScale/DPI 或 CI present 冒烟（docs/14），**不是**本表 TextureView/顶层。
+
 1. ~~**推迟第一次 Surface register**~~ **已做**（`5515738`）：等到真实 w/h > 0（rect，非单靠
    MIN 2×2）；之后 resize 仍再 bind（`WineAndroidDesktop.WindowGroup.tryEmitSurface`）。
 2. TextureView：可选打磨，非第一优先级。

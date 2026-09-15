@@ -85,6 +85,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - 嵌套 `WindowGroup` + `visible_rect`：`8a494cc`
 - 推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸：`5515738`
 - SurfaceView 触摸 → wineandroid `MOTION_EVENT`（不注入 X）：`d3a7bd5`
+- 硬件 KEYBOARD → wineandroid `KEYBOARD_EVENT`（KEYCODE / `adb keyevent`；**非** IME）：`35c9921`
 - DPI 产品目标经典 **96**；多设备 `hostScale` 仍 TODO
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
@@ -146,7 +147,9 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 
 ### 9.2 输入（MOTION + KEYBOARD）
 
-过滤：`WineAndroidDesktop.*motion`；`WineAndroidDesktop.*key` / native `keyboard hwnd=`
+**已落地**：MOTION（`d3a7bd5`）+ 硬件 KEYBOARD（`35c9921`）。IME 仍开（勿勾成已做）。
+
+过滤：`WineAndroidDesktop.*motion`；`WineAndroidDesktop.*key` / native `keyboard hwnd=` / `key hwnd=`
 
 **PASS 线索**：`motion hwnd=… ok=true`（DOWN/UP）；UI 上可见点击效果（如 winefile / Start）；**不得**走 `XServerInputSink` / `TouchpadView`。
 
@@ -197,11 +200,19 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 
 ## 12. 默认下一拍（文档顺序，可能随进度变）
 
-1. IME 缺口（InputConnection / CJK）仍开；勿当硬件 KEYCODE 未做
-2. 文档与 progress 保持与 HEAD 同步（勿把已做项写成未做）
-3. 多设备 hostScale + DPI 96 真源（`docs/16` TODO）
-4. 可选后置：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9）
-5. 游戏轨：CI WCP/APK 在 HA262 冒烟（`docs/14`）
+**MOTION + 硬件 KEYBOARD 已落地**（IME 仍开，**勿堆 IME** 当下一刀）。
+
+下一拍优先开项（二选一/并行均可）：
+
+1. 多设备 `hostScale` + DPI 96 真源（`docs/16` TODO）
+2. 游戏轨：CI WCP/APK 在 HA262 冒烟（`docs/14`）
+
+仍开但非本拍优先：
+
+3. IME 缺口（InputConnection / IMM32 / CJK）；勿当硬件 KEYCODE 未做
+4. 文档与 progress 保持与 HEAD 同步（勿把已做项写成未做）
+
+**不是**下一拍：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9 可选后置）。
 
 动手前用 `git log` + progress **核对**上表，勿盲抄过期勾选。
 
