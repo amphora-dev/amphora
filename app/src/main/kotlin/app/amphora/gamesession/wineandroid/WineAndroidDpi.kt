@@ -1,22 +1,19 @@
 package app.amphora.gamesession.wineandroid
 
 /**
- * Winlator / Amphora X11 [com.winlator.cmod.runtime.display.xserver.ScreenInfo]
- * reports physical size as guest_pixels / 10 millimeters. That yields a constant
- * ~254 DPI for any virtual desktop size:
+ * Wine LogPixels for wineandroid virtual desktops.
  *
- *   dpi = width_px * 25.4 / (width_px / 10) = 254
+ * Host scale-to-fill already enlarges the 1280x720 canvas onto the tablet
+ * (~2.375× on HA262). Putting Winlator ScreenInfo 254 into Wine *and* scaling
+ * double-counts (~254×2.375≈600 on-screen). Classic Wine **96** keeps chrome
+ * small in guest pixels; host scale brings on-screen effective ≈96×2.375≈228,
+ * near Winlator's advertised 254 without stacking.
  *
- * Use this for wineandroid LogPixels when the guest desktop is a *virtual*
- * resolution (e.g. 1280x720) that the host then letterbox-scales. Do **not**
- * pass Android [android.util.DisplayMetrics.densityDpi] in that pairing — on
- * HA262 that was 440 on a 720p canvas and made chrome huge.
+ * Never pass Android densityDpi (440) into a 720p virtual desktop.
  */
 object WineAndroidDpi {
-    /** Same as ScreenInfo mm = px/10 → ~254 for any positive size. */
-    fun fromGuestDesktop(widthPx: Int, heightPx: Int = widthPx): Int {
-        require(widthPx > 0) { "guest width must be positive" }
-        val widthMm = widthPx / 10.0
-        return (widthPx * 25.4 / widthMm).toInt()
-    }
+    const val CLASSIC_WINE_DPI = 96
+    const val WINLATOR_SCREENINFO_DPI = 254
+
+    fun forVirtualDesktopWithHostScale(): Int = CLASSIC_WINE_DPI
 }

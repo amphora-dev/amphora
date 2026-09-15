@@ -31,27 +31,22 @@ HA262AAH 上 Amphora 默认 wineandroid 会话：有窗、颜色正确、桌面�
 - 宿主 `WineAndroidDesktop` 等比 scale-to-fill（letterbox）；`setFixedSize(guest)` 保 ANW=Wine 尺寸。
 - **不要**默认把桌面改成 Activity 全像素（GDI 拷贝压力大）。
 
-## DPI（Winlator 公式）
+## DPI（虚拟桌面 + 宿主铺满）
 
-X11 路径 `ScreenInfo`：
+宿主把 guest 桌面 ×`hostScale` 铺满；`hostScale` **按当前屏实时计算**，不是写死 2.375。
 
-```text
-width_mm  = guest_width_px  / 10
-height_mm = guest_height_px / 10
-dpi       = guest_width_px * 25.4 / width_mm  ≈ 254
-```
+Wine 侧当前用经典 **96**（宿主已负责放大；勿再叠 Winlator 254，勿传 Android densityDpi）。
 
-这里的「像素」是**虚拟桌面**宽高（如 1280），不是平板放大后的物理像素。
+| Wine DPI | × hostScale(例 2.375) | 上屏等效 | 观感 |
+|----------|----------------------|---------|------|
+| 440 | 2.375 | ~1045 | 巨化 |
+| 254 | 2.375 | ~600 | 仍偏大 |
+| **96（当前）** | 2.375 | **~228** | 与 Winlator 报的 254 同量级 |
 
-| 做法 | 结果 |
-|------|------|
-| 720p + Android `densityDpi=440` | 控件巨化（已踩坑） |
-| 720p + Winlator ≈254 + 宿主铺满 | 与 X11 自洽（当前） |
-| Activity 全像素 + Android 440 | 接近上游 wineandroid，GDI 更重 |
+96 ≠ 254；接近的是「96×缩放≈228」≈ 254。
 
-实现：`WineAndroidDpi.fromGuestDesktop` → `updateDesktopMetrics` → `nativeNotifyConfigChanged`。
+实现：`WineAndroidDpi.forVirtualDesktopWithHostScale()` → 96。
 
-Windows / Proton / CrossOver **并不**统一用 254：Linux Wine 默认常 96；CrossOver Retina 常 192；Proton 游戏缩放多靠 gamescope。254 是 Winlator/Amphora X11 的虚拟屏约定。
 
 ## 开发换包
 
@@ -72,4 +67,21 @@ DXVK / Vulkan / AHB present 另轨；勿用 GDI LOCK 扛游戏性能。
 `createWindow` 时许多 HWND 还没有 `WINDOW_POS`（矩形 0×0）。若宿主把空矩形回退成「整桌面」再 `registerSurface`，ANW 会变成宿主铺满尺寸（HA262 上约 3040×1710），而 Wine 仍按真实小窗画像素 → Android 把一条内容拉成整块（底栏/标题扭曲）。
 
 正确做法：空矩形先 `1×1` + `setFixedSize(1,1)`；收到真实坐标后再改 layout 与 fixed size。
+
+## TODO · 跨机宿主缩放与 DPI
+
+`hostScale = min(屏宽/guestW, 屏高/guestH)` 随设备变（HA262≈2.375，别的手机可能是 1.5～3）。当前策略：
+
+- 虚拟桌面默认 1280×720（可配）
+- 宿主等比铺满（自动算 scale，**不必每台手写 2.375**）
+- Wine DPI 固定经典 **96**（不跟 scale 再叠 254）
+
+待想清楚再改（不要现在散改）：
+
+1. **DPI 是否跟 scale 联动**：`96` 固定 vs `254/scale` vs 用户可调 LogPixels
+2. **默认 guest 分辨率**：固定 720p vs 按短边分档 vs 贴近物理像素（GDI 成本）
+3. **多机验收**：至少再找一台不同 density/分辨率冒烟，核对控件观感
+4. **设置项**：是否暴露「界面大小」滑条（改 DPI 或 guest 分辨率）
+
+记录于 `docs/16-WINEANDROID-DISPLAY.md`；实现前先定产品策略。
 
