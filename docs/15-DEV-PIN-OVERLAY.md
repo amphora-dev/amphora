@@ -19,9 +19,11 @@
       "size": 2702324,
       "assetPath": "Box64-0.4.5-0db8df775.wcp",
       "remoteUrl": null,
-      "version": null,
-      "verName": null,
-      "verCode": null
+      "version": "Box64-0.4.5-0db8df775-0",
+      "verName": "0.4.5-0db8df775",
+      "verCode": 0,
+      "contentType": "Box64",
+      "kind": "WCP"
     }
   },
   "runtimeAssets": {
@@ -35,6 +37,7 @@
 ```
 
 - 只覆盖 JSON 里**出现且非 null**的字段；`remoteUrl: null` / 省略 = 保留远程条目的 URL。
+- **WCP identity:** component pins for `.wcp` must include `version` / `verName` / `verCode` / `contentType` / `kind` (from the package `profile.json`). Digest-only pins leave the remote identity in place and Prepare fails with `WCP profile does not match manifest: expected=… actual=…`. `inject-dev-pin.sh --component` fills these automatically.
 - 不能发明远程 catalog 里没有的 component / runtime `assetPath`。
 - 损坏或缺失时忽略（打 warn），不抛异常。
 

@@ -184,6 +184,82 @@ push_verified() {
   echo "pushed $dest_rel ($digest size=$size)"
 }
 
+
+# Extract profile.json from a .wcp (plain tar, xz, or zstd). Prints JSON to stdout.
+extract_wcp_profile() {
+  local file="$1"
+  # 1) tar auto-decompress (GNU tar with zstd; also plain / xz on many systems)
+  if tar -xOf "$file" profile.json 2>/dev/null; then
+    return 0
+  fi
+  # 2) xz via compress-program
+  if command -v xz >/dev/null 2>&1 && tar -xOf "$file" --use-compress-program=xz profile.json 2>/dev/null; then
+    return 0
+  fi
+  # 3) zstd CLI + tar
+  if command -v zstd >/dev/null 2>&1; then
+    if zstd -dc "$file" 2>/dev/null | tar -xOf - profile.json 2>/dev/null; then
+      return 0
+    fi
+  fi
+  # 4) python: zstandard module and/or lzma + tarfile (Mac fallback)
+  if python3 - "$file" <<'PY'
+import io, lzma, sys, tarfile
+
+path = sys.argv[1]
+raw = open(path, "rb").read()
+
+def emit_from_tar_bytes(data: bytes) -> bool:
+    for mode in ("r:", "r:xz", "r:*"):
+        try:
+            with tarfile.open(fileobj=io.BytesIO(data), mode=mode) as tf:
+                try:
+                    member = tf.getmember("profile.json")
+                except KeyError:
+                    # some archives use ./profile.json
+                    names = [n for n in tf.getnames() if n.rstrip("/").endswith("profile.json")]
+                    if not names:
+                        continue
+                    member = tf.getmember(names[0])
+                f = tf.extractfile(member)
+                if f is None:
+                    continue
+                sys.stdout.buffer.write(f.read())
+                return True
+        except tarfile.TarError:
+            continue
+    return False
+
+candidates = [raw]
+try:
+    import zstandard as zstd
+    try:
+        candidates.append(zstd.ZstdDecompressor().decompress(raw))
+    except zstd.ZstdError:
+        # frame may need streaming decompress
+        dctx = zstd.ZstdDecompressor()
+        candidates.append(dctx.stream_reader(io.BytesIO(raw)).read())
+except Exception:
+    pass
+try:
+    candidates.append(lzma.decompress(raw))
+except Exception:
+    pass
+
+for data in candidates:
+    if emit_from_tar_bytes(data):
+        sys.exit(0)
+
+sys.stderr.write("extract_wcp_profile: no profile.json in %s\n" % path)
+sys.exit(1)
+PY
+  then
+    return 0
+  fi
+  echo "failed to extract profile.json from $file (tried tar/xz/zstd/python)" >&2
+  return 1
+}
+
 clear_all() {
   ensure_device
   run_as "rm -f files/content/dev_pins.json" || true
@@ -222,15 +298,33 @@ main() {
       size=$(wc -c <"$file" | tr -d ' ')
       asset=$(basename "$file")
       push_verified "cache/amphora-packages/$asset" "$file" "$digest" "$size"
-      local entry_json
-      entry_json=$(DIGEST="$digest" SIZE="$size" ASSET="$asset" python3 - <<'PY'
+      local entry_json profile_json=""
+      # WCP pins must carry identity fields so Prepare's profile match succeeds.
+      case "$file" in
+        *.wcp|*.WCP)
+          profile_json=$(extract_wcp_profile "$file") || exit 1
+          ;;
+      esac
+      entry_json=$(DIGEST="$digest" SIZE="$size" ASSET="$asset" PROFILE_JSON="$profile_json" python3 - <<'PY'
 import json, os
-print(json.dumps({
+entry = {
     "sha256": os.environ["DIGEST"],
     "size": int(os.environ["SIZE"]),
     "assetPath": os.environ["ASSET"],
     "remoteUrl": None,
-}))
+}
+profile_raw = os.environ.get("PROFILE_JSON") or ""
+if profile_raw.strip():
+    profile = json.loads(profile_raw)
+    content_type = profile["type"]
+    ver_name = profile["versionName"]
+    ver_code = int(profile["versionCode"])
+    entry["verName"] = ver_name
+    entry["verCode"] = ver_code
+    entry["contentType"] = content_type
+    entry["version"] = f"{content_type}-{ver_name}-{ver_code}"
+    entry["kind"] = "WCP"
+print(json.dumps(entry))
 PY
 )
       merge_pin components "$id" "$entry_json"
