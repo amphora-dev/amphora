@@ -57,9 +57,28 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 
 ## DPI
 
-- 当前实现仍可按 guest ScreenInfo（mm=W/10 → LogPixels≈254）通知 Wine，避免把
-  Android `densityDpi`（如 440）配 720p 导致 chrome 巨大。
-- **产品目标**：默认 Wine DPI **96**；多设备 / 多分辨率 DPI 策略 **TODO**。
+- **已落地**（`d264af1`）：Wine LogPixels = 经典 **96** via
+  `WineAndroidDpi.forVirtualDesktopWithHostScale()` → `updateDesktopMetrics`。
+  宿主 `hostScale = min(屏宽/guestW, 屏高/guestH)` 等比 letterbox 铺满；
+  **勿**再叠 Winlator ScreenInfo ≈254，**勿**把 Android `densityDpi`（如 440）
+  喂进 720p 虚拟桌面。
+- HA262 例：96 × ~2.375 ≈ 228 上屏等效，近 Winlator 广告的 254，无双计。
+
+### TODO · 多设备 hostScale / DPI（无大改代码前的清单）
+
+`hostScale` 已按当前 Activity 尺寸实时算（非写死 2.375）。跨机仍欠验收与策略：
+
+1. **多分辨率 letterbox**：在至少一台非 HA262（不同物理分辨率 / 纵横比）确认
+   `contentHost` 居中、无裁切、taskbar/chrome 比例正常；旋转或分屏改 `onSizeChanged`
+   后 scale 重算正确。
+2. **禁止 densityDpi 入径**：任何新调用 `updateDesktopMetrics` / CONFIG_CHANGED
+   不得默认 `resources.displayMetrics.densityDpi`；缺参时仍走 classic 96。
+3. **guest 分辨率档**：默认 1280×720 是否按短边分档 / 用户可调（改 guest 边长，
+   **不是**改 Wine DPI 冒充铺屏）。
+4. **可选 UI**：是否暴露「界面大小」滑条（改 LogPixels 或 guest 分辨率）—
+   定产品后再动代码。
+
+记录于本节；实现前先定策略，勿散改。
 
 ## 相关代码
 

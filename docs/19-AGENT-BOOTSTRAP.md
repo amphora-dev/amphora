@@ -86,13 +86,13 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - 推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸：`5515738`
 - SurfaceView 触摸 → wineandroid `MOTION_EVENT`（不注入 X）：`d3a7bd5`
 - 硬件 KEYBOARD → wineandroid `KEYBOARD_EVENT`（KEYCODE / `adb keyevent`；**非** IME）：`35c9921`
-- DPI 产品目标经典 **96**；多设备 `hostScale` 仍 TODO
+- DPI 经典 **96** 已落地（`d264af1`）；多设备 `hostScale` 验收清单见 `docs/16` TODO
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
 游戏轨：
 
 - AHB import CreateSwapchain + Present≥50：见 `docs/13`
-- HWND ANW 零拷贝热路径：见 `docs/14`；下一刀优先 **CI 产物**真机冒烟，不手刀 sideload `.so`
+- HWND ANW 零拷贝热路径：见 `docs/14`；CI Present 冒烟 **先**合 AHB 补丁并 bump WCP，再真机；不手刀 sideload `.so`
 
 ## 7. 硬禁（违反即停）
 
@@ -204,8 +204,8 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 
 下一拍优先开项（二选一/并行均可）：
 
-1. 多设备 `hostScale` + DPI 96 真源（`docs/16` TODO）
-2. 游戏轨：CI WCP/APK 在 HA262 冒烟（`docs/14`）
+1. 多设备 `hostScale` 验收（DPI 96 已落地；清单见 `docs/16` TODO）
+2. 游戏轨：先合 proton-wine AHB 补丁 + imagefs 重发 WCP / bump pin，**再** CI APK+WCP 在 HA262 冒烟（`docs/14` Next；勿刀尖 `.so`）
 
 仍开但非本拍优先：
 

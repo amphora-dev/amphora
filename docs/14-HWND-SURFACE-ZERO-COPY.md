@@ -25,4 +25,33 @@ knife13 hot path is already HWND Surface AHB zero-copy. Present does **not** go 
 - HostVk Present dead path removed; fs_hack guard landed in proton-wine
 - Do **not** touch AHB CreateSwapchain / import / create-time win_queue
 - Do **not** GB / VkLayer / table scan
-- Next: smoke **CI** artifacts on HA262AAH (not knife-manual `.so` sideload) — see `/workspace/swapchain-knife/CLEANUP-AND-CI.md`
+
+## Next — CI Present smoke (blocked as of 2026-09-16)
+
+**Goal:** smoke **CI/release** Amphora APK + Proton WCP on HA262AAH until
+`AHB_SC … import=ok` / Present≥50. **Not** knife-manual `.so` sideload.
+
+**Hard blocker — published WCP lacks Wine AHB client:**
+
+- CI/release wine pin `Proton-11.0-ab04edc49` does **not** contain AHB / wsi-sc
+  client strings in `wineandroid.so` / `win32u.so` (no `amphora`, `AHB_SC`,
+  `import=ok`, `DIRECT`).
+- Knife tip `1c62dd9a8ba` (bind WSI / note+flush acquire / present wait+fence)
+  is **not** on `amphora-dev/proton-wine` remote as of 2026-09-16 discovery
+  (`proton_11.0` tip is ab04 + BGRA→RGBA GDI flush only).
+- Amphora **server** (`libamphora_wsi`) is in CI APK; without the Wine-side
+  client, pure CI artifact smoke **cannot** hit `import=ok`.
+
+**Unblock order (do not skip):**
+
+1. Land AHB client + win32u present/flush (+ `amphora_wsi_wanted` fs_hack guard)
+   on `amphora-dev/proton-wine` `proton_11.0`.
+2. imagefs `build-proton-wine` republishes a new WCP; bump `content_manifest` wine pin.
+3. **Then** CI Present smoke on HA262AAH (APK + new WCP; no knife `.so`).
+
+**Also:** `amphora-dxvk-smoke.exe` is **not** in content_manifest / releases
+(only Graphics-Test-* are). Locate on Mac knife/smoke dirs or vendor later.
+Optional checklist: box `/workspace/ha262-ci-present-smoke-plan.md`.
+
+**Do not** revive knife `.so` sideload / `su cp` of `wineandroid.so` /
+`win32u.so` as truth — that was knife13 proof only, not a ship path.
