@@ -65,11 +65,15 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 
 | 文件 | 职责 |
 |------|------|
-| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register |
+| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent` |
 | `WineAndroidHostBridge.kt` | createWindow / windowPosChanged(visible_*) / setParent→reparent |
 | `WineAndroidWindow.kt` | window/client/visible rect、style、visible |
-| `WineAndroidSessionActivity.kt` | session + 调试 statusView；desktop 嵌套布局 |
-| `wineandroid_host_ipc.c` | `nativeRegisterSurface` → `SURFACE_CHANGED` |
+| `WineAndroidSessionActivity.kt` | session + 调试 statusView；desktop 嵌套布局；`dispatchKeyEvent` → KEYBOARD_EVENT |
+| `wineandroid_host_ipc.c` | `nativeRegisterSurface` → `SURFACE_CHANGED`；`nativeSendMotionEvent` / `nativeSendKeyboardEvent` |
+
+## 键盘（EVENT_KEYBOARD）
+
+硬件 / `adb input keyevent` / `adb input text`（KEYCODE 注入）走与 MOTION 同一条 desktop event pipe。无 InputConnection，不做 IMM32/TSF / 完整 IME。
 
 ## 非目标
 

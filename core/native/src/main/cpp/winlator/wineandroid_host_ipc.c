@@ -141,10 +141,94 @@ enum event_type {
 #define WA_MOUSEEVENTF_ABSOLUTE     0x8000
 #define WA_WHEEL_DELTA              120
 
+/* Win64 KEYBDINPUT / INPUT_KEYBOARD (winuser.h). */
+#define WA_INPUT_KEYBOARD           1
+#define WA_KEYEVENTF_EXTENDEDKEY    0x0001
+#define WA_KEYEVENTF_KEYUP          0x0002
+
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+
+/* Virtual-key codes used by upstream keycode_to_vkey (winuser.rh). */
+#define VK_BACK                0x08
+#define VK_TAB                 0x09
+#define VK_RETURN              0x0D
+#define VK_CAPITAL             0x14
+#define VK_KANA                0x15
+#define VK_ESCAPE              0x1B
+#define VK_SPACE               0x20
+#define VK_PRIOR               0x21
+#define VK_NEXT                0x22
+#define VK_END                 0x23
+#define VK_HOME                0x24
+#define VK_LEFT                0x25
+#define VK_UP                  0x26
+#define VK_RIGHT               0x27
+#define VK_DOWN                0x28
+#define VK_INSERT              0x2D
+#define VK_DELETE              0x2E
+#define VK_LWIN                0x5B
+#define VK_RWIN                0x5C
+#define VK_NUMPAD0             0x60
+#define VK_NUMPAD1             0x61
+#define VK_NUMPAD2             0x62
+#define VK_NUMPAD3             0x63
+#define VK_NUMPAD4             0x64
+#define VK_NUMPAD5             0x65
+#define VK_NUMPAD6             0x66
+#define VK_NUMPAD7             0x67
+#define VK_NUMPAD8             0x68
+#define VK_NUMPAD9             0x69
+#define VK_MULTIPLY            0x6A
+#define VK_ADD                 0x6B
+#define VK_SUBTRACT            0x6D
+#define VK_DECIMAL             0x6E
+#define VK_DIVIDE              0x6F
+#define VK_F1                  0x70
+#define VK_F2                  0x71
+#define VK_F3                  0x72
+#define VK_F4                  0x73
+#define VK_F5                  0x74
+#define VK_F6                  0x75
+#define VK_F7                  0x76
+#define VK_F8                  0x77
+#define VK_F9                  0x78
+#define VK_F10                 0x79
+#define VK_F11                 0x7A
+#define VK_F12                 0x7B
+#define VK_NUMLOCK             0x90
+#define VK_SCROLL              0x91
+#define VK_LSHIFT              0xA0
+#define VK_RSHIFT              0xA1
+#define VK_LCONTROL            0xA2
+#define VK_RCONTROL            0xA3
+#define VK_LMENU               0xA4
+#define VK_RMENU               0xA5
+#define VK_MEDIA_NEXT_TRACK    0xB0
+#define VK_MEDIA_PREV_TRACK    0xB1
+#define VK_MEDIA_STOP          0xB2
+#define VK_MEDIA_PLAY_PAUSE    0xB3
+#define VK_OEM_1               0xBA
+#define VK_OEM_PLUS            0xBB
+#define VK_OEM_COMMA           0xBC
+#define VK_OEM_MINUS           0xBD
+#define VK_OEM_PERIOD          0xBE
+#define VK_OEM_2               0xBF
+#define VK_OEM_3               0xC0
+#define VK_OEM_4               0xDB
+#define VK_OEM_5               0xDC
+#define VK_OEM_6               0xDD
+#define VK_OEM_7               0xDE
+
 /*
  * Win64 union event_data.motion wire offsets (matches surface packing + probe):
  *   type@0, hwnd@8, INPUT.type@16, mi.dx@24, mi.dy@28, mouseData@32,
  *   dwFlags@36, time@40, dwExtraInfo@48; total EVENT_DATA_SIZE=64.
+ *
+ * Win64 union event_data.kbd (largest member, size 64):
+ *   type@0, hwnd@8, lock_state@16, INPUT.type@24, ki.wVk@32, ki.wScan@34,
+ *   dwFlags@36, time@40, dwExtraInfo@48.
  */
 
 /* ---- AHB helpers (dlsym, same as former host_anw) ---- */
@@ -424,6 +508,533 @@ static int send_motion_event(int32_t hwnd, int action, int x, int y, int state,
     memcpy(buf + 36, &dw_flags, 4);
     memcpy(buf + 40, &time, 4);
     memcpy(buf + 48, &extra, 8);
+    return send_event_bytes(buf, sizeof(buf));
+}
+
+static const uint16_t keycode_to_vkey[] =
+{
+    0,                   /* AKEYCODE_UNKNOWN */
+    0,                   /* AKEYCODE_SOFT_LEFT */
+    0,                   /* AKEYCODE_SOFT_RIGHT */
+    0,                   /* AKEYCODE_HOME */
+    0,                   /* AKEYCODE_BACK */
+    0,                   /* AKEYCODE_CALL */
+    0,                   /* AKEYCODE_ENDCALL */
+    '0',                 /* AKEYCODE_0 */
+    '1',                 /* AKEYCODE_1 */
+    '2',                 /* AKEYCODE_2 */
+    '3',                 /* AKEYCODE_3 */
+    '4',                 /* AKEYCODE_4 */
+    '5',                 /* AKEYCODE_5 */
+    '6',                 /* AKEYCODE_6 */
+    '7',                 /* AKEYCODE_7 */
+    '8',                 /* AKEYCODE_8 */
+    '9',                 /* AKEYCODE_9 */
+    0,                   /* AKEYCODE_STAR */
+    0,                   /* AKEYCODE_POUND */
+    VK_UP,               /* AKEYCODE_DPAD_UP */
+    VK_DOWN,             /* AKEYCODE_DPAD_DOWN */
+    VK_LEFT,             /* AKEYCODE_DPAD_LEFT */
+    VK_RIGHT,            /* AKEYCODE_DPAD_RIGHT */
+    0,                   /* AKEYCODE_DPAD_CENTER */
+    0,                   /* AKEYCODE_VOLUME_UP */
+    0,                   /* AKEYCODE_VOLUME_DOWN */
+    0,                   /* AKEYCODE_POWER */
+    0,                   /* AKEYCODE_CAMERA */
+    0,                   /* AKEYCODE_CLEAR */
+    'A',                 /* AKEYCODE_A */
+    'B',                 /* AKEYCODE_B */
+    'C',                 /* AKEYCODE_C */
+    'D',                 /* AKEYCODE_D */
+    'E',                 /* AKEYCODE_E */
+    'F',                 /* AKEYCODE_F */
+    'G',                 /* AKEYCODE_G */
+    'H',                 /* AKEYCODE_H */
+    'I',                 /* AKEYCODE_I */
+    'J',                 /* AKEYCODE_J */
+    'K',                 /* AKEYCODE_K */
+    'L',                 /* AKEYCODE_L */
+    'M',                 /* AKEYCODE_M */
+    'N',                 /* AKEYCODE_N */
+    'O',                 /* AKEYCODE_O */
+    'P',                 /* AKEYCODE_P */
+    'Q',                 /* AKEYCODE_Q */
+    'R',                 /* AKEYCODE_R */
+    'S',                 /* AKEYCODE_S */
+    'T',                 /* AKEYCODE_T */
+    'U',                 /* AKEYCODE_U */
+    'V',                 /* AKEYCODE_V */
+    'W',                 /* AKEYCODE_W */
+    'X',                 /* AKEYCODE_X */
+    'Y',                 /* AKEYCODE_Y */
+    'Z',                 /* AKEYCODE_Z */
+    VK_OEM_COMMA,        /* AKEYCODE_COMMA */
+    VK_OEM_PERIOD,       /* AKEYCODE_PERIOD */
+    VK_LMENU,            /* AKEYCODE_ALT_LEFT */
+    VK_RMENU,            /* AKEYCODE_ALT_RIGHT */
+    VK_LSHIFT,           /* AKEYCODE_SHIFT_LEFT */
+    VK_RSHIFT,           /* AKEYCODE_SHIFT_RIGHT */
+    VK_TAB,              /* AKEYCODE_TAB */
+    VK_SPACE,            /* AKEYCODE_SPACE */
+    0,                   /* AKEYCODE_SYM */
+    0,                   /* AKEYCODE_EXPLORER */
+    0,                   /* AKEYCODE_ENVELOPE */
+    VK_RETURN,           /* AKEYCODE_ENTER */
+    VK_BACK,             /* AKEYCODE_DEL */
+    VK_OEM_3,            /* AKEYCODE_GRAVE */
+    VK_OEM_MINUS,        /* AKEYCODE_MINUS */
+    VK_OEM_PLUS,         /* AKEYCODE_EQUALS */
+    VK_OEM_4,            /* AKEYCODE_LEFT_BRACKET */
+    VK_OEM_6,            /* AKEYCODE_RIGHT_BRACKET */
+    VK_OEM_5,            /* AKEYCODE_BACKSLASH */
+    VK_OEM_1,            /* AKEYCODE_SEMICOLON */
+    VK_OEM_7,            /* AKEYCODE_APOSTROPHE */
+    VK_OEM_2,            /* AKEYCODE_SLASH */
+    0,                   /* AKEYCODE_AT */
+    0,                   /* AKEYCODE_NUM */
+    0,                   /* AKEYCODE_HEADSETHOOK */
+    0,                   /* AKEYCODE_FOCUS */
+    0,                   /* AKEYCODE_PLUS */
+    0,                   /* AKEYCODE_MENU */
+    0,                   /* AKEYCODE_NOTIFICATION */
+    0,                   /* AKEYCODE_SEARCH */
+    VK_MEDIA_PLAY_PAUSE, /* AKEYCODE_MEDIA_PLAY_PAUSE */
+    VK_MEDIA_STOP,       /* AKEYCODE_MEDIA_STOP */
+    VK_MEDIA_NEXT_TRACK, /* AKEYCODE_MEDIA_NEXT */
+    VK_MEDIA_PREV_TRACK, /* AKEYCODE_MEDIA_PREVIOUS */
+    0,                   /* AKEYCODE_MEDIA_REWIND */
+    0,                   /* AKEYCODE_MEDIA_FAST_FORWARD */
+    0,                   /* AKEYCODE_MUTE */
+    VK_PRIOR,            /* AKEYCODE_PAGE_UP */
+    VK_NEXT,             /* AKEYCODE_PAGE_DOWN */
+    0,                   /* AKEYCODE_PICTSYMBOLS */
+    0,                   /* AKEYCODE_SWITCH_CHARSET */
+    0,                   /* AKEYCODE_BUTTON_A */
+    0,                   /* AKEYCODE_BUTTON_B */
+    0,                   /* AKEYCODE_BUTTON_C */
+    0,                   /* AKEYCODE_BUTTON_X */
+    0,                   /* AKEYCODE_BUTTON_Y */
+    0,                   /* AKEYCODE_BUTTON_Z */
+    0,                   /* AKEYCODE_BUTTON_L1 */
+    0,                   /* AKEYCODE_BUTTON_R1 */
+    0,                   /* AKEYCODE_BUTTON_L2 */
+    0,                   /* AKEYCODE_BUTTON_R2 */
+    0,                   /* AKEYCODE_BUTTON_THUMBL */
+    0,                   /* AKEYCODE_BUTTON_THUMBR */
+    0,                   /* AKEYCODE_BUTTON_START */
+    0,                   /* AKEYCODE_BUTTON_SELECT */
+    0,                   /* AKEYCODE_BUTTON_MODE */
+    VK_ESCAPE,           /* AKEYCODE_ESCAPE */
+    VK_DELETE,           /* AKEYCODE_FORWARD_DEL */
+    VK_LCONTROL,         /* AKEYCODE_CTRL_LEFT */
+    VK_RCONTROL,         /* AKEYCODE_CTRL_RIGHT */
+    VK_CAPITAL,          /* AKEYCODE_CAPS_LOCK */
+    VK_SCROLL,           /* AKEYCODE_SCROLL_LOCK */
+    VK_LWIN,             /* AKEYCODE_META_LEFT */
+    VK_RWIN,             /* AKEYCODE_META_RIGHT */
+    0,                   /* AKEYCODE_FUNCTION */
+    0,                   /* AKEYCODE_SYSRQ */
+    0,                   /* AKEYCODE_BREAK */
+    VK_HOME,             /* AKEYCODE_MOVE_HOME */
+    VK_END,              /* AKEYCODE_MOVE_END */
+    VK_INSERT,           /* AKEYCODE_INSERT */
+    0,                   /* AKEYCODE_FORWARD */
+    0,                   /* AKEYCODE_MEDIA_PLAY */
+    0,                   /* AKEYCODE_MEDIA_PAUSE */
+    0,                   /* AKEYCODE_MEDIA_CLOSE */
+    0,                   /* AKEYCODE_MEDIA_EJECT */
+    0,                   /* AKEYCODE_MEDIA_RECORD */
+    VK_F1,               /* AKEYCODE_F1 */
+    VK_F2,               /* AKEYCODE_F2 */
+    VK_F3,               /* AKEYCODE_F3 */
+    VK_F4,               /* AKEYCODE_F4 */
+    VK_F5,               /* AKEYCODE_F5 */
+    VK_F6,               /* AKEYCODE_F6 */
+    VK_F7,               /* AKEYCODE_F7 */
+    VK_F8,               /* AKEYCODE_F8 */
+    VK_F9,               /* AKEYCODE_F9 */
+    VK_F10,              /* AKEYCODE_F10 */
+    VK_F11,              /* AKEYCODE_F11 */
+    VK_F12,              /* AKEYCODE_F12 */
+    VK_NUMLOCK,          /* AKEYCODE_NUM_LOCK */
+    VK_NUMPAD0,          /* AKEYCODE_NUMPAD_0 */
+    VK_NUMPAD1,          /* AKEYCODE_NUMPAD_1 */
+    VK_NUMPAD2,          /* AKEYCODE_NUMPAD_2 */
+    VK_NUMPAD3,          /* AKEYCODE_NUMPAD_3 */
+    VK_NUMPAD4,          /* AKEYCODE_NUMPAD_4 */
+    VK_NUMPAD5,          /* AKEYCODE_NUMPAD_5 */
+    VK_NUMPAD6,          /* AKEYCODE_NUMPAD_6 */
+    VK_NUMPAD7,          /* AKEYCODE_NUMPAD_7 */
+    VK_NUMPAD8,          /* AKEYCODE_NUMPAD_8 */
+    VK_NUMPAD9,          /* AKEYCODE_NUMPAD_9 */
+    VK_DIVIDE,           /* AKEYCODE_NUMPAD_DIVIDE */
+    VK_MULTIPLY,         /* AKEYCODE_NUMPAD_MULTIPLY */
+    VK_SUBTRACT,         /* AKEYCODE_NUMPAD_SUBTRACT */
+    VK_ADD,              /* AKEYCODE_NUMPAD_ADD */
+    VK_DECIMAL,          /* AKEYCODE_NUMPAD_DOT */
+    0,                   /* AKEYCODE_NUMPAD_COMMA */
+    0,                   /* AKEYCODE_NUMPAD_ENTER */
+    0,                   /* AKEYCODE_NUMPAD_EQUALS */
+    0,                   /* AKEYCODE_NUMPAD_LEFT_PAREN */
+    0,                   /* AKEYCODE_NUMPAD_RIGHT_PAREN */
+    0,                   /* AKEYCODE_VOLUME_MUTE */
+    0,                   /* AKEYCODE_INFO */
+    0,                   /* AKEYCODE_CHANNEL_UP */
+    0,                   /* AKEYCODE_CHANNEL_DOWN */
+    0,                   /* AKEYCODE_ZOOM_IN */
+    0,                   /* AKEYCODE_ZOOM_OUT */
+    0,                   /* AKEYCODE_TV */
+    0,                   /* AKEYCODE_WINDOW */
+    0,                   /* AKEYCODE_GUIDE */
+    0,                   /* AKEYCODE_DVR */
+    0,                   /* AKEYCODE_BOOKMARK */
+    0,                   /* AKEYCODE_CAPTIONS */
+    0,                   /* AKEYCODE_SETTINGS */
+    0,                   /* AKEYCODE_TV_POWER */
+    0,                   /* AKEYCODE_TV_INPUT */
+    0,                   /* AKEYCODE_STB_POWER */
+    0,                   /* AKEYCODE_STB_INPUT */
+    0,                   /* AKEYCODE_AVR_POWER */
+    0,                   /* AKEYCODE_AVR_INPUT */
+    0,                   /* AKEYCODE_PROG_RED */
+    0,                   /* AKEYCODE_PROG_GREEN */
+    0,                   /* AKEYCODE_PROG_YELLOW */
+    0,                   /* AKEYCODE_PROG_BLUE */
+    0,                   /* AKEYCODE_APP_SWITCH */
+    0,                   /* AKEYCODE_BUTTON_1 */
+    0,                   /* AKEYCODE_BUTTON_2 */
+    0,                   /* AKEYCODE_BUTTON_3 */
+    0,                   /* AKEYCODE_BUTTON_4 */
+    0,                   /* AKEYCODE_BUTTON_5 */
+    0,                   /* AKEYCODE_BUTTON_6 */
+    0,                   /* AKEYCODE_BUTTON_7 */
+    0,                   /* AKEYCODE_BUTTON_8 */
+    0,                   /* AKEYCODE_BUTTON_9 */
+    0,                   /* AKEYCODE_BUTTON_10 */
+    0,                   /* AKEYCODE_BUTTON_11 */
+    0,                   /* AKEYCODE_BUTTON_12 */
+    0,                   /* AKEYCODE_BUTTON_13 */
+    0,                   /* AKEYCODE_BUTTON_14 */
+    0,                   /* AKEYCODE_BUTTON_15 */
+    0,                   /* AKEYCODE_BUTTON_16 */
+    0,                   /* AKEYCODE_LANGUAGE_SWITCH */
+    0,                   /* AKEYCODE_MANNER_MODE */
+    0,                   /* AKEYCODE_3D_MODE */
+    0,                   /* AKEYCODE_CONTACTS */
+    0,                   /* AKEYCODE_CALENDAR */
+    0,                   /* AKEYCODE_MUSIC */
+    0,                   /* AKEYCODE_CALCULATOR */
+    0,                   /* AKEYCODE_ZENKAKU_HANKAKU */
+    0,                   /* AKEYCODE_EISU */
+    0,                   /* AKEYCODE_MUHENKAN */
+    0,                   /* AKEYCODE_HENKAN */
+    0,                   /* AKEYCODE_KATAKANA_HIRAGANA */
+    0,                   /* AKEYCODE_YEN */
+    0,                   /* AKEYCODE_RO */
+    VK_KANA,             /* AKEYCODE_KANA */
+    0,                   /* AKEYCODE_ASSIST */
+};
+
+static const uint16_t vkey_to_scancode[] =
+{
+    0,     /* 0x00 undefined */
+    0,     /* VK_LBUTTON */
+    0,     /* VK_RBUTTON */
+    0,     /* VK_CANCEL */
+    0,     /* VK_MBUTTON */
+    0,     /* VK_XBUTTON1 */
+    0,     /* VK_XBUTTON2 */
+    0,     /* 0x07 undefined */
+    0x0e,  /* VK_BACK */
+    0x0f,  /* VK_TAB */
+    0,     /* 0x0a undefined */
+    0,     /* 0x0b undefined */
+    0,     /* VK_CLEAR */
+    0x1c,  /* VK_RETURN */
+    0,     /* 0x0e undefined */
+    0,     /* 0x0f undefined */
+    0x2a,  /* VK_SHIFT */
+    0x1d,  /* VK_CONTROL */
+    0x38,  /* VK_MENU */
+    0,     /* VK_PAUSE */
+    0x3a,  /* VK_CAPITAL */
+    0,     /* VK_KANA */
+    0,     /* 0x16 undefined */
+    0,     /* VK_JUNJA */
+    0,     /* VK_FINAL */
+    0,     /* VK_HANJA */
+    0,     /* 0x1a undefined */
+    0x01,  /* VK_ESCAPE */
+    0,     /* VK_CONVERT */
+    0,     /* VK_NONCONVERT */
+    0,     /* VK_ACCEPT */
+    0,     /* VK_MODECHANGE */
+    0x39,  /* VK_SPACE */
+    0x149, /* VK_PRIOR */
+    0x151, /* VK_NEXT */
+    0x14f, /* VK_END */
+    0x147, /* VK_HOME */
+    0x14b, /* VK_LEFT */
+    0x148, /* VK_UP */
+    0x14d, /* VK_RIGHT */
+    0x150, /* VK_DOWN */
+    0,     /* VK_SELECT */
+    0,     /* VK_PRINT */
+    0,     /* VK_EXECUTE */
+    0,     /* VK_SNAPSHOT */
+    0x152, /* VK_INSERT */
+    0x153, /* VK_DELETE */
+    0,     /* VK_HELP */
+    0x0b,  /* VK_0 */
+    0x02,  /* VK_1 */
+    0x03,  /* VK_2 */
+    0x04,  /* VK_3 */
+    0x05,  /* VK_4 */
+    0x06,  /* VK_5 */
+    0x07,  /* VK_6 */
+    0x08,  /* VK_7 */
+    0x09,  /* VK_8 */
+    0x0a,  /* VK_9 */
+    0,     /* 0x3a undefined */
+    0,     /* 0x3b undefined */
+    0,     /* 0x3c undefined */
+    0,     /* 0x3d undefined */
+    0,     /* 0x3e undefined */
+    0,     /* 0x3f undefined */
+    0,     /* 0x40 undefined */
+    0x1e,  /* VK_A */
+    0x30,  /* VK_B */
+    0x2e,  /* VK_C */
+    0x20,  /* VK_D */
+    0x12,  /* VK_E */
+    0x21,  /* VK_F */
+    0x22,  /* VK_G */
+    0x23,  /* VK_H */
+    0x17,  /* VK_I */
+    0x24,  /* VK_J */
+    0x25,  /* VK_K */
+    0x26,  /* VK_L */
+    0x32,  /* VK_M */
+    0x31,  /* VK_N */
+    0x18,  /* VK_O */
+    0x19,  /* VK_P */
+    0x10,  /* VK_Q */
+    0x13,  /* VK_R */
+    0x1f,  /* VK_S */
+    0x14,  /* VK_T */
+    0x16,  /* VK_U */
+    0x2f,  /* VK_V */
+    0x11,  /* VK_W */
+    0x2d,  /* VK_X */
+    0x15,  /* VK_Y */
+    0x2c,  /* VK_Z */
+    0,     /* VK_LWIN */
+    0,     /* VK_RWIN */
+    0,     /* VK_APPS */
+    0,     /* 0x5e undefined */
+    0,     /* VK_SLEEP */
+    0x52,  /* VK_NUMPAD0 */
+    0x4f,  /* VK_NUMPAD1 */
+    0x50,  /* VK_NUMPAD2 */
+    0x51,  /* VK_NUMPAD3 */
+    0x4b,  /* VK_NUMPAD4 */
+    0x4c,  /* VK_NUMPAD5 */
+    0x4d,  /* VK_NUMPAD6 */
+    0x47,  /* VK_NUMPAD7 */
+    0x48,  /* VK_NUMPAD8 */
+    0x49,  /* VK_NUMPAD9 */
+    0x37,  /* VK_MULTIPLY */
+    0x4e,  /* VK_ADD */
+    0x7e,  /* VK_SEPARATOR */
+    0x4a,  /* VK_SUBTRACT */
+    0x53,  /* VK_DECIMAL */
+    0135,  /* VK_DIVIDE */
+    0x3b,  /* VK_F1 */
+    0x3c,  /* VK_F2 */
+    0x3d,  /* VK_F3 */
+    0x3e,  /* VK_F4 */
+    0x3f,  /* VK_F5 */
+    0x40,  /* VK_F6 */
+    0x41,  /* VK_F7 */
+    0x42,  /* VK_F8 */
+    0x43,  /* VK_F9 */
+    0x44,  /* VK_F10 */
+    0x57,  /* VK_F11 */
+    0x58,  /* VK_F12 */
+    0x64,  /* VK_F13 */
+    0x65,  /* VK_F14 */
+    0x66,  /* VK_F15 */
+    0x67,  /* VK_F16 */
+    0x68,  /* VK_F17 */
+    0x69,  /* VK_F18 */
+    0x6a,  /* VK_F19 */
+    0x6b,  /* VK_F20 */
+    0,     /* VK_F21 */
+    0,     /* VK_F22 */
+    0,     /* VK_F23 */
+    0,     /* VK_F24 */
+    0,     /* 0x88 undefined */
+    0,     /* 0x89 undefined */
+    0,     /* 0x8a undefined */
+    0,     /* 0x8b undefined */
+    0,     /* 0x8c undefined */
+    0,     /* 0x8d undefined */
+    0,     /* 0x8e undefined */
+    0,     /* 0x8f undefined */
+    0,     /* VK_NUMLOCK */
+    0,     /* VK_SCROLL */
+    0x10d, /* VK_OEM_NEC_EQUAL */
+    0,     /* VK_OEM_FJ_JISHO */
+    0,     /* VK_OEM_FJ_MASSHOU */
+    0,     /* VK_OEM_FJ_TOUROKU */
+    0,     /* VK_OEM_FJ_LOYA */
+    0,     /* VK_OEM_FJ_ROYA */
+    0,     /* 0x97 undefined */
+    0,     /* 0x98 undefined */
+    0,     /* 0x99 undefined */
+    0,     /* 0x9a undefined */
+    0,     /* 0x9b undefined */
+    0,     /* 0x9c undefined */
+    0,     /* 0x9d undefined */
+    0,     /* 0x9e undefined */
+    0,     /* 0x9f undefined */
+    0x2a,  /* VK_LSHIFT */
+    0x36,  /* VK_RSHIFT */
+    0x1d,  /* VK_LCONTROL */
+    0x11d, /* VK_RCONTROL */
+    0x38,  /* VK_LMENU */
+    0x138, /* VK_RMENU */
+    0,     /* VK_BROWSER_BACK */
+    0,     /* VK_BROWSER_FORWARD */
+    0,     /* VK_BROWSER_REFRESH */
+    0,     /* VK_BROWSER_STOP */
+    0,     /* VK_BROWSER_SEARCH */
+    0,     /* VK_BROWSER_FAVORITES */
+    0,     /* VK_BROWSER_HOME */
+    0x100, /* VK_VOLUME_MUTE */
+    0x100, /* VK_VOLUME_DOWN */
+    0x100, /* VK_VOLUME_UP */
+    0,     /* VK_MEDIA_NEXT_TRACK */
+    0,     /* VK_MEDIA_PREV_TRACK */
+    0,     /* VK_MEDIA_STOP */
+    0,     /* VK_MEDIA_PLAY_PAUSE */
+    0,     /* VK_LAUNCH_MAIL */
+    0,     /* VK_LAUNCH_MEDIA_SELECT */
+    0,     /* VK_LAUNCH_APP1 */
+    0,     /* VK_LAUNCH_APP2 */
+    0,     /* 0xb8 undefined */
+    0,     /* 0xb9 undefined */
+    0x27,  /* VK_OEM_1 */
+    0x0d,  /* VK_OEM_PLUS */
+    0x33,  /* VK_OEM_COMMA */
+    0x0c,  /* VK_OEM_MINUS */
+    0x34,  /* VK_OEM_PERIOD */
+    0x35,  /* VK_OEM_2 */
+    0x29,  /* VK_OEM_3 */
+    0,     /* 0xc1 undefined */
+    0,     /* 0xc2 undefined */
+    0,     /* 0xc3 undefined */
+    0,     /* 0xc4 undefined */
+    0,     /* 0xc5 undefined */
+    0,     /* 0xc6 undefined */
+    0,     /* 0xc7 undefined */
+    0,     /* 0xc8 undefined */
+    0,     /* 0xc9 undefined */
+    0,     /* 0xca undefined */
+    0,     /* 0xcb undefined */
+    0,     /* 0xcc undefined */
+    0,     /* 0xcd undefined */
+    0,     /* 0xce undefined */
+    0,     /* 0xcf undefined */
+    0,     /* 0xd0 undefined */
+    0,     /* 0xd1 undefined */
+    0,     /* 0xd2 undefined */
+    0,     /* 0xd3 undefined */
+    0,     /* 0xd4 undefined */
+    0,     /* 0xd5 undefined */
+    0,     /* 0xd6 undefined */
+    0,     /* 0xd7 undefined */
+    0,     /* 0xd8 undefined */
+    0,     /* 0xd9 undefined */
+    0,     /* 0xda undefined */
+    0x1a,  /* VK_OEM_4 */
+    0x2b,  /* VK_OEM_5 */
+    0x1b,  /* VK_OEM_6 */
+    0x28,  /* VK_OEM_7 */
+    0,     /* VK_OEM_8 */
+    0,     /* 0xe0 undefined */
+    0,     /* VK_OEM_AX */
+    0x56,  /* VK_OEM_102 */
+    0,     /* VK_ICO_HELP */
+    0,     /* VK_ICO_00 */
+    0,     /* VK_PROCESSKEY */
+    0,     /* VK_ICO_CLEAR */
+    0,     /* VK_PACKET */
+    0,     /* 0xe8 undefined */
+    0x71,  /* VK_OEM_RESET */
+    0,     /* VK_OEM_JUMP */
+    0,     /* VK_OEM_PA1 */
+    0,     /* VK_OEM_PA2 */
+    0,     /* VK_OEM_PA3 */
+    0,     /* VK_OEM_WSCTRL */
+    0,     /* VK_OEM_CUSEL */
+    0,     /* VK_OEM_ATTN */
+    0,     /* VK_OEM_FINISH */
+    0,     /* VK_OEM_COPY */
+    0,     /* VK_OEM_AUTO */
+    0,     /* VK_OEM_ENLW */
+    0,     /* VK_OEM_BACKTAB */
+    0,     /* VK_ATTN */
+    0,     /* VK_CRSEL */
+    0,     /* VK_EXSEL */
+    0,     /* VK_EREOF */
+    0,     /* VK_PLAY */
+    0,     /* VK_ZOOM */
+    0,     /* VK_NONAME */
+    0,     /* VK_PA1 */
+    0x59,  /* VK_OEM_CLEAR */
+    0,     /* 0xff undefined */
+};
+
+
+/*
+ * Port of dlls/wineandroid.drv/keyboard.c keyboard_event → desktop event pipe.
+ * Guest process_events reads EVENT_KEYBOARD and NtUserSendHardwareInput(0,…).
+ */
+static int send_keyboard_event(int32_t hwnd, int action, int keycode, int state)
+{
+    uint8_t buf[EVENT_DATA_SIZE];
+    uint64_t hwnd64 = (uint32_t)hwnd;
+    uint32_t evtype = EVENT_KEYBOARD;
+    uint32_t lock_state = (uint32_t)state;
+    uint32_t input_type = WA_INPUT_KEYBOARD;
+    uint16_t vkey;
+    uint16_t scan;
+    uint32_t dw_flags;
+    uint32_t time = 0;
+    uint64_t extra = 0;
+
+    if ((unsigned)keycode >= ARRAY_SIZE(keycode_to_vkey) || !keycode_to_vkey[keycode])
+        return -1;
+
+    vkey = keycode_to_vkey[keycode];
+    if (vkey >= ARRAY_SIZE(vkey_to_scancode)) return -1;
+    scan = vkey_to_scancode[vkey];
+    dw_flags = (scan & 0x100) ? WA_KEYEVENTF_EXTENDEDKEY : 0;
+    if (action == AKEY_EVENT_ACTION_UP) dw_flags |= WA_KEYEVENTF_KEYUP;
+
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf + 0, &evtype, 4);
+    memcpy(buf + 8, &hwnd64, 8);
+    memcpy(buf + 16, &lock_state, 4);
+    memcpy(buf + 24, &input_type, 4);
+    memcpy(buf + 32, &vkey, 2);
+    memcpy(buf + 34, &scan, 2);
+    memcpy(buf + 36, &dw_flags, 4);
+    memcpy(buf + 40, &time, 4);
+    memcpy(buf + 48, &extra, 8);
+    LOGI("keyboard hwnd=%08x action=%d keycode=%d vkey=%x scan=%x meta=%x", hwnd, action,
+         keycode, vkey, scan, state);
     return send_event_bytes(buf, sizeof(buf));
 }
 
@@ -1232,6 +1843,20 @@ Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeSendMotionEvent
     pthread_mutex_lock(&g_lock);
     rc = send_motion_event((int32_t)hwnd, (int)action, (int)x, (int)y, (int)state,
                            (int)vscroll);
+    pthread_mutex_unlock(&g_lock);
+    if (rc != 0) return JNI_FALSE;
+    return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeSendKeyboardEvent(
+    JNIEnv *env, jclass clazz, jint hwnd, jint action, jint keycode, jint state)
+{
+    int rc;
+    (void)env;
+    (void)clazz;
+    pthread_mutex_lock(&g_lock);
+    rc = send_keyboard_event((int32_t)hwnd, (int)action, (int)keycode, (int)state);
     pthread_mutex_unlock(&g_lock);
     if (rc != 0) return JNI_FALSE;
     return JNI_TRUE;

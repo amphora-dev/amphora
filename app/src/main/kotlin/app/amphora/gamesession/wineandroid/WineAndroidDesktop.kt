@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.util.Log
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -30,6 +31,10 @@ import kotlin.math.roundToInt
  * - Touch: [WindowGroup] / [SurfaceView] → [WineAndroidNative.nativeSendMotionEvent]
  *   (MOTION_EVENT on the desktop event pipe). Coords = contentHost-local host px /
  *   [hostScale] → guest desktop px. Not X inject.
+ * - Keys: focusable GDI [WindowGroup] (upstream WineView) + Activity
+ *   dispatchKeyEvent → [WineAndroidNative.nativeSendKeyboardEvent]
+ *   (KEYBOARD_EVENT). Hardware KEYCODE_* / `adb input keyevent|text`. No IME
+ *   InputConnection; CJK composition is a documented gap.
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
@@ -39,7 +44,20 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             addView(it, LayoutParams(0, 0))
         }
 
+    /**
+     * HWND that should own the next KEYBOARD_EVENT (last GDI group that took
+     * a touch, else desktop hwnd). Guest still injects via hwnd 0; this is
+     * for wire/log parity with upstream WineView.
+     */
+    @Volatile private var keyTargetHwnd: Int = 0
+
     private val groups = LinkedHashMap<Key, WindowGroup>()
+
+    init {
+        // Upstream WineView: GDI views are focusable so KeyEvents land here.
+        isFocusable = true
+        isFocusableInTouchMode = true
+    }
 
     /** Guest / Wine desktop size (explorer /desktop=shell,WxH). */
     private var guestDesktopWidth: Int = 0
@@ -64,6 +82,26 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
     fun setDesktopHwnd(hwnd: Int) {
         desktopHwnd = hwnd
+        if (keyTargetHwnd == 0) keyTargetHwnd = hwnd
+    }
+
+    fun sendKeyboardEvent(event: KeyEvent): Boolean {
+        val hwnd = if (keyTargetHwnd != 0) keyTargetHwnd else desktopHwnd
+        val ok =
+            WineAndroidNative.nativeSendKeyboardEvent(
+                hwnd,
+                event.action,
+                event.keyCode,
+                event.metaState,
+            )
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            Log.i(
+                TAG,
+                "key hwnd=$hwnd action=${event.action} keycode=${event.keyCode} " +
+                    "(${KeyEvent.keyCodeToString(event.keyCode)}) meta=${event.metaState} ok=$ok",
+            )
+        }
+        return ok
     }
 
     fun attachWindow(window: WineAndroidWindow, onSurface: (hwnd: Int, surface: Surface?) -> Unit) {
@@ -371,6 +409,9 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         init {
             // Receive taps even though SurfaceView is not clickable by default.
             isClickable = true
+            // Upstream WineView.setFocusable(!client): GDI group takes keys.
+            isFocusable = !window.isClient
+            isFocusableInTouchMode = !window.isClient
             addView(
                 surfaceView,
                 LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
@@ -399,6 +440,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         }
 
         private fun handleTouch(event: MotionEvent): Boolean {
+            if (event.actionMasked == MotionEvent.ACTION_DOWN && !window.isClient) {
+                keyTargetHwnd = window.hwnd
+                requestFocus()
+            }
             val (gx, gy) = guestDesktopPos(event)
             val ok =
                 WineAndroidNative.nativeSendMotionEvent(

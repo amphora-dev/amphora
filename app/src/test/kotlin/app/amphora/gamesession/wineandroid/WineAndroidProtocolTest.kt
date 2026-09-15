@@ -58,6 +58,24 @@ class WineAndroidProtocolTest {
     }
 
     @Test
+    fun keyboardEventWireMatchesWin64KbdLayout() {
+        assertEquals(0, WineAndroidProtocol.INPUT_MOUSE)
+        assertEquals(1, WineAndroidProtocol.INPUT_KEYBOARD)
+        assertEquals(0x0001, WineAndroidProtocol.KEYEVENTF_EXTENDEDKEY)
+        assertEquals(0x0002, WineAndroidProtocol.KEYEVENTF_KEYUP)
+        assertEquals(0, WineAndroidProtocol.KBD_OFF_TYPE)
+        assertEquals(8, WineAndroidProtocol.KBD_OFF_HWND)
+        assertEquals(16, WineAndroidProtocol.KBD_OFF_LOCK_STATE)
+        assertEquals(24, WineAndroidProtocol.KBD_OFF_INPUT_TYPE)
+        assertEquals(32, WineAndroidProtocol.KBD_OFF_WVK)
+        assertEquals(34, WineAndroidProtocol.KBD_OFF_WSCAN)
+        assertEquals(36, WineAndroidProtocol.KBD_OFF_DWFLAGS)
+        assertEquals(40, WineAndroidProtocol.KBD_OFF_TIME)
+        assertEquals(48, WineAndroidProtocol.KBD_OFF_EXTRA)
+        assertEquals(64, WineAndroidProtocol.EVENT_DATA_SIZE)
+    }
+
+    @Test
     fun privateHostOpcodesAreGone() {
         // Reflective guard: no HOST_SURFACE_CHANGED / HOST_DESKTOP_CHANGED constants.
         val names = WineAndroidProtocol::class.java.fields.map { it.name }.toSet()

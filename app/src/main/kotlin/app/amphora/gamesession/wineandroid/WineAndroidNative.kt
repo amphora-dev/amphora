@@ -10,6 +10,9 @@ import android.view.Surface
  * for buffer ioctls and writes SURFACE_CHANGED on the desktop event pipe.
  * [nativeSendMotionEvent] packs MOTION_EVENT + INPUT_MOUSE onto the same pipe
  * (upstream WineView → wine_motion_event).
+ * [nativeSendKeyboardEvent] packs KEYBOARD_EVENT + INPUT_KEYBOARD (upstream
+ * WineView.dispatchKeyEvent → wine_keyboard_event). Hardware KEYCODE_* only;
+ * no InputConnection / IMM32 IME stack.
  */
 object WineAndroidNative {
     init {
@@ -39,5 +42,16 @@ object WineAndroidNative {
         y: Int,
         state: Int,
         vscroll: Int,
+    ): Boolean
+
+    /**
+     * Pack and write a wineandroid KEYBOARD_EVENT (AKEYCODE → vkey/scancode).
+     * @return false if keycode is unmapped or event pipe not ready.
+     */
+    external fun nativeSendKeyboardEvent(
+        hwnd: Int,
+        action: Int,
+        keycode: Int,
+        state: Int,
     ): Boolean
 }

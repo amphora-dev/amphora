@@ -144,13 +144,13 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 
 **PASS 线索**：未知尺寸时有 `defer first register`；随后真实尺寸 register / `firstDone=true`；taskbar 不长期卡 1×1/2×2；无 FATAL/BGRA 闪退。
 
-### 9.2 输入（MOTION）
+### 9.2 输入（MOTION + KEYBOARD）
 
-过滤：`WineAndroidDesktop.*motion`
+过滤：`WineAndroidDesktop.*motion`；`WineAndroidDesktop.*key` / native `keyboard hwnd=`
 
 **PASS 线索**：`motion hwnd=… ok=true`（DOWN/UP）；UI 上可见点击效果（如 winefile / Start）；**不得**走 `XServerInputSink` / `TouchpadView`。
 
-键盘 / IME（`EVENT_KEYBOARD`）可能仍未完成 — 勿勾成已做。
+键盘（硬件 KEYCODE / `adb input keyevent`）：`key hwnd=… ok=true`；native `keyboard hwnd=… vkey=…`。`adb shell input keyevent 29`（A）或 `66`（ENTER）；`adb shell input text hello` 走 KEYCODE 注入。**IME 缺口**：无 InputConnection / IMM32 / CJK composition；Gboard 滑动与候选 commit 不保证。
 
 ### 9.3 产物存放
 
@@ -197,7 +197,7 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 
 ## 12. 默认下一拍（文档顺序，可能随进度变）
 
-1. 壳层输入收尾：键盘 / IME（若 MOTION 已过）
+1. IME 缺口（InputConnection / CJK）仍开；勿当硬件 KEYCODE 未做
 2. 文档与 progress 保持与 HEAD 同步（勿把已做项写成未做）
 3. 多设备 hostScale + DPI 96 真源（`docs/16` TODO）
 4. 可选后置：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9）

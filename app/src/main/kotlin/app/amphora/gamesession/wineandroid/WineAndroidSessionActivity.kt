@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Process
 import android.util.Log
 import android.view.Gravity
+import android.view.KeyEvent
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -59,6 +60,9 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
                 setPadding(32, 32, 32, 64)
                 text = "wineandroid: preparing prefix…"
+                // Do not steal KEYCODE_* from the desktop / GDI WindowGroup.
+                isFocusable = false
+                isFocusableInTouchMode = false
             }
         val root =
             FrameLayout(this).apply {
@@ -79,6 +83,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 )
             }
         setContentView(root)
+        desktop.requestFocus()
 
         hostBridge =
             WineAndroidHostBridge(
@@ -154,6 +159,13 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 statusView.text = "wineandroid prepare failed: ${t.message ?: t.javaClass.simpleName}"
             }
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Same pipe as MOTION: KEYBOARD_EVENT via nativeSendKeyboardEvent.
+        // Unmapped keys (BACK, VOLUME_*) fall through to Android.
+        if (::desktop.isInitialized && desktop.sendKeyboardEvent(event)) return true
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onNewIntent(intent: Intent) {

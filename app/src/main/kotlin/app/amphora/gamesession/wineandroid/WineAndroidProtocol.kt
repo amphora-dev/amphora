@@ -54,4 +54,27 @@ object WineAndroidProtocol {
     const val EVENT_SURFACE_CHANGED = 2
     const val EVENT_MOTION = 3
     const val EVENT_KEYBOARD = 4
+
+    /** Win64 INPUT.type (winuser.h). */
+    const val INPUT_MOUSE = 0
+    const val INPUT_KEYBOARD = 1
+
+    /** Win64 KEYBDINPUT.dwFlags. */
+    const val KEYEVENTF_EXTENDEDKEY = 0x0001
+    const val KEYEVENTF_KEYUP = 0x0002
+
+    /**
+     * Win64 `union event_data.kbd` wire offsets (EVENT_DATA_SIZE = 64).
+     * type@0, hwnd@8, lock_state@16, INPUT.type@24, ki.wVk@32, ki.wScan@34,
+     * dwFlags@36, time@40, dwExtraInfo@48.
+     */
+    const val KBD_OFF_TYPE = 0
+    const val KBD_OFF_HWND = 8
+    const val KBD_OFF_LOCK_STATE = 16
+    const val KBD_OFF_INPUT_TYPE = 24
+    const val KBD_OFF_WVK = 32
+    const val KBD_OFF_WSCAN = 34
+    const val KBD_OFF_DWFLAGS = 36
+    const val KBD_OFF_TIME = 40
+    const val KBD_OFF_EXTRA = 48
 }

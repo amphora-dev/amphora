@@ -64,7 +64,7 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 - [x] `HOST_SURFACE_CHANGED`（100）+ SCM_RIGHTS：`:session` 内 `ANativeWindow_fromSurface`，每 HWND socketpair；wine 端 `register_native_window` 转发 parent，buffer ops 走 native_handle（与 device.c 同合同）。Surface 本身是 Binder，不是 fd。
 - [x] Host IPC：upstream SEQPACKET `\\0\\Device\\WineAndroid`（`a17810b`）已落地；不再阻塞在「unix socket / JNI→ioctl 桥」。
 - [ ] **真机验收（仍开）**：HA262AAH 上显式确认 winefile 窗口可见、可点（shell 出画已通；winefile 可见仍需人工核对）。
-- [ ] 输入走 wineandroid，不注入 X
+- [x] 输入走 wineandroid，不注入 X（MOTION `d3a7bd5` + 硬件 KEYBOARD；IME/中文候选仍开）
 - **验收**：真机 `HA262AAH` 上 winefile 窗口可见、可点；输入经 wineandroid（非 X inject）
 
 ### P2 Vulkan（游戏）
