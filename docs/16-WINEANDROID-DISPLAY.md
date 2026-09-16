@@ -149,7 +149,12 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
    （`WineAndroidGuestResolution.describeDebugDimensionSource`）。配方：
    `/workspace/ha262-resolution-pref-recipe.md`（run-as 写
    `amphora_graphics` / `display_resolution`；**勿**传 WIDTH/HEIGHT）。
-   **真机 PASS 未宣称**（Grok Bot 无 Mac 装机；parent/operator 可冒烟）。
+   **HA262 no-WIDTH pref device PASS**（`26b5c98`，2026-09-16 ~20:05
+   Asia/Shanghai；ART `ha262-resolution-pref-20260916-200528`）：run-as seeded
+   `display_resolution=R1024x768`，cold WINEANDROID 无 WIDTH/HEIGHT 命中
+   `source=pref`，session / `/desktop=shell` 均为 `1024x768`；control launch
+   的 WIDTH=1280、HEIGHT=720 命中 `source=extras`。仅记录 HA262 该设备，
+   不宣称其它设备 PASS。
 4. **WS_VISIBLE / sibling z-order（加固）**：`WineAndroidWindowStack` + Desktop
    sibling 栈；隐窗 removeView；叠窗 `bringChildToFront` 同步。单测
    `WineAndroidWindowStackTest`。

@@ -90,7 +90,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - Debug IME unicode 自动冒烟 **PASS** on `702b165`（MainActivity 冷启 `IME_UNICODE_TEXT`；ART `ha262-ime-unicode-auto-20260916-140749`）
 - Debug IME composing：**cold chip PASS** `01cf904`；**mid-session relay PASS** `fe8f5a2`（~14:22 Asia/Shanghai；ART `ha262-ime-composing-relay-20260916-142224`）
 - **Keyboard chip + IME_SHOW serve-ready PASS** on `c5ede16`（~19:48 Asia/Shanghai；冷启 `IME_SHOW true` → `mInputShown=true` / `show served attempt=0`；chip show/hide；ART Mac `ha262-ime-show-serve-20260916-194731`）
-- DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；`fdda994` no-WIDTH pref + resolve debug log（`source=pref|extras|…`；配方 `/workspace/ha262-resolution-pref-recipe.md`）；**真机 PASS 未宣称**；**第二台/分屏用户已停**
+- DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；`fdda994` no-WIDTH pref + resolve debug log（`source=pref|extras|…`；配方 `/workspace/ha262-resolution-pref-recipe.md`）；**HA262 no-WIDTH pref device PASS** on `26b5c98`（~20:05 Asia/Shanghai；ART `ha262-resolution-pref-20260916-200528`；cold no-WIDTH `R1024x768` / `source=pref`，WIDTH=1280 HEIGHT=720 control `source=extras`）；其它设备不宣称；**第二台/分屏用户已停**
 - WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`（隐窗 removeView + sync bringToFront）；**HA262 stack smoke PASS**（~16:48 Asia/Shanghai；ART `ha262-window-stack-20260916-164730`）；重叠 z-order 人工眼验仍可选；debug `DUMP_ZORDER` / `ZORDER_TOP_HWND`；**HA262 helper log PASS** on `d0bdcb7`（~20:01 Asia/Shanghai；ART `ha262-zorder-dump-20260916-200032`；**非**眼验 PASS）
 - **sensorLandscape** 会话锁：`a4cd0c0`；**HA262 PASS**（~17:40 Asia/Shanghai；portrait-locked → `SENSOR_LANDSCAPE`，ROTATION_90 **3040×1904**，hostScale **2.375**）
 - **setCapture / setCursor** 壳层接线：capture HWND 路由 MOTION；PointerIcon 隐藏/系统/自定义 bits（无独立 cursor overlay）；debug `CAPTURE_HWND` 注入；**HA262 CAPTURE_HWND inject routing PASS** on `82bf652`（~19:52 Asia/Shanghai；ART Mac `ha262-capture-inject-20260916-195128`）；可选 title-bar 真 IOCTL_SET_CAPTURE 眼验仍可选
@@ -230,7 +230,10 @@ PASS** `fe8f5a2` + **keyboard chip + IME_SHOW serve-ready PASS** @ `c5ede16`
 **无** tap/focus 自动弹出，仅显式 chip / letterbox 长按 / `IME_SHOW` /
 `showSoftKeyboard`）；DPI 96；hostScale 多分辨率单测（`034b38e`）+ HA262 旋转已验；
 guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestResolution`）+
-no-WIDTH pref resolve log（配方 `/workspace/ha262-resolution-pref-recipe.md`；真机 PASS 未宣称）；
+no-WIDTH pref resolve log；**HA262 no-WIDTH pref device PASS** @ `26b5c98`
+（~20:05 Asia/Shanghai；ART `ha262-resolution-pref-20260916-200528`；cold
+no-WIDTH `R1024x768` / `source=pref`，WIDTH=1280 HEIGHT=720 control
+`source=extras`；其它设备不宣称）；
 游戏轨 AHB 已合入 `proton_11.0` @ `0a64ebc`，WCP 已发，HA262 Present **v10 PASS**
 （壳层当时 HEAD `728f3db`，~16:50 Asia/Shanghai；ART
 `ci-present-20260916-165016-v10-reg`）；**sensorLandscape PASS** @ `a4cd0c0`
@@ -242,26 +245,18 @@ routing PASS** @ `82bf652`（~19:52 Asia/Shanghai；ART Mac
 
 **IME / soft-IME 入口轨**：已关（除可选 CJK composing/commit 眼验）。
 
-**本拍优先 / 仍开：**
+**本拍优先 / 仍开（仅可选眼验）：**
 
 1. **壳层叠窗（已关自动化刀）**：WS_VISIBLE / sibling z-order log smoke **PASS**
    @ `4d3d976`；**DUMP_ZORDER / ZORDER_TOP_HWND helper log PASS** @ `d0bdcb7`
    （~20:01；ART `ha262-zorder-dump-20260916-200032`）。**仍开（可选）**：重叠
    HWND **人工眼验**（helper log ≠ 眼验；配方
    `/workspace/ha262-zorder-dump-recipe.md`）。
-2. **guest 分辨率 no-WIDTH pref**：resolve 路径 `fdda994`；本拍加
-   `guest resolution resolve source=…` debug log +
-   `/workspace/ha262-resolution-pref-recipe.md`（run-as 写 pref）。**真机 PASS
-   未宣称** — Mac/operator 冒烟后可记 PASS；Grok Bot **勿**宣称。
-3. **可选眼验（壳层 backlog 已薄）**：
-   - soft IME **CJK** composing chip + commit（勿发明 IMM32/TSF）
-   - title-bar 真 `IOCTL_SET_CAPTURE` + cursor hide/arrow（`CAPTURE_HWND`
-     routing **已 PASS** @ `82bf652`；勿再垫 inject；配方
-     `/workspace/ha262-capture-inject-recipe.md` /
-     `/workspace/ha262-capture-cursor-smoke-recipe.md`）
-   - 重叠 HWND z-order 人工眼验（见上）
-   BACK/VOLUME intentional-host **已 PASS** @ `02d04e1`（勿再垫；配方
-   `/workspace/ha262-back-passthrough-recipe.md`，**先 tap Desktop**）。
+2. **可选眼验**：title-bar 真 `IOCTL_SET_CAPTURE` + cursor hide/arrow
+   （`CAPTURE_HWND` routing **已 PASS** @ `82bf652`；勿再垫 inject；配方
+   `/workspace/ha262-capture-inject-recipe.md` /
+   `/workspace/ha262-capture-cursor-smoke-recipe.md`）。
+3. **可选眼验**：soft IME **CJK** composing chip + commit（勿发明 IMM32/TSF）。
    docs/17 上游借项壳层面已齐；无新 Present/分屏/TextureView/BGRA/IMM32 刀。
 
 **已停 / 勿排下一拍**：第二台真机 / 分屏 / hostScale 双机（用户 2026-09-16 停）。
