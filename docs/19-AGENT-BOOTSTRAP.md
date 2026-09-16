@@ -91,7 +91,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - Debug IME composing：**cold chip PASS** `01cf904`；**mid-session relay PASS** `fe8f5a2`（~14:22 Asia/Shanghai；ART `ha262-ime-composing-relay-20260916-142224`）
 - **Keyboard chip + IME_SHOW serve-ready PASS** on `c5ede16`（~19:48 Asia/Shanghai；冷启 `IME_SHOW true` → `mInputShown=true` / `show served attempt=0`；chip show/hide；ART Mac `ha262-ime-show-serve-20260916-194731`）
 - DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；`fdda994` no-WIDTH pref；**第二台/分屏用户已停**
-- WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`（隐窗 removeView + sync bringToFront）；**HA262 stack smoke PASS**（~16:48 Asia/Shanghai；ART `ha262-window-stack-20260916-164730`）；重叠 z-order 人工眼验仍可选；debug `DUMP_ZORDER` / `ZORDER_TOP_HWND` + overlap sync 日志（`WineAndroidDebugZOrderInject`）便于眼验
+- WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`（隐窗 removeView + sync bringToFront）；**HA262 stack smoke PASS**（~16:48 Asia/Shanghai；ART `ha262-window-stack-20260916-164730`）；重叠 z-order 人工眼验仍可选；debug `DUMP_ZORDER` / `ZORDER_TOP_HWND`；**HA262 helper log PASS** on `d0bdcb7`（~20:01 Asia/Shanghai；ART `ha262-zorder-dump-20260916-200032`；**非**眼验 PASS）
 - **sensorLandscape** 会话锁：`a4cd0c0`；**HA262 PASS**（~17:40 Asia/Shanghai；portrait-locked → `SENSOR_LANDSCAPE`，ROTATION_90 **3040×1904**，hostScale **2.375**）
 - **setCapture / setCursor** 壳层接线：capture HWND 路由 MOTION；PointerIcon 隐藏/系统/自定义 bits（无独立 cursor overlay）；debug `CAPTURE_HWND` 注入；**HA262 CAPTURE_HWND inject routing PASS** on `82bf652`（~19:52 Asia/Shanghai；ART Mac `ha262-capture-inject-20260916-195128`）；可选 title-bar 真 IOCTL_SET_CAPTURE 眼验仍可选
 - **BACK / VOLUME_* 故意宿主穿透 PASS**：`WineAndroidKeyPassThrough` + Desktop `passThrough=intentional-host`；**HA262 PASS** on `02d04e1`（~19:57 Asia/Shanghai；tap Desktop 获焦后 keyevent；A ok=true；VOLUME/BACK intentional-host；BACK finish→MainActivity；ART Mac `ha262-back-passthrough-20260916-195631`）；native 仍 `keycode_to_vkey==0`（勿发明 guest vkey）
@@ -168,11 +168,14 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 **HA262 window-stack smoke PASS** on `4d3d976`（2026-09-16 ~16:48 Asia/Shanghai）：
 session 1280×720；first register（desktop/taskbar/windows）；`windowPosChanged`
 带 `style=`；无 FATAL。ART（Mac）：`smoke-artifacts/ha262-window-stack-20260916-164730`。
-**仍开（可选）**：重叠 HWND z-order 人工眼验。Debug：`--ez app.amphora.debug.DUMP_ZORDER true`
-（冷启 MainActivity 或中途 Relay）见 Desktop `zorder dump parentKey=… topFirst=[…]`
-（`*`=visible）；`--ei app.amphora.debug.ZORDER_TOP_HWND N` 强制 HWND_TOP 后 dump。
-≥2 visible siblings 时自然 sync 也会打 `zorder sync …`。配方：
-`/workspace/ha262-zorder-dump-recipe.md`。Grok Bot **不**宣称眼验 PASS。
+**HA262 DUMP_ZORDER / ZORDER_TOP_HWND helper log PASS** on `d0bdcb7`
+（2026-09-16 ~20:01 Asia/Shanghai）：Relay dump `parentKey=-3, 0, 196660` topFirst +
+`*` visible；natural `zorder sync reason=apply` ≥2 siblings；`ZORDER_TOP_HWND`
+131156/`0x20054` → `zorder top inject hwnd=0x20054` + dump keeps `0x20054*` front
+of `parentKey=0`。ART：`ha262-zorder-dump-20260916-200032`。
+**这是 helper log PASS**，**非**视觉重叠眼验。**仍开（可选）**：人工眼验。
+Debug：`--ez …DUMP_ZORDER true` / `--ei …ZORDER_TOP_HWND N`（冷启或 Relay）。
+配方：`/workspace/ha262-zorder-dump-recipe.md`。
 
 ### 9.4 产物存放
 
@@ -234,28 +237,26 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
 壳层接线（capture 路由 + PointerIcon；无 cursor overlay）；**CAPTURE_HWND inject
 routing PASS** @ `82bf652`（~19:52 Asia/Shanghai；ART Mac
 `ha262-capture-inject-20260916-195128`；`-1`→desktop、swipe routed、`0` release、relay 再捕获）；
-**BACK/VOLUME intentional-host PASS** @ `02d04e1`（~19:57 Asia/Shanghai；ART Mac `ha262-back-passthrough-20260916-195631`；tap Desktop 获焦后 A ok=true；VOLUME/BACK `passThrough=intentional-host`；BACK finish→MainActivity）；Debug **DUMP_ZORDER / ZORDER_TOP_HWND**（重叠眼验辅助；未宣称 PASS）。
+**BACK/VOLUME intentional-host PASS** @ `02d04e1`（~19:57 Asia/Shanghai；ART Mac `ha262-back-passthrough-20260916-195631`；tap Desktop 获焦后 A ok=true；VOLUME/BACK `passThrough=intentional-host`；BACK finish→MainActivity）；**DUMP_ZORDER / ZORDER_TOP_HWND helper log PASS** @ `d0bdcb7`（~20:01 Asia/Shanghai；ART `ha262-zorder-dump-20260916-200032`；**非**眼验 PASS）。
 
 **IME / soft-IME 入口轨**：已关（除可选 CJK composing/commit 眼验）。
 
 **本拍优先 / 仍开：**
 
-1. **壳层叠窗（log smoke 已 PASS）**：WS_VISIBLE / sibling z-order @ `4d3d976`
-   （session 1280×720；first register；`windowPosChanged`+`style=`；无 FATAL；
-   ART `ha262-window-stack-20260916-164730`）。**仍开（可选）**：重叠 HWND
-   z-order **人工眼验**（debug dump/top 已落地，见 §9.3 /
-   `/workspace/ha262-zorder-dump-recipe.md`；未宣称 PASS）；guest 分辨率
-   no-WIDTH pref（`fdda994`）真机 PASS 未宣称。
-2. **可选**：真机 soft IME **CJK** 眼验 composing chip + commit（勿发明 IMM32/TSF；
+1. **壳层叠窗**：WS_VISIBLE / sibling z-order log smoke **PASS** @ `4d3d976`；
+   **DUMP_ZORDER / ZORDER_TOP_HWND helper log PASS** @ `d0bdcb7`（~20:01；ART
+   `ha262-zorder-dump-20260916-200032`）。**仍开（可选）**：重叠 HWND **人工眼验**
+   （helper log ≠ 眼验；配方 `/workspace/ha262-zorder-dump-recipe.md`）。
+2. **本拍优先**：guest 分辨率 no-WIDTH pref（`fdda994` 已合入）— 加 resolved WxH
+   debug log + run-as pref 冒烟配方，使 HA262 可稳定验；**勿宣称真机 PASS** 直至
+   Mac/operator 跑通。
+3. **可选**：真机 soft IME **CJK** 眼验 composing chip + commit（勿发明 IMM32/TSF；
    composition 已 host-local）。软键盘入口 / `IME_SHOW` serve-ready **已 PASS**，
    勿再垫 soft-IME 弹出刀。
-3. **可选**：title-bar 真 `IOCTL_SET_CAPTURE` 眼验 + cursor hide/arrow（debug
+4. **可选**：title-bar 真 `IOCTL_SET_CAPTURE` 眼验 + cursor hide/arrow（debug
    `CAPTURE_HWND` **routing 已 PASS** @ `82bf652`；勿再垫 inject 刀）。配方：
    `/workspace/ha262-capture-inject-recipe.md`（已验）；旧
    `/workspace/ha262-capture-cursor-smoke-recipe.md`（title-bar 手工）。
-4. **可选**：重叠 HWND z-order **人工眼验**（log smoke 已 PASS；debug dump/top
-   inject 已落地 — 配方 `/workspace/ha262-zorder-dump-recipe.md`；Grok Bot **不**
-   宣称眼验 PASS）。guest 分辨率 no-WIDTH pref（`fdda994`）真机 PASS 仍未宣称。
    BACK/VOLUME intentional-host **已 PASS** @ `02d04e1`（勿再垫）；配方保留：
    `/workspace/ha262-back-passthrough-recipe.md`（**先 tap Desktop**）。
 

@@ -153,9 +153,14 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
    taskbar / windows）；`windowPosChanged` 带 `style=`；无 FATAL。
    ART（Mac）：`smoke-artifacts/ha262-window-stack-20260916-164730`。
    **仍开（可选）**：重叠 HWND z-order **人工眼验**（非自动化）。
-   Debug 辅助（本拍）：`DUMP_ZORDER` / `ZORDER_TOP_HWND` + Desktop sync 日志
-   （≥2 visible siblings → `zorder sync …`）；配方
-   `/workspace/ha262-zorder-dump-recipe.md`。Grok Bot **不**宣称眼验 PASS。
+   **HA262 DUMP_ZORDER / ZORDER_TOP_HWND helper log PASS**（`d0bdcb7`，2026-09-16
+   ~20:01 Asia/Shanghai）：Relay `DUMP_ZORDER` → dumps `parentKey=-3, 0, 196660`
+   topFirst lists with `*` visible marks；natural `zorder sync reason=apply` with
+   ≥2 siblings；`ZORDER_TOP_HWND` 131156 (`0x20054`) →
+   `zorder top inject hwnd=0x20054` + sync；dump keeps `0x20054*` at front of
+   `parentKey=0`。ART：`ha262-zorder-dump-20260916-200032`。
+   **这是 debug helper log PASS**，**非**视觉重叠眼验 PASS；可选眼验仍开。
+   配方：`/workspace/ha262-zorder-dump-recipe.md`。
 5. **非目标**：不另造第二套桌面模型；不改 Present/AHB / TextureView / BGRA / IMM32；
    **不做分屏 / 第二台 hostScale**（用户已停）。
 
