@@ -94,7 +94,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`（隐窗 removeView + sync bringToFront）；**HA262 stack smoke PASS**（~16:48 Asia/Shanghai；ART `ha262-window-stack-20260916-164730`）；重叠 z-order 人工眼验仍可选
 - **sensorLandscape** 会话锁：`a4cd0c0`；**HA262 PASS**（~17:40 Asia/Shanghai；portrait-locked → `SENSOR_LANDSCAPE`，ROTATION_90 **3040×1904**，hostScale **2.375**）
 - **setCapture / setCursor** 壳层接线：capture HWND 路由 MOTION；PointerIcon 隐藏/系统/自定义 bits（无独立 cursor overlay）；debug `CAPTURE_HWND` 注入；**HA262 CAPTURE_HWND inject routing PASS** on `82bf652`（~19:52 Asia/Shanghai；ART Mac `ha262-capture-inject-20260916-195128`）；可选 title-bar 真 IOCTL_SET_CAPTURE 眼验仍可选
-- **BACK / VOLUME_* 故意宿主穿透**：`WineAndroidKeyPassThrough` + Desktop `passThrough=intentional-host` 日志；native 仍 `keycode_to_vkey==0`（勿发明 guest vkey）
+- **BACK / VOLUME_* 故意宿主穿透 PASS**：`WineAndroidKeyPassThrough` + Desktop `passThrough=intentional-host`；**HA262 PASS** on `02d04e1`（~19:57 Asia/Shanghai；tap Desktop 获焦后 keyevent；A ok=true；VOLUME/BACK intentional-host；BACK finish→MainActivity；ART Mac `ha262-back-passthrough-20260916-195631`）；native 仍 `keycode_to_vkey==0`（勿发明 guest vkey）
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
 游戏轨：
@@ -161,7 +161,7 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 
 **PASS 线索**：`motion hwnd=… ok=true`（DOWN/UP）；UI 上可见点击效果（如 winefile / Start）；**不得**走 `XServerInputSink` / `TouchpadView`。
 
-键盘（硬件 KEYCODE / `adb input keyevent`）：`key hwnd=… ok=true`；native `keyboard hwnd=… vkey=…`。`adb shell input keyevent 29`（A）或 `66`（ENTER）；`adb shell input text hello` 走 KEYCODE 注入。Soft IME：**不**随 tap/focus 自动弹出（策略：显式 chip `content-desc=wineandroid keyboard` / letterbox 长按 / `IME_SHOW` / `showSoftKeyboard` only）；commit ASCII 应见同样 `key hwnd=…`；CJK commit 应见 `IME unicode` + native `keyboard unicode uchar=`。**Debug unicode 自动冒烟 PASS**（`702b165`）。**Cold composing chip PASS**（`01cf904`）。**Mid-session composing relay PASS**（`fe8f5a2`）。**Keyboard chip + IME_SHOW serve-ready PASS**（`c5ede16`，~19:48 Asia/Shanghai；ART Mac `ha262-ime-show-serve-20260916-194731`）。**仍开（可选）**：真机 CJK soft IME 眼验 composing chip（`adb input text` 仅 ASCII）。
+键盘（硬件 KEYCODE / `adb input keyevent`）：`key hwnd=… ok=true`；native `keyboard hwnd=… vkey=…`。`adb shell input keyevent 29`（A）或 `66`（ENTER）；`adb shell input text hello` 走 KEYCODE 注入。Soft IME：**不**随 tap/focus 自动弹出（策略：显式 chip `content-desc=wineandroid keyboard` / letterbox 长按 / `IME_SHOW` / `showSoftKeyboard` only）；commit ASCII 应见同样 `key hwnd=…`；CJK commit 应见 `IME unicode` + native `keyboard unicode uchar=`。**Debug unicode 自动冒烟 PASS**（`702b165`）。**Cold composing chip PASS**（`01cf904`）。**Mid-session composing relay PASS**（`fe8f5a2`）。**Keyboard chip + IME_SHOW serve-ready PASS**（`c5ede16`，~19:48 Asia/Shanghai；ART Mac `ha262-ime-show-serve-20260916-194731`）。**BACK/VOLUME intentional-host PASS**（`02d04e1`，~19:57；先 tap Desktop；ART Mac `ha262-back-passthrough-20260916-195631`）。**仍开（可选）**：真机 CJK soft IME 眼验 composing chip（`adb input text` 仅 ASCII）。
 
 ### 9.3 壳层 WS_VISIBLE / sibling z-order
 
@@ -230,7 +230,7 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
 壳层接线（capture 路由 + PointerIcon；无 cursor overlay）；**CAPTURE_HWND inject
 routing PASS** @ `82bf652`（~19:52 Asia/Shanghai；ART Mac
 `ha262-capture-inject-20260916-195128`；`-1`→desktop、swipe routed、`0` release、relay 再捕获）；
-**BACK/VOLUME 故意宿主穿透**（`WineAndroidKeyPassThrough`；日志 `passThrough=intentional-host`）。
+**BACK/VOLUME intentional-host PASS** @ `02d04e1`（~19:57 Asia/Shanghai；ART Mac `ha262-back-passthrough-20260916-195631`；tap Desktop 获焦后 A ok=true；VOLUME/BACK `passThrough=intentional-host`；BACK finish→MainActivity）。
 
 **IME / soft-IME 入口轨**：已关（除可选 CJK composing/commit 眼验）。
 
@@ -247,10 +247,10 @@ routing PASS** @ `82bf652`（~19:52 Asia/Shanghai；ART Mac
    `CAPTURE_HWND` **routing 已 PASS** @ `82bf652`；勿再垫 inject 刀）。配方：
    `/workspace/ha262-capture-inject-recipe.md`（已验）；旧
    `/workspace/ha262-capture-cursor-smoke-recipe.md`（title-bar 手工）。
-4. **可选**：Mac/HA262 冒烟 BACK pass-through — `adb shell input keyevent 4` 见
-   Desktop `ok=false passThrough=intentional-host`，无 native `keyboard … vkey=`
-   for BACK；Activity 可 finish（宿主拥有）。配方：
-   `/workspace/ha262-back-passthrough-recipe.md`。Grok Bot **不**宣称设备 PASS。
+4. **可选**：重叠 HWND z-order **人工眼验**（log smoke 已 PASS；见 §9.3 /
+   window-stack 配方）。guest 分辨率 no-WIDTH pref（`fdda994`）真机 PASS 仍未宣称。
+   BACK/VOLUME intentional-host **已 PASS** @ `02d04e1`（勿再垫）；配方保留：
+   `/workspace/ha262-back-passthrough-recipe.md`（**先 tap Desktop**）。
 
 **已停 / 勿排下一拍**：第二台真机 / 分屏 / hostScale 双机（用户 2026-09-16 停）。
 
