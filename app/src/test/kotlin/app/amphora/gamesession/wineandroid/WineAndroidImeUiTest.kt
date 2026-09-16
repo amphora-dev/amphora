@@ -45,4 +45,10 @@ class WineAndroidImeUiTest {
         assertFalse(WineAndroidImeUi.shouldShowComposingOverlay(state))
         assertEquals("", WineAndroidImeUi.composingOverlayText(state))
     }
+
+    @Test
+    fun touchDoesNotAutoShowSoftKeyboard() {
+        // Default policy: no IME on every desktop/chrome tap (HA262 immersive).
+        assertFalse(WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch())
+    }
 }

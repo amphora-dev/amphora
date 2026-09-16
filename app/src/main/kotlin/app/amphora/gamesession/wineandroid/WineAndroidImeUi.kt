@@ -31,4 +31,19 @@ object WineAndroidImeUi {
     /** Text for the host composing chip (empty when hidden). */
     fun composingOverlayText(state: ImeUiState): String =
         if (shouldShowComposingOverlay(state)) state.composingText else ""
+
+    /**
+     * Soft-IME auto-show policy for pointer DOWN on a GDI [WindowGroup].
+     *
+     * Always false: tapping the desktop/chrome must not pop the soft keyboard
+     * (HA262 immersive smoke: IME covering half the screen). Touch still sets
+     * key-target / focus for hardware keys. There is no reliable guest
+     * "text field focused" signal yet, so prefer no auto-show.
+     *
+     * Callers that need IME use [WineAndroidDesktop.showSoftKeyboard] explicitly
+     * (GameSession drawer "Show keyboard", future overlay / long-press).
+     * [WineAndroidDesktop.onCheckIsTextEditor] stays true so the system/user
+     * can still request IME when appropriate.
+     */
+    fun shouldAutoShowSoftKeyboardOnTouch(): Boolean = false
 }

@@ -204,6 +204,9 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        if (::desktop.isInitialized) {
+            desktop.hideSoftKeyboard()
+        }
         restoreSystemBars()
         super.onPause()
     }

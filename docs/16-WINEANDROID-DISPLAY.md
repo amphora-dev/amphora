@@ -147,7 +147,7 @@ destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边
 
 | 文件 | 职责 |
 |------|------|
-| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit + host composing；`setCapture` / `setCursor`（PointerIcon） |
+| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit + host composing；软键盘默认不随触摸弹出（显式 `showSoftKeyboard`）；`setCapture` / `setCursor`（PointerIcon） |
 | `WineAndroidCaptureTarget.kt` | capture vs hit-test HWND 纯选择（单测） |
 | `WineAndroidCursorSpec.kt` | setCursor 载荷 → System / Custom 分类（单测） |
 | `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点交给 `nativeSendUnicodeChar` |
@@ -166,7 +166,8 @@ destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边
 
 硬件 / `adb input keyevent` / `adb input text`（KEYCODE 注入）与 soft IME **commit** 都走与 MOTION 同一条 desktop event pipe（`nativeSendKeyboardEvent` / `nativeSendUnicodeChar`）。
 
-- **IME commit 已落地**：`WineAndroidDesktop` 实现 `onCreateInputConnection` → 复用 `WineInputConnection`；committed ASCII/Latin 经 `KeyCharacterMap`（`VIRTUAL_KEYBOARD`）映射为 KeyEvent 再 `sendKeyboardEvent`。删除 / EditorAction(ENTER) / `onSendKeyEvent` 同管。触摸设 `keyTargetHwnd` 后 `showSoftKeyboard()`。
+- **IME commit 已落地**：`WineAndroidDesktop` 实现 `onCreateInputConnection` → 复用 `WineInputConnection`；committed ASCII/Latin 经 `KeyCharacterMap`（`VIRTUAL_KEYBOARD`）映射为 KeyEvent 再 `sendKeyboardEvent`。删除 / EditorAction(ENTER) / `onSendKeyEvent` 同管。
+- **软键盘策略（默认不自动弹出）**：触摸 DOWN 只设 `keyTargetHwnd` + `requestFocus`（硬件键），**不**调用 `showSoftKeyboard()`（`WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch() == false`）。无可靠 guest「文本框获焦」信号前，避免桌面/chrome 每点都弹 IME（HA262 沉浸冒烟曾半屏遮挡）。需要时显式调 `WineAndroidDesktop.showSoftKeyboard()`（同 TouchpadView / GameSession drawer「Show keyboard」）；`onCheckIsTextEditor` 仍为 true，系统/用户仍可拉起 IME。`hideSoftKeyboard()` 在 session `onPause` / 窗口失焦时调用。
 - **CJK/unicode commit 已落地**：`KeyCharacterMap` 无法映射的码点经 `nativeSendUnicodeChar` → 同 pipe 的 `KEYEVENTF_UNICODE`（BMP 一 wchar；补充平面 UTF-16 代理对两次 unicode 事件；各 down+up）。Guest 侧仍是 `NtUserSendHardwareInput`，**不做** IMM32/TSF。
 - **Debug IME 注入（HA262 冒烟）**：debuggable 下 `--es app.amphora.debug.IME_UNICODE_TEXT '中文A'`（MainActivity **冷启**转发；**中途**用 debug-only 导出 `WineAndroidDebugImeRelayActivity` → 同 UID `startActivity` 非导出 Session → `onNewIntent`）。勿直接 `am start` Session（SecurityException）；勿指望中途 `am start MainActivity`（Session 在上，只把 task 拉前台）。`WineAndroidDesktop.injectCommittedTextForDebug` 走与 soft IME 相同的 commit 路径；日志 `IME unicode inject …` + Desktop `IME unicode hwnd=…` + HostIpc `keyboard unicode …`。
 - **HA262 unicode 自动冒烟 PASS**（`702b165`，2026-09-16 ~14:08 Asia/Shanghai）：MainActivity 冷启

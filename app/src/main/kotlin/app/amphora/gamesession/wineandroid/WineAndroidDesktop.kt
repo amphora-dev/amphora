@@ -47,6 +47,10 @@ import kotlin.math.roundToInt
  *   Unmapped code points (CJK / emoji) → [nativeSendUnicodeChar]
  *   (KEYEVENTF_UNICODE on EVENT_KEYBOARD). Composition stays host-local
  *   ([ImeUiState] chip); no IMM32/TSF into guest.
+ *   **Policy**: touch DOWN does **not** auto-show IME
+ *   ([WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch] = false); only
+ *   [showSoftKeyboard] (explicit UI) or system/user IMM request
+ *   ([onCheckIsTextEditor] = true). [hideSoftKeyboard] on pause / focus loss.
  *   Debug: [injectCommittedTextForDebug] reuses the same commit path (HA262 smoke).
  * - Style / z-order: [WineAndroidWindowStack] tracks WS_VISIBLE + sibling order;
  *   invisible HWND groups are removed from the parent (upstream add/remove), and
@@ -319,7 +323,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         }
     }
 
-    /** Request focus + show soft keyboard (TouchpadView-light pattern). */
+    /**
+     * Explicit soft-IME show (TouchpadView / GameSession drawer pattern).
+     * Not called from touch DOWN — see [WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch].
+     */
     fun showSoftKeyboard() {
         requestFocus()
         val imm = context.getSystemService(InputMethodManager::class.java)
@@ -327,6 +334,24 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         post {
             requestFocus()
             imm?.showSoftInput(this, 0)
+            updateImeUiState(keyboardVisible = true)
+        }
+    }
+
+    /** Hide soft IME + clear host composing (TouchpadView.dismissSoftKeyboard-light). */
+    fun hideSoftKeyboard() {
+        val imm = context.getSystemService(InputMethodManager::class.java)
+        imm?.hideSoftInputFromWindow(windowToken, 0)
+        updateImeUiState(composingText = "", keyboardVisible = false)
+        if (isAttachedToWindow) {
+            imm?.restartInput(this)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) {
+            hideSoftKeyboard()
         }
     }
 
@@ -752,7 +777,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                 keyTargetHwnd = targetHwnd
                 requestFocus()
                 // Soft IME lives on the desktop root (InputConnection), not the group.
-                this@WineAndroidDesktop.showSoftKeyboard()
+                // Do not auto-show on every tap — explicit [showSoftKeyboard] / IMM only.
+                if (WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch()) {
+                    this@WineAndroidDesktop.showSoftKeyboard()
+                }
             }
             val (gx, gy) = guestDesktopPos(event)
             val ok =
