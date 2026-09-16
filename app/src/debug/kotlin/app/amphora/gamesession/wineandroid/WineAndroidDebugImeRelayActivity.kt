@@ -6,7 +6,7 @@ import android.os.Bundle
 import android.util.Log
 
 /**
- * Debug-only exported relay for mid-session IME unicode/composing inject via adb.
+ * Debug-only exported relay for mid-session IME / capture inject via adb.
  *
  * Cold start still uses [app.amphora.MainActivity] + `WINEANDROID`. Mid-session
  * `am start MainActivity` with Session on top only brings the task forward and
@@ -15,7 +15,8 @@ import android.util.Log
  * the non-exported Session from this relay delivers onNewIntent.
  *
  * Clear composing with `--esn app.amphora.debug.IME_COMPOSING_TEXT` (Android
- * shell rejects `--es … ''`).
+ * shell rejects `--es … ''`). Capture: `--ei app.amphora.debug.CAPTURE_HWND N`
+ * (`0` release; `-1` = desktop hwnd).
  */
 class WineAndroidDebugImeRelayActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,8 +50,17 @@ class WineAndroidDebugImeRelayActivity : Activity() {
                 imeShowPresent = imeShowPresent,
                 imeShowValue = imeShowValue,
             )
-        if (unicode == null && composing == null && showIme == null) {
-            Log.w(TAG, "No IME unicode/composing/show extras; finishing")
+        val capturePresent =
+            intent.hasExtra(WineAndroidDebugCaptureInject.EXTRA_CAPTURE_HWND)
+        val captureValue =
+            intent.getIntExtra(WineAndroidDebugCaptureInject.EXTRA_CAPTURE_HWND, 0)
+        val captureHwnd =
+            WineAndroidDebugCaptureInject.relayForward(
+                capturePresent = capturePresent,
+                captureValue = captureValue,
+            )
+        if (unicode == null && composing == null && showIme == null && captureHwnd == null) {
+            Log.w(TAG, "No IME/capture extras; finishing")
             finish()
             return
         }
@@ -59,9 +69,9 @@ class WineAndroidDebugImeRelayActivity : Activity() {
             TAG,
             "Forwarding to WineAndroidSessionActivity unicode=${unicode != null} " +
                 "composingPresent=${composing != null} composingLen=${composing?.length} " +
-                "imeShow=$showIme",
+                "imeShow=$showIme captureHwnd=$captureHwnd",
         )
-        // Empty exePath is fine: Session onNewIntent only applies IME inject;
+        // Empty exePath is fine: Session onNewIntent only applies debug inject;
         // if no session exists, onCreate with empty exe is a no-op smoke fail.
         startActivity(
             WineAndroidSessionActivity.intent(
@@ -70,6 +80,7 @@ class WineAndroidDebugImeRelayActivity : Activity() {
                 debugImeUnicodeText = unicode,
                 debugImeComposingText = composing,
                 debugImeShow = showIme,
+                debugCaptureHwnd = captureHwnd,
             ),
         )
         finish()

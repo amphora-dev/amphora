@@ -79,6 +79,12 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 null
                             },
+                        debugCaptureHwnd =
+                            if (intent.hasExtra(EXTRA_DEBUG_CAPTURE_HWND)) {
+                                intent.getIntExtra(EXTRA_DEBUG_CAPTURE_HWND, 0)
+                            } else {
+                                null
+                            },
                     )
                 }
             }
@@ -109,6 +115,12 @@ class MainActivity : ComponentActivity() {
 
         /** Debug-only: explicit soft IME show/hide (`--ez … true|false`). */
         private const val EXTRA_DEBUG_IME_SHOW = "app.amphora.debug.IME_SHOW"
+
+        /**
+         * Debug-only: force host SetCapture hwnd (`--ei … N`).
+         * `0` releases; `-1` = desktop hwnd sentinel.
+         */
+        private const val EXTRA_DEBUG_CAPTURE_HWND = "app.amphora.debug.CAPTURE_HWND"
 
         /** Debug-only: force legacy Java X11 SessionActivity. */
         private const val EXTRA_DEBUG_X11 = "app.amphora.debug.X11"

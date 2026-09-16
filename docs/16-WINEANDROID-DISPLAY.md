@@ -89,6 +89,14 @@ destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边
    View.`pointerIcon` 应用到 WindowGroup / SurfaceView。分类纯逻辑
    `WineAndroidCursorSpec` + 单测。
 
+**Debug `CAPTURE_HWND`（本拍）**：debuggable 下 `--ei app.amphora.debug.CAPTURE_HWND N`
+（MainActivity 冷启；中途 → `WineAndroidDebugImeRelayActivity`）强制宿主
+`setCapture`，**不**依赖 guest title-bar `IOCTL_SET_CAPTURE`。`0` = release；
+`-1` = desktop hwnd sentinel（desktop 未就绪则 defer）。日志
+`capture inject scheduled` + Desktop `capture inject requested=… resolved=…` /
+`capture hwnd=…`。冒烟时 adb swipe 越过 hit-test 仍应见
+`motion hwnd=<capture> capture=<same>`。配方：`/workspace/ha262-capture-inject-recipe.md`。
+
 **推迟**
 
 - 独立自定义光标 overlay View / Vulkan 合成光标层（SurfaceView 路径用
@@ -153,6 +161,7 @@ destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边
 | `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点交给 `nativeSendUnicodeChar` |
 | `WineAndroidImeUi.kt` | 纯 `ImeUiState` reducer + composing chip 可见性 + 软键盘 chip 文案/`toggleImeWanted`（单测） |
 | `WineAndroidDebugImeInject.kt` | debug-only extras `IME_UNICODE_TEXT` + `IME_COMPOSING_TEXT` + `IME_SHOW`（`FLAG_DEBUGGABLE`）；清 composing 用 `--esn` |
+| `WineAndroidDebugCaptureInject.kt` | debug-only `CAPTURE_HWND`（`--ei`；`0` release；`-1` desktop sentinel） |
 | `WineAndroidDebugImeRelayActivity`（`src/debug`） | 导出中继：adb 中途注入 → 同 UID 启动非导出 Session `onNewIntent` |
 | `WineAndroidGuestResolution.kt`（`core:engine`） | guest 预设目录 + preference 映射；Settings/Launcher 对齐 |
 | `WineAndroidHostScale.kt` | 纯 letterbox scale/offset 计算（单测覆盖多分辨率） |

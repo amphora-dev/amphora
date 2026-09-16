@@ -61,6 +61,8 @@ import kotlin.math.roundToInt
  *   !(flags & SWP_NOZORDER) syncs bringChildToFront bottom→top.
  * - Capture: [setCapture] remembers hwnd (0 = release); touch / generic motion
  *   address capture hwnd when set ([WineAndroidCaptureTarget]), else hit-test.
+ *   Debug [injectCaptureForDebug] / `CAPTURE_HWND` extra for HA262 smoke without
+ *   title-bar drag.
  * - Cursor: [setCursor] → Android [PointerIcon] (TYPE_NULL hide, system id, or
  *   custom ARGB bits). No separate cursor overlay View.
  */
@@ -81,6 +83,12 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
     /** Queued debug IME inject until [desktopHwnd] / [keyTargetHwnd] is known. */
     @Volatile private var pendingDebugImeText: String? = null
+
+    /**
+     * Queued debug CAPTURE_HWND inject when sentinel needs [desktopHwnd]
+     * ([WineAndroidDebugCaptureInject.SENTINEL_DESKTOP]).
+     */
+    @Volatile private var pendingDebugCaptureRequested: Int? = null
 
     /** Host-local composing / keyboard chip (mirrors TouchpadView; not sent to guest). */
     private var imeUiState = ImeUiState()
@@ -156,6 +164,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             pendingDebugImeText = null
             post { injectCommittedTextForDebug(pending) }
         }
+        pendingDebugCaptureRequested?.let { pending ->
+            pendingDebugCaptureRequested = null
+            post { injectCaptureForDebug(pending) }
+        }
     }
 
     /**
@@ -165,6 +177,34 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     fun setCapture(hwnd: Int) {
         captureHwnd = hwnd
         Log.i(TAG, "capture hwnd=$hwnd")
+    }
+
+    /**
+     * Debug / HA262 smoke: force host capture without guest IOCTL_SET_CAPTURE
+     * (title-bar drag). [WineAndroidDebugCaptureInject.SENTINEL_DESKTOP] (`-1`)
+     * resolves to [desktopHwnd] once known. Call only from FLAG_DEBUGGABLE
+     * session code.
+     */
+    fun injectCaptureForDebug(requested: Int) {
+        val resolved =
+            WineAndroidDebugCaptureInject.resolveCaptureTarget(
+                requested = requested,
+                desktopHwnd = desktopHwnd,
+            )
+        if (resolved == null) {
+            Log.i(
+                TAG,
+                "capture inject deferred (desktop hwnd not ready) requested=$requested",
+            )
+            pendingDebugCaptureRequested = requested
+            return
+        }
+        Log.i(
+            TAG,
+            "capture inject requested=$requested resolved=$resolved " +
+                "(debug; host-only, not guest IOCTL)",
+        )
+        setCapture(resolved)
     }
 
     /**

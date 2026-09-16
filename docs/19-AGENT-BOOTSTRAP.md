@@ -93,7 +93,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；`fdda994` no-WIDTH pref；**第二台/分屏用户已停**
 - WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`（隐窗 removeView + sync bringToFront）；**HA262 stack smoke PASS**（~16:48 Asia/Shanghai；ART `ha262-window-stack-20260916-164730`）；重叠 z-order 人工眼验仍可选
 - **sensorLandscape** 会话锁：`a4cd0c0`；**HA262 PASS**（~17:40 Asia/Shanghai；portrait-locked → `SENSOR_LANDSCAPE`，ROTATION_90 **3040×1904**，hostScale **2.375**）
-- **setCapture / setCursor** 壳层接线：capture HWND 路由 MOTION；PointerIcon 隐藏/系统/自定义 bits（无独立 cursor overlay）
+- **setCapture / setCursor** 壳层接线：capture HWND 路由 MOTION；PointerIcon 隐藏/系统/自定义 bits（无独立 cursor overlay）；debug `CAPTURE_HWND` 注入便于无 title-bar 拖冒烟
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
 游戏轨：
@@ -239,9 +239,12 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
 2. **可选**：真机 soft IME **CJK** 眼验 composing chip + commit（勿发明 IMM32/TSF；
    composition 已 host-local）。软键盘入口 / `IME_SHOW` serve-ready **已 PASS**，
    勿再垫 soft-IME 弹出刀。
-3. **可选**：Mac/HA262 冒烟 verify capture（拖出窗口仍见 `motion hwnd=<capture>`）
-   + cursor hide/arrow；Grok Bot **不**宣称设备 PASS。配方见
-   `/workspace/ha262-capture-cursor-smoke-recipe.md`（Mac 侧同步后）。
+3. **可选**：Mac/HA262 冒烟 verify capture — 优先 debug
+   `--ei app.amphora.debug.CAPTURE_HWND -1`（desktop sentinel）或具体 hwnd，
+   再 adb swipe；仍见 `motion hwnd=<capture> capture=<same>`；亦可 title-bar
+   拖 + cursor hide/arrow。Grok Bot **不**宣称设备 PASS。配方：
+   `/workspace/ha262-capture-inject-recipe.md`；旧
+   `/workspace/ha262-capture-cursor-smoke-recipe.md`（title-bar 手工）。
 
 **已停 / 勿排下一拍**：第二台真机 / 分屏 / hostScale 双机（用户 2026-09-16 停）。
 

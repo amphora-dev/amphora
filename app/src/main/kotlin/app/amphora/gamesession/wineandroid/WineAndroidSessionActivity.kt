@@ -281,8 +281,9 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     /**
-     * Debug-only: unicode commit, host composing chip, and/or IME_SHOW extras.
-     * Returns true when any inject was scheduled (incl. composing clear / hide).
+     * Debug-only: unicode commit, host composing chip, IME_SHOW, and/or
+     * CAPTURE_HWND extras. Returns true when any inject was scheduled
+     * (incl. composing clear / hide / capture release).
      */
     private fun maybeScheduleDebugImeInject(intent: Intent?, reason: String): Boolean {
         val debuggable =
@@ -319,6 +320,18 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 },
                 400L,
             )
+            scheduled = true
+        }
+        val captureHwnd =
+            WineAndroidDebugCaptureInject.captureHwndFromIntent(intent, debuggable)
+        if (captureHwnd != null) {
+            Log.i(
+                TAG,
+                "capture inject scheduled reason=$reason hwnd=$captureHwnd " +
+                    "(sentinel=${WineAndroidDebugCaptureInject.SENTINEL_DESKTOP})",
+            )
+            // Post so layout/IPC can run; Desktop defers sentinel until desktopHwnd.
+            desktop.post { desktop.injectCaptureForDebug(captureHwnd) }
             scheduled = true
         }
         return scheduled
@@ -388,6 +401,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             debugImeUnicodeText: String? = null,
             debugImeComposingText: String? = null,
             debugImeShow: Boolean? = null,
+            debugCaptureHwnd: Int? = null,
         ): Intent = Intent(context, WineAndroidSessionActivity::class.java).apply {
             putExtra(EXTRA_EXE_PATH, exePath)
             putExtra(EXTRA_WIDTH, width)
@@ -405,6 +419,10 @@ class WineAndroidSessionActivity : ComponentActivity() {
             if (debugImeShow != null) {
                 putExtra(WineAndroidDebugImeInject.EXTRA_IME_SHOW, debugImeShow)
             }
+            // null = omit; 0 = release; -1 = desktop hwnd sentinel
+            if (debugCaptureHwnd != null) {
+                putExtra(WineAndroidDebugCaptureInject.EXTRA_CAPTURE_HWND, debugCaptureHwnd)
+            }
         }
 
         fun launch(
@@ -417,6 +435,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             debugImeUnicodeText: String? = null,
             debugImeComposingText: String? = null,
             debugImeShow: Boolean? = null,
+            debugCaptureHwnd: Int? = null,
         ) {
             context.startActivity(
                 intent(
@@ -429,6 +448,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     debugImeUnicodeText = debugImeUnicodeText,
                     debugImeComposingText = debugImeComposingText,
                     debugImeShow = debugImeShow,
+                    debugCaptureHwnd = debugCaptureHwnd,
                 ),
             )
         }
