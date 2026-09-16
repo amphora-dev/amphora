@@ -3,6 +3,7 @@ package app.amphora.gamesession.wineandroid
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.text.InputType
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -10,7 +11,11 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import app.amphora.gamesession.input.WineInputConnection
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -32,8 +37,11 @@ import kotlin.math.roundToInt
  *   [hostScale] → guest desktop px. Not X inject.
  * - Keys: focusable GDI [WindowGroup] (upstream WineView) + Activity
  *   dispatchKeyEvent → [WineAndroidNative.nativeSendKeyboardEvent]
- *   (KEYBOARD_EVENT). Hardware KEYCODE_* / `adb input keyevent|text`. No IME
- *   InputConnection; CJK composition is a documented gap.
+ *   (KEYBOARD_EVENT). Hardware KEYCODE_* / `adb input keyevent|text`.
+ * - Soft IME: [onCreateInputConnection] → [WineInputConnection]; committed
+ *   ASCII/Latin maps via `KeyCharacterMap` → same [sendKeyboardEvent] pipe.
+ *   CJK composition stays local in WineInputConnection; unicode / WM_CHAR
+ *   for unmapped code points is still open (no IMM32/TSF).
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
@@ -101,6 +109,73 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             )
         }
         return ok
+    }
+
+    override fun onCheckIsTextEditor(): Boolean = true
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
+        outAttrs.inputType =
+            InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        outAttrs.imeOptions =
+            EditorInfo.IME_ACTION_NONE or
+                EditorInfo.IME_FLAG_NO_EXTRACT_UI or
+                EditorInfo.IME_FLAG_NO_FULLSCREEN
+        return WineInputConnection(
+            this,
+            object : WineInputConnection.Listener {
+                override fun onCommitText(text: CharSequence) {
+                    val mapped = WineAndroidImeCommit.mapCommittedText(text)
+                    for (event in mapped.events) {
+                        sendKeyboardEvent(event)
+                    }
+                }
+
+                override fun onDelete(beforeLength: Int, afterLength: Int) {
+                    val backspaces =
+                        beforeLength.coerceAtMost(WineAndroidImeCommit.MAX_IME_DELETE_COUNT)
+                    val deletes =
+                        afterLength.coerceAtMost(WineAndroidImeCommit.MAX_IME_DELETE_COUNT)
+                    repeat(backspaces) {
+                        for (event in WineAndroidImeCommit.tapKeyEvents(KeyEvent.KEYCODE_DEL)) {
+                            sendKeyboardEvent(event)
+                        }
+                    }
+                    repeat(deletes) {
+                        for (event in WineAndroidImeCommit.tapKeyEvents(KeyEvent.KEYCODE_FORWARD_DEL)) {
+                            sendKeyboardEvent(event)
+                        }
+                    }
+                }
+
+                override fun onSendKeyEvent(event: KeyEvent): Boolean {
+                    sendKeyboardEvent(event)
+                    return true
+                }
+
+                override fun onEditorAction() {
+                    for (event in WineAndroidImeCommit.tapKeyEvents(KeyEvent.KEYCODE_ENTER)) {
+                        sendKeyboardEvent(event)
+                    }
+                }
+
+                override fun onComposingTextChanged(text: CharSequence) {
+                    Log.d(TAG, "IME composing len=${text.length} (local only; not sent to guest)")
+                }
+            },
+        )
+    }
+
+    /** Request focus + show soft keyboard (TouchpadView-light pattern). */
+    fun showSoftKeyboard() {
+        requestFocus()
+        val imm = context.getSystemService(InputMethodManager::class.java)
+        imm?.restartInput(this)
+        post {
+            requestFocus()
+            imm?.showSoftInput(this, 0)
+        }
     }
 
     fun attachWindow(window: WineAndroidWindow, onSurface: (hwnd: Int, surface: Surface?) -> Unit) {
@@ -441,6 +516,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             if (event.actionMasked == MotionEvent.ACTION_DOWN && !window.isClient) {
                 keyTargetHwnd = window.hwnd
                 requestFocus()
+                // Soft IME lives on the desktop root (InputConnection), not the group.
+                this@WineAndroidDesktop.showSoftKeyboard()
             }
             val (gx, gy) = guestDesktopPos(event)
             val ok =

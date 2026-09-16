@@ -85,7 +85,8 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 
 | 文件 | 职责 |
 |------|------|
-| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent` |
+| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit |
+| `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点跳过 |
 | `WineAndroidHostScale.kt` | 纯 letterbox scale/offset 计算（单测覆盖多分辨率） |
 | `WineAndroidHostBridge.kt` | createWindow / windowPosChanged(visible_*) / setParent→reparent |
 | `WineAndroidWindow.kt` | window/client/visible rect、style、visible |
@@ -94,7 +95,10 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 
 ## 键盘（EVENT_KEYBOARD）
 
-硬件 / `adb input keyevent` / `adb input text`（KEYCODE 注入）走与 MOTION 同一条 desktop event pipe。无 InputConnection，不做 IMM32/TSF / 完整 IME。
+硬件 / `adb input keyevent` / `adb input text`（KEYCODE 注入）与 soft IME **commit** 都走与 MOTION 同一条 desktop event pipe（`nativeSendKeyboardEvent`）。
+
+- **IME commit 已落地**：`WineAndroidDesktop` 实现 `onCreateInputConnection` → 复用 `WineInputConnection`；committed ASCII/Latin 经 `KeyCharacterMap`（`VIRTUAL_KEYBOARD`）映射为 KeyEvent 再 `sendKeyboardEvent`。删除 / EditorAction(ENTER) / `onSendKeyEvent` 同管。触摸设 `keyTargetHwnd` 后 `showSoftKeyboard()`。
+- **仍开**：CJK composition 只留在 `WineInputConnection` 本地（`onComposingTextChanged` 仅 Log）；`KeyCharacterMap` 无法映射的 Unicode（CJK / emoji）跳过并打日志 — **不做** IMM32/TSF；guest unicode / `WM_CHAR` 路径仍开。
 
 ## 非目标
 

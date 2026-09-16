@@ -85,7 +85,8 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - 嵌套 `WindowGroup` + `visible_rect`：`8a494cc`
 - 推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸：`5515738`
 - SurfaceView 触摸 → wineandroid `MOTION_EVENT`（不注入 X）：`d3a7bd5`
-- 硬件 KEYBOARD → wineandroid `KEYBOARD_EVENT`（KEYCODE / `adb keyevent`；**非** IME）：`35c9921`
+- 硬件 KEYBOARD → wineandroid `KEYBOARD_EVENT`（KEYCODE / `adb keyevent`）：`35c9921`
+- Soft IME commit → 同 `KEYBOARD_EVENT` 管（`WineInputConnection` + `WineAndroidImeCommit`）；CJK unicode 仍开
 - DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；真机第二台仍见 `docs/16` TODO
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
@@ -147,13 +148,13 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 
 ### 9.2 输入（MOTION + KEYBOARD）
 
-**已落地**：MOTION（`d3a7bd5`）+ 硬件 KEYBOARD（`35c9921`）。IME 仍开（勿勾成已做）。
+**已落地**：MOTION（`d3a7bd5`）+ 硬件 KEYBOARD（`35c9921`）+ soft IME **commit**（`WineInputConnection` → KEYBOARD_EVENT）。CJK unicode / WM_CHAR 仍开。
 
-过滤：`WineAndroidDesktop.*motion`；`WineAndroidDesktop.*key` / native `keyboard hwnd=` / `key hwnd=`
+过滤：`WineAndroidDesktop.*motion`；`WineAndroidDesktop.*key` / native `keyboard hwnd=` / `key hwnd=`；IME：`IME composing` / `IME commit unmapped`
 
 **PASS 线索**：`motion hwnd=… ok=true`（DOWN/UP）；UI 上可见点击效果（如 winefile / Start）；**不得**走 `XServerInputSink` / `TouchpadView`。
 
-键盘（硬件 KEYCODE / `adb input keyevent`）：`key hwnd=… ok=true`；native `keyboard hwnd=… vkey=…`。`adb shell input keyevent 29`（A）或 `66`（ENTER）；`adb shell input text hello` 走 KEYCODE 注入。**IME 缺口**：无 InputConnection / IMM32 / CJK composition；Gboard 滑动与候选 commit 不保证。
+键盘（硬件 KEYCODE / `adb input keyevent`）：`key hwnd=… ok=true`；native `keyboard hwnd=… vkey=…`。`adb shell input keyevent 29`（A）或 `66`（ENTER）；`adb shell input text hello` 走 KEYCODE 注入。Soft IME：触摸后应弹出键盘；commit ASCII 应见同样 `key hwnd=…`。**仍开**：CJK composition 本地；未映射 Unicode 不进 guest（无 IMM32/TSF）。
 
 ### 9.3 产物存放
 
@@ -200,14 +201,13 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 
 ## 12. 默认下一拍（文档顺序，可能随进度变）
 
-**已落地（2026-09-16）**：MOTION + 硬件 KEYBOARD；DPI 96；hostScale 多分辨率
+**已落地（2026-09-16）**：MOTION + 硬件 KEYBOARD + soft IME commit；DPI 96；hostScale 多分辨率
 单测（`034b38e`）；游戏轨 AHB 已合入 `proton_11.0` @ `0a64ebc`，WCP 已发，
 HA262 Present **v9c PASS**（公开 pin）。
 
 **本拍优先：**
 
-1. wineandroid **IME 缺口**（InputConnection → KEYBOARD_EVENT / 可提交文本；
-   CJK composition 可分期）。勿当硬件 KEYCODE 未做。
+1. wineandroid **CJK unicode / WM_CHAR**（`KeyCharacterMap` 无法映射的 commit；勿再发明 IMM32/TSF）。IME ASCII commit 已落地。
 2. docs/16 仍开：第二台真机 / 旋转分屏眼验；guest 分辨率档 / 可选 UI。
 
 **不是**下一拍：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9 可选后置）；
