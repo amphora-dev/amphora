@@ -8,15 +8,15 @@
 Amphora 实现面：`WineAndroidDesktop` / `WineAndroidHostBridge` /
 `WineAndroidWindow`（Kotlin，无 `WineActivity.java`）。总览仍见
 [`16-WINEANDROID-DISPLAY.md`](16-WINEANDROID-DISPLAY.md)。
-X11 对照与踩坑见 [`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md)。
+X11 对照与已知问题见 [`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md)。
 
-**已落地（`wip/ha262-paint`，对齐 docs/19 §12 @ HEAD）**：嵌套 WindowGroup、
-visible_rect、surface 尺寸再 register、WS_VISIBLE / z-order（`8a494cc` +
-WindowStack 加固 `4d3d976`，**HA262 stack smoke PASS**）、min 2×2；**保留
-statusView**。~~推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸~~ **已做**
-（`5515738`；见 docs/18 §5 / §9）。壳层输入另轨（非本文借列表）：MOTION /
-KEYBOARD、setCapture 路由 + **CAPTURE_HWND inject HA262 PASS**（`82bf652`）、
-setCursor PointerIcon、BACK 等宿主键故意穿透（`WineAndroidKeyPassThrough`）。
+**已落地（`wip/ha262-paint`）**：嵌套 WindowGroup、visible_rect、surface 尺寸再
+register、WS_VISIBLE / z-order（`8a494cc` + WindowStack 加固 `4d3d976`，
+**HA262 stack 冒烟 PASS**）、min 2×2；**保留 statusView**。推迟第一次
+`nativeRegisterSurface` 到真实 guest 尺寸 **已做**（`5515738`；见 docs/18 §5 / §9）。
+壳层输入另轨（非本文借列表）：MOTION / KEYBOARD、setCapture 路由 +
+**CAPTURE_HWND inject HA262 PASS**（`82bf652`）、setCursor PointerIcon、BACK 等
+宿主键故意穿透（`WineAndroidKeyPassThrough`）。
 
 ---
 
@@ -34,7 +34,7 @@ setCursor PointerIcon、BACK 等宿主键故意穿透（`WineAndroidKeyPassThrou
 **我们的缺口（修前）**
 
 - 曾把 HWND 当平铺子 View 贴到根/桌面绝对坐标；Start `(0,0)` 落到桌面原点，
-  taskbar/Start 错位（「挤牙膏」式布局）。
+  taskbar/Start 错位。
 
 **如何采纳**
 
@@ -62,7 +62,7 @@ setCursor PointerIcon、BACK 等宿主键故意穿透（`WineAndroidKeyPassThrou
 
 **如何采纳**
 
-- 保持 **SurfaceView + `setFixedSize(guest px)`**（见 §6），不要为对齐上游
+- 保持 **SurfaceView + `setFixedSize(guest px)`**（见 §5），不要为对齐上游
   盲切 TextureView。
 - `SurfaceHolder.Callback.surfaceChanged` → 再调 `onSurface` →
   `nativeRegisterSurface` → native 发 `SURFACE_CHANGED`。
@@ -83,7 +83,7 @@ logcat：`windowPosChanged` 后应再出现 taskbar 约 `1280×46` 的 register�
 - `(flags & SWP_NOZORDER) == 0` 时 `set_zorder(insert_after)` +
   `sync_views_zorder`（`bringToFront`）。
 
-**已落地（加固 + HA262 smoke PASS）**
+**已落地（加固 + HA262 冒烟 PASS）**
 
 - 初版（`8a494cc`）：`style` → `visible` + `GONE`/`VISIBLE`；单次
   `bringChildToFront` / `addView(index)`。
@@ -92,15 +92,11 @@ logcat：`windowPosChanged` 后应再出现 taskbar 约 `1280×46` 的 register�
   `WineAndroidDesktop` 维护 per-parent sibling 栈（top-first）；
   **隐窗从 parent 移除**（对齐上游 add/remove，不再仅 GONE）；
   默认 `WineAndroidWindow.visible=false`（desktop create 仍立即可见）。
-- **HA262 window-stack / WS_VISIBLE smoke PASS**（`4d3d976`，2026-09-16
-  ~16:48 Asia/Shanghai）：session 1280×720；first register（desktop /
-  taskbar / windows）；`windowPosChanged` 带 `style=`；无 FATAL。
-  ART（Mac）：`smoke-artifacts/ha262-window-stack-20260916-164730`。
-- **HA262 DUMP_ZORDER / ZORDER_TOP_HWND helper log PASS**（`d0bdcb7`，2026-09-16
-  ~20:01 Asia/Shanghai；ART `ha262-zorder-dump-20260916-200032`）：Relay dump +
-  natural sync + force-top；**非**视觉眼验 PASS。
-- **仍开（可选）**：重叠 HWND z-order **人工眼验**；OpenGL client 已
-  `setZOrderMediaOverlay(true)`，无新缺陷时勿再垫 media-overlay 刀。
+- **HA262 window-stack / WS_VISIBLE 冒烟 PASS**（`4d3d976`）。
+- **Debug 验证钩子** `DUMP_ZORDER` / `ZORDER_TOP_HWND`（`d0bdcb7` helper log
+  PASS；**非**视觉眼验 PASS）。
+- **仍开（可选）**：重叠 HWND z-order **人工目视确认**；OpenGL client 已
+  `setZOrderMediaOverlay(true)`，无新缺陷时勿再改 media-overlay。
 
 **如何采纳（现状）**
 
@@ -140,13 +136,12 @@ if (bottom <= top + 1) bottom = top + 2;
 
 - **host letterbox / scale-to-fill**：`contentHost` 等比铺 Activity；不靠改
   guest `/desktop=WxH` 铺屏。
-- **DPI 策略不变**：产品默认目标 Wine DPI **96**（多设备 TODO）；勿把 Android
-  `densityDpi`（如 440）配 720p。当前可继续用 ScreenInfo 风格 mm 公式做
-  LogPixels 实验，但不因「借上游」改 DPI 真源。
+- **DPI 策略不变**：产品默认目标 Wine DPI **96**（多设备 TODO 已停第二台/分屏）；
+  勿把 Android `densityDpi`（如 440）配 720p。
 
 ---
 
-## 非目标（勿垫文）
+## 非目标
 
 - 资产 / `loadWine` / Activity 启动脚手架
 - 整文件移植 `WineActivity.java`

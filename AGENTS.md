@@ -27,7 +27,7 @@ WCP component pin 必须带 identity（`version`/`verName`/`verCode`/`contentTyp
 ## wineandroid 宿主出画（勿旁路）
 
 详见 `docs/16-WINEANDROID-DISPLAY.md`；**可借上游清单**见
-`docs/17-WINEANDROID-UPSTREAM-BORROW.md`；**与 X11 对照 + 一路踩坑**见
+`docs/17-WINEANDROID-UPSTREAM-BORROW.md`；**与 X11 对照 + 已知问题**见
 `docs/18-WINEANDROID-VS-X11-SURFACES.md`。
 
 - GDI 建窗：`wineandroid_host_ipc.c` `create_native_win_data` 设 `api=NATIVE_WINDOW_API_CPU(2)`，registerSurface 才会 `API_CONNECT`。勿对 OpenGL 窗强制 CPU。
@@ -38,5 +38,5 @@ WCP component pin 必须带 identity（`version`/`verName`/`verCode`/`contentTyp
 - **Surface 尺寸**：`surfaceChanged` / buffer 变化后必须再 `nativeRegisterSurface`（发 SURFACE_CHANGED）；勿让 taskbar 卡在 1×1。
 - **WS_VISIBLE / z-order**：`WineAndroidWindowStack`；隐窗从 parent **removeView**（非仅 GONE）；`!(flags & SWP_NOZORDER)` 时 reorder sibling 栈再 `bringChildToFront` 同步。
 - 桌面铺满：contentHost 等比 scale-to-fill（letterbox）；Wine `/desktop=WxH` 仍可配。用 `setFixedSize(guest)` 保 ANW 尺寸，勿靠改 guest 分辨率铺屏。
-- Wine DPI：虚拟桌面 + 宿主铺满时用经典 **96**；hostScale 实时算（**分屏/第二台已停**）。勿把 Android `densityDpi`（如 440）配 720p。上游窗口布局见 `docs/17-WINEANDROID-UPSTREAM-BORROW.md`；X11 对照与踩坑见 `docs/18-WINEANDROID-VS-X11-SURFACES.md`。
+- Wine DPI：虚拟桌面 + 宿主铺满时用经典 **96**；hostScale 实时算（**分屏/第二台已停**）。勿把 Android `densityDpi`（如 440）配 720p。上游窗口布局见 `docs/17-WINEANDROID-UPSTREAM-BORROW.md`；X11 对照与已知问题见 `docs/18-WINEANDROID-VS-X11-SURFACES.md`。
 - **已做**：推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸（非单靠 MIN 2×2）；resize 仍再 bind。勿删 statusView；TextureView / 只给顶层 HWND 建 Surface 都是以后可选（见 docs/18）。

@@ -1,7 +1,7 @@
 # HWND Surface zero-copy map (2026-09-14)
 
 ## Verdict
-knife13 hot path is already HWND Surface AHB zero-copy. Present does **not** go through ImageReader or HostVk blit. No further Present code change this knife.
+HWND Surface AHB zero-copy hot path is already in place. Present does **not** go through ImageReader or HostVk blit. No further Present code change needed on this path.
 
 ## Hot path
 1. Kotlin `WineAndroidSessionActivity` → per-HWND `SurfaceView` → `HOST_SURFACE_CHANGED` + SCM_RIGHTS
@@ -29,14 +29,14 @@ knife13 hot path is already HWND Surface AHB zero-copy. Present does **not** go 
 ## CI Present smoke — DONE on public proton_11.0 (2026-09-16)
 
 **Goal met:** smoke release Amphora APK + Proton WCP on HA262AAH with
-`AHB_SC … import=ok` / Present≥50. **Not** knife-manual `.so` sideload.
+`AHB_SC … import=ok` / Present≥50. **Not** unofficial Present `.so` sideload.
 
 **Status (2026-09-16 ~13:08 Asia/Shanghai):**
 
 - **v10 PASSED** (~16:50): amphora `728f3db` (post window-stack) + public WCP
   `Proton/11.0-0a64ebc8d-x86_64-0`. DIRECT hwnd-ANW,
   `SET_BUFFER_COUNT want=5 ret=0`, `import=ok`, guest-readback
-  `CLASS=MAGENTA @50`, no FATAL. No knife `.so` sideload.
+  `CLASS=MAGENTA @50`, no FATAL. No unofficial Present `.so` sideload.
   Mac ART: `/Users/sky/co/src/amphora-dev/smoke-artifacts/ci-present-20260916-165016-v10-reg/`
 - **v9c PASSED** (~13:08): amphora `034b38e` + public WCP
   `Proton-11.0-0a64ebc8d-x86_64.wcp` (sha256 `c6b42624…`). DIRECT hwnd-ANW,
@@ -55,11 +55,11 @@ knife13 hot path is already HWND Surface AHB zero-copy. Present does **not** go 
 hung when stale `ab04edc` box64/wineserver survived `am force-stop` — kill
 orphans before Present smoke.
 
-**Shell next (not Present):** docs/16 hostScale unit tests landed (`034b38e`);
-IME InputConnection still open. Ban knife `.so` sideload.
+**Shell status (not Present):** docs/16 hostScale unit tests landed (`034b38e`);
+IME InputConnection / soft-IME commit landed (see docs/16 / docs/19). Ban unofficial Present `.so` sideload.
 
 **Also:** `amphora-dxvk-smoke.exe` is **not** in content_manifest / releases
 (only Graphics-Test-* are). Locate on Mac `/Users/sky/co/tmp/amphora-dxvk-smoke.exe`.
 
-**Do not** revive knife `.so` sideload / `su cp` of `wineandroid.so` /
-`win32u.so` as truth — that was knife13 proof only, not a ship path.
+**Do not** revive unofficial Present `.so` sideload / `su cp` of `wineandroid.so` /
+`win32u.so` as product truth — that was temporary verification only, not a ship path.

@@ -129,5 +129,5 @@ Host IPC / drv 桥（已落地；WCP 已含 drv）：
 
 输入、CJK unicode、host composing chip 均已落地；debug unicode/composing 冷启与中途 relay 均 PASS。IME 轨当前仅保留可选 soft-IME 真机眼验。hostScale 多分辨率单测与 HA262 旋转已 PASS；第二台设备 / 分屏按用户决定 deferred。WS_VISIBLE / sibling z-order 已由 `4d3d976` 加固，HA262 stack smoke PASS；重叠 HWND z-order 仍仅可选人工眼验。
 
-当前下一拍与后置项以 [`docs/19 §12`](19-AGENT-BOOTSTRAP.md#12-默认下一拍文档顺序可能随进度变) 为准；不要把 Present CI 冒烟、IME 或多设备 / 分屏再次排成未完成工作，也不要手刀 Present `.so`。
+当前下一项与后置项以 [`docs/19 §12`](19-AGENT-BOOTSTRAP.md#12-默认下一项文档顺序可能随进度变) 为准；不要把 Present CI 冒烟、IME 或多设备 / 分屏再次排成未完成工作，也不要侧载非正式 Present `.so`。
 

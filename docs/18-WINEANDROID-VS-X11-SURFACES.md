@@ -1,10 +1,10 @@
-# 18 · wineandroid 与 X11 出画对照 + 一路踩坑
+# 18 · wineandroid 与 X11 出画对照 + 已知问题
 
 白话对照两条出画路：Winlator 式 **X11 + 单 TextureView 合成**，与 Amphora
 **wineandroid 每 HWND 一块 SurfaceView**。布局/借上游细则仍见
 [`16-WINEANDROID-DISPLAY.md`](16-WINEANDROID-DISPLAY.md)、
 [`17-WINEANDROID-UPSTREAM-BORROW.md`](17-WINEANDROID-UPSTREAM-BORROW.md)。
-本文补：**架构差异、为何暂留 SurfaceView、尺寸延迟、多 Surface 成本，以及本轨踩过的坑**。
+本文补：**架构差异、为何暂留 SurfaceView、尺寸延迟、多 Surface 成本，以及本轨已知问题**。
 
 ---
 
@@ -97,7 +97,7 @@
 
 ---
 
-## 7. 一路踩坑（按主题、大致时间线）
+## 7. 已知问题（按主题）
 
 ### 7.1 不出画：nodrv / 黑屏 / ENODEV
 
@@ -135,7 +135,7 @@
 - Winlator 风格约 **254** 在宿主再 ×2.375 时仍偏大。
 - **产品默认**：经典 Wine DPI **96**（屏上看大约有效 ~228，视 hostScale）；
   hostScale 多分辨率单测与 HA262 旋转已 PASS。第二台设备 / 分屏按用户决定 deferred，
-  不作为当前下一拍（docs/19 §12）。
+  不作为当前下一项（docs/19 §12）。
 
 ### 7.6 Taskbar / Start 错位与扭曲
 
@@ -156,7 +156,7 @@
 
 - 优先 **git bundle / Mac 本机 `assembleDebug` + adb**；**不要** 用
   CopyFromBox 倒腾约 80MB APK。
-- 正包仍走 **imagefs `build-proton-wine`**；临时 `.so` **不是** 真源。
+- 正包仍走 **imagefs `build-proton-wine`**；临时 / 侧载非正式库 **不是** 真源。
 - 禁止 CreateSwapchain / 私有 `host.sock`。
 - 本机 recc/CAS 增量编 vs GitHub Actions：加快迭代可以，**发版真源不变**。
 
@@ -172,28 +172,28 @@
 
 ---
 
-## 9. 当前状态与下一拍（以 docs/19 §12 为准）
+## 9. 当前状态与下一项（以 docs/19 §12 为准）
 
 本节只记录本对照文的结论；当前排期与验收真源见
-[`docs/19 §12`](19-AGENT-BOOTSTRAP.md#12-默认下一拍文档顺序可能随进度变)，避免把历史上的
+[`docs/19 §12`](19-AGENT-BOOTSTRAP.md#12-默认下一项文档顺序可能随进度变)，避免把历史上的
 TODO 当成现状。
 
 - 输入：MOTION + 硬件 KEYBOARD（`d3a7bd5` / `35c9921`）已落地；soft IME commit、CJK
   `KEYEVENTF_UNICODE` 与 host composing chip 也已落地。debug unicode/composing 冷启与中途
   relay 均 PASS；composition 是 host-local；**CAPTURE_HWND inject routing PASS**
   （`82bf652`）；BACK/VOLUME 故意宿主穿透（`WineAndroidKeyPassThrough`）。仍开 **仅**
-  可选 soft-IME 真机眼验 / title-bar 真 capture 眼验，不把它写成已完成。
+  可选 soft-IME 真机人工目视确认 / title-bar 真 capture 人工目视确认，不把它写成已完成。
 - 尺寸与壳层：经典 Wine DPI 96 已落地；hostScale 多分辨率单测与 HA262 旋转 PASS。
   第二台设备 / 分屏按用户决定 deferred，不是下一步。
-- 叠窗：WS_VISIBLE / sibling z-order 已落地（`4d3d976`），HA262 stack smoke PASS；重叠
-  HWND z-order 人工眼验仍是可选项，不能标成 PASS。
+- 叠窗：WS_VISIBLE / sibling z-order 已落地（`4d3d976`），HA262 stack 冒烟 PASS；重叠
+  HWND z-order 人工目视确认仍是可选项，不能标成 PASS。
 - 游戏 present：公共 `0a64ebc` 上 CI Present v9c PASS，当前壳层 APK 的 HA262 回归 v10
-  也 PASS。因此 CI Present 冒烟不是待办，也不再追加 Present 刀尖 `.so`。
+  也 PASS。因此 CI Present 冒烟不是待办，也不再追加侧载非正式 Present `.so`。
 
 已完成的尺寸 defer 仍保持不变：~~推迟第一次 Surface register~~ **已做**（`5515738`），
 等到真实 w/h > 0（rect，非单靠 MIN 2×2），之后 resize 仍再 bind
 （`WineAndroidDesktop.WindowGroup.tryEmitSurface`）。TextureView、只给顶层建 Surface、
-单合成器 X11 风格仍是架构上的可选后置项，不是当前下一拍。
+单合成器 X11 风格仍是架构上的可选后置项，不是当前下一项。
 
 ---
 
@@ -201,5 +201,5 @@ TODO 当成现状。
 
 - 删除 `statusView`
 - 盲切 TextureView / 盲抄上游 BGRA
-- CreateSwapchain、私有 host.sock、临时 `.so` 当真源
+- CreateSwapchain、私有 host.sock、临时 / 侧载非正式库当真源
 - Cursor cloud agents 改本仓（本轨约定本地 Grok Bot）

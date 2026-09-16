@@ -1,9 +1,9 @@
 # 13 · AHB Import CreateSwapchain + Present≥50（knife13）
 
 > 状态：**关键门已过**（2026-09-14 HA262AAH）。  
-> 受众：其他 Amphora / wineandroid agent 做审查与下一刀（零拷贝 HWND Surface）。  
+> 受众：其他 Amphora / wineandroid agent 做审查与后续项（零拷贝 HWND Surface；见 docs/14）。  
 > 相关：[`12-WINEANDROID-MIGRATION.md`](12-WINEANDROID-MIGRATION.md)、[`11-ANDROID-NATIVE-VULKAN-PLAN.md`](11-ANDROID-NATIVE-VULKAN-PLAN.md)。  
-> 路径巡检口径：无 GB / VkLayer / 扫表；下一拍只清 host blit，**不得退回已通的 AHB import**。
+> 路径巡检口径：无 GB / VkLayer / 扫表；后续若清 host blit，**不得退回已通的 AHB import**。
 
 ---
 
@@ -12,7 +12,7 @@
 Wine/DXVK 的 swapchain 图像不是 ICD 自己建的，而是把宿主 `ANativeWindow` 队列里已经带 `AHardwareBuffer` 的 buffer **导入成 `VkImage`**；GPU clear/绘制直接写进这块共享内存。Present 循环在修好 DXVK 队列线程上的 semaphore/fence 同步后，可稳定跑过第 50 帧，guest staging 读回仍是品红。
 
 **已有零拷贝**：GPU → AHB。  
-**尚未零拷贝**：AHB → 会话窗口 Surface（宿主仍可能经 ImageReader / 合成 blit）。下一刀是 HWND Surface 直达。
+**HWND Surface 零拷贝热路径已落地**（见 docs/14）：Present 不经 ImageReader / HostVk blit。
 
 ---
 
@@ -88,7 +88,7 @@ Kotlin WineAndroidSessionActivity
 - **win32u 必须带 Vulkan**：`SONAME_LIBVULKAN "libvulkan.so"`；曾误编 `--without-vulkan` → `Wine was built without Vulkan support` / `D3D11CreateDeviceAndSwapChain 0x80004005`（已过时，勿再当当前方向）。
 - 真机 sideload：APK 内 `lib/arm64-v8a/libamphora_wsi.so`（zipalign 时 `resources.arsc` 须 Stored）；Proton `x86_64-unix/{wineandroid,win32u}.so` 用 `su cp`；adb 只在 Mac mini。
 
-本地刀目录（非 git）：`/workspace/swapchain-knife/knife13-src-createswapchain/`（BUILD / MAC-SIDELOAD / smoke 脚本 / 截屏）。
+本地临时目录（非 git）：`/workspace/swapchain-knife/knife13-src-createswapchain/`（BUILD / MAC-SIDELOAD / smoke 脚本 / 截屏；非正式产品路径）。
 
 ---
 
@@ -116,7 +116,7 @@ Kotlin WineAndroidSessionActivity
 
 ---
 
-## 5. 下一刀：真机 HWND Surface 零拷贝
+## 5. 真机 HWND Surface 零拷贝（状态见 docs/14）
 
 ### 目标
 
@@ -143,7 +143,7 @@ Present 落到 HWND / 会话 Activity 自己的 `Surface`，去掉仍经 host Im
 - [ ] Acquire/Present 的 GPU submit 只在 win32u DXVK 队列线程。
 - [ ] Present fence 按 **host** handle 使用（不要再 `vulkan_fence_from_handle` 二次解包）。
 - [ ] 真机证据：`import=ok` + `CLASS=MAGENTA` @50 + Present≥50。
-- [ ] 下一刀设计是否触及 AHB import（应避免）。
+- [ ] 后续设计是否触及 AHB import（应避免）。
 
 ---
 
@@ -164,4 +164,4 @@ HA262AAH logcat 证明：
 - 有：`DIRECT hwnd-ANW (no ImageReader)`、`AHB_SC create images=3 import=ok`、`guest-readback CLASS=MAGENTA` @50/@100
 - 无：`WineAndroidHostVk`、`GUEST_CPU_FILL`
 
-详见 `/workspace/swapchain-knife/HWND-SURFACE-MAP.md`（本机）与仓库内后续若同步的 map。本拍 **0 行 Present 改动**；勿退 AHB import CreateSwapchain。
+详见 `/workspace/swapchain-knife/HWND-SURFACE-MAP.md`（本机）与仓库内 docs/14。当前 **0 行 Present 改动**；勿退 AHB import CreateSwapchain。

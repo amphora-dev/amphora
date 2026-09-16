@@ -4,7 +4,7 @@ Amphora 的 `:session` 宿主用 Kotlin `WineAndroidDesktop` / `WineAndroidHostB
 对齐上游 `dlls/wineandroid.drv/WineActivity.java` 的窗口树与 Surface 生命周期，
 **不是** Winlator X11，也不是把每个 HWND 做成系统 freeform Activity。
 可借上游细则：[`17-WINEANDROID-UPSTREAM-BORROW.md`](17-WINEANDROID-UPSTREAM-BORROW.md)。
-与 X11 单 TextureView 对照、多 Surface 成本、尺寸延迟、**一路踩坑**：
+与 X11 单 TextureView 对照、多 Surface 成本、尺寸延迟、已知问题：
 [`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md)。
 
 ## 布局：嵌套 + visible_rect
@@ -39,7 +39,7 @@ Amphora 路径：
 3. 若 `setFixedSize` 后 buffer 变了但 callback 未立刻到，宿主也会在 surface
    仍 valid 时主动再 `onSurface` 一次
 
-**症状（已修）**：taskbar 先以 1×1 register，随后 pos 到 1280×46 只
+**已修症状**：taskbar 先以 1×1 register，随后 pos 到 1280×46 只
 `setFixedSize` 而 `surfaceChanged` 为空实现 → guest 卡在 1×1。
 
 logcat 验收：`registerSurface` / native `registerSurface hwnd=… WxH` 在
@@ -61,10 +61,9 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 `android:screenOrientation="sensorLandscape"`，wineandroid 会话强制传感器横屏；
 `configChanges` 仍保留 `orientation`。
 
-**HA262 sensorLandscape PASS**（`a4cd0c0`，2026-09-16 ~17:40 Asia/Shanghai）：
-portrait-locked 设备 → `SCREEN_ORIENTATION_SENSOR_LANDSCAPE`；横屏
-`ROTATION_90` 宿主 **3040×1904**，`hostScale` **2.375**（与
-`WineAndroidHostScale` 单测 / 既有旋转 ART 一致）。勿再当欠账。
+**HA262 真机验证**（`a4cd0c0`）：portrait-locked 设备 →
+`SCREEN_ORIENTATION_SENSOR_LANDSCAPE`；横屏 `ROTATION_90` 宿主 **3040×1904**，
+`hostScale` **2.375**（与 `WineAndroidHostScale` 单测一致）。
 
 ## Immersive system bars
 
@@ -72,11 +71,9 @@ portrait-locked 设备 → `SCREEN_ORIENTATION_SENSOR_LANDSCAPE`；横屏
 `WindowInsetsControllerCompat` 设置
 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` 并隐藏 status/navigation bars；暂停 /
 destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边缘滑动才临时出现。
-不涉及 Present、TextureView、BGRA 或分屏；设备验收仍待人工冒烟。
+不涉及 Present、TextureView、BGRA 或分屏。
 
 ## Capture / Cursor（壳层输入）
-
-**已落地（本拍）**
 
 1. **`setCapture(hwnd)`**：Desktop 记住 capture HWND（0 = release）；触摸 /
    generic motion 经 `WineAndroidCaptureTarget.resolve` 在 capture≠0 时发往
@@ -89,21 +86,16 @@ destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边
    View.`pointerIcon` 应用到 WindowGroup / SurfaceView。分类纯逻辑
    `WineAndroidCursorSpec` + 单测。
 
-**Debug `CAPTURE_HWND`（本拍）**：debuggable 下 `--ei app.amphora.debug.CAPTURE_HWND N`
-（MainActivity 冷启；中途 → `WineAndroidDebugImeRelayActivity`）强制宿主
-`setCapture`，**不**依赖 guest title-bar `IOCTL_SET_CAPTURE`。`0` = release；
-`-1` = desktop hwnd sentinel（desktop 未就绪则 defer）。日志
-`capture inject scheduled` + Desktop `capture inject requested=… resolved=…` /
-`capture hwnd=…`。冒烟时 adb swipe 越过 hit-test 仍应见
-`motion hwnd=<capture> capture=<same>`。配方：`/workspace/ha262-capture-inject-recipe.md`。
+**Debug 验证钩子 `CAPTURE_HWND`**（debuggable）：
+`--ei app.amphora.debug.CAPTURE_HWND N`（MainActivity 冷启；中途 →
+`WineAndroidDebugImeRelayActivity`）强制宿主 `setCapture`，**不**依赖 guest
+title-bar `IOCTL_SET_CAPTURE`。`0` = release；`-1` = desktop hwnd sentinel
+（desktop 未就绪则 defer）。日志 `capture inject scheduled` + Desktop
+`capture inject requested=… resolved=…` / `capture hwnd=…`。
 
-**HA262 CAPTURE_HWND inject routing PASS**（`82bf652`，2026-09-16 ~19:52 Asia/Shanghai）：
-冷启 `--ei CAPTURE_HWND -1` → deferred then `resolved=65568` / `capture hwnd=65568`；
-swipes `motion hwnd=65568 … capture=65568 hit=131156 ok=true`（4 routed）；
-relay `CAPTURE_HWND 0` → `capture hwnd=0` + motion hit-test `capture=0`；
-relay `-1` again → routed again。**capture routing 已可经 debug inject 冒烟**；
-可选 title-bar 真 `IOCTL_SET_CAPTURE` 眼验仍可选（非欠账）。
-ART（Mac）：`ha262-capture-inject-20260916-195128`。
+**HA262 真机验证**（`82bf652`）：冷启 `-1` → deferred then `resolved=65568`；
+swipe `motion … capture=65568`；relay `0` release；relay `-1` 再捕获。
+可选 title-bar 真 `IOCTL_SET_CAPTURE` **人工目视确认**仍可选（非欠账）。
 
 **推迟**
 
@@ -120,18 +112,16 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
   喂进 720p 虚拟桌面。
 - HA262 例：96 × ~2.375 ≈ 228 上屏等效，近 Winlator 广告的 254，无双计。
 
-### TODO · 多设备 hostScale / DPI
+### guest 分辨率 / hostScale / 叠窗
 
 `hostScale` 已按当前 Activity 尺寸实时算（非写死 2.375），纯函数在
 `WineAndroidHostScale.compute`（`034b38e`）。
 
 1. **多分辨率 letterbox**：unit tests cover HA262 3040×1904（scale=2.375）、
    竖屏 1080×2400、超宽、方屏；content 不越界、居中。
-   **HA262 旋转真机（2026-09-16）**：`onSizeChanged` 竖屏 1904×3040 →
-   scale=1.4875 offset=(0,984)；横屏 3040×1904 → scale=2.375 offset=(0,97)。
-   与 `WineAndroidHostScale` 单测一致。ART：Mac
-   `smoke-artifacts/ha262-hostscale-rotate-20260916-140241/`。
-   **第二台物理机 / 分屏：用户已停（2026-09-16）；默认下一拍勿做。**
+   **HA262 旋转真机**：`onSizeChanged` 竖屏 1904×3040 → scale=1.4875
+   offset=(0,984)；横屏 3040×1904 → scale=2.375 offset=(0,97)。
+   **第二台物理机 / 分屏：用户已停（2026-09-16）；默认下一项勿做。**
 2. **禁止 densityDpi 入径（已锁）**：`WineAndroidDpiTest` + SessionActivity 日志
    标明 android densityDpi unused；缺参仍 classic 96。
 3. **guest 分辨率档 + 设置页（已接线）**：`WineAndroidGuestResolution` 预设
@@ -140,37 +130,21 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
    **Settings → Common → Display → Resolution** 与 Launcher `Resolution` 枚举与该目录对齐；
    `RuntimeSettingsStore`（SharedPreferences `display_resolution`）存 `R{W}x{H}` /
    guest id，经 `preferenceName` / `fromPreference` 映射；未知旧值回落 DEFAULT。
-   Desktop / Launcher 启动走已存 WxH → `SessionLaunch`（**下一拍会话**生效）。
+   Desktop / Launcher 启动走已存 WxH → `SessionLaunch`（**下一会话**生效）。
    MainActivity 的 wineandroid/smoke debug 冷启在未传 WIDTH/HEIGHT extras 时也读取该偏好；
-   显式 extras 仍覆盖偏好，便于 smoke 固定尺寸。
-   **`fdda994` no-WIDTH pref 路径已合入**（读 `display_resolution`）。
-   Debug log（本拍）：MainActivity cold WINEANDROID/smoke 打
-   `guest resolution resolve source=pref|extras|mixed|default pref=… WxH=…`
-   （`WineAndroidGuestResolution.describeDebugDimensionSource`）。配方：
-   `/workspace/ha262-resolution-pref-recipe.md`（run-as 写
-   `amphora_graphics` / `display_resolution`；**勿**传 WIDTH/HEIGHT）。
-   **HA262 no-WIDTH pref device PASS**（`26b5c98`，2026-09-16 ~20:05
-   Asia/Shanghai；ART `ha262-resolution-pref-20260916-200528`）：run-as seeded
-   `display_resolution=R1024x768`，cold WINEANDROID 无 WIDTH/HEIGHT 命中
-   `source=pref`，session / `/desktop=shell` 均为 `1024x768`；control launch
-   的 WIDTH=1280、HEIGHT=720 命中 `source=extras`。仅记录 HA262 该设备，
-   不宣称其它设备 PASS。
+   显式 extras 仍覆盖偏好。
+   Debug log：`guest resolution resolve source=pref|extras|mixed|default pref=… WxH=…`
+   （`WineAndroidGuestResolution.describeDebugDimensionSource`）。
+   **HA262 真机验证**（`26b5c98`）：run-as 写入 `display_resolution=R1024x768`，
+   冷启无 WIDTH/HEIGHT → `source=pref` / session `1024x768`；带 WIDTH=1280 HEIGHT=720
+   → `source=extras`。仅记录 HA262，不宣称其它设备。
 4. **WS_VISIBLE / sibling z-order（加固）**：`WineAndroidWindowStack` + Desktop
    sibling 栈；隐窗 removeView；叠窗 `bringChildToFront` 同步。单测
    `WineAndroidWindowStackTest`。
-   **HA262 window-stack / WS_VISIBLE smoke PASS**（`4d3d976`，2026-09-16
-   ~16:48 Asia/Shanghai）：session 1280×720；first register（desktop /
-   taskbar / windows）；`windowPosChanged` 带 `style=`；无 FATAL。
-   ART（Mac）：`smoke-artifacts/ha262-window-stack-20260916-164730`。
-   **仍开（可选）**：重叠 HWND z-order **人工眼验**（非自动化）。
-   **HA262 DUMP_ZORDER / ZORDER_TOP_HWND helper log PASS**（`d0bdcb7`，2026-09-16
-   ~20:01 Asia/Shanghai）：Relay `DUMP_ZORDER` → dumps `parentKey=-3, 0, 196660`
-   topFirst lists with `*` visible marks；natural `zorder sync reason=apply` with
-   ≥2 siblings；`ZORDER_TOP_HWND` 131156 (`0x20054`) →
-   `zorder top inject hwnd=0x20054` + sync；dump keeps `0x20054*` at front of
-   `parentKey=0`。ART：`ha262-zorder-dump-20260916-200032`。
-   **这是 debug helper log PASS**，**非**视觉重叠眼验 PASS；可选眼验仍开。
-   配方：`/workspace/ha262-zorder-dump-recipe.md`。
+   **HA262 stack 冒烟 PASS**（`4d3d976`）：session 1280×720；first register；
+   `windowPosChanged` 带 `style=`；无 FATAL。
+   **Debug 验证钩子**：`DUMP_ZORDER` / `ZORDER_TOP_HWND`（`d0bdcb7` helper log PASS；
+   **非**视觉重叠眼验）。重叠 HWND z-order **人工目视确认**仍可选。
 5. **非目标**：不另造第二套桌面模型；不改 Present/AHB / TextureView / BGRA / IMM32；
    **不做分屏 / 第二台 hostScale**（用户已停）。
 
@@ -208,52 +182,19 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
   Session `dispatchKeyEvent` 在 native 返回 false 时 fall-through 给 Android（BACK
   可 finish Activity；音量归系统）。**不要**给这些键发明 guest vkey。日志
   `key … ok=false passThrough=intentional-host`（其它未映射为 `unmapped`）。
-  单测：`WineAndroidKeyPassThroughTest`。冒烟配方：
-  `/workspace/ha262-back-passthrough-recipe.md`（**先 tap Desktop 获焦**，否则
-  keyevent 日志可能不出现）。
-- **HA262 BACK / VOLUME intentional-host PASS**（`02d04e1`，2026-09-16 ~19:57
-  Asia/Shanghai）：先 tap Desktop，再 `keyevent`。
-  `keyevent 29`（A）→ Desktop `ok=true` + HostIpc `keyboard … keycode=29 vkey=41`；
-  `keyevent 24/25` VOLUME → `ok=false passThrough=intentional-host`；
-  `keyevent 4` BACK → Desktop `keycode=4 … ok=false passThrough=intentional-host`，
-  无 native keyboard for BACK；session finish → MainActivity resumed（宿主拥有）。
-  ART（Mac）：`smoke-artifacts/ha262-back-passthrough-20260916-195631`（同目录 hits2）。
+  单测：`WineAndroidKeyPassThroughTest`。
+- **HA262 真机验证**（`02d04e1`）：先 tap Desktop，再 `keyevent`。A → `ok=true`；
+  VOLUME/BACK → `passThrough=intentional-host`；BACK finish → MainActivity。
 - **IME commit 已落地**：`WineAndroidDesktop` 实现 `onCreateInputConnection` → 复用 `WineInputConnection`；committed ASCII/Latin 经 `KeyCharacterMap`（`VIRTUAL_KEYBOARD`）映射为 KeyEvent 再 `sendKeyboardEvent`。删除 / EditorAction(ENTER) / `onSendKeyEvent` 同管。
-- **软键盘策略（默认不自动弹出）**：触摸 DOWN 只设 `keyTargetHwnd` + `requestFocus`（硬件键），**不**调用 `showSoftKeyboard()`（`WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch() == false`）。无可靠 guest「文本框获焦」信号前，避免桌面/chrome 每点都弹 IME（HA262 沉浸冒烟曾半屏遮挡）。`onCheckIsTextEditor` 仅在显式 `showSoftKeyboard` 的 `imeWanted` 期间为 true（FrameLayout 无 TextView `setShowSoftInputOnFocus`），避免 focus 单独拉起 IME；Session `windowSoftInputMode=stateHidden|adjustNothing`。需要时显式 `showSoftKeyboard()` → `InputMethodManager.showSoftInput`。`hideSoftKeyboard()` 在 session `onPause` / 窗口失焦时调用。
-- **显式软键盘控件（已落地）**：Session 右上角 debug chip「键盘」/「收键盘」调用 `toggleSoftKeyboard()`（`showSoftKeyboard` / `hideSoftKeyboard`）。contentDescription 恒为 `wineandroid keyboard`（uiautomator 定位）。次要：长按 letterbox（`WineAndroidDesktop` 上、contentHost 外黑边）同样切换；guest WindowGroup 仍吃自己的触摸，不抢桌面长按。默认仍不随 tap/focus 弹出。配方：`/workspace/ha262-ime-explicit-show-recipe.md`。
-- **Debug `IME_SHOW` extra（已落地）**：debuggable 下 `--ez app.amphora.debug.IME_SHOW true|false`（MainActivity 冷启；中途 → `WineAndroidDebugImeRelayActivity`）显式 show/hide，**不**改 tap 自动弹出策略。日志 `IME soft keyboard inject scheduled` + Desktop `IME soft keyboard show|hide`。冷启需 IMM serve-ready：`WineAndroidDesktop.showSoftKeyboard` 在 `imeWanted` 期间按 `0/100/400/1000ms` 重试 `requestFocus`+`restartInput`+`showSoftInput`（直至 served / 成功或 `imeWanted` 清除）；Session 另 `postDelayed(400)` 作为双保险。
-- **HA262 keyboard chip + IME_SHOW serve-ready PASS**（`c5ede16`，2026-09-16 ~19:48 Asia/Shanghai）：
-  冷启 `--ez app.amphora.debug.IME_SHOW true` → `mInputShown=true`；log
-  `IME soft keyboard show served attempt=0`（无最终 Ignoring-not-served）。
-  Desktop tap → `mInputShown=false`。Chip `content-desc=wineandroid keyboard`
-  show then hide PASS。更早 chip-only PASS on `8fbcdca` ~19:43 亦 OK；本 tip 覆盖。
-  ART（Mac）：`smoke-artifacts/ha262-ime-show-serve-20260916-194731`。
-- **CJK/unicode commit 已落地**：`KeyCharacterMap` 无法映射的码点经 `nativeSendUnicodeChar` → 同 pipe 的 `KEYEVENTF_UNICODE`（BMP 一 wchar；补充平面 UTF-16 代理对两次 unicode 事件；各 down+up）。Guest 侧仍是 `NtUserSendHardwareInput`，**不做** IMM32/TSF。
-- **Debug IME 注入（HA262 冒烟）**：debuggable 下 `--es app.amphora.debug.IME_UNICODE_TEXT '中文A'`（MainActivity **冷启**转发；**中途**用 debug-only 导出 `WineAndroidDebugImeRelayActivity` → 同 UID `startActivity` 非导出 Session → `onNewIntent`）。勿直接 `am start` Session（SecurityException）；勿指望中途 `am start MainActivity`（Session 在上，只把 task 拉前台）。`WineAndroidDesktop.injectCommittedTextForDebug` 走与 soft IME 相同的 commit 路径；日志 `IME unicode inject …` + Desktop `IME unicode hwnd=…` + HostIpc `keyboard unicode …`。
-- **HA262 unicode 自动冒烟 PASS**（`702b165`，2026-09-16 ~14:08 Asia/Shanghai）：MainActivity 冷启
-  `--ez …WINEANDROID true --ei WIDTH 1280 --ei HEIGHT 720 --es …IME_UNICODE_TEXT '中文A'`；
-  `IME unicode inject scheduled reason=onCreate` → deferred → `hwnd=… text='中文A'`；
-  HostIpc `keyboard unicode uchar=4e2d` / `6587`；Desktop `U+4e2d`/`U+6587` ok + `KEYCODE_A` ok。
-  ART（Mac）：`smoke-artifacts/ha262-ime-unicode-auto-20260916-140749`。
-- **Host composing overlay 已落地**：`onComposingTextChanged` → `ImeUiState` → SessionActivity 左上角
-  TextView chip（commit/finish/`WineInputConnection.reset` 清空）。**不做** IMM32/TSF；
-  composition 永不进 guest。
-- **Debug composing 注入（HA262 冒烟）**：debuggable 下 `--es app.amphora.debug.IME_COMPOSING_TEXT 'nihao'`
-  （MainActivity **冷启**；中途 → `WineAndroidDebugImeRelayActivity`）。仅 `updateImeUiState(composingText=…)`，
-  **不**走 commit/unicode pipe。**清 chip 用 `--esn …IME_COMPOSING_TEXT`**（`am` 拒绝 `--es … ''`）。
-  日志 `IME composing inject scheduled` + Desktop `IME composing inject len=… (host-local…)`。
-  配方：`/workspace/ha262-ime-composing-overlay-smoke.md`。
-- **HA262 cold composing chip PASS**（`01cf904`）：MainActivity 冷启
-  `--es …IME_COMPOSING_TEXT nihao` → chip 显示；`--esn` 清 chip。
-- **HA262 mid-session composing relay PASS**（`fe8f5a2`，2026-09-16 ~14:22 Asia/Shanghai）：
-  Session 已在前台（MainActivity WINEANDROID）；
-  `am start …WineAndroidDebugImeRelayActivity --es IME_COMPOSING_TEXT nihao` →
-  Session `onNewIntent len=5` + Desktop inject len=5；chip 显示；
-  `--esn IME_COMPOSING_TEXT` → `onNewIntent len=0`；chip 清；无 unicode/keyboard unicode 泄漏。
-  ART（Mac）：`smoke-artifacts/ha262-ime-composing-relay-20260916-142224`。
-- **软键盘入口已关**（chip / letterbox 长按 / `IME_SHOW` / `showSoftKeyboard`；**无** tap/focus 自动弹出）。
-- **仍开（可选）**：真机 soft IME **眼验** composing chip + CJK commit（`adb input text` 无法模拟 composing）；
-  第二台真机 / 分屏（**已停**，勿排下一拍）。
+- **软键盘策略（默认不自动弹出）**：触摸 DOWN 只设 `keyTargetHwnd` + `requestFocus`（硬件键），**不**调用 `showSoftKeyboard()`（`WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch() == false`）。无可靠 guest「文本框获焦」信号前，避免桌面/chrome 每点都弹 IME。`onCheckIsTextEditor` 仅在显式 `showSoftKeyboard` 的 `imeWanted` 期间为 true，避免 focus 单独拉起 IME；Session `windowSoftInputMode=stateHidden|adjustNothing`。需要时显式 `showSoftKeyboard()`。`hideSoftKeyboard()` 在 session `onPause` / 窗口失焦时调用。
+- **显式软键盘控件（已落地）**：Session 右上角 debug chip「键盘」/「收键盘」调用 `toggleSoftKeyboard()`。contentDescription 恒为 `wineandroid keyboard`（uiautomator 定位）。次要：长按 letterbox（contentHost 外黑边）同样切换。默认仍不随 tap/focus 弹出。
+- **Debug 验证钩子 `IME_SHOW`**：`--ez app.amphora.debug.IME_SHOW true|false`（冷启或 Relay）显式 show/hide，**不**改 tap 自动弹出策略。冷启需 IMM serve-ready：`showSoftKeyboard` 在 `imeWanted` 期间按 `0/100/400/1000ms` 重试。
+- **HA262 真机验证**（`c5ede16`）：冷启 `IME_SHOW true` → `mInputShown=true` / `show served attempt=0`；Desktop tap → `mInputShown=false`；chip show/hide PASS。
+- **CJK/unicode commit 已落地**：`KeyCharacterMap` 无法映射的码点经 `nativeSendUnicodeChar` → `KEYEVENTF_UNICODE`。Guest 侧仍是 `NtUserSendHardwareInput`，**不做** IMM32/TSF。
+- **Debug 验证钩子**：`IME_UNICODE_TEXT` / `IME_COMPOSING_TEXT`（冷启 MainActivity；中途 → `WineAndroidDebugImeRelayActivity`）。composing 仅更新 host chip，**不**走 commit/unicode pipe。清 chip 用 `--esn`。
+- **HA262 真机验证**：unicode 自动冒烟 PASS（`702b165`）；cold composing chip PASS（`01cf904`）；mid-session composing relay PASS（`fe8f5a2`）。
+- **软键盘入口**：仅 chip / letterbox 长按 / `IME_SHOW` / `showSoftKeyboard`；**无** tap/focus 自动弹出。
+- **仍开（可选）**：真机 soft IME **人工目视确认** composing chip + CJK commit；第二台真机 / 分屏（**已停**）。
 
 ## 非目标
 
