@@ -90,7 +90,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - Debug IME unicode 自动冒烟 **PASS** on `702b165`（MainActivity 冷启 `IME_UNICODE_TEXT`；ART `ha262-ime-unicode-auto-20260916-140749`）
 - Debug IME composing：**cold chip PASS** `01cf904`；**mid-session relay PASS** `fe8f5a2`（~14:22 Asia/Shanghai；ART `ha262-ime-composing-relay-20260916-142224`）
 - DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；`fdda994` no-WIDTH pref；**第二台/分屏用户已停**
-- WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固（隐窗 removeView + sync bringToFront）
+- WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`（隐窗 removeView + sync bringToFront）；**HA262 stack smoke PASS**（~16:48 Asia/Shanghai；ART `ha262-window-stack-20260916-164730`）；重叠 z-order 人工眼验仍可选
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
 游戏轨：
@@ -159,11 +159,18 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 
 键盘（硬件 KEYCODE / `adb input keyevent`）：`key hwnd=… ok=true`；native `keyboard hwnd=… vkey=…`。`adb shell input keyevent 29`（A）或 `66`（ENTER）；`adb shell input text hello` 走 KEYCODE 注入。Soft IME：触摸后应弹出键盘；commit ASCII 应见同样 `key hwnd=…`；CJK commit 应见 `IME unicode` + native `keyboard unicode uchar=`。**Debug unicode 自动冒烟 PASS**（`702b165`）。**Cold composing chip PASS**（`01cf904`）。**Mid-session composing relay PASS**（`fe8f5a2`）。**仍开（可选）**：真机 CJK soft IME 眼验 composing chip（`adb input text` 仅 ASCII）。
 
-### 9.3 产物存放
+### 9.3 壳层 WS_VISIBLE / sibling z-order
+
+**HA262 window-stack smoke PASS** on `4d3d976`（2026-09-16 ~16:48 Asia/Shanghai）：
+session 1280×720；first register（desktop/taskbar/windows）；`windowPosChanged`
+带 `style=`；无 FATAL。ART（Mac）：`smoke-artifacts/ha262-window-stack-20260916-164730`。
+**仍开（可选）**：重叠 HWND z-order 人工眼验。
+
+### 9.4 产物存放
 
 建议 Mac：`/Users/sky/co/src/amphora-dev/smoke-artifacts/`（log + screencap）。`/tmp` 可能无法 CopyToBox。
 
-### 9.4 无人值守
+### 9.5 无人值守
 
 - **单一 owner bot** 跑 install；禁止并行 install 战争。
 - 设备断开 / gradle 失败：失败即停并通知。
@@ -215,10 +222,13 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
 
 **本拍优先 / 仍开：**
 
-1. **壳层叠窗眼验（可选）**：WS_VISIBLE 隐显 + sibling z-order（`WineAndroidWindowStack`）
-   真机确认重叠 HWND 顺序；guest 分辨率 no-WIDTH pref（`fdda994`）真机 PASS 未宣称。
+1. **壳层叠窗（log smoke 已 PASS）**：WS_VISIBLE / sibling z-order @ `4d3d976`
+   （session 1280×720；first register；`windowPosChanged`+`style=`；无 FATAL；
+   ART `ha262-window-stack-20260916-164730`）。**仍开（可选）**：重叠 HWND
+   z-order **人工眼验**；guest 分辨率 no-WIDTH pref（`fdda994`）真机 PASS 未宣称。
 2. **可选**：真机 soft IME 眼验 composing chip + commit（勿发明 IMM32/TSF；
-   composition 已 host-local）。
+   composition 已 host-local）。无明确 soft-IME focus/`showSoftKeyboard`
+   可靠性缺口时勿垫新刀。
 
 **已停 / 勿排下一拍**：第二台真机 / 分屏 / hostScale 双机（用户 2026-09-16 停）。
 

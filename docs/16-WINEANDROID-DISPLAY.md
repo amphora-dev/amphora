@@ -91,7 +91,12 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
    未宣称（Grok Bot 无 Mac 装机；parent 可冒烟）。
 4. **WS_VISIBLE / sibling z-order（加固）**：`WineAndroidWindowStack` + Desktop
    sibling 栈；隐窗 removeView；叠窗 `bringChildToFront` 同步。单测
-   `WineAndroidWindowStackTest`。真机叠窗眼验仍开（可选）。
+   `WineAndroidWindowStackTest`。
+   **HA262 window-stack / WS_VISIBLE smoke PASS**（`4d3d976`，2026-09-16
+   ~16:48 Asia/Shanghai）：session 1280×720；first register（desktop /
+   taskbar / windows）；`windowPosChanged` 带 `style=`；无 FATAL。
+   ART（Mac）：`smoke-artifacts/ha262-window-stack-20260916-164730`。
+   **仍开（可选）**：重叠 HWND z-order **人工眼验**（非自动化）。
 5. **非目标**：不另造第二套桌面模型；不改 Present/AHB / TextureView / BGRA / IMM32；
    **不做分屏 / 第二台 hostScale**（用户已停）。
 
