@@ -87,6 +87,7 @@
             android:process=":session"
             android:resizeableActivity="true"
             android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="stateHidden|adjustNothing"
             tools:ignore="DiscouragedApi" />
 
         <activity

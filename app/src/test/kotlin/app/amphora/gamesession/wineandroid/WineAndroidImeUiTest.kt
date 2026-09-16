@@ -51,4 +51,11 @@ class WineAndroidImeUiTest {
         // Default policy: no IME on every desktop/chrome tap (HA262 immersive).
         assertFalse(WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch())
     }
+
+    @Test
+    fun textEditorOnlyWhenImeWanted() {
+        // Focus/tap must not report as editor; explicit showSoftKeyboard sets imeWanted.
+        assertFalse(WineAndroidImeUi.shouldReportAsTextEditor(imeWanted = false))
+        assertTrue(WineAndroidImeUi.shouldReportAsTextEditor(imeWanted = true))
+    }
 }

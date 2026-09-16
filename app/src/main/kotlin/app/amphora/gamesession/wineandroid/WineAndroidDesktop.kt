@@ -48,9 +48,11 @@ import kotlin.math.roundToInt
  *   (KEYEVENTF_UNICODE on EVENT_KEYBOARD). Composition stays host-local
  *   ([ImeUiState] chip); no IMM32/TSF into guest.
  *   **Policy**: touch DOWN does **not** auto-show IME
- *   ([WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch] = false); only
- *   [showSoftKeyboard] (explicit UI) or system/user IMM request
- *   ([onCheckIsTextEditor] = true). [hideSoftKeyboard] on pause / focus loss.
+ *   ([WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch] = false). Focus alone
+ *   must not open soft IME: [onCheckIsTextEditor] only while [imeWanted]
+ *   (set in [showSoftKeyboard], cleared in [hideSoftKeyboard]) — FrameLayout
+ *   has no TextView `setShowSoftInputOnFocus`. Explicit [showSoftKeyboard]
+ *   uses IMM.showSoftInput. [hideSoftKeyboard] on pause / focus loss.
  *   Debug: [injectCommittedTextForDebug] reuses the same commit path (HA262 smoke).
  * - Style / z-order: [WineAndroidWindowStack] tracks WS_VISIBLE + sibling order;
  *   invisible HWND groups are removed from the parent (upstream add/remove), and
@@ -90,10 +92,19 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
      */
     private val siblingStacks = HashMap<Int, MutableList<Int>>()
 
+    /**
+     * True only while an explicit soft-IME show is in effect. Gates
+     * [onCheckIsTextEditor] so focus / tap does not make IMM treat this view
+     * as an editor (HA262: mInputShown stayed true after requestFocus alone).
+     */
+    @Volatile private var imeWanted: Boolean = false
+
     init {
         // Upstream WineView: GDI views are focusable so KeyEvents land here.
         isFocusable = true
         isFocusableInTouchMode = true
+        // Soft IME: FrameLayout has no TextView.setShowSoftInputOnFocus;
+        // [imeWanted] gates [onCheckIsTextEditor] so focus/tap does not open IME.
     }
 
     /** Guest / Wine desktop size (explorer /desktop=shell,WxH). */
@@ -218,7 +229,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         return ok
     }
 
-    override fun onCheckIsTextEditor(): Boolean = true
+    override fun onCheckIsTextEditor(): Boolean =
+        WineAndroidImeUi.shouldReportAsTextEditor(imeWanted)
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         outAttrs.inputType =
@@ -326,8 +338,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     /**
      * Explicit soft-IME show (TouchpadView / GameSession drawer pattern).
      * Not called from touch DOWN — see [WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch].
+     * Sets [imeWanted] so [onCheckIsTextEditor] is true while IMM binds.
      */
     fun showSoftKeyboard() {
+        imeWanted = true
         requestFocus()
         val imm = context.getSystemService(InputMethodManager::class.java)
         imm?.restartInput(this)
@@ -340,6 +354,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
     /** Hide soft IME + clear host composing (TouchpadView.dismissSoftKeyboard-light). */
     fun hideSoftKeyboard() {
+        imeWanted = false
         val imm = context.getSystemService(InputMethodManager::class.java)
         imm?.hideSoftInputFromWindow(windowToken, 0)
         updateImeUiState(composingText = "", keyboardVisible = false)
@@ -743,6 +758,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             // Upstream WineView.setFocusable(!client): GDI group takes keys.
             isFocusable = !window.isClient
             isFocusableInTouchMode = !window.isClient
+            // GDI groups take focus on tap for hardware keys; not a text editor
+            // (default onCheckIsTextEditor=false) so focus alone does not open IME.
             addView(
                 surfaceView,
                 LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),

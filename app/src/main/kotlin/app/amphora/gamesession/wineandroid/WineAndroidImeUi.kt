@@ -42,8 +42,17 @@ object WineAndroidImeUi {
      *
      * Callers that need IME use [WineAndroidDesktop.showSoftKeyboard] explicitly
      * (GameSession drawer "Show keyboard", future overlay / long-press).
-     * [WineAndroidDesktop.onCheckIsTextEditor] stays true so the system/user
-     * can still request IME when appropriate.
+     * Focus alone is blocked via [shouldReportAsTextEditor] (imeWanted only
+     * while explicit show). FrameLayout has no TextView setShowSoftInputOnFocus.
      */
     fun shouldAutoShowSoftKeyboardOnTouch(): Boolean = false
+
+    /**
+     * Whether [WineAndroidDesktop.onCheckIsTextEditor] should return true.
+     *
+     * Only while an explicit [WineAndroidDesktop.showSoftKeyboard] is in effect
+     * (`imeWanted`). Returning true unconditionally let `requestFocus()` after
+     * taps auto-open soft IME (HA262 FAIL: dumpsys `mInputShown=true`).
+     */
+    fun shouldReportAsTextEditor(imeWanted: Boolean): Boolean = imeWanted
 }
