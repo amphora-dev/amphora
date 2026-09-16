@@ -82,7 +82,7 @@ constructor(
                 LaunchTarget.EXPLORER -> buildWineExplorerCommand(screenInfo)
                 LaunchTarget.PROGRAM -> {
                     val wineExePath = stageExeIntoPrefix(wnContainer, prepared.spec.exePath)
-                    buildWineProgramCommand(screenInfo, wineExePath)
+                    buildWineProgramCommand(screenInfo, wineExePath, prepared.spec.exeArgs)
                 }
             }
 

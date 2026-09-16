@@ -169,6 +169,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
         // Wine DPI = classic 96 (host scale already enlarges; do not stack 254).
 
         val exePath = intent.getStringExtra(EXTRA_EXE_PATH).orEmpty()
+        val exeArgs = intent.getStringExtra(EXTRA_EXE_ARGS).orEmpty()
         val width = intent.getIntExtra(EXTRA_WIDTH, DEFAULT_WIDTH)
         val height = intent.getIntExtra(EXTRA_HEIGHT, DEFAULT_HEIGHT)
         desktop.setGuestDesktopSize(width, height)
@@ -201,6 +202,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                         target = target,
                         displayBackend = DisplayBackend.WINEANDROID,
                         env = diagEnv,
+                        exeArgs = exeArgs,
                     )
                 val prepared = bootstrap.prepare(spec)
                 hostBridge?.startServer()
@@ -400,6 +402,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
     companion object {
         private const val TAG = "WineAndroidSession"
         private const val EXTRA_EXE_PATH = "exePath"
+        private const val EXTRA_EXE_ARGS = "exeArgs"
         private const val EXTRA_WIDTH = "width"
         private const val EXTRA_HEIGHT = "height"
         private const val EXTRA_TARGET = "target"
@@ -416,6 +419,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             height: Int = DEFAULT_HEIGHT,
             target: LaunchTarget = LaunchTarget.PROGRAM,
             graphicsDiag: Boolean = false,
+            exeArgs: String = "",
             debugImeUnicodeText: String? = null,
             debugImeComposingText: String? = null,
             debugImeShow: Boolean? = null,
@@ -424,6 +428,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             debugZOrderTopHwnd: Int? = null,
         ): Intent = Intent(context, WineAndroidSessionActivity::class.java).apply {
             putExtra(EXTRA_EXE_PATH, exePath)
+            putExtra(EXTRA_EXE_ARGS, exeArgs)
             putExtra(EXTRA_WIDTH, width)
             putExtra(EXTRA_HEIGHT, height)
             putExtra(EXTRA_TARGET, target.name)
@@ -458,6 +463,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             height: Int = DEFAULT_HEIGHT,
             target: LaunchTarget = LaunchTarget.PROGRAM,
             graphicsDiag: Boolean = false,
+            exeArgs: String = "",
             debugImeUnicodeText: String? = null,
             debugImeComposingText: String? = null,
             debugImeShow: Boolean? = null,
@@ -473,6 +479,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     height = height,
                     target = target,
                     graphicsDiag = graphicsDiag,
+                    exeArgs = exeArgs,
                     debugImeUnicodeText = debugImeUnicodeText,
                     debugImeComposingText = debugImeComposingText,
                     debugImeShow = debugImeShow,

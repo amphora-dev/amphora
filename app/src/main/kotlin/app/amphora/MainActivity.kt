@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
                         height = intent.getIntExtra(EXTRA_DEBUG_HEIGHT, 720),
                         graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
                         displayBackend = DisplayBackend.X11,
+                        exeArgs = debugExeArgs(),
                     )
                 }
                 intent.getBooleanExtra(EXTRA_DEBUG_WINEANDROID, false) ||
@@ -80,6 +81,7 @@ class MainActivity : ComponentActivity() {
                         width = width,
                         height = height,
                         graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
+                        exeArgs = debugExeArgs(),
                         debugImeUnicodeText =
                             intent.getStringExtra(EXTRA_DEBUG_IME_UNICODE_TEXT),
                         debugImeComposingText =
@@ -123,12 +125,17 @@ class MainActivity : ComponentActivity() {
         ?.takeIf { it.isNotBlank() }
         ?: stageDebugWineExe(this)
 
+    private fun debugExeArgs(): String =
+        intent.getStringExtra(EXTRA_DEBUG_WINE_ARGS).orEmpty()
+
     companion object {
         private const val TAG = "MainActivity"
 
         const val EXTRA_OPEN_SETTINGS = "app.amphora.desktop.OPEN_SETTINGS"
         private const val EXTRA_DEBUG_WINE_SMOKE = "app.amphora.debug.WINE_SMOKE"
         private const val EXTRA_DEBUG_WINE_EXE = "app.amphora.debug.WINE_EXE"
+        /** Debug-only: trailing Wine program CLI args (e.g. `--cube vk --bench 8`). */
+        private const val EXTRA_DEBUG_WINE_ARGS = "app.amphora.debug.WINE_ARGS"
         private const val EXTRA_DEBUG_WIDTH = "app.amphora.debug.WIDTH"
         private const val EXTRA_DEBUG_HEIGHT = "app.amphora.debug.HEIGHT"
         private const val EXTRA_DEBUG_GRAPHICS_DIAG = "app.amphora.debug.GRAPHICS_DIAG"

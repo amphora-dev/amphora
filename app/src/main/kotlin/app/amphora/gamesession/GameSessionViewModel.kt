@@ -77,6 +77,7 @@ constructor(
                             target = request.target,
                             displayBackend = DisplayBackend.X11,
                             env = diagEnv,
+                            exeArgs = request.exeArgs,
                         ),
                     )
                 } catch (e: CancellationException) {
@@ -104,6 +105,7 @@ constructor(
                 ?.let { runCatching { LaunchTarget.valueOf(it) }.getOrNull() }
                 ?: LaunchTarget.PROGRAM
         val graphicsDiag = savedStateHandle.get<Boolean>(GRAPHICS_DIAG_ARG) == true
+        val exeArgs = savedStateHandle.get<String>(EXE_ARGS_ARG).orEmpty()
         coordinator.start(
             GameSessionLaunchRequest(
                 exePath = exePath,
@@ -111,6 +113,7 @@ constructor(
                 height = height,
                 target = target,
                 graphicsDiag = graphicsDiag,
+                exeArgs = exeArgs,
             ),
         )
     }
@@ -148,6 +151,7 @@ constructor(
     private companion object {
         const val TAG = "GameSessionViewModel"
         const val EXE_PATH_ARG = "exePath"
+        const val EXE_ARGS_ARG = "exeArgs"
         const val WIDTH_ARG = "width"
         const val HEIGHT_ARG = "height"
         const val TARGET_ARG = "target"

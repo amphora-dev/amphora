@@ -24,6 +24,38 @@ class WineLaunchCommandTest {
     }
 
     @Test
+    fun programLaunchAppendsSafeExeArgsAfterQuotedPath() {
+        assertEquals(
+            "wine start /wait explorer /desktop=shell,1920x1080 \"C:\\My Game\\game.exe\" --cube vk --bench 8",
+            buildWineProgramCommand(
+                "1920x1080",
+                "C:\\My Game\\game.exe",
+                "--cube vk --bench 8",
+            ),
+        )
+    }
+
+    @Test
+    fun programLaunchWithEmptyExeArgsMatchesNoArgsCommand() {
+        assertEquals(
+            buildWineProgramCommand("1920x1080", "C:\\My Game\\game.exe"),
+            buildWineProgramCommand("1920x1080", "C:\\My Game\\game.exe", ""),
+        )
+        assertEquals(
+            buildWineProgramCommand("1920x1080", "C:\\My Game\\game.exe"),
+            buildWineProgramCommand("1920x1080", "C:\\My Game\\game.exe", "   "),
+        )
+    }
+
+    @Test
+    fun programLaunchDropsUnsafeExeArgs() {
+        assertEquals(
+            buildWineProgramCommand("1280x720", "C:\\game.exe"),
+            buildWineProgramCommand("1280x720", "C:\\game.exe", "--cube vk; rm -rf /"),
+        )
+    }
+
+    @Test
     fun executableWithSameNameAndSizeButDifferentContentIsUpdated() {
         val root = Files.createTempDirectory("stage-executable-").toFile()
         try {

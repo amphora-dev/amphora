@@ -80,11 +80,11 @@ class GameSessionLaunchTest {
                 )
             assertTrue(
                 "32-bit AIO Graphics Test was not staged",
-                File(graphicsTestDir, "Graphics-Test-32bit.exe").length() == 2_083_443L,
+                File(graphicsTestDir, "Graphics-Test-32bit.exe").length() == 4_367_103L,
             )
             assertTrue(
                 "64-bit AIO Graphics Test was not staged",
-                File(graphicsTestDir, "Graphics-Test-64bit.exe").length() == 2_065_494L,
+                File(graphicsTestDir, "Graphics-Test-64bit.exe").length() == 4_289_335L,
             )
 
             delay(5_000L)

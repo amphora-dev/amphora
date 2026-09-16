@@ -29,4 +29,6 @@ data class LaunchSpec(
     val displayBackend: DisplayBackend = DisplayBackend.WINEANDROID,
     val env: Map<String, String> = emptyMap(),
     val workingDirectory: String? = null,
+    /** Trailing CLI args after the Windows exe path (PROGRAM launches only). */
+    val exeArgs: String = "",
 )

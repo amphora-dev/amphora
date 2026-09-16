@@ -535,23 +535,20 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 ### 2.6 AIO Graphics Test
 
-开始菜单中的 32/64 位图形诊断程序固定为 patched AIO Graphics Test（基于
-[`The412Banner/AIO-Graphics-Test`](https://github.com/The412Banner/AIO-Graphics-Test)
-`cube_d3d8.c`：窗口模式 `FullScreen_PresentationInterval` 必须为
-`D3DPRESENT_INTERVAL_DEFAULT`，否则 DXVK D3D8 `CreateDevice` 返回
-`D3DERR_INVALIDCALL`）。
+开始菜单中的 32/64 位图形诊断程序固定为官方预编译 **AIO Graphics Test 2.1.0**
+（[`The412Banner/AIO-Graphics-Test`](https://github.com/The412Banner/AIO-Graphics-Test)
+tag **`2.1.0`**，CLI-capable：可直接传 `--cube vk|gl|dx11` 等参数，无需 `.bat`
+包装）。此前 amphora-patched / cnb `amphora` 标签 pin 已被本 pin 取代。
 
-公开源与固定 Release：[`cnb.cool/atowerlight/aio-graphics-test`](https://cnb.cool/atowerlight/aio-graphics-test)
-标签 **`amphora`**（每次 `main` 推送由 CI 覆盖附件，不保留历史版本）。设备端按
-`content_manifest.json` 的 `remoteUrl` 下载并校验后复制到 Wine
-`ProgramData/Microsoft/Windows`。APK 中的同名文件只是当前离线候选，不是生产 pin 真源：
+设备端按 `content_manifest.json` 的 `remoteUrl` 下载并校验后复制到 Wine
+`ProgramData/Microsoft/Windows`。APK assets 中的同名文件是当前离线候选：
 
-| 资产 | SHA-256 | 大小 | remoteUrl |
+| 资产 | SHA-256 | 大小 | source |
 |---|---|---:|---|
-| `Graphics-Test-32bit.exe` | `75589dc37b72d509e23c9c3c043fdf8e03855e5d2f1ec846efe2672662719306` | 2,083,443 | `.../releases/download/amphora/AIO-Graphics-Test-32bit.exe` |
-| `Graphics-Test-64bit.exe` | `96d76d077139ef469eff31efbc75cd9202b99bf2906b97e3c5de07dc350f5c57` | 2,065,494 | `.../releases/download/amphora/AIO-Graphics-Test-64bit.exe` |
+| `Graphics-Test-32bit.exe` | `d8fa9b02d1881cb1c65f0192aa5f209a3e9c80214e1e74f93e704a6a859b4367` | 4,367,103 | GitHub `The412Banner/AIO-Graphics-Test` tag `2.1.0` (`AIO-Graphics-Test-32bit.exe`) |
+| `Graphics-Test-64bit.exe` | `1c27a4a71214ad3bc4e605acf4ed64098ce66cb4b65cfbd4ea6b1e016ffbb2c3` | 4,289,335 | GitHub `The412Banner/AIO-Graphics-Test` tag `2.1.0` (`AIO-Graphics-Test-64bit.exe`) |
 
-CI 重建后 SHA 会变：先更新 `content_manifest.json`；本文仅在人工校对时同步。
+上游发新版后 SHA 会变：先更新 APK assets / `content_manifest.json`；本文仅在人工校对时同步。
 
 > `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。Amphora 生产路径由 `RemoteContentSource` 在设备上下载并校验 manifest 中固定的 Proton WCP，不再要求 build 时打入 APK。
 

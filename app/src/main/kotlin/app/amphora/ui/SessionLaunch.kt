@@ -28,6 +28,7 @@ object SessionLaunch {
         height: Int = WineAndroidGuestResolution.DEFAULT.height,
         graphicsDiag: Boolean = false,
         displayBackend: DisplayBackend = resolveDisplayBackend(),
+        exeArgs: String = "",
         debugImeUnicodeText: String? = null,
         debugImeComposingText: String? = null,
         debugImeShow: Boolean? = null,
@@ -44,6 +45,7 @@ object SessionLaunch {
                     height = height,
                     graphicsDiag = graphicsDiag,
                     displayBackend = DisplayBackend.X11,
+                    exeArgs = exeArgs,
                 )
             DisplayBackend.WINEANDROID ->
                 WineAndroidSessionActivity.launch(
@@ -52,6 +54,7 @@ object SessionLaunch {
                     width = width,
                     height = height,
                     graphicsDiag = graphicsDiag,
+                    exeArgs = exeArgs,
                     debugImeUnicodeText = debugImeUnicodeText,
                     debugImeComposingText = debugImeComposingText,
                     debugImeShow = debugImeShow,

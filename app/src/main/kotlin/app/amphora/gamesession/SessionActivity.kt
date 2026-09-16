@@ -79,6 +79,7 @@ class SessionActivity : ComponentActivity() {
     companion object {
         private const val TAG = "SessionActivity"
         private const val EXTRA_EXE_PATH = "exePath"
+        private const val EXTRA_EXE_ARGS = "exeArgs"
         private const val EXTRA_WIDTH = "width"
         private const val EXTRA_HEIGHT = "height"
         private const val EXTRA_TARGET = "target"
@@ -94,6 +95,7 @@ class SessionActivity : ComponentActivity() {
             target: LaunchTarget = LaunchTarget.PROGRAM,
             graphicsDiag: Boolean = false,
             displayBackend: DisplayBackend = DisplayBackend.X11,
+            exeArgs: String = "",
         ): Intent {
             if (displayBackend == DisplayBackend.WINEANDROID) {
                 return WineAndroidSessionActivity.intent(
@@ -103,10 +105,12 @@ class SessionActivity : ComponentActivity() {
                     height = height,
                     target = target,
                     graphicsDiag = graphicsDiag,
+                    exeArgs = exeArgs,
                 )
             }
             return Intent(context, SessionActivity::class.java).apply {
                 putExtra(EXTRA_EXE_PATH, exePath)
+                putExtra(EXTRA_EXE_ARGS, exeArgs)
                 putExtra(EXTRA_WIDTH, width)
                 putExtra(EXTRA_HEIGHT, height)
                 putExtra(EXTRA_TARGET, target.name)
@@ -123,6 +127,7 @@ class SessionActivity : ComponentActivity() {
             target: LaunchTarget = LaunchTarget.PROGRAM,
             graphicsDiag: Boolean = false,
             displayBackend: DisplayBackend = DisplayBackend.X11,
+            exeArgs: String = "",
         ) {
             context.startActivity(
                 intent(
@@ -133,6 +138,7 @@ class SessionActivity : ComponentActivity() {
                     target = target,
                     graphicsDiag = graphicsDiag,
                     displayBackend = displayBackend,
+                    exeArgs = exeArgs,
                 ),
             )
         }

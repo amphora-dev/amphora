@@ -18,6 +18,7 @@ internal data class GameSessionLaunchRequest(
     val height: Int,
     val target: LaunchTarget,
     val graphicsDiag: Boolean,
+    val exeArgs: String = "",
 )
 
 /**

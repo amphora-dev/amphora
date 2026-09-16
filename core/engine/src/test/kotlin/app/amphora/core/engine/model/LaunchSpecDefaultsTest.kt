@@ -15,5 +15,6 @@ class LaunchSpecDefaultsTest {
             )
         assertEquals(DisplayBackend.WINEANDROID, spec.displayBackend)
         assertEquals(LaunchTarget.PROGRAM, spec.target)
+        assertEquals("", spec.exeArgs)
     }
 }

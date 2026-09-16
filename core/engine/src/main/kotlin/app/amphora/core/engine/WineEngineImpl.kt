@@ -421,7 +421,7 @@ constructor(
                     // launch it as a Windows path. Wine's drive letters do not map the
                     // app-private SAF staging directory, while C: is always available.
                     val wineExePath = stageExeIntoPrefix(container, spec.exePath)
-                    buildWineProgramCommand(screenInfo, wineExePath)
+                    buildWineProgramCommand(screenInfo, wineExePath, spec.exeArgs)
                 }
             }
         Log.i("WineEngineImpl", "guestExecutable=$guestExecutable")
@@ -461,8 +461,43 @@ constructor(
 fun buildWineExplorerCommand(screenInfo: String): String =
     "wine start /wait explorer /desktop=shell,$screenInfo winefile.exe"
 
-fun buildWineProgramCommand(screenInfo: String, wineExePath: String): String =
-    "wine start /wait explorer /desktop=shell,$screenInfo \"$wineExePath\""
+/**
+ * Build the guest Wine PROGRAM launch command.
+ *
+ * [exeArgs] are trailing CLI tokens after the quoted Windows exe path. They are
+ * passed through [sanitizeWineExeArgs]: unsafe input is logged and dropped
+ * (empty args) rather than injected into the shell command.
+ */
+fun buildWineProgramCommand(screenInfo: String, wineExePath: String, exeArgs: String = ""): String {
+    val trimmed = sanitizeWineExeArgs(exeArgs)
+    return if (trimmed.isEmpty()) {
+        "wine start /wait explorer /desktop=shell,$screenInfo \"$wineExePath\""
+    } else {
+        "wine start /wait explorer /desktop=shell,$screenInfo \"$wineExePath\" $trimmed"
+    }
+}
+
+/**
+ * Sanitize trailing Wine program CLI args before embedding in a guest shell command.
+ *
+ * Rejects args containing `"`, `` ` ``, `$`, `|`, `;`, `&`, newline/CR, or unpaired
+ * single quotes. Prefer dropping unsafe args (return empty after log) over injecting
+ * them; callers must not bypass this for Intent / debug extras.
+ */
+fun sanitizeWineExeArgs(exeArgs: String): String {
+    val trimmed = exeArgs.trim()
+    if (trimmed.isEmpty()) return ""
+    val hasMetachar = trimmed.any {
+        it == '"' || it == '`' || it == '$' || it == '|' || it == ';' || it == '&' ||
+            it == '\n' || it == '\r'
+    }
+    val unpairedSingleQuotes = trimmed.count { it == '\'' } % 2 != 0
+    if (hasMetachar || unpairedSingleQuotes) {
+        Log.w("WineEngineImpl", "Dropping unsafe wine exeArgs: $trimmed")
+        return ""
+    }
+    return trimmed
+}
 
 /** Already a Wine DOS path (`C:\foo.exe` or `C:/foo.exe`), not an Android file. */
 fun resolveWineDosPath(path: String): String? {
