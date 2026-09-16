@@ -33,6 +33,11 @@ knife13 hot path is already HWND Surface AHB zero-copy. Present does **not** go 
 
 **Status (2026-09-16 ~13:08 Asia/Shanghai):**
 
+- **v10 PASSED** (~16:50): amphora `728f3db` (post window-stack) + public WCP
+  `Proton/11.0-0a64ebc8d-x86_64-0`. DIRECT hwnd-ANW,
+  `SET_BUFFER_COUNT want=5 ret=0`, `import=ok`, guest-readback
+  `CLASS=MAGENTA @50`, no FATAL. No knife `.so` sideload.
+  Mac ART: `/Users/sky/co/src/amphora-dev/smoke-artifacts/ci-present-20260916-165016-v10-reg/`
 - **v9c PASSED** (~13:08): amphora `034b38e` + public WCP
   `Proton-11.0-0a64ebc8d-x86_64.wcp` (sha256 `c6b42624…`). DIRECT hwnd-ANW,
   `SET_BUFFER_COUNT want=5 ret=0`, `import=ok`, Present≥50, guest-readback

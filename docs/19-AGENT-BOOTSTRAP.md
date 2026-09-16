@@ -216,7 +216,9 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 composing overlay** + **cold chip PASS** `01cf904` + **mid-session composing relay
 PASS** `fe8f5a2`；DPI 96；hostScale 多分辨率单测（`034b38e`）+ HA262 旋转已验；
 guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestResolution`）；
-游戏轨 AHB 已合入 `proton_11.0` @ `0a64ebc`，WCP 已发，HA262 Present **v9c PASS**。
+游戏轨 AHB 已合入 `proton_11.0` @ `0a64ebc`，WCP 已发，HA262 Present **v10 PASS**
+（当前壳层 HEAD `728f3db`，~16:50 Asia/Shanghai；ART
+`ci-present-20260916-165016-v10-reg`）。
 
 **IME 轨**：已关（除可选 soft-IME 眼验）。
 
