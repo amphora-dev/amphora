@@ -32,6 +32,8 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 
 登记走 `user_driver->pVulkanInit` → `ANDROID_VulkanInit`。不要在 `win32u/vulkan.c` 加 android 分支。
 
+> **2026-09-16 注：** `05ca3a658` 起 win32u **全局**假报 PresentModes（非 `#ifdef android`，也无 `amphora_wsi_wanted()` 门闩）。这与上句「不要在 win32u 加 android 分支」的意图冲突；现状与回退方向见 [`20-AIO-VK-PRESENTMODES-STATUS.md`](20-AIO-VK-PRESENTMODES-STATUS.md)。
+
 ## 2. 阶段与验收
 
 ### P0 构建（本阶段）

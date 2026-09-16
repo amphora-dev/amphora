@@ -1,7 +1,7 @@
 # 03 - 进度跟踪 / Handoff
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-08-11 · **v0.1 端到端已跑通** (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。当前已采用远程 manifest 内容供应、自建 imagefs/Proton/Box64/DXVK/VKD3D、共享字体，并加入可选 PulseAudio/AAudio（ALSA 默认回退）。架构真源见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)。
+> 最后更新: 2026-09-16 · **v0.1 端到端已跑通**；AIO PresentModes / 黑屏见 [`20-AIO-VK-PRESENTMODES-STATUS.md`](20-AIO-VK-PRESENTMODES-STATUS.md) (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。当前已采用远程 manifest 内容供应、自建 imagefs/Proton/Box64/DXVK/VKD3D、共享字体，并加入可选 PulseAudio/AAudio（ALSA 默认回退）。架构真源见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)。
 > 必读: [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) · [`01-RFC.md`](01-RFC.md) · [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
 
 ---
@@ -37,6 +37,7 @@
 > 本节按时间追加，记录“当时做了什么”；早期的 ALSA-only、删除 Pulse 组件、
 > 本地 bundled manifest 等条目已被后面的演进条目替代，不应单独视为当前状态。
 
+- ⚠ **AIO Vulkan PresentModes / HA262 黑屏（开放）** (2026-09-16): 为消「Present mode unsupported」在 win32u 全局假报 FIFO/MAILBOX/IMMEDIATE（proton-wine `05ca3a658db`，WCP 同 tip）；包内 DRIVER_VERSION=48 一致。干净一轮真机 guest 以 `kernel32.dll` `c0000135` 退出，未见 `AHB_SC create images`。详 [`20-AIO-VK-PRESENTMODES-STATUS.md`](20-AIO-VK-PRESENTMODES-STATUS.md)。
 - ✅ scaffold 已落地并提交 (`fc14357`)。
 - ✅ P0 已落地并提交 (`9e0929f`): `:core:native` 真实 `libwinlator.so`+`libfakeinput.so` (62 JNI 导出 + JNI_OnLoad, adrenotools 静态链入, 19 shader 编入)。`./gradlew :app:assembleDebug` 绿, APK `lib/arm64-v8a/` 含真 `.so`。
 - ✅ P1 已落地并提交 (`dee877e`+`92b00ef`): `:core:engine` runtime Java 内核 (221 .java + 3 .kt) + 11 JNI 绑定 + AdrenotoolsManager 精简 (D8) + cut 类 stub; `WineEngineImpl` facade skeleton (注入 ContainerManager/RootfsInstaller/WineSessionPreparer, launch 编排骨架委托 com.winlator.cmod, 每步 TODO 标 P-phase) + `WineSessionPreparer` 接口 (6 方法, compile-only)。`./gradlew :app:assembleDebug` 绿, APK 31.9MB 含 libwinlator.so 964K。
