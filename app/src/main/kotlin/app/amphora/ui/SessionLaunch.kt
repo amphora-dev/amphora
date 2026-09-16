@@ -32,6 +32,8 @@ object SessionLaunch {
         debugImeComposingText: String? = null,
         debugImeShow: Boolean? = null,
         debugCaptureHwnd: Int? = null,
+        debugDumpZOrder: Boolean? = null,
+        debugZOrderTopHwnd: Int? = null,
     ) {
         when (displayBackend) {
             DisplayBackend.X11 ->
@@ -54,6 +56,8 @@ object SessionLaunch {
                     debugImeComposingText = debugImeComposingText,
                     debugImeShow = debugImeShow,
                     debugCaptureHwnd = debugCaptureHwnd,
+                    debugDumpZOrder = debugDumpZOrder,
+                    debugZOrderTopHwnd = debugZOrderTopHwnd,
                 )
         }
     }

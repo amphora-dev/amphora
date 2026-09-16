@@ -153,6 +153,9 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
    taskbar / windows）；`windowPosChanged` 带 `style=`；无 FATAL。
    ART（Mac）：`smoke-artifacts/ha262-window-stack-20260916-164730`。
    **仍开（可选）**：重叠 HWND z-order **人工眼验**（非自动化）。
+   Debug 辅助（本拍）：`DUMP_ZORDER` / `ZORDER_TOP_HWND` + Desktop sync 日志
+   （≥2 visible siblings → `zorder sync …`）；配方
+   `/workspace/ha262-zorder-dump-recipe.md`。Grok Bot **不**宣称眼验 PASS。
 5. **非目标**：不另造第二套桌面模型；不改 Present/AHB / TextureView / BGRA / IMM32；
    **不做分屏 / 第二台 hostScale**（用户已停）。
 
@@ -171,6 +174,7 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
 | `WineAndroidImeUi.kt` | 纯 `ImeUiState` reducer + composing chip 可见性 + 软键盘 chip 文案/`toggleImeWanted`（单测） |
 | `WineAndroidDebugImeInject.kt` | debug-only extras `IME_UNICODE_TEXT` + `IME_COMPOSING_TEXT` + `IME_SHOW`（`FLAG_DEBUGGABLE`）；清 composing 用 `--esn` |
 | `WineAndroidDebugCaptureInject.kt` | debug-only `CAPTURE_HWND`（`--ei`；`0` release；`-1` desktop sentinel） |
+| `WineAndroidDebugZOrderInject.kt` | debug-only `DUMP_ZORDER` / `ZORDER_TOP_HWND`（重叠眼验；单测） |
 | `WineAndroidDebugImeRelayActivity`（`src/debug`） | 导出中继：adb 中途注入 → 同 UID 启动非导出 Session `onNewIntent` |
 | `WineAndroidGuestResolution.kt`（`core:engine`） | guest 预设目录 + preference 映射；Settings/Launcher 对齐 |
 | `WineAndroidHostScale.kt` | 纯 letterbox scale/offset 计算（单测覆盖多分辨率） |

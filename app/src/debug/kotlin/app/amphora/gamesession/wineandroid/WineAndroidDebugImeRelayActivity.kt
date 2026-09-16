@@ -16,7 +16,9 @@ import android.util.Log
  *
  * Clear composing with `--esn app.amphora.debug.IME_COMPOSING_TEXT` (Android
  * shell rejects `--es … ''`). Capture: `--ei app.amphora.debug.CAPTURE_HWND N`
- * (`0` release; `-1` = desktop hwnd).
+ * (`0` release; `-1` = desktop hwnd). Z-order eye-check:
+ * `--ez app.amphora.debug.DUMP_ZORDER true` and/or
+ * `--ei app.amphora.debug.ZORDER_TOP_HWND N`.
  */
 class WineAndroidDebugImeRelayActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,8 +61,33 @@ class WineAndroidDebugImeRelayActivity : Activity() {
                 capturePresent = capturePresent,
                 captureValue = captureValue,
             )
-        if (unicode == null && composing == null && showIme == null && captureHwnd == null) {
-            Log.w(TAG, "No IME/capture extras; finishing")
+        val dumpPresent =
+            intent.hasExtra(WineAndroidDebugZOrderInject.EXTRA_DUMP_ZORDER)
+        val dumpValue =
+            intent.getBooleanExtra(WineAndroidDebugZOrderInject.EXTRA_DUMP_ZORDER, false)
+        val dumpZ =
+            WineAndroidDebugZOrderInject.relayDump(
+                dumpPresent = dumpPresent,
+                dumpValue = dumpValue,
+            )
+        val zTopPresent =
+            intent.hasExtra(WineAndroidDebugZOrderInject.EXTRA_ZORDER_TOP_HWND)
+        val zTopValue =
+            intent.getIntExtra(WineAndroidDebugZOrderInject.EXTRA_ZORDER_TOP_HWND, 0)
+        val zTop =
+            WineAndroidDebugZOrderInject.relayZOrderTop(
+                topPresent = zTopPresent,
+                topValue = zTopValue,
+            )
+        if (
+            unicode == null &&
+            composing == null &&
+            showIme == null &&
+            captureHwnd == null &&
+            dumpZ == null &&
+            zTop == null
+        ) {
+            Log.w(TAG, "No IME/capture/zorder extras; finishing")
             finish()
             return
         }
@@ -69,7 +96,7 @@ class WineAndroidDebugImeRelayActivity : Activity() {
             TAG,
             "Forwarding to WineAndroidSessionActivity unicode=${unicode != null} " +
                 "composingPresent=${composing != null} composingLen=${composing?.length} " +
-                "imeShow=$showIme captureHwnd=$captureHwnd",
+                "imeShow=$showIme captureHwnd=$captureHwnd dumpZ=$dumpZ zTop=$zTop",
         )
         // Empty exePath is fine: Session onNewIntent only applies debug inject;
         // if no session exists, onCreate with empty exe is a no-op smoke fail.
@@ -81,6 +108,8 @@ class WineAndroidDebugImeRelayActivity : Activity() {
                 debugImeComposingText = composing,
                 debugImeShow = showIme,
                 debugCaptureHwnd = captureHwnd,
+                debugDumpZOrder = dumpZ,
+                debugZOrderTopHwnd = zTop,
             ),
         )
         finish()

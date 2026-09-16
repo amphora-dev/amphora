@@ -59,6 +59,9 @@ import kotlin.math.roundToInt
  * - Style / z-order: [WineAndroidWindowStack] tracks WS_VISIBLE + sibling order;
  *   invisible HWND groups are removed from the parent (upstream add/remove), and
  *   !(flags & SWP_NOZORDER) syncs bringChildToFront bottom→top.
+ *   Debug [dumpZOrderForDebug] / [injectZOrderTopForDebug] + `DUMP_ZORDER` /
+ *   `ZORDER_TOP_HWND` extras for overlap eye-check; sync logs when ≥2 visible
+ *   siblings ([WineAndroidDebugZOrderInject.hasOverlapCandidates]).
  * - Capture: [setCapture] remembers hwnd (0 = release); touch / generic motion
  *   address capture hwnd when set ([WineAndroidCaptureTarget]), else hit-test.
  *   Debug [injectCaptureForDebug] / `CAPTURE_HWND` extra for HA262 smoke without
@@ -206,6 +209,54 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         )
         setCapture(resolved)
     }
+
+    /**
+     * Debug / HA262 smoke: log all sibling stacks (top-first; `*` = visible).
+     * Call only from FLAG_DEBUGGABLE session code.
+     */
+    fun dumpZOrderForDebug() {
+        val keys = siblingStacks.keys.sorted()
+        if (keys.isEmpty()) {
+            Log.i(TAG, "zorder dump (no sibling stacks)")
+            return
+        }
+        for (key in keys) {
+            val stack = siblingStacks[key] ?: continue
+            Log.i(
+                TAG,
+                WineAndroidDebugZOrderInject.formatStackLine(
+                    parentKey = key,
+                    topFirst = stack.toList(),
+                    visible = { hwnd -> isHwndVisibleInStack(hwnd) },
+                ),
+            )
+        }
+    }
+
+    /**
+     * Debug / HA262 smoke: force [hwnd] to HWND_TOP under its parent, sync
+     * Views, then dump stacks for eye-check. Unknown hwnd → warn + dump only.
+     */
+    fun injectZOrderTopForDebug(hwnd: Int) {
+        val group =
+            groups.values.firstOrNull { it.window.hwnd == hwnd && !it.window.isClient }
+                ?: groups.values.firstOrNull { it.window.hwnd == hwnd }
+        if (group == null) {
+            Log.w(TAG, "zorder top inject hwnd=0x${hwnd.toString(16)} not attached; dump only")
+            dumpZOrderForDebug()
+            return
+        }
+        val stackKey = stackKeyFor(group.window.parentHwnd)
+        Log.i(
+            TAG,
+            "zorder top inject hwnd=0x${hwnd.toString(16)} parentKey=$stackKey",
+        )
+        applyZOrder(hwnd, WineAndroidWindowStack.HWND_TOP, stackKey, reason = "inject-top")
+        dumpZOrderForDebug()
+    }
+
+    private fun isHwndVisibleInStack(hwnd: Int): Boolean =
+        groups.values.any { it.window.hwnd == hwnd && it.window.visible && it.parent != null }
 
     /**
      * Apply host [PointerIcon] from wineandroid setCursor ioctl.
@@ -769,20 +820,40 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
      * Upstream WineWindow.set_zorder + sync_views_zorder: update sibling stack,
      * then bringChildToFront visible groups bottom→top.
      */
-    private fun applyZOrder(hwnd: Int, insertAfter: Int, stackKey: Int) {
+    private fun applyZOrder(
+        hwnd: Int,
+        insertAfter: Int,
+        stackKey: Int,
+        reason: String = "apply",
+    ) {
         val stack = siblingStacks.getOrPut(stackKey) { mutableListOf() }
         val updated = WineAndroidWindowStack.reorder(stack, hwnd, insertAfter)
         stack.clear()
         stack.addAll(updated)
-        syncZOrder(stackKey)
+        syncZOrder(stackKey, reason = reason)
     }
 
-    private fun syncZOrder(stackKey: Int) {
+    private fun syncZOrder(stackKey: Int, reason: String = "sync") {
         val stack = siblingStacks[stackKey] ?: return
         val bringOrder =
             WineAndroidWindowStack.syncBringToFrontOrder(stack) { hwnd ->
-                groups.values.any { it.window.hwnd == hwnd && it.window.visible && it.parent != null }
+                isHwndVisibleInStack(hwnd)
             }
+        if (
+            WineAndroidDebugZOrderInject.hasOverlapCandidates(stack) { hwnd ->
+                isHwndVisibleInStack(hwnd)
+            }
+        ) {
+            Log.i(
+                TAG,
+                WineAndroidDebugZOrderInject.formatSyncLine(
+                    parentKey = stackKey,
+                    topFirst = stack.toList(),
+                    bringOrder = bringOrder,
+                    reason = reason,
+                ),
+            )
+        }
         var touchedParent: FrameLayout? = null
         for (hwnd in bringOrder) {
             // GDI first, then OpenGL client so media-overlay client ends above pair.

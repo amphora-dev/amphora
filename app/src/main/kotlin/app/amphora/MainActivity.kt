@@ -85,6 +85,18 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 null
                             },
+                        debugDumpZOrder =
+                            if (intent.hasExtra(EXTRA_DEBUG_DUMP_ZORDER)) {
+                                intent.getBooleanExtra(EXTRA_DEBUG_DUMP_ZORDER, false)
+                            } else {
+                                null
+                            },
+                        debugZOrderTopHwnd =
+                            if (intent.hasExtra(EXTRA_DEBUG_ZORDER_TOP_HWND)) {
+                                intent.getIntExtra(EXTRA_DEBUG_ZORDER_TOP_HWND, 0)
+                            } else {
+                                null
+                            },
                     )
                 }
             }
@@ -121,6 +133,12 @@ class MainActivity : ComponentActivity() {
          * `0` releases; `-1` = desktop hwnd sentinel.
          */
         private const val EXTRA_DEBUG_CAPTURE_HWND = "app.amphora.debug.CAPTURE_HWND"
+
+        /** Debug-only: dump sibling z-order stacks (`--ez … true`). */
+        private const val EXTRA_DEBUG_DUMP_ZORDER = "app.amphora.debug.DUMP_ZORDER"
+
+        /** Debug-only: force hwnd to HWND_TOP then dump (`--ei … N`). */
+        private const val EXTRA_DEBUG_ZORDER_TOP_HWND = "app.amphora.debug.ZORDER_TOP_HWND"
 
         /** Debug-only: force legacy Java X11 SessionActivity. */
         private const val EXTRA_DEBUG_X11 = "app.amphora.debug.X11"

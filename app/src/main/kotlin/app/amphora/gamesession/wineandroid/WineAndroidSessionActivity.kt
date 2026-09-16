@@ -281,9 +281,10 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     /**
-     * Debug-only: unicode commit, host composing chip, IME_SHOW, and/or
-     * CAPTURE_HWND extras. Returns true when any inject was scheduled
-     * (incl. composing clear / hide / capture release).
+     * Debug-only: unicode commit, host composing chip, IME_SHOW,
+     * CAPTURE_HWND, and/or DUMP_ZORDER / ZORDER_TOP_HWND extras.
+     * Returns true when any inject was scheduled
+     * (incl. composing clear / hide / capture release / z-order dump).
      */
     private fun maybeScheduleDebugImeInject(intent: Intent?, reason: String): Boolean {
         val debuggable =
@@ -332,6 +333,23 @@ class WineAndroidSessionActivity : ComponentActivity() {
             )
             // Post so layout/IPC can run; Desktop defers sentinel until desktopHwnd.
             desktop.post { desktop.injectCaptureForDebug(captureHwnd) }
+            scheduled = true
+        }
+        val dumpZ =
+            WineAndroidDebugZOrderInject.dumpRequestedFromIntent(intent, debuggable)
+        if (dumpZ == true) {
+            Log.i(TAG, "zorder dump inject scheduled reason=$reason")
+            desktop.post { desktop.dumpZOrderForDebug() }
+            scheduled = true
+        }
+        val zTop =
+            WineAndroidDebugZOrderInject.zOrderTopHwndFromIntent(intent, debuggable)
+        if (zTop != null) {
+            Log.i(
+                TAG,
+                "zorder top inject scheduled reason=$reason hwnd=0x${zTop.toString(16)}",
+            )
+            desktop.post { desktop.injectZOrderTopForDebug(zTop) }
             scheduled = true
         }
         return scheduled
@@ -402,6 +420,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
             debugImeComposingText: String? = null,
             debugImeShow: Boolean? = null,
             debugCaptureHwnd: Int? = null,
+            debugDumpZOrder: Boolean? = null,
+            debugZOrderTopHwnd: Int? = null,
         ): Intent = Intent(context, WineAndroidSessionActivity::class.java).apply {
             putExtra(EXTRA_EXE_PATH, exePath)
             putExtra(EXTRA_WIDTH, width)
@@ -423,6 +443,12 @@ class WineAndroidSessionActivity : ComponentActivity() {
             if (debugCaptureHwnd != null) {
                 putExtra(WineAndroidDebugCaptureInject.EXTRA_CAPTURE_HWND, debugCaptureHwnd)
             }
+            if (debugDumpZOrder != null) {
+                putExtra(WineAndroidDebugZOrderInject.EXTRA_DUMP_ZORDER, debugDumpZOrder)
+            }
+            if (debugZOrderTopHwnd != null) {
+                putExtra(WineAndroidDebugZOrderInject.EXTRA_ZORDER_TOP_HWND, debugZOrderTopHwnd)
+            }
         }
 
         fun launch(
@@ -436,6 +462,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
             debugImeComposingText: String? = null,
             debugImeShow: Boolean? = null,
             debugCaptureHwnd: Int? = null,
+            debugDumpZOrder: Boolean? = null,
+            debugZOrderTopHwnd: Int? = null,
         ) {
             context.startActivity(
                 intent(
@@ -449,6 +477,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     debugImeComposingText = debugImeComposingText,
                     debugImeShow = debugImeShow,
                     debugCaptureHwnd = debugCaptureHwnd,
+                    debugDumpZOrder = debugDumpZOrder,
+                    debugZOrderTopHwnd = debugZOrderTopHwnd,
                 ),
             )
         }
