@@ -91,6 +91,8 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - Debug IME composing：**cold chip PASS** `01cf904`；**mid-session relay PASS** `fe8f5a2`（~14:22 Asia/Shanghai；ART `ha262-ime-composing-relay-20260916-142224`）
 - DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；`fdda994` no-WIDTH pref；**第二台/分屏用户已停**
 - WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`（隐窗 removeView + sync bringToFront）；**HA262 stack smoke PASS**（~16:48 Asia/Shanghai；ART `ha262-window-stack-20260916-164730`）；重叠 z-order 人工眼验仍可选
+- **sensorLandscape** 会话锁：`a4cd0c0`；**HA262 PASS**（~17:40 Asia/Shanghai；portrait-locked → `SENSOR_LANDSCAPE`，ROTATION_90 **3040×1904**，hostScale **2.375**）
+- **setCapture / setCursor** 壳层接线：capture HWND 路由 MOTION；PointerIcon 隐藏/系统/自定义 bits（无独立 cursor overlay）
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
 游戏轨：
@@ -217,8 +219,10 @@ composing overlay** + **cold chip PASS** `01cf904` + **mid-session composing rel
 PASS** `fe8f5a2`；DPI 96；hostScale 多分辨率单测（`034b38e`）+ HA262 旋转已验；
 guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestResolution`）；
 游戏轨 AHB 已合入 `proton_11.0` @ `0a64ebc`，WCP 已发，HA262 Present **v10 PASS**
-（当前壳层 HEAD `728f3db`，~16:50 Asia/Shanghai；ART
-`ci-present-20260916-165016-v10-reg`）。
+（壳层当时 HEAD `728f3db`，~16:50 Asia/Shanghai；ART
+`ci-present-20260916-165016-v10-reg`）；**sensorLandscape PASS** @ `a4cd0c0`
+（~17:40；ROTATION_90 3040×1904，hostScale 2.375）；**setCapture / setCursor**
+壳层接线（capture 路由 + PointerIcon；无 cursor overlay）。
 
 **IME 轨**：已关（除可选 soft-IME 眼验）。
 
@@ -231,11 +235,14 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
 2. **可选**：真机 soft IME 眼验 composing chip + commit（勿发明 IMM32/TSF；
    composition 已 host-local）。无明确 soft-IME focus/`showSoftKeyboard`
    可靠性缺口时勿垫新刀。
+3. **可选**：Mac/HA262 冒烟 verify capture（拖出窗口仍见 `motion hwnd=<capture>`）
+   + cursor hide/arrow；Grok Bot **不**宣称设备 PASS。配方见
+   `/workspace/ha262-capture-cursor-smoke-recipe.md`（Mac 侧同步后）。
 
 **已停 / 勿排下一拍**：第二台真机 / 分屏 / hostScale 双机（用户 2026-09-16 停）。
 
 **不是**下一拍：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9 可选后置）；
-勿再叠 Present 刀尖 `.so`；**不做分屏**。
+勿再叠 Present 刀尖 `.so`；**不做分屏**；独立自定义光标 overlay View。
 
 动手前用 `git log` + progress **核对**上表，勿盲抄过期勾选。
 

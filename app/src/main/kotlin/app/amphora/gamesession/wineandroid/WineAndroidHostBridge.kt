@@ -193,10 +193,14 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
 
     override fun setCapture(hwnd: Int) {
         Log.i(TAG, "setCapture hwnd=$hwnd")
+        activity.runOnUiThread { desktop.setCapture(hwnd) }
     }
 
     override fun setCursor(id: Int, width: Int, height: Int, hotspotX: Int, hotspotY: Int, bits: IntArray?) {
         Log.i(TAG, "setCursor id=$id ${width}x$height hotspot=$hotspotX,$hotspotY bits=${bits?.size ?: 0}")
+        activity.runOnUiThread {
+            desktop.setCursor(id, width, height, hotspotX, hotspotY, bits)
+        }
     }
 
     private fun onSurface(hwnd: Int, surface: Surface?, opengl: Boolean) {

@@ -1,12 +1,15 @@
 package app.amphora.gamesession.wineandroid
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.os.Build
 import android.text.InputType
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.PointerIcon
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -48,6 +51,10 @@ import kotlin.math.roundToInt
  * - Style / z-order: [WineAndroidWindowStack] tracks WS_VISIBLE + sibling order;
  *   invisible HWND groups are removed from the parent (upstream add/remove), and
  *   !(flags & SWP_NOZORDER) syncs bringChildToFront bottom→top.
+ * - Capture: [setCapture] remembers hwnd (0 = release); touch / generic motion
+ *   address capture hwnd when set ([WineAndroidCaptureTarget]), else hit-test.
+ * - Cursor: [setCursor] → Android [PointerIcon] (TYPE_NULL hide, system id, or
+ *   custom ARGB bits). No separate cursor overlay View.
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
@@ -97,6 +104,15 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     /** Desktop HWND from createWindow(isDesktop=true); children of it are top-level. */
     private var desktopHwnd: Int = 0
 
+    /**
+     * Win32 mouse capture HWND from IOCTL_SET_CAPTURE (0 = released).
+     * MOTION / generic motion use this when non-zero instead of the hit view.
+     */
+    @Volatile private var captureHwnd: Int = 0
+
+    /** Host pointer from IOCTL_SET_CURSOR; null until first setCursor. */
+    @Volatile private var currentPointerIcon: PointerIcon? = null
+
     fun setGuestDesktopSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
         if (width == guestDesktopWidth && height == guestDesktopHeight) return
@@ -112,6 +128,70 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         pendingDebugImeText?.let { pending ->
             pendingDebugImeText = null
             post { injectCommittedTextForDebug(pending) }
+        }
+    }
+
+    /**
+     * Remember SetCapture hwnd for MOTION routing (0 releases).
+     * Call on the UI thread.
+     */
+    fun setCapture(hwnd: Int) {
+        captureHwnd = hwnd
+        Log.i(TAG, "capture hwnd=$hwnd")
+    }
+
+    /**
+     * Apply host [PointerIcon] from wineandroid setCursor ioctl.
+     * Call on the UI thread. API 24+ only (upstream WineActivity gate).
+     */
+    fun setCursor(
+        id: Int,
+        width: Int,
+        height: Int,
+        hotspotX: Int,
+        hotspotY: Int,
+        bits: IntArray?,
+    ) {
+        if (Build.VERSION.SDK_INT < 24) {
+            Log.i(TAG, "setCursor skipped (API ${Build.VERSION.SDK_INT} < 24)")
+            return
+        }
+        val spec = WineAndroidCursorSpec.classify(id, width, height, hotspotX, hotspotY, bits)
+        val icon =
+            when (spec) {
+                is WineAndroidCursorSpec.System ->
+                    PointerIcon.getSystemIcon(context, spec.id)
+                is WineAndroidCursorSpec.Custom -> {
+                    val bitmap =
+                        Bitmap.createBitmap(
+                            spec.bits,
+                            spec.width,
+                            spec.height,
+                            Bitmap.Config.ARGB_8888,
+                        )
+                    PointerIcon.create(bitmap, spec.hotspotX.toFloat(), spec.hotspotY.toFloat())
+                }
+            }
+        currentPointerIcon = icon
+        applyPointerIcon(icon)
+        when (spec) {
+            is WineAndroidCursorSpec.System ->
+                Log.i(TAG, "cursor system id=${spec.id} (0=TYPE_NULL hide)")
+            is WineAndroidCursorSpec.Custom ->
+                Log.i(
+                    TAG,
+                    "cursor custom ${spec.width}x${spec.height} " +
+                        "hotspot=${spec.hotspotX},${spec.hotspotY}",
+                )
+        }
+    }
+
+    private fun applyPointerIcon(icon: PointerIcon) {
+        pointerIcon = icon
+        contentHost.pointerIcon = icon
+        groups.values.forEach { group ->
+            group.pointerIcon = icon
+            group.surfaceView.pointerIcon = icon
         }
     }
 
@@ -282,9 +362,17 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         group.applyFixedBufferSize(forceReregister = false)
         applyVisibility(group)
         if (window.visible) syncZOrder(stackKeyFor(window.parentHwnd))
+        currentPointerIcon?.let { icon ->
+            group.pointerIcon = icon
+            group.surfaceView.pointerIcon = icon
+        }
     }
 
     fun detachWindow(hwnd: Int) {
+        if (captureHwnd == hwnd) {
+            captureHwnd = 0
+            Log.i(TAG, "capture cleared (destroyed hwnd=$hwnd)")
+        }
         val parentHwnd = groups.values.firstOrNull { it.window.hwnd == hwnd }?.window?.parentHwnd
         listOf(false, true).forEach { client ->
             groups.remove(Key(hwnd, client))?.let { detachGroupView(it) }
@@ -658,8 +746,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         }
 
         private fun handleTouch(event: MotionEvent): Boolean {
+            val targetHwnd =
+                WineAndroidCaptureTarget.resolve(captureHwnd, window.hwnd)
             if (event.actionMasked == MotionEvent.ACTION_DOWN && !window.isClient) {
-                keyTargetHwnd = window.hwnd
+                keyTargetHwnd = targetHwnd
                 requestFocus()
                 // Soft IME lives on the desktop root (InputConnection), not the group.
                 this@WineAndroidDesktop.showSoftKeyboard()
@@ -667,7 +757,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             val (gx, gy) = guestDesktopPos(event)
             val ok =
                 WineAndroidNative.nativeSendMotionEvent(
-                    window.hwnd,
+                    targetHwnd,
                     event.action,
                     gx,
                     gy,
@@ -679,8 +769,9 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             ) {
                 Log.i(
                     TAG,
-                    "motion hwnd=${window.hwnd} action=${event.actionMasked} " +
-                        "guest=$gx,$gy buttons=${event.buttonState} ok=$ok",
+                    "motion hwnd=$targetHwnd action=${event.actionMasked} " +
+                        "guest=$gx,$gy buttons=${event.buttonState} " +
+                        "capture=$captureHwnd hit=${window.hwnd} ok=$ok",
                 )
             }
             return true
@@ -695,16 +786,23 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             ) {
                 return false
             }
+            val targetHwnd =
+                WineAndroidCaptureTarget.resolve(captureHwnd, window.hwnd)
             val (gx, gy) = guestDesktopPos(event)
             val vscroll = event.getAxisValue(MotionEvent.AXIS_VSCROLL).roundToInt()
             return WineAndroidNative.nativeSendMotionEvent(
-                window.hwnd,
+                targetHwnd,
                 event.action,
                 gx,
                 gy,
                 event.buttonState,
                 vscroll,
             )
+        }
+
+        @android.annotation.TargetApi(24)
+        override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
+            return currentPointerIcon ?: super.onResolvePointerIcon(event, pointerIndex)
         }
 
         fun applyFixedBufferSize(forceReregister: Boolean) {

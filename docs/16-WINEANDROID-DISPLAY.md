@@ -61,6 +61,32 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 `android:screenOrientation="sensorLandscape"`，wineandroid 会话强制传感器横屏；
 `configChanges` 仍保留 `orientation`。
 
+**HA262 sensorLandscape PASS**（`a4cd0c0`，2026-09-16 ~17:40 Asia/Shanghai）：
+portrait-locked 设备 → `SCREEN_ORIENTATION_SENSOR_LANDSCAPE`；横屏
+`ROTATION_90` 宿主 **3040×1904**，`hostScale` **2.375**（与
+`WineAndroidHostScale` 单测 / 既有旋转 ART 一致）。勿再当欠账。
+
+## Capture / Cursor（壳层输入）
+
+**已落地（本拍）**
+
+1. **`setCapture(hwnd)`**：Desktop 记住 capture HWND（0 = release）；触摸 /
+   generic motion 经 `WineAndroidCaptureTarget.resolve` 在 capture≠0 时发往
+   capture hwnd，否则仍走 hit-test 视图 hwnd。销毁 HWND 时若正被 capture 则清零。
+   单测：`WineAndroidCaptureTargetTest`。
+2. **`setCursor`**：API 24+ 对齐上游 `WineActivity.set_cursor` —
+   (a) `id=0` / 空 bits → `PointerIcon.TYPE_NULL`（隐藏系统指针）；
+   (b) 系统 id → `PointerIcon.getSystemIcon`；
+   (c) 正尺寸 ARGB `bits` → `PointerIcon.create`。经 `onResolvePointerIcon` +
+   View.`pointerIcon` 应用到 WindowGroup / SurfaceView。分类纯逻辑
+   `WineAndroidCursorSpec` + 单测。
+
+**推迟**
+
+- 独立自定义光标 overlay View / Vulkan 合成光标层（SurfaceView 路径用
+  PointerIcon 已够壳层可用性）。
+- 改 Present / AHB / IMM32 / TextureView。
+
 ## DPI
 
 - **已落地**（`d264af1`）：Wine LogPixels = 经典 **96** via
@@ -113,7 +139,9 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 
 | 文件 | 职责 |
 |------|------|
-| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit + host composing |
+| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit + host composing；`setCapture` / `setCursor`（PointerIcon） |
+| `WineAndroidCaptureTarget.kt` | capture vs hit-test HWND 纯选择（单测） |
+| `WineAndroidCursorSpec.kt` | setCursor 载荷 → System / Custom 分类（单测） |
 | `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点交给 `nativeSendUnicodeChar` |
 | `WineAndroidImeUi.kt` | 纯 `ImeUiState` reducer + composing chip 可见性（单测） |
 | `WineAndroidDebugImeInject.kt` | debug-only extras `IME_UNICODE_TEXT` + `IME_COMPOSING_TEXT`（`FLAG_DEBUGGABLE`）；清 composing 用 `--esn` |
