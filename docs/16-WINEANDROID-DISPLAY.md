@@ -107,7 +107,13 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 - **IME commit 已落地**：`WineAndroidDesktop` 实现 `onCreateInputConnection` → 复用 `WineInputConnection`；committed ASCII/Latin 经 `KeyCharacterMap`（`VIRTUAL_KEYBOARD`）映射为 KeyEvent 再 `sendKeyboardEvent`。删除 / EditorAction(ENTER) / `onSendKeyEvent` 同管。触摸设 `keyTargetHwnd` 后 `showSoftKeyboard()`。
 - **CJK/unicode commit 已落地**：`KeyCharacterMap` 无法映射的码点经 `nativeSendUnicodeChar` → 同 pipe 的 `KEYEVENTF_UNICODE`（BMP 一 wchar；补充平面 UTF-16 代理对两次 unicode 事件；各 down+up）。Guest 侧仍是 `NtUserSendHardwareInput`，**不做** IMM32/TSF。
 - **Debug IME 注入（HA262 冒烟）**：debuggable 下 `--es app.amphora.debug.IME_UNICODE_TEXT '中文A'`（MainActivity 冷启转发，或 session 已起后 `am start` → `WineAndroidSessionActivity` onNewIntent）。`WineAndroidDesktop.injectCommittedTextForDebug` 走与 soft IME 相同的 commit 路径；日志 `IME unicode inject …` + Desktop `IME unicode hwnd=…` + HostIpc `keyboard unicode …`。
-- **仍开**：CJK **composition** 只留在 `WineInputConnection` 本地（`onComposingTextChanged` 仅 Log）；真机 CJK soft IME 眼验。
+- **HA262 unicode 自动冒烟 PASS**（`702b165`，2026-09-16 ~14:08 Asia/Shanghai）：MainActivity 冷启
+  `--ez …WINEANDROID true --ei WIDTH 1280 --ei HEIGHT 720 --es …IME_UNICODE_TEXT '中文A'`；
+  `IME unicode inject scheduled reason=onCreate` → deferred → `hwnd=… text='中文A'`；
+  HostIpc `keyboard unicode uchar=4e2d` / `6587`；Desktop `U+4e2d`/`U+6587` ok + `KEYCODE_A` ok。
+  ART（Mac）：`smoke-artifacts/ha262-ime-unicode-auto-20260916-140749`。
+- **仍开**：CJK **composition** 本地化 UI（`onComposingTextChanged` 仍仅 Log；下一拍 host composing
+  overlay）；真机 CJK soft IME 眼验；第二台真机 / 分屏；guest 分辨率设置页 UI。勿发明 IMM32/TSF。
 
 ## 非目标
 
