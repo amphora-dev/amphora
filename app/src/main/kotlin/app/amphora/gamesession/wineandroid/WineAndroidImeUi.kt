@@ -41,7 +41,7 @@ object WineAndroidImeUi {
      * "text field focused" signal yet, so prefer no auto-show.
      *
      * Callers that need IME use [WineAndroidDesktop.showSoftKeyboard] explicitly
-     * (GameSession drawer "Show keyboard", future overlay / long-press).
+     * (session corner chip / letterbox long-press / GameSession drawer).
      * Focus alone is blocked via [shouldReportAsTextEditor] (imeWanted only
      * while explicit show). FrameLayout has no TextView setShowSoftInputOnFocus.
      */
@@ -55,4 +55,38 @@ object WineAndroidImeUi {
      * taps auto-open soft IME (HA262 FAIL: dumpsys `mInputShown=true`).
      */
     fun shouldReportAsTextEditor(imeWanted: Boolean): Boolean = imeWanted
+
+    /** Stable uiautomator / dumpsys content-desc for the session keyboard chip. */
+    const val KEYBOARD_CONTROL_CONTENT_DESCRIPTION = "wineandroid keyboard"
+
+    const val KEYBOARD_CONTROL_LABEL_SHOW = "键盘"
+    const val KEYBOARD_CONTROL_LABEL_HIDE = "收键盘"
+
+    /**
+     * Visible session chip: Chinese label flips with [imeWanted]; content-desc
+     * stays constant so Mac smoke can find the control.
+     */
+    data class SoftKeyboardControl(
+        val label: String,
+        val contentDescription: String,
+        val shown: Boolean,
+    )
+
+    fun softKeyboardControl(imeWanted: Boolean): SoftKeyboardControl =
+        if (imeWanted) {
+            SoftKeyboardControl(
+                label = KEYBOARD_CONTROL_LABEL_HIDE,
+                contentDescription = KEYBOARD_CONTROL_CONTENT_DESCRIPTION,
+                shown = true,
+            )
+        } else {
+            SoftKeyboardControl(
+                label = KEYBOARD_CONTROL_LABEL_SHOW,
+                contentDescription = KEYBOARD_CONTROL_CONTENT_DESCRIPTION,
+                shown = false,
+            )
+        }
+
+    /** Next explicit IME want-flag (chip tap / letterbox long-press). */
+    fun toggleImeWanted(imeWanted: Boolean): Boolean = !imeWanted
 }

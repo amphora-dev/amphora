@@ -56,6 +56,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
     private lateinit var statusView: TextView
     /** Host-local CJK composing chip (cleared on IME commit/finish). */
     private lateinit var composingOverlay: TextView
+    /** Unobtrusive explicit soft-IME toggle (does not auto-show on tap). */
+    private lateinit var keyboardChip: TextView
     private var hostBridge: WineAndroidHostBridge? = null
     private var runningGuest: WineAndroidLauncher.RunningGuest? = null
     private val processExitScheduled = AtomicBoolean(false)
@@ -88,6 +90,22 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 isFocusableInTouchMode = false
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
+        keyboardChip =
+            TextView(this).apply {
+                setTextColor(Color.WHITE)
+                setBackgroundColor(0xC7000000.toInt())
+                textSize = 14f
+                typeface = Typeface.MONOSPACE
+                setPadding(28, 16, 28, 16)
+                isFocusable = false
+                isFocusableInTouchMode = false
+                isClickable = true
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                setOnClickListener {
+                    desktop.toggleSoftKeyboard()
+                    applyKeyboardChip(desktop.isSoftKeyboardWanted())
+                }
+            }
         val root =
             FrameLayout(this).apply {
                 addView(
@@ -116,9 +134,24 @@ class WineAndroidSessionActivity : ComponentActivity() {
                         marginStart = 48
                     },
                 )
+                addView(
+                    keyboardChip,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.TOP or Gravity.END,
+                    ).apply {
+                        topMargin = 48
+                        marginEnd = 48
+                    },
+                )
             }
         setContentView(root)
-        desktop.setImeUiStateListener { state -> applyComposingOverlay(state) }
+        applyKeyboardChip(false)
+        desktop.setImeUiStateListener { state ->
+            applyComposingOverlay(state)
+            applyKeyboardChip(state.keyboardVisible)
+        }
         desktop.requestFocus()
         maybeScheduleDebugImeInject(intent, reason = "onCreate")
 
@@ -237,6 +270,12 @@ class WineAndroidSessionActivity : ComponentActivity() {
         }
         composingOverlay.text = text
         composingOverlay.visibility = View.VISIBLE
+    }
+
+    private fun applyKeyboardChip(imeWanted: Boolean) {
+        val ui = WineAndroidImeUi.softKeyboardControl(imeWanted)
+        keyboardChip.text = ui.label
+        keyboardChip.contentDescription = ui.contentDescription
     }
 
     /**

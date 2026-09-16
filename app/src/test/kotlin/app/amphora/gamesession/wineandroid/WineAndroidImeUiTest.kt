@@ -58,4 +58,26 @@ class WineAndroidImeUiTest {
         assertFalse(WineAndroidImeUi.shouldReportAsTextEditor(imeWanted = false))
         assertTrue(WineAndroidImeUi.shouldReportAsTextEditor(imeWanted = true))
     }
+
+    @Test
+    fun toggleImeWantedFlips() {
+        assertTrue(WineAndroidImeUi.toggleImeWanted(false))
+        assertFalse(WineAndroidImeUi.toggleImeWanted(true))
+    }
+
+    @Test
+    fun keyboardChipShowsWhenNotWanted() {
+        val ui = WineAndroidImeUi.softKeyboardControl(imeWanted = false)
+        assertEquals(WineAndroidImeUi.KEYBOARD_CONTROL_LABEL_SHOW, ui.label)
+        assertEquals(WineAndroidImeUi.KEYBOARD_CONTROL_CONTENT_DESCRIPTION, ui.contentDescription)
+        assertFalse(ui.shown)
+    }
+
+    @Test
+    fun keyboardChipHidesWhenWanted() {
+        val ui = WineAndroidImeUi.softKeyboardControl(imeWanted = true)
+        assertEquals(WineAndroidImeUi.KEYBOARD_CONTROL_LABEL_HIDE, ui.label)
+        assertEquals(WineAndroidImeUi.KEYBOARD_CONTROL_CONTENT_DESCRIPTION, ui.contentDescription)
+        assertTrue(ui.shown)
+    }
 }
