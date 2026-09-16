@@ -66,6 +66,14 @@ portrait-locked 设备 → `SCREEN_ORIENTATION_SENSOR_LANDSCAPE`；横屏
 `ROTATION_90` 宿主 **3040×1904**，`hostScale` **2.375**（与
 `WineAndroidHostScale` 单测 / 既有旋转 ART 一致）。勿再当欠账。
 
+## Immersive system bars
+
+`WineAndroidSessionActivity` 与 `GameSessionScreen` 对齐：创建 / resume 时
+`WindowInsetsControllerCompat` 设置
+`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` 并隐藏 status/navigation bars；暂停 /
+destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边缘滑动才临时出现。
+不涉及 Present、TextureView、BGRA 或分屏；设备验收仍待人工冒烟。
+
 ## Capture / Cursor（壳层输入）
 
 **已落地（本拍）**

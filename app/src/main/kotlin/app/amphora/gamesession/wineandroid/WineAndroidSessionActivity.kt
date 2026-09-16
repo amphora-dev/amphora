@@ -15,6 +15,9 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import app.amphora.core.container.model.DEFAULT_CONTAINER_ID
 import app.amphora.core.engine.WineAndroidGuestResolution
@@ -59,6 +62,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemBars()
         desktop = WineAndroidDesktop(this).apply { setBackgroundColor(Color.BLACK) }
         statusView =
             TextView(this).apply {
@@ -194,6 +198,16 @@ class WineAndroidSessionActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        hideSystemBars()
+    }
+
+    override fun onPause() {
+        restoreSystemBars()
+        super.onPause()
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Same pipe as MOTION: KEYBOARD_EVENT via nativeSendKeyboardEvent.
         // Unmapped keys (BACK, VOLUME_*) fall through to Android.
@@ -250,6 +264,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        restoreSystemBars()
         if (::desktop.isInitialized) {
             desktop.setImeUiStateListener(null)
         }
@@ -273,6 +288,21 @@ class WineAndroidSessionActivity : ComponentActivity() {
             },
             "WineAndroidSessionExit",
         ).start()
+    }
+
+    /** Match GameSessionScreen: bars stay hidden, with transient edge-swipe access. */
+    private fun hideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    private fun restoreSystemBars() {
+        WindowCompat.getInsetsController(window, window.decorView)
+            .show(WindowInsetsCompat.Type.systemBars())
     }
 
     companion object {
