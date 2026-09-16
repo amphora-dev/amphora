@@ -69,14 +69,20 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 `hostScale` 已按当前 Activity 尺寸实时算（非写死 2.375），纯函数在
 `WineAndroidHostScale.compute`（`034b38e`）。
 
-1. **多分辨率 letterbox（数学验收已做）**：unit tests cover HA262 3040×1904
-   （scale=2.375）、竖屏 1080×2400、超宽、方屏；content 不越界、居中。
-   **仍欠**：第二台真机 / 旋转 / 分屏现场眼验。
+1. **多分辨率 letterbox**：unit tests cover HA262 3040×1904（scale=2.375）、
+   竖屏 1080×2400、超宽、方屏；content 不越界、居中。
+   **HA262 旋转真机（2026-09-16）**：`onSizeChanged` 竖屏 1904×3040 →
+   scale=1.4875 offset=(0,984)；横屏 3040×1904 → scale=2.375 offset=(0,97)。
+   与 `WineAndroidHostScale` 单测一致。ART：Mac
+   `smoke-artifacts/ha262-hostscale-rotate-20260916-140241/`。
+   **仍欠**：第二台物理机 / 分屏。
 2. **禁止 densityDpi 入径（已锁）**：`WineAndroidDpiTest` + SessionActivity 日志
    标明 android densityDpi unused；缺参仍 classic 96。
-3. **guest 分辨率档**：默认 1280×720 是否按短边分档 / 用户可调（改 guest 边长，
-   **不是**改 Wine DPI 冒充铺屏）— 仍开。
-4. **可选 UI**：是否暴露「界面大小」滑条 — 定产品后再动代码。
+3. **guest 分辨率档（目录已落地）**：`WineAndroidGuestResolution` 预设
+   1280×720（默认）/ 1024×768 / 1600×900 / 1920×1080；短边启发式
+   `suggestForHostShortSide`（HA262 短边仍选 720p）。**改 guest 边长，不是 DPI**。
+   Session 默认仍走 `DEFAULT`=720p；产品 UI / 设置页接线仍开。
+4. **可选 UI**：暴露预设选择或「界面大小」— 定产品后再动设置页。
 
 相关：`WineAndroidHostScale.kt` / `WineAndroidHostScaleTest.kt` /
 `WineAndroidDpiTest.kt`。

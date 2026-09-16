@@ -204,8 +204,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
         private const val EXTRA_TARGET = "target"
         private const val EXTRA_GRAPHICS_DIAG = "graphicsDiag"
         private const val EXTRA_DISPLAY_BACKEND = "displayBackend"
-        private const val DEFAULT_WIDTH = 1280
-        private const val DEFAULT_HEIGHT = 720
+        private val DEFAULT_WIDTH = WineAndroidGuestResolution.DEFAULT.width
+        private val DEFAULT_HEIGHT = WineAndroidGuestResolution.DEFAULT.height
         private const val SESSION_PROCESS_EXIT_GRACE_MS = 2_000L
 
         fun intent(

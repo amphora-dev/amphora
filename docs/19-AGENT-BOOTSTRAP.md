@@ -207,8 +207,9 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 
 **本拍优先：**
 
-1. docs/16 仍开：第二台真机 / 旋转分屏眼验；guest 分辨率档 / 可选 UI；CJK soft IME 真机眼验。
-2. （CJK unicode commit 已落地；composition 仍本地；勿再发明 IMM32/TSF。）
+1. docs/16：第二台真机 / 分屏仍开；**HA262 旋转 hostScale 已验**（竖 1.4875 / 横 2.375）。
+   guest 分辨率**预设目录**已落地（`WineAndroidGuestResolution`）；设置页 UI 仍开。
+2. CJK soft IME 真机眼验 / debug unicode 自动冒烟；composition 仍本地；勿发明 IMM32/TSF。
 
 **不是**下一拍：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9 可选后置）；
 勿再叠 Present 刀尖 `.so`。
