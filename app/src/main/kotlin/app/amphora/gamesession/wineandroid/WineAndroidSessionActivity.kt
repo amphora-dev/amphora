@@ -248,7 +248,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Same pipe as MOTION: KEYBOARD_EVENT via nativeSendKeyboardEvent.
-        // Unmapped keys (BACK, VOLUME_*) fall through to Android.
+        // Intentional host pass-through (BACK, VOLUME_*, …) — see WineAndroidKeyPassThrough.
         if (::desktop.isInitialized && desktop.sendKeyboardEvent(event)) return true
         return super.dispatchKeyEvent(event)
     }

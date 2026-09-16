@@ -166,6 +166,7 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
 | `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit + host composing；软键盘不随 focus/触摸弹出（`imeWanted` 门控 `onCheckIsTextEditor`；显式 `showSoftKeyboard` / letterbox 长按 `toggleSoftKeyboard`）；`setCapture` / `setCursor`（PointerIcon） |
 | `WineAndroidCaptureTarget.kt` | capture vs hit-test HWND 纯选择（单测） |
 | `WineAndroidCursorSpec.kt` | setCursor 载荷 → System / Custom 分类（单测） |
+| `WineAndroidKeyPassThrough.kt` | 故意不进 guest 的宿主键（BACK / VOLUME_* / …；单测） |
 | `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点交给 `nativeSendUnicodeChar` |
 | `WineAndroidImeUi.kt` | 纯 `ImeUiState` reducer + composing chip 可见性 + 软键盘 chip 文案/`toggleImeWanted`（单测） |
 | `WineAndroidDebugImeInject.kt` | debug-only extras `IME_UNICODE_TEXT` + `IME_COMPOSING_TEXT` + `IME_SHOW`（`FLAG_DEBUGGABLE`）；清 composing 用 `--esn` |
@@ -183,6 +184,13 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
 
 硬件 / `adb input keyevent` / `adb input text`（KEYCODE 注入）与 soft IME **commit** 都走与 MOTION 同一条 desktop event pipe（`nativeSendKeyboardEvent` / `nativeSendUnicodeChar`）。
 
+- **宿主键故意穿透（已落地）**：`WineAndroidKeyPassThrough` 文档化 native
+  `keycode_to_vkey==0` 的宿主键（`KEYCODE_BACK` / `VOLUME_*` / `HOME` / `POWER`）。
+  Session `dispatchKeyEvent` 在 native 返回 false 时 fall-through 给 Android（BACK
+  可 finish Activity；音量归系统）。**不要**给这些键发明 guest vkey。日志
+  `key … ok=false passThrough=intentional-host`（其它未映射为 `unmapped`）。
+  单测：`WineAndroidKeyPassThroughTest`。冒烟配方：
+  `/workspace/ha262-back-passthrough-recipe.md`（Grok Bot **不**宣称设备 PASS）。
 - **IME commit 已落地**：`WineAndroidDesktop` 实现 `onCreateInputConnection` → 复用 `WineInputConnection`；committed ASCII/Latin 经 `KeyCharacterMap`（`VIRTUAL_KEYBOARD`）映射为 KeyEvent 再 `sendKeyboardEvent`。删除 / EditorAction(ENTER) / `onSendKeyEvent` 同管。
 - **软键盘策略（默认不自动弹出）**：触摸 DOWN 只设 `keyTargetHwnd` + `requestFocus`（硬件键），**不**调用 `showSoftKeyboard()`（`WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch() == false`）。无可靠 guest「文本框获焦」信号前，避免桌面/chrome 每点都弹 IME（HA262 沉浸冒烟曾半屏遮挡）。`onCheckIsTextEditor` 仅在显式 `showSoftKeyboard` 的 `imeWanted` 期间为 true（FrameLayout 无 TextView `setShowSoftInputOnFocus`），避免 focus 单独拉起 IME；Session `windowSoftInputMode=stateHidden|adjustNothing`。需要时显式 `showSoftKeyboard()` → `InputMethodManager.showSoftInput`。`hideSoftKeyboard()` 在 session `onPause` / 窗口失焦时调用。
 - **显式软键盘控件（已落地）**：Session 右上角 debug chip「键盘」/「收键盘」调用 `toggleSoftKeyboard()`（`showSoftKeyboard` / `hideSoftKeyboard`）。contentDescription 恒为 `wineandroid keyboard`（uiautomator 定位）。次要：长按 letterbox（`WineAndroidDesktop` 上、contentHost 外黑边）同样切换；guest WindowGroup 仍吃自己的触摸，不抢桌面长按。默认仍不随 tap/focus 弹出。配方：`/workspace/ha262-ime-explicit-show-recipe.md`。

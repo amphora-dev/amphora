@@ -10,11 +10,13 @@ Amphora 实现面：`WineAndroidDesktop` / `WineAndroidHostBridge` /
 [`16-WINEANDROID-DISPLAY.md`](16-WINEANDROID-DISPLAY.md)。
 X11 对照与踩坑见 [`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md)。
 
-**已落地（`wip/ha262-paint`）**：嵌套 WindowGroup、visible_rect、surface 尺寸再
-register、WS_VISIBLE / z-order（`8a494cc` + WindowStack 加固 `4d3d976`，
-**HA262 stack smoke PASS**）、min 2×2；**保留 statusView**。
-~~推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸~~ **已做**（`5515738`；
-见 docs/18 §5 / §9）。
+**已落地（`wip/ha262-paint`，对齐 docs/19 §12 @ HEAD）**：嵌套 WindowGroup、
+visible_rect、surface 尺寸再 register、WS_VISIBLE / z-order（`8a494cc` +
+WindowStack 加固 `4d3d976`，**HA262 stack smoke PASS**）、min 2×2；**保留
+statusView**。~~推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸~~ **已做**
+（`5515738`；见 docs/18 §5 / §9）。壳层输入另轨（非本文借列表）：MOTION /
+KEYBOARD、setCapture 路由 + **CAPTURE_HWND inject HA262 PASS**（`82bf652`）、
+setCursor PointerIcon、BACK 等宿主键故意穿透（`WineAndroidKeyPassThrough`）。
 
 ---
 

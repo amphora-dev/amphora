@@ -180,8 +180,9 @@ TODO 当成现状。
 
 - 输入：MOTION + 硬件 KEYBOARD（`d3a7bd5` / `35c9921`）已落地；soft IME commit、CJK
   `KEYEVENTF_UNICODE` 与 host composing chip 也已落地。debug unicode/composing 冷启与中途
-  relay 均 PASS；composition 是 host-local。仍开 **仅** 可选 soft-IME 真机眼验，不把它写成
-  已完成。
+  relay 均 PASS；composition 是 host-local；**CAPTURE_HWND inject routing PASS**
+  （`82bf652`）；BACK/VOLUME 故意宿主穿透（`WineAndroidKeyPassThrough`）。仍开 **仅**
+  可选 soft-IME 真机眼验 / title-bar 真 capture 眼验，不把它写成已完成。
 - 尺寸与壳层：经典 Wine DPI 96 已落地；hostScale 多分辨率单测与 HA262 旋转 PASS。
   第二台设备 / 分屏按用户决定 deferred，不是下一步。
 - 叠窗：WS_VISIBLE / sibling z-order 已落地（`4d3d976`），HA262 stack smoke PASS；重叠

@@ -94,6 +94,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`（隐窗 removeView + sync bringToFront）；**HA262 stack smoke PASS**（~16:48 Asia/Shanghai；ART `ha262-window-stack-20260916-164730`）；重叠 z-order 人工眼验仍可选
 - **sensorLandscape** 会话锁：`a4cd0c0`；**HA262 PASS**（~17:40 Asia/Shanghai；portrait-locked → `SENSOR_LANDSCAPE`，ROTATION_90 **3040×1904**，hostScale **2.375**）
 - **setCapture / setCursor** 壳层接线：capture HWND 路由 MOTION；PointerIcon 隐藏/系统/自定义 bits（无独立 cursor overlay）；debug `CAPTURE_HWND` 注入；**HA262 CAPTURE_HWND inject routing PASS** on `82bf652`（~19:52 Asia/Shanghai；ART Mac `ha262-capture-inject-20260916-195128`）；可选 title-bar 真 IOCTL_SET_CAPTURE 眼验仍可选
+- **BACK / VOLUME_* 故意宿主穿透**：`WineAndroidKeyPassThrough` + Desktop `passThrough=intentional-host` 日志；native 仍 `keycode_to_vkey==0`（勿发明 guest vkey）
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
 游戏轨：
@@ -228,7 +229,8 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
 （~17:40；ROTATION_90 3040×1904，hostScale 2.375）；**setCapture / setCursor**
 壳层接线（capture 路由 + PointerIcon；无 cursor overlay）；**CAPTURE_HWND inject
 routing PASS** @ `82bf652`（~19:52 Asia/Shanghai；ART Mac
-`ha262-capture-inject-20260916-195128`；`-1`→desktop、swipe routed、`0` release、relay 再捕获）。
+`ha262-capture-inject-20260916-195128`；`-1`→desktop、swipe routed、`0` release、relay 再捕获）；
+**BACK/VOLUME 故意宿主穿透**（`WineAndroidKeyPassThrough`；日志 `passThrough=intentional-host`）。
 
 **IME / soft-IME 入口轨**：已关（除可选 CJK composing/commit 眼验）。
 
@@ -245,6 +247,10 @@ routing PASS** @ `82bf652`（~19:52 Asia/Shanghai；ART Mac
    `CAPTURE_HWND` **routing 已 PASS** @ `82bf652`；勿再垫 inject 刀）。配方：
    `/workspace/ha262-capture-inject-recipe.md`（已验）；旧
    `/workspace/ha262-capture-cursor-smoke-recipe.md`（title-bar 手工）。
+4. **可选**：Mac/HA262 冒烟 BACK pass-through — `adb shell input keyevent 4` 见
+   Desktop `ok=false passThrough=intentional-host`，无 native `keyboard … vkey=`
+   for BACK；Activity 可 finish（宿主拥有）。配方：
+   `/workspace/ha262-back-passthrough-recipe.md`。Grok Bot **不**宣称设备 PASS。
 
 **已停 / 勿排下一拍**：第二台真机 / 分屏 / hostScale 双机（用户 2026-09-16 停）。
 

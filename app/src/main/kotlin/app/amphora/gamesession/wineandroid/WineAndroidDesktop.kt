@@ -265,10 +265,12 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                 event.metaState,
             )
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            val pass = WineAndroidKeyPassThrough.passThroughLabel(event.keyCode, ok)
             Log.i(
                 TAG,
                 "key hwnd=$hwnd action=${event.action} keycode=${event.keyCode} " +
-                    "(${KeyEvent.keyCodeToString(event.keyCode)}) meta=${event.metaState} ok=$ok",
+                    "(${KeyEvent.keyCodeToString(event.keyCode)}) meta=${event.metaState} ok=$ok" +
+                    (if (pass != null) " passThrough=$pass" else ""),
             )
         }
         return ok
