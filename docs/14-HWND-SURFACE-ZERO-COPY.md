@@ -31,36 +31,30 @@ knife13 hot path is already HWND Surface AHB zero-copy. Present does **not** go 
 **Goal:** smoke **CI/release** Amphora APK + Proton WCP on HA262AAH until
 `AHB_SC … import=ok` / Present≥50. **Not** knife-manual `.so` sideload.
 
-**Pin progress (2026-09-16 ~11:05 Asia/Shanghai):**
+**Status (2026-09-16 ~11:35 Asia/Shanghai):**
 
-- Wine client branch `wip/ahb-dxvk-from-knife-tip` tip `df643f5db06`
-  (`feat(wineandroid): take host AMPHORA_BUF sock via IOCTL_GET_BUFFER_SOCK`).
-  Prior tip `65119895331` added WSI size IPC; still not merged to `proton_11.0`.
-- imagefs branch `wip/ahb-wcp-69bc79bcc6e` @ `7fcc19a` pins proton-wine
-  `df643f5db06` / `PROTON_COMMIT` same; local `bst build l1/proton-wine-wcp.bst`
-  **in progress** for `Proton-11.0-df643f5…` (log `/workspace/bst-proton-wine-wcp-df643f5.log`).
-- `content_manifest` main still on `Proton-11.0-651198953-x86_64` (`869f821`) —
-  bump only after df643f5 WCP is green + published.
+- **CI Present smoke v8b PASSED** (~11:26): amphora `21034ee` + WCP
+  `Proton-11.0-df643f5db` + long smoke 175 frames. DIRECT hwnd-ANW,
+  `SET_BUFFER_COUNT want=5 ret=0`, `import=ok`, Present≥50, guest-readback
+  CLASS=MAGENTA @50/@100, screen center magenta.
+  Mac ART: `/Users/sky/co/src/amphora-dev/smoke-artifacts/ci-present-20260916-112604-v8b/`
+  Box note: `/workspace/ha262-ci-present-v8b-pass.md`.
+- Wine client branch `wip/ahb-dxvk-from-knife-tip` tip now `0a64ebc8d69`
+  (`fix(wineandroid): SET_BUFFER_COUNT ≥ MIN_UNDEQUEUED+1 for BLAST`) —
+  one commit ahead of smoked `df643f5db06`. Still **not** merged to `proton_11.0`.
+- imagefs `wip/ahb-wcp-69bc79bcc6e` @ `7fcc19a` still pins `df643f5db06`;
+  local WCP built: `/workspace/wcp-df643f5-out/artifacts/Proton-11.0-df643f5db-x86_64.wcp`
+  (sha256 `f60305913e16…`).
+- `content_manifest` main `c391774` pins `Proton-11.0-df643f5db-x86_64`
+  (wine release asset already published).
 
-**CI Present smoke — PARTIAL v5 (2026-09-16 ~11:00 Asia/Shanghai):**
+**Earlier trail:** v5 PARTIAL on 651198953 (DIRECT+WSI size, no CreateSwapchain);
+v4 FAIL on a856835d0 (no DIRECT hwnd-ANW).
 
-- Device HA262AAH via Mac mini ADB; WCP `Proton-11.0-651198953` (manifest
-  `869f821`); APK `da962a7`; `amphora-dxvk-smoke.exe` (no knife `.so`).
-- PASS vs v4 hang: `DIRECT hwnd-ANW` + WSI size IPC (`seed req`, bridge
-  reply ret=0); device stash + AHB_SC surface register.
-- Still FAIL: no CreateSwapchain / `import=ok` / MAGENTA / Present≥50.
-  Stops after query what=6/7; sock-backed queries (8/…) never log — guest
-  stream adapter not viable vs tip host sock.
-- Artifacts (Mac):
-  `/Users/sky/co/src/amphora-dev/smoke-artifacts/ci-present-20260916-110005-v5/`
-  Box note: `/workspace/ha262-ci-present-smoke-result.md`.
-
-**Earlier FAIL v4 (~10:26):** a856835d0 WCP hung after device stash with no
-`DIRECT hwnd-ANW` / CreateSwapchain (artifacts `…-102359-v4/`).
-
-**Now do:** finish df643f5 WCP → publish → bump content_manifest → re-run CI
-Present smoke to verify host AMPHORA_BUF serve + SCM_RIGHTS sock restores
-sock-backed queries / CreateSwapchain. Ban DPI/IME / knife `.so` sideload.
+**Now do:** decide continue-vs-switch — either pin/rebuild WCP for tip
+`0a64ebc8d69` (wine-side SET_BUFFER_COUNT to match amphora host) or treat
+df643f5+v8b as enough and merge/pin subset to `proton_11.0`. Ban DPI/IME /
+knife `.so` sideload.
 
 **Also:** `amphora-dxvk-smoke.exe` is **not** in content_manifest / releases
 (only Graphics-Test-* are). Locate on Mac knife/smoke dirs or vendor later.
