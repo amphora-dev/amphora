@@ -63,6 +63,19 @@ object WineAndroidGuestResolution {
         }
 
     /**
+     * Resolve optional debug launch overrides against the stored guest size.
+     * A non-null override represents an explicit WIDTH / HEIGHT smoke extra.
+     */
+    fun resolveDebugDimensions(
+        preferenceName: String?,
+        widthOverride: Int?,
+        heightOverride: Int?,
+    ): Pair<Int, Int> {
+        val configured = fromPreference(preferenceName)
+        return (widthOverride ?: configured.width) to (heightOverride ?: configured.height)
+    }
+
+    /**
      * Pick a preset from the **short** side of the host Activity (px), not DPI.
      * Conservative: stay at 720p until the short side is large enough that a
      * bigger guest still letterboxes with scale ≥ ~1.5.

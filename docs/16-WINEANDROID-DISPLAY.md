@@ -85,6 +85,8 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
    `RuntimeSettingsStore`（SharedPreferences `display_resolution`）存 `R{W}x{H}` /
    guest id，经 `preferenceName` / `fromPreference` 映射；未知旧值回落 DEFAULT。
    Desktop / Launcher 启动走已存 WxH → `SessionLaunch`（**下一拍会话**生效）。
+   MainActivity 的 wineandroid/smoke debug 冷启在未传 WIDTH/HEIGHT extras 时也读取该偏好；
+   显式 extras 仍覆盖偏好，便于 smoke 固定尺寸。
    真机 PASS 未宣称（Grok Bot 无 Mac 装机）。
 4. **非目标**：不另造第二套桌面模型；不改 Present/AHB / TextureView / BGRA / IMM32。
 

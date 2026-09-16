@@ -5,15 +5,20 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import app.amphora.core.engine.RuntimeSettingsStore
+import app.amphora.core.engine.WineAndroidGuestResolution
 import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.desktop.DesktopActivity
 import app.amphora.ui.AmphoraApp
 import app.amphora.ui.SessionLaunch
 import app.amphora.ui.stageDebugWineExe
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var runtimeSettings: RuntimeSettingsStore
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -39,11 +44,26 @@ class MainActivity : ComponentActivity() {
                 }
                 intent.getBooleanExtra(EXTRA_DEBUG_WINEANDROID, false) ||
                     intent.getBooleanExtra(EXTRA_DEBUG_WINE_SMOKE, false) -> {
+                    val resolutionName = runtimeSettings.settings.value.resolutionName
+                    val configuredResolution = WineAndroidGuestResolution.fromPreference(resolutionName)
+                    val (width, height) = WineAndroidGuestResolution.resolveDebugDimensions(
+                        preferenceName = resolutionName,
+                        widthOverride = if (intent.hasExtra(EXTRA_DEBUG_WIDTH)) {
+                            intent.getIntExtra(EXTRA_DEBUG_WIDTH, configuredResolution.width)
+                        } else {
+                            null
+                        },
+                        heightOverride = if (intent.hasExtra(EXTRA_DEBUG_HEIGHT)) {
+                            intent.getIntExtra(EXTRA_DEBUG_HEIGHT, configuredResolution.height)
+                        } else {
+                            null
+                        },
+                    )
                     SessionLaunch.program(
                         context = this,
                         exePath = debugExePath(),
-                        width = intent.getIntExtra(EXTRA_DEBUG_WIDTH, 1280),
-                        height = intent.getIntExtra(EXTRA_DEBUG_HEIGHT, 720),
+                        width = width,
+                        height = height,
                         graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
                         debugImeUnicodeText =
                             intent.getStringExtra(EXTRA_DEBUG_IME_UNICODE_TEXT),
