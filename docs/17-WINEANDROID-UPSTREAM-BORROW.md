@@ -96,9 +96,11 @@ logcat：`windowPosChanged` 后应再出现 taskbar 约 `1280×46` 的 register�
   ~16:48 Asia/Shanghai）：session 1280×720；first register（desktop /
   taskbar / windows）；`windowPosChanged` 带 `style=`；无 FATAL。
   ART（Mac）：`smoke-artifacts/ha262-window-stack-20260916-164730`。
-- **仍开（可选）**：重叠 HWND z-order **人工眼验**；debug `DUMP_ZORDER` /
-  `ZORDER_TOP_HWND`（`WineAndroidDebugZOrderInject`）辅助 log/强制顶；OpenGL
-  client 已 `setZOrderMediaOverlay(true)`，无新缺陷时勿再垫 media-overlay 刀。
+- **HA262 DUMP_ZORDER / ZORDER_TOP_HWND helper log PASS**（`d0bdcb7`，2026-09-16
+  ~20:01 Asia/Shanghai；ART `ha262-zorder-dump-20260916-200032`）：Relay dump +
+  natural sync + force-top；**非**视觉眼验 PASS。
+- **仍开（可选）**：重叠 HWND z-order **人工眼验**；OpenGL client 已
+  `setZOrderMediaOverlay(true)`，无新缺陷时勿再垫 media-overlay 刀。
 
 **如何采纳（现状）**
 

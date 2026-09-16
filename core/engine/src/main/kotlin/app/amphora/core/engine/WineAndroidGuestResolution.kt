@@ -76,6 +76,28 @@ object WineAndroidGuestResolution {
     }
 
     /**
+     * Label for debug launch logs: where [resolveDebugDimensions] took WxH from.
+     * - `extras`: both WIDTH and HEIGHT present
+     * - `mixed`: only one of WIDTH / HEIGHT present (other from pref/default)
+     * - `pref`: no size extras; SharedPreferences name present
+     * - `default`: no size extras and no stored preference
+     */
+    fun describeDebugDimensionSource(
+        preferenceName: String?,
+        widthOverride: Int?,
+        heightOverride: Int?,
+    ): String {
+        val hasW = widthOverride != null
+        val hasH = heightOverride != null
+        return when {
+            hasW && hasH -> "extras"
+            hasW || hasH -> "mixed"
+            preferenceName.isNullOrBlank() -> "default"
+            else -> "pref"
+        }
+    }
+
+    /**
      * Pick a preset from the **short** side of the host Activity (px), not DPI.
      * Conservative: stay at 720p until the short side is large enough that a
      * bigger guest still letterboxes with scale ≥ ~1.5.

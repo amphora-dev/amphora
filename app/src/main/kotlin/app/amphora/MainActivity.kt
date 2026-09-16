@@ -2,6 +2,7 @@ package app.amphora
 
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -46,18 +47,32 @@ class MainActivity : ComponentActivity() {
                     intent.getBooleanExtra(EXTRA_DEBUG_WINE_SMOKE, false) -> {
                     val resolutionName = runtimeSettings.settings.value.resolutionName
                     val configuredResolution = WineAndroidGuestResolution.fromPreference(resolutionName)
+                    val widthOverride = if (intent.hasExtra(EXTRA_DEBUG_WIDTH)) {
+                        intent.getIntExtra(EXTRA_DEBUG_WIDTH, configuredResolution.width)
+                    } else {
+                        null
+                    }
+                    val heightOverride = if (intent.hasExtra(EXTRA_DEBUG_HEIGHT)) {
+                        intent.getIntExtra(EXTRA_DEBUG_HEIGHT, configuredResolution.height)
+                    } else {
+                        null
+                    }
                     val (width, height) = WineAndroidGuestResolution.resolveDebugDimensions(
                         preferenceName = resolutionName,
-                        widthOverride = if (intent.hasExtra(EXTRA_DEBUG_WIDTH)) {
-                            intent.getIntExtra(EXTRA_DEBUG_WIDTH, configuredResolution.width)
-                        } else {
-                            null
-                        },
-                        heightOverride = if (intent.hasExtra(EXTRA_DEBUG_HEIGHT)) {
-                            intent.getIntExtra(EXTRA_DEBUG_HEIGHT, configuredResolution.height)
-                        } else {
-                            null
-                        },
+                        widthOverride = widthOverride,
+                        heightOverride = heightOverride,
+                    )
+                    val source = WineAndroidGuestResolution.describeDebugDimensionSource(
+                        preferenceName = resolutionName,
+                        widthOverride = widthOverride,
+                        heightOverride = heightOverride,
+                    )
+                    Log.i(
+                        TAG,
+                        "guest resolution resolve source=$source " +
+                            "pref=${resolutionName ?: "(none)"} " +
+                            "configured=${configuredResolution.width}x${configuredResolution.height} " +
+                            "WxH=${width}x$height",
                     )
                     SessionLaunch.program(
                         context = this,
@@ -109,6 +124,8 @@ class MainActivity : ComponentActivity() {
         ?: stageDebugWineExe(this)
 
     companion object {
+        private const val TAG = "MainActivity"
+
         const val EXTRA_OPEN_SETTINGS = "app.amphora.desktop.OPEN_SETTINGS"
         private const val EXTRA_DEBUG_WINE_SMOKE = "app.amphora.debug.WINE_SMOKE"
         private const val EXTRA_DEBUG_WINE_EXE = "app.amphora.debug.WINE_EXE"

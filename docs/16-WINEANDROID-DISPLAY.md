@@ -143,8 +143,13 @@ ART（Mac）：`ha262-capture-inject-20260916-195128`。
    Desktop / Launcher 启动走已存 WxH → `SessionLaunch`（**下一拍会话**生效）。
    MainActivity 的 wineandroid/smoke debug 冷启在未传 WIDTH/HEIGHT extras 时也读取该偏好；
    显式 extras 仍覆盖偏好，便于 smoke 固定尺寸。
-   **`fdda994` no-WIDTH pref 路径已合入**（读 `display_resolution`）；真机 PASS
-   未宣称（Grok Bot 无 Mac 装机；parent 可冒烟）。
+   **`fdda994` no-WIDTH pref 路径已合入**（读 `display_resolution`）。
+   Debug log（本拍）：MainActivity cold WINEANDROID/smoke 打
+   `guest resolution resolve source=pref|extras|mixed|default pref=… WxH=…`
+   （`WineAndroidGuestResolution.describeDebugDimensionSource`）。配方：
+   `/workspace/ha262-resolution-pref-recipe.md`（run-as 写
+   `amphora_graphics` / `display_resolution`；**勿**传 WIDTH/HEIGHT）。
+   **真机 PASS 未宣称**（Grok Bot 无 Mac 装机；parent/operator 可冒烟）。
 4. **WS_VISIBLE / sibling z-order（加固）**：`WineAndroidWindowStack` + Desktop
    sibling 栈；隐窗 removeView；叠窗 `bringChildToFront` 同步。单测
    `WineAndroidWindowStackTest`。

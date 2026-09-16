@@ -91,6 +91,30 @@ class WineAndroidGuestResolutionTest {
     }
 
     @Test
+    fun debugDimensionSourceLabelsPreferExtrasThenPrefThenDefault() {
+        assertEquals(
+            "extras",
+            WineAndroidGuestResolution.describeDebugDimensionSource("R1024x768", 1280, 720),
+        )
+        assertEquals(
+            "mixed",
+            WineAndroidGuestResolution.describeDebugDimensionSource("R1024x768", 1280, null),
+        )
+        assertEquals(
+            "pref",
+            WineAndroidGuestResolution.describeDebugDimensionSource("R1024x768", null, null),
+        )
+        assertEquals(
+            "default",
+            WineAndroidGuestResolution.describeDebugDimensionSource(null, null, null),
+        )
+        assertEquals(
+            "default",
+            WineAndroidGuestResolution.describeDebugDimensionSource("", null, null),
+        )
+    }
+
+    @Test
     fun preferenceNamesMatchHouseEnumStyle() {
         assertEquals("R1280x720", WineAndroidGuestResolution.preferenceName(WineAndroidGuestResolution.HD_1280x720))
         assertEquals("R1024x768", WineAndroidGuestResolution.preferenceName(WineAndroidGuestResolution.XGA_1024x768))
