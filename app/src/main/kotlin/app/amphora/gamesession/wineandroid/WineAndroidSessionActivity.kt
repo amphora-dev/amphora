@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Process
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -20,6 +22,7 @@ import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.gamesession.GameSessionHostEnvironment
+import app.amphora.gamesession.input.ImeUiState
 import com.winlator.cmod.runtime.system.ProcessHelper
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.concurrent.atomic.AtomicBoolean
@@ -47,6 +50,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
 
     private lateinit var desktop: WineAndroidDesktop
     private lateinit var statusView: TextView
+    /** Host-local CJK composing chip (cleared on IME commit/finish). */
+    private lateinit var composingOverlay: TextView
     private var hostBridge: WineAndroidHostBridge? = null
     private var runningGuest: WineAndroidLauncher.RunningGuest? = null
     private val processExitScheduled = AtomicBoolean(false)
@@ -65,6 +70,19 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 isFocusable = false
                 isFocusableInTouchMode = false
             }
+        composingOverlay =
+            TextView(this).apply {
+                setTextColor(Color.WHITE)
+                setBackgroundColor(0xC7000000.toInt())
+                textSize = 16f
+                typeface = Typeface.MONOSPACE
+                setPadding(28, 16, 28, 16)
+                maxLines = 2
+                visibility = View.GONE
+                isFocusable = false
+                isFocusableInTouchMode = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
         val root =
             FrameLayout(this).apply {
                 addView(
@@ -82,8 +100,20 @@ class WineAndroidSessionActivity : ComponentActivity() {
                         Gravity.BOTTOM,
                     ),
                 )
+                addView(
+                    composingOverlay,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.TOP or Gravity.START,
+                    ).apply {
+                        topMargin = 48
+                        marginStart = 48
+                    },
+                )
             }
         setContentView(root)
+        desktop.setImeUiStateListener { state -> applyComposingOverlay(state) }
         desktop.requestFocus()
         maybeScheduleDebugImeInject(intent, reason = "onCreate")
 
@@ -179,6 +209,18 @@ class WineAndroidSessionActivity : ComponentActivity() {
         }
     }
 
+    /** Mirror TouchpadView / GameSessionImeOverlay: show composing on host only. */
+    private fun applyComposingOverlay(state: ImeUiState) {
+        val text = WineAndroidImeUi.composingOverlayText(state)
+        if (text.isEmpty()) {
+            composingOverlay.visibility = View.GONE
+            composingOverlay.text = ""
+            return
+        }
+        composingOverlay.text = text
+        composingOverlay.visibility = View.VISIBLE
+    }
+
     /**
      * Debug-only: [WineAndroidDebugImeInject.EXTRA_IME_UNICODE_TEXT] → same path as
      * soft IME onCommitText. Returns true when a non-blank inject was scheduled.
@@ -194,6 +236,9 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::desktop.isInitialized) {
+            desktop.setImeUiStateListener(null)
+        }
         runningGuest?.stop()
         runningGuest = null
         hostBridge?.close()

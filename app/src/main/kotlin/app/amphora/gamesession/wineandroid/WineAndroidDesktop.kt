@@ -15,6 +15,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import app.amphora.gamesession.input.ImeUiState
 import app.amphora.gamesession.input.WineInputConnection
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -41,7 +42,8 @@ import kotlin.math.roundToInt
  * - Soft IME: [onCreateInputConnection] → [WineInputConnection]; committed
  *   ASCII/Latin maps via `KeyCharacterMap` → same [sendKeyboardEvent] pipe.
  *   Unmapped code points (CJK / emoji) → [nativeSendUnicodeChar]
- *   (KEYEVENTF_UNICODE on EVENT_KEYBOARD). Composition stays local; no IMM32/TSF.
+ *   (KEYEVENTF_UNICODE on EVENT_KEYBOARD). Composition stays host-local
+ *   ([ImeUiState] chip); no IMM32/TSF into guest.
  *   Debug: [injectCommittedTextForDebug] reuses the same commit path (HA262 smoke).
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
@@ -61,6 +63,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
     /** Queued debug IME inject until [desktopHwnd] / [keyTargetHwnd] is known. */
     @Volatile private var pendingDebugImeText: String? = null
+
+    /** Host-local composing / keyboard chip (mirrors TouchpadView; not sent to guest). */
+    private var imeUiState = ImeUiState()
+    private var imeUiStateListener: ((ImeUiState) -> Unit)? = null
 
     private val groups = LinkedHashMap<Key, WindowGroup>()
 
@@ -166,7 +172,12 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                 }
 
                 override fun onComposingTextChanged(text: CharSequence) {
-                    Log.d(TAG, "IME composing len=${text.length} (local only; not sent to guest)")
+                    val composing = text.toString()
+                    Log.d(
+                        TAG,
+                        "IME composing len=${composing.length} (host-local; not sent to guest)",
+                    )
+                    updateImeUiState(composingText = composing)
                 }
             },
         )
@@ -215,6 +226,21 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             requestFocus()
             imm?.showSoftInput(this, 0)
         }
+    }
+
+    fun setImeUiStateListener(listener: ((ImeUiState) -> Unit)?) {
+        imeUiStateListener = listener
+        listener?.invoke(imeUiState)
+    }
+
+    private fun updateImeUiState(
+        composingText: String = imeUiState.composingText,
+        keyboardVisible: Boolean = imeUiState.keyboardVisible,
+    ) {
+        val updated = WineAndroidImeUi.update(imeUiState, composingText, keyboardVisible)
+        if (updated === imeUiState) return
+        imeUiState = updated
+        imeUiStateListener?.invoke(updated)
     }
 
     fun attachWindow(window: WineAndroidWindow, onSurface: (hwnd: Int, surface: Surface?) -> Unit) {

@@ -91,13 +91,14 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 
 | 文件 | 职责 |
 |------|------|
-| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit |
+| `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit + host composing |
 | `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点交给 `nativeSendUnicodeChar` |
+| `WineAndroidImeUi.kt` | 纯 `ImeUiState` reducer + composing chip 可见性（单测） |
 | `WineAndroidDebugImeInject.kt` | debug-only extra `app.amphora.debug.IME_UNICODE_TEXT`（`FLAG_DEBUGGABLE`）|
 | `WineAndroidHostScale.kt` | 纯 letterbox scale/offset 计算（单测覆盖多分辨率） |
 | `WineAndroidHostBridge.kt` | createWindow / windowPosChanged(visible_*) / setParent→reparent |
 | `WineAndroidWindow.kt` | window/client/visible rect、style、visible |
-| `WineAndroidSessionActivity.kt` | session + 调试 statusView；desktop 嵌套布局；`dispatchKeyEvent` → KEYBOARD_EVENT；debug IME unicode extra |
+| `WineAndroidSessionActivity.kt` | session + 调试 statusView；host composing TextView chip；`dispatchKeyEvent` → KEYBOARD_EVENT；debug IME unicode extra |
 | `wineandroid_host_ipc.c` | `nativeRegisterSurface` → `SURFACE_CHANGED`；`nativeSendMotionEvent` / `nativeSendKeyboardEvent` / `nativeSendUnicodeChar`（`KEYEVENTF_UNICODE`） |
 
 ## 键盘（EVENT_KEYBOARD）
@@ -112,8 +113,11 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
   `IME unicode inject scheduled reason=onCreate` → deferred → `hwnd=… text='中文A'`；
   HostIpc `keyboard unicode uchar=4e2d` / `6587`；Desktop `U+4e2d`/`U+6587` ok + `KEYCODE_A` ok。
   ART（Mac）：`smoke-artifacts/ha262-ime-unicode-auto-20260916-140749`。
-- **仍开**：CJK **composition** 本地化 UI（`onComposingTextChanged` 仍仅 Log；下一拍 host composing
-  overlay）；真机 CJK soft IME 眼验；第二台真机 / 分屏；guest 分辨率设置页 UI。勿发明 IMM32/TSF。
+- **Host composing overlay 已落地**：`onComposingTextChanged` → `ImeUiState` → SessionActivity 左上角
+  TextView chip（commit/finish/`WineInputConnection.reset` 清空）。**不做** IMM32/TSF；
+  composition 永不进 guest。
+- **仍开（可选）**：真机 CJK soft IME **眼验** composing chip + 最终 commit；第二台真机 /
+  分屏；guest 分辨率设置页 UI。
 
 ## 非目标
 
