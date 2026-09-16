@@ -82,7 +82,7 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
    1280×720（默认）/ 1024×768 / 1600×900 / 1920×1080；短边启发式
    `suggestForHostShortSide`（HA262 短边仍选 720p）。**改 guest 边长，不是 DPI**。
    Session 默认仍走 `DEFAULT`=720p；产品 UI / 设置页接线仍开。
-4. **可选 UI**：暴露预设选择或「界面大小」— 定产品后再动设置页。
+4. **可选 UI**：暴露预设选择或「界面大小」— 接 Settings Display Resolution，对齐本目录。
 
 相关：`WineAndroidHostScale.kt` / `WineAndroidHostScaleTest.kt` /
 `WineAndroidDpiTest.kt`。
@@ -122,8 +122,16 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
   **不**走 commit/unicode pipe。**清 chip 用 `--esn …IME_COMPOSING_TEXT`**（`am` 拒绝 `--es … ''`）。
   日志 `IME composing inject scheduled` + Desktop `IME composing inject len=… (host-local…)`。
   配方：`/workspace/ha262-ime-composing-overlay-smoke.md`。
+- **HA262 cold composing chip PASS**（`01cf904`）：MainActivity 冷启
+  `--es …IME_COMPOSING_TEXT nihao` → chip 显示；`--esn` 清 chip。
+- **HA262 mid-session composing relay PASS**（`fe8f5a2`，2026-09-16 ~14:22 Asia/Shanghai）：
+  Session 已在前台（MainActivity WINEANDROID）；
+  `am start …WineAndroidDebugImeRelayActivity --es IME_COMPOSING_TEXT nihao` →
+  Session `onNewIntent len=5` + Desktop inject len=5；chip 显示；
+  `--esn IME_COMPOSING_TEXT` → `onNewIntent len=0`；chip 清；无 unicode/keyboard unicode 泄漏。
+  ART（Mac）：`smoke-artifacts/ha262-ime-composing-relay-20260916-142224`。
 - **仍开（可选）**：真机 soft IME **眼验** composing chip（`adb input text` 无法模拟 composing）；
-  第二台真机 / 分屏；guest 分辨率设置页 UI。
+  第二台真机 / 分屏。
 
 ## 非目标
 
