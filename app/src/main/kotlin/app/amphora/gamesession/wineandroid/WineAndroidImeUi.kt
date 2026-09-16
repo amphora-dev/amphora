@@ -25,8 +25,7 @@ object WineAndroidImeUi {
     }
 
     /** Whether the host composing chip should be shown. */
-    fun shouldShowComposingOverlay(state: ImeUiState): Boolean =
-        state.composingText.isNotEmpty()
+    fun shouldShowComposingOverlay(state: ImeUiState): Boolean = state.composingText.isNotEmpty()
 
     /** Text for the host composing chip (empty when hidden). */
     fun composingOverlayText(state: ImeUiState): String =
@@ -66,26 +65,44 @@ object WineAndroidImeUi {
      * Visible session chip: Chinese label flips with [imeWanted]; content-desc
      * stays constant so Mac smoke can find the control.
      */
-    data class SoftKeyboardControl(
-        val label: String,
-        val contentDescription: String,
-        val shown: Boolean,
-    )
+    data class SoftKeyboardControl(val label: String, val contentDescription: String, val shown: Boolean)
 
-    fun softKeyboardControl(imeWanted: Boolean): SoftKeyboardControl =
-        if (imeWanted) {
-            SoftKeyboardControl(
-                label = KEYBOARD_CONTROL_LABEL_HIDE,
-                contentDescription = KEYBOARD_CONTROL_CONTENT_DESCRIPTION,
-                shown = true,
-            )
-        } else {
-            SoftKeyboardControl(
-                label = KEYBOARD_CONTROL_LABEL_SHOW,
-                contentDescription = KEYBOARD_CONTROL_CONTENT_DESCRIPTION,
-                shown = false,
-            )
-        }
+    fun softKeyboardControl(imeWanted: Boolean): SoftKeyboardControl = if (imeWanted) {
+        SoftKeyboardControl(
+            label = KEYBOARD_CONTROL_LABEL_HIDE,
+            contentDescription = KEYBOARD_CONTROL_CONTENT_DESCRIPTION,
+            shown = true,
+        )
+    } else {
+        SoftKeyboardControl(
+            label = KEYBOARD_CONTROL_LABEL_SHOW,
+            contentDescription = KEYBOARD_CONTROL_CONTENT_DESCRIPTION,
+            shown = false,
+        )
+    }
+
+    /**
+     * Absolute post delays (ms) from [WineAndroidDesktop.showSoftKeyboard] for
+     * serve-ready retries. Cold-start `IME_SHOW` can run before IMM has a
+     * servedView/curRootView; chip taps after settle already work. Desktop
+     * posts each delay (0 → [View.post]) and stops early on success or when
+     * `imeWanted` clears.
+     */
+    fun softImeShowRetryDelaysMs(): LongArray = longArrayOf(0L, 100L, 400L, 1000L)
+
+    /**
+     * Whether another soft-IME show attempt should be scheduled after [attemptIndex]
+     * (0-based) given [delaysMs]. Pure helper for unit tests.
+     */
+    fun shouldScheduleSoftImeShowRetry(
+        imeWanted: Boolean,
+        attemptAccepted: Boolean,
+        attemptIndex: Int,
+        delaysMs: LongArray,
+    ): Boolean {
+        if (!imeWanted || attemptAccepted) return false
+        return attemptIndex + 1 < delaysMs.size
+    }
 
     /** Next explicit IME want-flag (chip tap / letterbox long-press). */
     fun toggleImeWanted(imeWanted: Boolean): Boolean = !imeWanted

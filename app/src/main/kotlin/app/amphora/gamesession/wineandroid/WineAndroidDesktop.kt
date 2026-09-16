@@ -52,8 +52,9 @@ import kotlin.math.roundToInt
  *   must not open soft IME: [onCheckIsTextEditor] only while [imeWanted]
  *   (set in [showSoftKeyboard], cleared in [hideSoftKeyboard]) — FrameLayout
  *   has no TextView `setShowSoftInputOnFocus`. Explicit [showSoftKeyboard]
- *   uses IMM.showSoftInput (session corner chip / [toggleSoftKeyboard] /
- *   letterbox long-press). [hideSoftKeyboard] on pause / focus loss.
+ *   uses IMM.showSoftInput with serve-ready retries (session chip /
+ *   [toggleSoftKeyboard] / letterbox long-press / debug IME_SHOW).
+ *   [hideSoftKeyboard] on pause / focus loss.
  *   Debug: [injectCommittedTextForDebug] reuses the same commit path (HA262 smoke).
  * - Style / z-order: [WineAndroidWindowStack] tracks WS_VISIBLE + sibling order;
  *   invisible HWND groups are removed from the parent (upstream add/remove), and
@@ -99,6 +100,9 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
      * as an editor (HA262: mInputShown stayed true after requestFocus alone).
      */
     @Volatile private var imeWanted: Boolean = false
+
+    /** Pending [showSoftKeyboard] serve-ready retries; cleared on success / hide. */
+    private val softImeShowRetryRunnables = ArrayList<Runnable>()
 
     init {
         // Upstream WineView: GDI views are focusable so KeyEvents land here.
@@ -167,14 +171,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
      * Apply host [PointerIcon] from wineandroid setCursor ioctl.
      * Call on the UI thread. API 24+ only (upstream WineActivity gate).
      */
-    fun setCursor(
-        id: Int,
-        width: Int,
-        height: Int,
-        hotspotX: Int,
-        hotspotY: Int,
-        bits: IntArray?,
-    ) {
+    fun setCursor(id: Int, width: Int, height: Int, hotspotX: Int, hotspotY: Int, bits: IntArray?) {
         if (Build.VERSION.SDK_INT < 24) {
             Log.i(TAG, "setCursor skipped (API ${Build.VERSION.SDK_INT} < 24)")
             return
@@ -237,8 +234,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         return ok
     }
 
-    override fun onCheckIsTextEditor(): Boolean =
-        WineAndroidImeUi.shouldReportAsTextEditor(imeWanted)
+    override fun onCheckIsTextEditor(): Boolean = WineAndroidImeUi.shouldReportAsTextEditor(imeWanted)
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         outAttrs.inputType =
@@ -348,23 +344,75 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
      * TouchpadView / GameSession drawer). Not called from touch DOWN —
      * see [WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch].
      * Sets [imeWanted] so [onCheckIsTextEditor] is true while IMM binds.
+     *
+     * Retries `requestFocus` + `restartInput` + `showSoftInput` on a bounded
+     * schedule until IMM has served this view / window has focus (cold-start
+     * `IME_SHOW` can race before servedView is set). Stops when [imeWanted]
+     * clears or an attempt is accepted.
      */
     fun showSoftKeyboard() {
         imeWanted = true
         Log.i(TAG, "IME soft keyboard show")
-        requestFocus()
         updateImeUiState(keyboardVisible = true)
-        val imm = context.getSystemService(InputMethodManager::class.java)
-        imm?.restartInput(this)
-        post {
-            requestFocus()
-            imm?.showSoftInput(this, 0)
+        clearSoftImeShowRetries()
+        val delays = WineAndroidImeUi.softImeShowRetryDelaysMs()
+        for (index in delays.indices) {
+            val attempt = index
+            val delayMs = delays[attempt]
+            val runnable = Runnable { runSoftImeShowAttempt(attempt, delays) }
+            softImeShowRetryRunnables.add(runnable)
+            if (delayMs <= 0L) {
+                post(runnable)
+            } else {
+                postDelayed(runnable, delayMs)
+            }
         }
+    }
+
+    private fun runSoftImeShowAttempt(attempt: Int, delays: LongArray) {
+        if (!imeWanted) return
+        if (tryShowSoftInputOnce()) {
+            Log.i(TAG, "IME soft keyboard show served attempt=$attempt")
+            clearSoftImeShowRetries()
+            return
+        }
+        Log.i(TAG, "IME soft keyboard show not served yet attempt=$attempt")
+        if (!WineAndroidImeUi.shouldScheduleSoftImeShowRetry(
+                imeWanted = true,
+                attemptAccepted = false,
+                attemptIndex = attempt,
+                delaysMs = delays,
+            )
+        ) {
+            Log.w(TAG, "IME soft keyboard show exhausted retries")
+        }
+    }
+
+    /**
+     * One IMM show attempt. Returns true when [InputMethodManager.showSoftInput]
+     * accepts or the view is already the active/served editor.
+     */
+    private fun tryShowSoftInputOnce(): Boolean {
+        if (!isAttachedToWindow) return false
+        requestFocus()
+        val imm = context.getSystemService(InputMethodManager::class.java) ?: return false
+        imm.restartInput(this)
+        requestFocus()
+        val accepted = imm.showSoftInput(this, 0)
+        return accepted || imm.isActive(this)
+    }
+
+    private fun clearSoftImeShowRetries() {
+        for (runnable in softImeShowRetryRunnables) {
+            removeCallbacks(runnable)
+        }
+        softImeShowRetryRunnables.clear()
     }
 
     /** Hide soft IME + clear host composing (TouchpadView.dismissSoftKeyboard-light). */
     fun hideSoftKeyboard() {
         imeWanted = false
+        clearSoftImeShowRetries()
         Log.i(TAG, "IME soft keyboard hide")
         val imm = context.getSystemService(InputMethodManager::class.java)
         imm?.hideSoftInputFromWindow(windowToken, 0)
@@ -868,9 +916,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         }
 
         @android.annotation.TargetApi(24)
-        override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
-            return currentPointerIcon ?: super.onResolvePointerIcon(event, pointerIndex)
-        }
+        override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? =
+            currentPointerIcon ?: super.onResolvePointerIcon(event, pointerIndex)
 
         fun applyFixedBufferSize(forceReregister: Boolean) {
             val r = bufferRect(window)

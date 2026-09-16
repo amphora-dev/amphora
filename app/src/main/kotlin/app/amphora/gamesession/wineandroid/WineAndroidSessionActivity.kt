@@ -2,8 +2,8 @@ package app.amphora.gamesession.wineandroid
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -54,8 +54,10 @@ class WineAndroidSessionActivity : ComponentActivity() {
 
     private lateinit var desktop: WineAndroidDesktop
     private lateinit var statusView: TextView
+
     /** Host-local CJK composing chip (cleared on IME commit/finish). */
     private lateinit var composingOverlay: TextView
+
     /** Unobtrusive explicit soft-IME toggle (does not auto-show on tap). */
     private lateinit var keyboardChip: TextView
     private var hostBridge: WineAndroidHostBridge? = null
@@ -305,13 +307,18 @@ class WineAndroidSessionActivity : ComponentActivity() {
         val showIme = WineAndroidDebugImeInject.showSoftKeyboardFromIntent(intent, debuggable)
         if (showIme != null) {
             Log.i(TAG, "IME soft keyboard inject scheduled reason=$reason show=$showIme")
-            desktop.post {
-                if (showIme) {
-                    desktop.showSoftKeyboard()
-                } else {
-                    desktop.hideSoftKeyboard()
-                }
-            }
+            // Belt-and-suspenders: give IMM a moment to attach servedView;
+            // Desktop.showSoftKeyboard also retries until serve-ready.
+            desktop.postDelayed(
+                {
+                    if (showIme) {
+                        desktop.showSoftKeyboard()
+                    } else {
+                        desktop.hideSoftKeyboard()
+                    }
+                },
+                400L,
+            )
             scheduled = true
         }
         return scheduled

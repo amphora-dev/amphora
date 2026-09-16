@@ -80,4 +80,59 @@ class WineAndroidImeUiTest {
         assertEquals(WineAndroidImeUi.KEYBOARD_CONTROL_CONTENT_DESCRIPTION, ui.contentDescription)
         assertTrue(ui.shown)
     }
+
+    @Test
+    fun softImeShowRetryDelaysAreBoundedBackoff() {
+        val delays = WineAndroidImeUi.softImeShowRetryDelaysMs()
+        assertEquals(4, delays.size)
+        assertEquals(0L, delays[0])
+        assertEquals(100L, delays[1])
+        assertEquals(400L, delays[2])
+        assertEquals(1000L, delays[3])
+    }
+
+    @Test
+    fun softImeShowRetryStopsWhenNotWantedOrAcceptedOrExhausted() {
+        val delays = WineAndroidImeUi.softImeShowRetryDelaysMs()
+        assertFalse(
+            WineAndroidImeUi.shouldScheduleSoftImeShowRetry(
+                imeWanted = false,
+                attemptAccepted = false,
+                attemptIndex = 0,
+                delaysMs = delays,
+            ),
+        )
+        assertFalse(
+            WineAndroidImeUi.shouldScheduleSoftImeShowRetry(
+                imeWanted = true,
+                attemptAccepted = true,
+                attemptIndex = 0,
+                delaysMs = delays,
+            ),
+        )
+        assertTrue(
+            WineAndroidImeUi.shouldScheduleSoftImeShowRetry(
+                imeWanted = true,
+                attemptAccepted = false,
+                attemptIndex = 0,
+                delaysMs = delays,
+            ),
+        )
+        assertTrue(
+            WineAndroidImeUi.shouldScheduleSoftImeShowRetry(
+                imeWanted = true,
+                attemptAccepted = false,
+                attemptIndex = 2,
+                delaysMs = delays,
+            ),
+        )
+        assertFalse(
+            WineAndroidImeUi.shouldScheduleSoftImeShowRetry(
+                imeWanted = true,
+                attemptAccepted = false,
+                attemptIndex = 3,
+                delaysMs = delays,
+            ),
+        )
+    }
 }
