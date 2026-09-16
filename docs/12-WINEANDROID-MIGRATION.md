@@ -64,7 +64,7 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 - [x] `HOST_SURFACE_CHANGED`（100）+ SCM_RIGHTS：`:session` 内 `ANativeWindow_fromSurface`，每 HWND socketpair；wine 端 `register_native_window` 转发 parent，buffer ops 走 native_handle（与 device.c 同合同）。Surface 本身是 Binder，不是 fd。
 - [x] Host IPC：upstream SEQPACKET `\\0\\Device\\WineAndroid`（`a17810b`）已落地；不再阻塞在「unix socket / JNI→ioctl 桥」。
 - [ ] **真机验收（仍开）**：HA262AAH 上显式确认 winefile 窗口可见、可点（shell 出画已通；winefile 可见仍需人工核对）。
-- [x] 输入走 wineandroid，不注入 X（MOTION `d3a7bd5` + 硬件 KEYBOARD；IME/中文候选仍开）
+- [x] 输入走 wineandroid，不注入 X（MOTION `d3a7bd5` + 硬件 KEYBOARD）；soft IME commit、CJK `KEYEVENTF_UNICODE` 与 host composing chip 已落地；debug unicode/composing 冷启与中途 relay 均 PASS。composition 只在 host；仍开的只有可选 soft-IME 真机眼验
 - **验收**：真机 `HA262AAH` 上 winefile 窗口可见、可点；输入经 wineandroid（非 X inject）
 
 ### P2 Vulkan（游戏）
@@ -73,7 +73,8 @@ VkResult (*)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct 
 - `init.c` 挂 `.pVulkanInit = ANDROID_VulkanInit`
 - `dlopen("libvulkan.so")`，扩展 `VK_KHR_android_surface` / `VK_KHR_swapchain`
 - 复用 `TurnipDriverProvisioner` / adrenotools
-- **验收**：Spike A 级三角形或 DXVK 全屏游戏 present；X11 对照仍可开
+- [x] AHB import / Present：公共 `0a64ebc` 上 CI Present v9c PASS；当前壳层 APK 的 HA262 回归 v10 也 PASS
+- **验收状态**：当前 CI Present v9c 与当前壳层 APK 的 HA262 回归 v10 已 PASS；不再把 CI Present 冒烟列为待办，X11 对照仍可开
 
 ### P3 外层壳
 
@@ -126,5 +127,7 @@ Host IPC / drv 桥（已落地；WCP 已含 drv）：
 - ~~`wine_surface_changed` 完整等价~~（socketpair + native_handle 转发；已通）
 - ~~WCP 内实际存在 `wineandroid.drv` / `wineandroid.so`~~（imagefs CI 绿；`Proton-11.0-8573c4b5e-x86_64.wcp`）
 
-仍开：输入走 wineandroid（非 X inject）；真机 winefile 可见核对。
+输入、CJK unicode、host composing chip 均已落地；debug unicode/composing 冷启与中途 relay 均 PASS。IME 轨当前仅保留可选 soft-IME 真机眼验。hostScale 多分辨率单测与 HA262 旋转已 PASS；第二台设备 / 分屏按用户决定 deferred。WS_VISIBLE / sibling z-order 已由 `4d3d976` 加固，HA262 stack smoke PASS；重叠 HWND z-order 仍仅可选人工眼验。
+
+当前下一拍与后置项以 [`docs/19 §12`](19-AGENT-BOOTSTRAP.md#12-默认下一拍文档顺序可能随进度变) 为准；不要把 Present CI 冒烟、IME 或多设备 / 分屏再次排成未完成工作，也不要手刀 Present `.so`。
 

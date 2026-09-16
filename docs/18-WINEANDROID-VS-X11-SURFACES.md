@@ -134,7 +134,8 @@
 - 把 Android `densityDpi`（如 **440**）直接喂给 1280×720 → chrome 巨大。
 - Winlator 风格约 **254** 在宿主再 ×2.375 时仍偏大。
 - **产品默认**：经典 Wine DPI **96**（屏上看大约有效 ~228，视 hostScale）；
-  多设备 `hostScale` / DPI 策略仍是 TODO（docs/16 已写）。
+  hostScale 多分辨率单测与 HA262 旋转已 PASS。第二台设备 / 分屏按用户决定 deferred，
+  不作为当前下一拍（docs/19 §12）。
 
 ### 7.6 Taskbar / Start 错位与扭曲
 
@@ -171,15 +172,27 @@
 
 ---
 
-## 9. 下一步（尚未实现则别写成已做）
+## 9. 当前状态与下一拍（以 docs/19 §12 为准）
 
-输入：MOTION + 硬件 KEYBOARD **已落地**（`d3a7bd5` / `35c9921`）；IME 仍开。壳层下一拍优先多设备 hostScale/DPI 或 CI present 冒烟（docs/14），**不是**本表 TextureView/顶层。
+本节只记录本对照文的结论；当前排期与验收真源见
+[`docs/19 §12`](19-AGENT-BOOTSTRAP.md#12-默认下一拍文档顺序可能随进度变)，避免把历史上的
+TODO 当成现状。
 
-1. ~~**推迟第一次 Surface register**~~ **已做**（`5515738`）：等到真实 w/h > 0（rect，非单靠
-   MIN 2×2）；之后 resize 仍再 bind（`WineAndroidDesktop.WindowGroup.tryEmitSurface`）。
-2. TextureView：可选打磨，非第一优先级。
-3. 只给顶层建 Surface：更大改动；游戏全屏 ANW 零拷贝通常仍可接受。
-4. 单合成器 X11 风格：另开大项。
+- 输入：MOTION + 硬件 KEYBOARD（`d3a7bd5` / `35c9921`）已落地；soft IME commit、CJK
+  `KEYEVENTF_UNICODE` 与 host composing chip 也已落地。debug unicode/composing 冷启与中途
+  relay 均 PASS；composition 是 host-local。仍开 **仅** 可选 soft-IME 真机眼验，不把它写成
+  已完成。
+- 尺寸与壳层：经典 Wine DPI 96 已落地；hostScale 多分辨率单测与 HA262 旋转 PASS。
+  第二台设备 / 分屏按用户决定 deferred，不是下一步。
+- 叠窗：WS_VISIBLE / sibling z-order 已落地（`4d3d976`），HA262 stack smoke PASS；重叠
+  HWND z-order 人工眼验仍是可选项，不能标成 PASS。
+- 游戏 present：公共 `0a64ebc` 上 CI Present v9c PASS，当前壳层 APK 的 HA262 回归 v10
+  也 PASS。因此 CI Present 冒烟不是待办，也不再追加 Present 刀尖 `.so`。
+
+已完成的尺寸 defer 仍保持不变：~~推迟第一次 Surface register~~ **已做**（`5515738`），
+等到真实 w/h > 0（rect，非单靠 MIN 2×2），之后 resize 仍再 bind
+（`WineAndroidDesktop.WindowGroup.tryEmitSurface`）。TextureView、只给顶层建 Surface、
+单合成器 X11 风格仍是架构上的可选后置项，不是当前下一拍。
 
 ---
 
