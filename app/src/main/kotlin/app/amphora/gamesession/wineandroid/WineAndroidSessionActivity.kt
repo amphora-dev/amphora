@@ -279,8 +279,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     /**
-     * Debug-only: unicode commit and/or host composing chip extras.
-     * Returns true when either inject was scheduled (incl. composing clear).
+     * Debug-only: unicode commit, host composing chip, and/or IME_SHOW extras.
+     * Returns true when any inject was scheduled (incl. composing clear / hide).
      */
     private fun maybeScheduleDebugImeInject(intent: Intent?, reason: String): Boolean {
         val debuggable =
@@ -300,6 +300,18 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 "IME composing inject scheduled reason=$reason len=${composing.length}",
             )
             desktop.post { desktop.injectComposingTextForDebug(composing) }
+            scheduled = true
+        }
+        val showIme = WineAndroidDebugImeInject.showSoftKeyboardFromIntent(intent, debuggable)
+        if (showIme != null) {
+            Log.i(TAG, "IME soft keyboard inject scheduled reason=$reason show=$showIme")
+            desktop.post {
+                if (showIme) {
+                    desktop.showSoftKeyboard()
+                } else {
+                    desktop.hideSoftKeyboard()
+                }
+            }
             scheduled = true
         }
         return scheduled
@@ -368,6 +380,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             graphicsDiag: Boolean = false,
             debugImeUnicodeText: String? = null,
             debugImeComposingText: String? = null,
+            debugImeShow: Boolean? = null,
         ): Intent = Intent(context, WineAndroidSessionActivity::class.java).apply {
             putExtra(EXTRA_EXE_PATH, exePath)
             putExtra(EXTRA_WIDTH, width)
@@ -382,6 +395,9 @@ class WineAndroidSessionActivity : ComponentActivity() {
             if (debugImeComposingText != null) {
                 putExtra(WineAndroidDebugImeInject.EXTRA_IME_COMPOSING_TEXT, debugImeComposingText)
             }
+            if (debugImeShow != null) {
+                putExtra(WineAndroidDebugImeInject.EXTRA_IME_SHOW, debugImeShow)
+            }
         }
 
         fun launch(
@@ -393,6 +409,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             graphicsDiag: Boolean = false,
             debugImeUnicodeText: String? = null,
             debugImeComposingText: String? = null,
+            debugImeShow: Boolean? = null,
         ) {
             context.startActivity(
                 intent(
@@ -404,6 +421,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     graphicsDiag = graphicsDiag,
                     debugImeUnicodeText = debugImeUnicodeText,
                     debugImeComposingText = debugImeComposingText,
+                    debugImeShow = debugImeShow,
                 ),
             )
         }

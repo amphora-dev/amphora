@@ -34,6 +34,10 @@ class WineAndroidDebugImeInjectTest {
             "app.amphora.debug.IME_COMPOSING_TEXT",
             WineAndroidDebugImeInject.EXTRA_IME_COMPOSING_TEXT,
         )
+        assertEquals(
+            "app.amphora.debug.IME_SHOW",
+            WineAndroidDebugImeInject.EXTRA_IME_SHOW,
+        )
     }
 
     @Test
@@ -141,5 +145,69 @@ class WineAndroidDebugImeInjectTest {
             )
         assertNull(extras.unicodeText)
         assertNull(extras.composingText)
+        assertNull(extras.showSoftKeyboard)
+    }
+
+    @Test
+    fun imeShowNullWhenNotDebuggableOrAbsent() {
+        assertNull(
+            WineAndroidDebugImeInject.showSoftKeyboardIfDebuggable(
+                present = true,
+                value = true,
+                debuggable = false,
+            ),
+        )
+        assertNull(
+            WineAndroidDebugImeInject.showSoftKeyboardIfDebuggable(
+                present = false,
+                value = true,
+                debuggable = true,
+            ),
+        )
+    }
+
+    @Test
+    fun imeShowTrueFalseWhenPresentAndDebuggable() {
+        assertEquals(
+            true,
+            WineAndroidDebugImeInject.showSoftKeyboardIfDebuggable(
+                present = true,
+                value = true,
+                debuggable = true,
+            ),
+        )
+        assertEquals(
+            false,
+            WineAndroidDebugImeInject.showSoftKeyboardIfDebuggable(
+                present = true,
+                value = false,
+                debuggable = true,
+            ),
+        )
+    }
+
+    @Test
+    fun relayForwardImeShowOnly() {
+        val show =
+            WineAndroidDebugImeInject.relayForward(
+                unicodeRaw = null,
+                composingPresent = false,
+                composingRaw = null,
+                imeShowPresent = true,
+                imeShowValue = true,
+            )
+        assertNull(show.unicodeText)
+        assertNull(show.composingText)
+        assertEquals(true, show.showSoftKeyboard)
+
+        val hide =
+            WineAndroidDebugImeInject.relayForward(
+                unicodeRaw = null,
+                composingPresent = false,
+                composingRaw = null,
+                imeShowPresent = true,
+                imeShowValue = false,
+            )
+        assertEquals(false, hide.showSoftKeyboard)
     }
 }

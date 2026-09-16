@@ -73,6 +73,12 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 null
                             },
+                        debugImeShow =
+                            if (intent.hasExtra(EXTRA_DEBUG_IME_SHOW)) {
+                                intent.getBooleanExtra(EXTRA_DEBUG_IME_SHOW, false)
+                            } else {
+                                null
+                            },
                     )
                 }
             }
@@ -100,6 +106,9 @@ class MainActivity : ComponentActivity() {
 
         /** Debug-only: host composing chip text (empty clears); not sent to guest. */
         private const val EXTRA_DEBUG_IME_COMPOSING_TEXT = "app.amphora.debug.IME_COMPOSING_TEXT"
+
+        /** Debug-only: explicit soft IME show/hide (`--ez … true|false`). */
+        private const val EXTRA_DEBUG_IME_SHOW = "app.amphora.debug.IME_SHOW"
 
         /** Debug-only: force legacy Java X11 SessionActivity. */
         private const val EXTRA_DEBUG_X11 = "app.amphora.debug.X11"

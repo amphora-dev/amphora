@@ -37,14 +37,20 @@ class WineAndroidDebugImeRelayActivity : Activity() {
             } else {
                 null
             }
-        val (unicode, composing) =
+        val imeShowPresent =
+            intent.hasExtra(WineAndroidDebugImeInject.EXTRA_IME_SHOW)
+        val imeShowValue =
+            intent.getBooleanExtra(WineAndroidDebugImeInject.EXTRA_IME_SHOW, false)
+        val (unicode, composing, showIme) =
             WineAndroidDebugImeInject.relayForward(
                 unicodeRaw = unicodeRaw,
                 composingPresent = composingPresent,
                 composingRaw = composingRaw,
+                imeShowPresent = imeShowPresent,
+                imeShowValue = imeShowValue,
             )
-        if (unicode == null && composing == null) {
-            Log.w(TAG, "No IME unicode/composing extras; finishing")
+        if (unicode == null && composing == null && showIme == null) {
+            Log.w(TAG, "No IME unicode/composing/show extras; finishing")
             finish()
             return
         }
@@ -52,7 +58,8 @@ class WineAndroidDebugImeRelayActivity : Activity() {
         Log.i(
             TAG,
             "Forwarding to WineAndroidSessionActivity unicode=${unicode != null} " +
-                "composingPresent=${composing != null} composingLen=${composing?.length}",
+                "composingPresent=${composing != null} composingLen=${composing?.length} " +
+                "imeShow=$showIme",
         )
         // Empty exePath is fine: Session onNewIntent only applies IME inject;
         // if no session exists, onCreate with empty exe is a no-op smoke fail.
@@ -62,6 +69,7 @@ class WineAndroidDebugImeRelayActivity : Activity() {
                 exePath = "",
                 debugImeUnicodeText = unicode,
                 debugImeComposingText = composing,
+                debugImeShow = showIme,
             ),
         )
         finish()
