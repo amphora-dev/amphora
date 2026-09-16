@@ -12,7 +12,6 @@ import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -185,21 +184,19 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private fun recalculateScale(reason: String) {
         val gw = guestDesktopWidth
         val gh = guestDesktopHeight
-        if (gw <= 0 || gh <= 0 || width <= 0 || height <= 0) {
+        val layout = WineAndroidHostScale.compute(gw, gh, width, height)
+        if (layout.contentWidth <= 0 || layout.contentHeight <= 0) {
             hostScale = 1f
             offsetX = 0
             offsetY = 0
             contentHost.layoutParams = LayoutParams(0, 0)
             return
         }
-        val scale = min(width.toFloat() / gw, height.toFloat() / gh)
-        hostScale = scale
-        val scaledW = (gw * scale).toInt()
-        val scaledH = (gh * scale).toInt()
-        offsetX = (width - scaledW) / 2
-        offsetY = (height - scaledH) / 2
+        hostScale = layout.scale
+        offsetX = layout.offsetX
+        offsetY = layout.offsetY
         contentHost.layoutParams =
-            LayoutParams(scaledW, scaledH).apply {
+            LayoutParams(layout.contentWidth, layout.contentHeight).apply {
                 leftMargin = offsetX
                 topMargin = offsetY
             }
@@ -207,7 +204,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         Log.i(
             TAG,
             "hostScale-to-fill $reason guest=${gw}x${gh} host=${width}x${height} " +
-                "scale=$scale offset=${offsetX},${offsetY} content=${scaledW}x${scaledH}",
+                "scale=${layout.scale} offset=${offsetX},${offsetY} " +
+                "content=${layout.contentWidth}x${layout.contentHeight}",
         )
     }
 
