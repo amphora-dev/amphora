@@ -94,11 +94,11 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 | `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit + host composing |
 | `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点交给 `nativeSendUnicodeChar` |
 | `WineAndroidImeUi.kt` | 纯 `ImeUiState` reducer + composing chip 可见性（单测） |
-| `WineAndroidDebugImeInject.kt` | debug-only extra `app.amphora.debug.IME_UNICODE_TEXT`（`FLAG_DEBUGGABLE`）|
+| `WineAndroidDebugImeInject.kt` | debug-only extras `IME_UNICODE_TEXT` + `IME_COMPOSING_TEXT`（`FLAG_DEBUGGABLE`）|
 | `WineAndroidHostScale.kt` | 纯 letterbox scale/offset 计算（单测覆盖多分辨率） |
 | `WineAndroidHostBridge.kt` | createWindow / windowPosChanged(visible_*) / setParent→reparent |
 | `WineAndroidWindow.kt` | window/client/visible rect、style、visible |
-| `WineAndroidSessionActivity.kt` | session + 调试 statusView；host composing TextView chip；`dispatchKeyEvent` → KEYBOARD_EVENT；debug IME unicode extra |
+| `WineAndroidSessionActivity.kt` | session + 调试 statusView；host composing TextView chip；`dispatchKeyEvent` → KEYBOARD_EVENT；debug IME unicode / composing extras |
 | `wineandroid_host_ipc.c` | `nativeRegisterSurface` → `SURFACE_CHANGED`；`nativeSendMotionEvent` / `nativeSendKeyboardEvent` / `nativeSendUnicodeChar`（`KEYEVENTF_UNICODE`） |
 
 ## 键盘（EVENT_KEYBOARD）
@@ -116,8 +116,12 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 - **Host composing overlay 已落地**：`onComposingTextChanged` → `ImeUiState` → SessionActivity 左上角
   TextView chip（commit/finish/`WineInputConnection.reset` 清空）。**不做** IMM32/TSF；
   composition 永不进 guest。
-- **仍开（可选）**：真机 CJK soft IME **眼验** composing chip + 最终 commit；第二台真机 /
-  分屏；guest 分辨率设置页 UI。
+- **Debug composing 注入（HA262 冒烟）**：debuggable 下 `--es app.amphora.debug.IME_COMPOSING_TEXT 'nihao'`
+  （MainActivity 冷启转发，或 session 已起后 onNewIntent）。仅 `updateImeUiState(composingText=…)`，
+  **不**走 commit/unicode pipe。空串 / 缺省 clear path 清 chip。日志
+  `IME composing inject scheduled` + Desktop `IME composing inject len=… (host-local…)`。
+- **仍开（可选）**：真机 soft IME **眼验** composing chip（`adb input text` 无法模拟 composing）；
+  第二台真机 / 分屏；guest 分辨率设置页 UI。
 
 ## 非目标
 

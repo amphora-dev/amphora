@@ -201,6 +201,19 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         commitImeText(payload)
     }
 
+    /**
+     * Debug / HA262 smoke: set host-local composing chip only (no guest pipe).
+     * Empty [text] clears the chip. Call only from FLAG_DEBUGGABLE session code.
+     */
+    fun injectComposingTextForDebug(text: CharSequence) {
+        val payload = text.toString()
+        Log.i(
+            TAG,
+            "IME composing inject len=${payload.length} (host-local; not sent to guest)",
+        )
+        updateImeUiState(composingText = payload)
+    }
+
     /** Shared soft-IME / debug commit → KEYBOARD_EVENT + KEYEVENTF_UNICODE. */
     private fun commitImeText(text: CharSequence) {
         val mapped = WineAndroidImeCommit.mapCommittedText(text)

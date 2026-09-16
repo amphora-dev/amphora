@@ -30,5 +30,63 @@ class WineAndroidDebugImeInjectTest {
             "app.amphora.debug.IME_UNICODE_TEXT",
             WineAndroidDebugImeInject.EXTRA_IME_UNICODE_TEXT,
         )
+        assertEquals(
+            "app.amphora.debug.IME_COMPOSING_TEXT",
+            WineAndroidDebugImeInject.EXTRA_IME_COMPOSING_TEXT,
+        )
+    }
+
+    @Test
+    fun composingNullWhenNotDebuggableEvenIfPresent() {
+        assertNull(
+            WineAndroidDebugImeInject.composingIfDebuggable(
+                raw = "nihao",
+                present = true,
+                debuggable = false,
+            ),
+        )
+    }
+
+    @Test
+    fun composingNullWhenAbsent() {
+        assertNull(
+            WineAndroidDebugImeInject.composingIfDebuggable(
+                raw = null,
+                present = false,
+                debuggable = true,
+            ),
+        )
+    }
+
+    @Test
+    fun composingEmptyClearsWhenPresentAndDebuggable() {
+        assertEquals(
+            "",
+            WineAndroidDebugImeInject.composingIfDebuggable(
+                raw = "",
+                present = true,
+                debuggable = true,
+            ),
+        )
+        assertEquals(
+            "",
+            WineAndroidDebugImeInject.composingIfDebuggable(
+                raw = null,
+                present = true,
+                debuggable = true,
+            ),
+        )
+    }
+
+    @Test
+    fun composingTextWhenPresentAndDebuggable() {
+        assertEquals(
+            "nihao",
+            WineAndroidDebugImeInject.composingIfDebuggable(
+                raw = "nihao",
+                present = true,
+                debuggable = true,
+            ),
+        )
     }
 }

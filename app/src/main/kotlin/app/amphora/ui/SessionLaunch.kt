@@ -28,6 +28,7 @@ object SessionLaunch {
         graphicsDiag: Boolean = false,
         displayBackend: DisplayBackend = resolveDisplayBackend(),
         debugImeUnicodeText: String? = null,
+        debugImeComposingText: String? = null,
     ) {
         when (displayBackend) {
             DisplayBackend.X11 ->
@@ -47,6 +48,7 @@ object SessionLaunch {
                     height = height,
                     graphicsDiag = graphicsDiag,
                     debugImeUnicodeText = debugImeUnicodeText,
+                    debugImeComposingText = debugImeComposingText,
                 )
         }
     }

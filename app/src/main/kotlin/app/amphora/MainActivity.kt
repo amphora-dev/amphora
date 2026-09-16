@@ -47,6 +47,12 @@ class MainActivity : ComponentActivity() {
                         graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
                         debugImeUnicodeText =
                             intent.getStringExtra(EXTRA_DEBUG_IME_UNICODE_TEXT),
+                        debugImeComposingText =
+                            if (intent.hasExtra(EXTRA_DEBUG_IME_COMPOSING_TEXT)) {
+                                intent.getStringExtra(EXTRA_DEBUG_IME_COMPOSING_TEXT) ?: ""
+                            } else {
+                                null
+                            },
                     )
                 }
             }
@@ -71,6 +77,9 @@ class MainActivity : ComponentActivity() {
 
         /** Debug-only: inject IME commit text (CJK) after wineandroid desktop ready. */
         private const val EXTRA_DEBUG_IME_UNICODE_TEXT = "app.amphora.debug.IME_UNICODE_TEXT"
+
+        /** Debug-only: host composing chip text (empty clears); not sent to guest. */
+        private const val EXTRA_DEBUG_IME_COMPOSING_TEXT = "app.amphora.debug.IME_COMPOSING_TEXT"
 
         /** Debug-only: force legacy Java X11 SessionActivity. */
         private const val EXTRA_DEBUG_X11 = "app.amphora.debug.X11"
