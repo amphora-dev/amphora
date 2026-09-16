@@ -45,6 +45,8 @@ class MainActivity : ComponentActivity() {
                         width = intent.getIntExtra(EXTRA_DEBUG_WIDTH, 1280),
                         height = intent.getIntExtra(EXTRA_DEBUG_HEIGHT, 720),
                         graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
+                        debugImeUnicodeText =
+                            intent.getStringExtra(EXTRA_DEBUG_IME_UNICODE_TEXT),
                     )
                 }
             }
@@ -66,6 +68,9 @@ class MainActivity : ComponentActivity() {
 
         /** Debug-only: force wineandroid (redundant with product default; kept for scripts). */
         private const val EXTRA_DEBUG_WINEANDROID = "app.amphora.debug.WINEANDROID"
+
+        /** Debug-only: inject IME commit text (CJK) after wineandroid desktop ready. */
+        private const val EXTRA_DEBUG_IME_UNICODE_TEXT = "app.amphora.debug.IME_UNICODE_TEXT"
 
         /** Debug-only: force legacy Java X11 SessionActivity. */
         private const val EXTRA_DEBUG_X11 = "app.amphora.debug.X11"

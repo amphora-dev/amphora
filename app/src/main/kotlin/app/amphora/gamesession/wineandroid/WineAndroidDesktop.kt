@@ -42,6 +42,7 @@ import kotlin.math.roundToInt
  *   ASCII/Latin maps via `KeyCharacterMap` → same [sendKeyboardEvent] pipe.
  *   Unmapped code points (CJK / emoji) → [nativeSendUnicodeChar]
  *   (KEYEVENTF_UNICODE on EVENT_KEYBOARD). Composition stays local; no IMM32/TSF.
+ *   Debug: [injectCommittedTextForDebug] reuses the same commit path (HA262 smoke).
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
@@ -57,6 +58,9 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
      * for wire/log parity with upstream WineView.
      */
     @Volatile private var keyTargetHwnd: Int = 0
+
+    /** Queued debug IME inject until [desktopHwnd] / [keyTargetHwnd] is known. */
+    @Volatile private var pendingDebugImeText: String? = null
 
     private val groups = LinkedHashMap<Key, WindowGroup>()
 
@@ -90,6 +94,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     fun setDesktopHwnd(hwnd: Int) {
         desktopHwnd = hwnd
         if (keyTargetHwnd == 0) keyTargetHwnd = hwnd
+        pendingDebugImeText?.let { pending ->
+            pendingDebugImeText = null
+            post { injectCommittedTextForDebug(pending) }
+        }
     }
 
     fun sendKeyboardEvent(event: KeyEvent): Boolean {
@@ -126,18 +134,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             this,
             object : WineInputConnection.Listener {
                 override fun onCommitText(text: CharSequence) {
-                    val mapped = WineAndroidImeCommit.mapCommittedText(text)
-                    for (event in mapped.events) {
-                        sendKeyboardEvent(event)
-                    }
-                    val hwnd = if (keyTargetHwnd != 0) keyTargetHwnd else desktopHwnd
-                    for (codePoint in mapped.unmappedCodePoints) {
-                        val ok = WineAndroidNative.nativeSendUnicodeChar(hwnd, codePoint)
-                        Log.i(
-                            TAG,
-                            "IME unicode hwnd=$hwnd codePoint=U+${codePoint.toString(16)} ok=$ok",
-                        )
-                    }
+                    commitImeText(text)
                 }
 
                 override fun onDelete(beforeLength: Int, afterLength: Int) {
@@ -173,6 +170,40 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                 }
             },
         )
+    }
+
+    /**
+     * Debug / HA262 smoke: inject committed text on the same path as soft IME
+     * [WineInputConnection] onCommitText (KeyCharacterMap + unicode fallback).
+     * Call only from FLAG_DEBUGGABLE session code.
+     */
+    fun injectCommittedTextForDebug(text: CharSequence) {
+        val payload = text.toString()
+        if (payload.isEmpty()) return
+        val hwnd = if (keyTargetHwnd != 0) keyTargetHwnd else desktopHwnd
+        if (hwnd == 0) {
+            Log.i(TAG, "IME unicode inject deferred (no hwnd yet) text='$payload'")
+            pendingDebugImeText = payload
+            return
+        }
+        Log.i(TAG, "IME unicode inject hwnd=$hwnd text='$payload' len=${payload.length}")
+        commitImeText(payload)
+    }
+
+    /** Shared soft-IME / debug commit → KEYBOARD_EVENT + KEYEVENTF_UNICODE. */
+    private fun commitImeText(text: CharSequence) {
+        val mapped = WineAndroidImeCommit.mapCommittedText(text)
+        for (event in mapped.events) {
+            sendKeyboardEvent(event)
+        }
+        val hwnd = if (keyTargetHwnd != 0) keyTargetHwnd else desktopHwnd
+        for (codePoint in mapped.unmappedCodePoints) {
+            val ok = WineAndroidNative.nativeSendUnicodeChar(hwnd, codePoint)
+            Log.i(
+                TAG,
+                "IME unicode hwnd=$hwnd codePoint=U+${codePoint.toString(16)} ok=$ok",
+            )
+        }
     }
 
     /** Request focus + show soft keyboard (TouchpadView-light pattern). */
