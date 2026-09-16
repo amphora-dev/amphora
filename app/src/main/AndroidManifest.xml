@@ -86,6 +86,7 @@
             android:launchMode="singleTask"
             android:process=":session"
             android:resizeableActivity="true"
+            android:screenOrientation="sensorLandscape"
             tools:ignore="DiscouragedApi" />
 
         <activity

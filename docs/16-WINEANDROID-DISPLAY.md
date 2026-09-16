@@ -55,6 +55,12 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 布局与 Surface 借上游项见 [`17-WINEANDROID-UPSTREAM-BORROW.md`](17-WINEANDROID-UPSTREAM-BORROW.md)；
 **不要**把删 status 当成借上游任务。
 
+## 方向锁定
+
+`WineAndroidSessionActivity` 在 manifest 中与 X11 `SessionActivity` 一样设置
+`android:screenOrientation="sensorLandscape"`，wineandroid 会话强制传感器横屏；
+`configChanges` 仍保留 `orientation`。
+
 ## DPI
 
 - **已落地**（`d264af1`）：Wine LogPixels = 经典 **96** via
