@@ -10,6 +10,7 @@ import app.amphora.core.content.model.ContentComponent
 import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.LaunchRuntimeSettings
+import app.amphora.core.engine.WineAndroidGuestResolution
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Locale
 import javax.inject.Inject
@@ -252,19 +253,25 @@ enum class DirectDrawWrapperOption(val id: String, val label: String) {
     }
 }
 
-/** A offered render resolution (maps to the Wine `explorer /desktop=shell,WxH` size). */
+/**
+ * Offered guest desktop sizes (maps to Wine `explorer /desktop=shell,WxH`).
+ * Same catalog as [WineAndroidGuestResolution] / Settings [DisplayResolution].
+ */
 enum class Resolution(val width: Int, val height: Int, val label: String) {
-    R1280x720(1280, 720, "1280×720"),
-    R1280x800(1280, 800, "1280×800 · 16:10"),
-    R1920x1080(1920, 1080, "1920×1080"),
-    R1920x1200(1920, 1200, "1920×1200 · 16:10"),
-    R2400x1080(2400, 1080, "2400×1080 · 20:9"),
-    R1024x768(1024, 768, "1024×768"),
-    R800x600(800, 600, "800×600"),
+    R1280x720(1280, 720, "1280×720 · HD"),
+    R1024x768(1024, 768, "1024×768 · XGA"),
+    R1600x900(1600, 900, "1600×900 · HD+"),
+    R1920x1080(1920, 1080, "1920×1080 · FHD"),
     ;
 
     companion object {
         val DEFAULT = R1280x720
-        fun fromPreference(value: String?): Resolution = entries.firstOrNull { it.name == value } ?: DEFAULT
+
+        fun fromPreference(value: String?): Resolution {
+            val guest = WineAndroidGuestResolution.fromPreference(value)
+            return entries.firstOrNull {
+                it.width == guest.width && it.height == guest.height
+            } ?: DEFAULT
+        }
     }
 }

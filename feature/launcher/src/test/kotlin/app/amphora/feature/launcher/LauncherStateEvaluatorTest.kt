@@ -149,14 +149,14 @@ class LauncherStateEvaluatorTest {
     fun configurationUsesStableEnumOrderAndLabels() {
         val state =
             LauncherUiState(
-                resolution = Resolution.R1920x1200,
+                resolution = Resolution.R1600x900,
                 graphicsDriver = GraphicsDriverOption.SYSTEM,
                 directDrawWrapper = DirectDrawWrapperOption.D7VK,
             )
 
         assertEquals(
             listOf(
-                ConfigurationValue("Display", "1920×1200 · 16:10"),
+                ConfigurationValue("Display", "1600×900 · HD+"),
                 ConfigurationValue("Graphics", "Android system Vulkan · 2D/test"),
                 ConfigurationValue("DirectDraw", "d7vk (D3D3–7)"),
             ),

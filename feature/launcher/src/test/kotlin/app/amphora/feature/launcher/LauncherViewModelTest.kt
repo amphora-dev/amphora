@@ -101,16 +101,16 @@ class LauncherViewModelTest {
 
             operations.mutableRuntimeSettings.value =
                 LaunchRuntimeSettings(
-                    resolutionName = Resolution.R800x600.name,
+                    resolutionName = Resolution.R1024x768.name,
                     graphicsDriverId = GraphicsDriverIds.WRAPPER,
                 )
             advanceUntilIdle()
-            viewModel.selectResolution(Resolution.R1280x800)
+            viewModel.selectResolution(Resolution.R1600x900)
             viewModel.selectDirectDrawWrapper(DirectDrawWrapperOption.D7VK)
             viewModel.selectGraphicsDriver(GraphicsDriverOption.TURNIP_BALANCED)
             advanceUntilIdle()
 
-            assertEquals(Resolution.R1280x800.name, operations.resolutionWrites.single())
+            assertEquals(Resolution.R1600x900.name, operations.resolutionWrites.single())
             assertEquals(DirectDrawWrapperOption.D7VK.id, operations.wrapperWrites.single())
             assertEquals(1, operations.turnipInstallations)
             assertEquals(

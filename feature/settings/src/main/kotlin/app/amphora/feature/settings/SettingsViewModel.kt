@@ -22,6 +22,7 @@ import app.amphora.core.engine.LaunchRuntimeSettings
 import app.amphora.core.engine.PulseAudioCapabilities
 import app.amphora.core.engine.PulseAudioProbe
 import app.amphora.core.engine.RuntimeSettingsStore
+import app.amphora.core.engine.WineAndroidGuestResolution
 import app.amphora.core.engine.ShizukuCleanupStatus
 import app.amphora.core.engine.ShizukuEmergencyStopper
 import app.amphora.core.engine.TurnipDriverProvisioner
@@ -731,19 +732,26 @@ internal fun SettingsUiState.withRuntimeSettings(
     vulkanVersionLabel = vulkanVersionLabel,
 )
 
+/**
+ * Settings picker for wineandroid guest desktop size.
+ * Values mirror [WineAndroidGuestResolution]; stored as enum names via [RuntimeSettingsStore].
+ */
 enum class DisplayResolution(val width: Int, val height: Int, val label: String) {
-    R1280x720(1280, 720, "1280 × 720"),
-    R1280x800(1280, 800, "1280 × 800 · 16:10"),
-    R1920x1080(1920, 1080, "1920 × 1080"),
-    R1920x1200(1920, 1200, "1920 × 1200 · 16:10"),
-    R2400x1080(2400, 1080, "2400 × 1080 · 20:9"),
-    R1024x768(1024, 768, "1024 × 768"),
-    R800x600(800, 600, "800 × 600"),
+    R1280x720(1280, 720, "1280 × 720 · HD"),
+    R1024x768(1024, 768, "1024 × 768 · XGA"),
+    R1600x900(1600, 900, "1600 × 900 · HD+"),
+    R1920x1080(1920, 1080, "1920 × 1080 · FHD"),
     ;
 
     companion object {
         val DEFAULT = R1280x720
-        fun fromPreference(value: String?): DisplayResolution = entries.firstOrNull { it.name == value } ?: DEFAULT
+
+        fun fromPreference(value: String?): DisplayResolution {
+            val guest = WineAndroidGuestResolution.fromPreference(value)
+            return entries.firstOrNull {
+                it.width == guest.width && it.height == guest.height
+            } ?: DEFAULT
+        }
     }
 }
 

@@ -89,7 +89,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - Soft IME commit → 同 `KEYBOARD_EVENT` 管（`WineInputConnection` + `WineAndroidImeCommit`）；CJK → `KEYEVENTF_UNICODE`（`nativeSendUnicodeChar`）；**host composing chip**（`ImeUiState` / SessionActivity TextView）；composition **不**进 guest
 - Debug IME unicode 自动冒烟 **PASS** on `702b165`（MainActivity 冷启 `IME_UNICODE_TEXT`；ART `ha262-ime-unicode-auto-20260916-140749`）
 - Debug IME composing：**cold chip PASS** `01cf904`；**mid-session relay PASS** `fe8f5a2`（~14:22 Asia/Shanghai；ART `ha262-ime-composing-relay-20260916-142224`）
-- DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；真机第二台仍见 `docs/16` TODO
+- DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；真机第二台仍见 `docs/16` TODO
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
 游戏轨：
@@ -207,15 +207,15 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 `KEYEVENTF_UNICODE`（**HA262 debug unicode 自动冒烟 PASS** @ `702b165`）+ **host
 composing overlay** + **cold chip PASS** `01cf904` + **mid-session composing relay
 PASS** `fe8f5a2`；DPI 96；hostScale 多分辨率单测（`034b38e`）+ HA262 旋转已验；
-guest 分辨率预设目录；游戏轨 AHB 已合入 `proton_11.0` @ `0a64ebc`，WCP 已发，
-HA262 Present **v9c PASS**。
+guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestResolution`）；
+游戏轨 AHB 已合入 `proton_11.0` @ `0a64ebc`，WCP 已发，HA262 Present **v9c PASS**。
 
 **IME 轨**：已关（除可选 soft-IME 眼验）。
 
 **本拍优先 / 仍开：**
 
-1. docs/16：guest 分辨率**设置页 UI**（对齐 `WineAndroidGuestResolution`）仍开；
-   第二台真机 / 分屏仍开。
+1. docs/16：**第二台真机 / 分屏**仍开；guest 分辨率 settings UI 已接线（真机 PASS
+   未宣称）。
 2. **可选**：真机 soft IME 眼验 composing chip + commit（勿发明 IMM32/TSF；
    composition 已 host-local）。
 

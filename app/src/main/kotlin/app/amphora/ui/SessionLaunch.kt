@@ -4,6 +4,7 @@ import android.content.Context
 import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.gamesession.SessionActivity
+import app.amphora.core.engine.WineAndroidGuestResolution
 import app.amphora.gamesession.wineandroid.WineAndroidSessionActivity
 
 /**
@@ -23,8 +24,8 @@ object SessionLaunch {
     fun program(
         context: Context,
         exePath: String,
-        width: Int = 1280,
-        height: Int = 720,
+        width: Int = WineAndroidGuestResolution.DEFAULT.width,
+        height: Int = WineAndroidGuestResolution.DEFAULT.height,
         graphicsDiag: Boolean = false,
         displayBackend: DisplayBackend = resolveDisplayBackend(),
         debugImeUnicodeText: String? = null,
@@ -55,8 +56,8 @@ object SessionLaunch {
 
     fun explorer(
         context: Context,
-        width: Int = 1280,
-        height: Int = 720,
+        width: Int = WineAndroidGuestResolution.DEFAULT.width,
+        height: Int = WineAndroidGuestResolution.DEFAULT.height,
         displayBackend: DisplayBackend = resolveDisplayBackend(),
     ) {
         when (displayBackend) {

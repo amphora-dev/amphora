@@ -17,6 +17,7 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import app.amphora.core.container.model.DEFAULT_CONTAINER_ID
+import app.amphora.core.engine.WineAndroidGuestResolution
 import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec

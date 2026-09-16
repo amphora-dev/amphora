@@ -75,24 +75,24 @@ class SettingsViewModelTest {
 
         fixture.runtimeState.value =
             LaunchRuntimeSettings(
-                resolutionName = DisplayResolution.R1920x1200.name,
+                resolutionName = DisplayResolution.R1920x1080.name,
                 graphicsDriverId = GraphicsDriverIds.SYSTEM,
                 directDrawWrapperId = DirectDrawWrapperIds.D7VK,
             )
         runCurrent()
 
         with(fixture.viewModel.uiState.value) {
-            assertEquals(DisplayResolution.R1920x1200, resolution)
+            assertEquals(DisplayResolution.R1920x1080, resolution)
             assertEquals(GraphicsDriverSetting.SYSTEM, graphicsDriver)
             assertEquals(DirectDrawSetting.D7VK, directDrawWrapper)
         }
 
-        fixture.viewModel.selectResolution(DisplayResolution.R800x600)
+        fixture.viewModel.selectResolution(DisplayResolution.R1600x900)
         fixture.viewModel.selectDirectDraw(DirectDrawSetting.CNC_DDRAW)
         fixture.viewModel.selectGraphicsDriver(GraphicsDriverSetting.SYSTEM)
         advanceUntilIdle()
 
-        verify { fixture.runtimeSettings.setResolutionName(DisplayResolution.R800x600.name) }
+        verify { fixture.runtimeSettings.setResolutionName(DisplayResolution.R1600x900.name) }
         verify { fixture.runtimeSettings.setDirectDrawWrapperId(DirectDrawSetting.CNC_DDRAW.id) }
         verify { fixture.runtimeSettings.setGraphicsDriverId(GraphicsDriverSetting.SYSTEM.id) }
     }

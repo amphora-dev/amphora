@@ -78,14 +78,18 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
    **仍欠**：第二台物理机 / 分屏。
 2. **禁止 densityDpi 入径（已锁）**：`WineAndroidDpiTest` + SessionActivity 日志
    标明 android densityDpi unused；缺参仍 classic 96。
-3. **guest 分辨率档（目录已落地）**：`WineAndroidGuestResolution` 预设
-   1280×720（默认）/ 1024×768 / 1600×900 / 1920×1080；短边启发式
-   `suggestForHostShortSide`（HA262 短边仍选 720p）。**改 guest 边长，不是 DPI**。
-   Session 默认仍走 `DEFAULT`=720p；产品 UI / 设置页接线仍开。
-4. **可选 UI**：暴露预设选择或「界面大小」— 接 Settings Display Resolution，对齐本目录。
+3. **guest 分辨率档 + 设置页（已接线）**：`WineAndroidGuestResolution` 预设
+   HD 1280×720（默认）/ XGA 1024×768 / HD+ 1600×900 / FHD 1920×1080 落在
+   `core:engine`；短边启发式 `suggestForHostShortSide`（HA262 仍 720p）。
+   **Settings → Common → Display → Resolution** 与 Launcher `Resolution` 枚举与该目录对齐；
+   `RuntimeSettingsStore`（SharedPreferences `display_resolution`）存 `R{W}x{H}` /
+   guest id，经 `preferenceName` / `fromPreference` 映射；未知旧值回落 DEFAULT。
+   Desktop / Launcher 启动走已存 WxH → `SessionLaunch`（**下一拍会话**生效）。
+   真机 PASS 未宣称（Grok Bot 无 Mac 装机）。
+4. **非目标**：不另造第二套桌面模型；不改 Present/AHB / TextureView / BGRA / IMM32。
 
-相关：`WineAndroidHostScale.kt` / `WineAndroidHostScaleTest.kt` /
-`WineAndroidDpiTest.kt`。
+相关：`WineAndroidGuestResolution.kt` / `WineAndroidGuestResolutionTest.kt` /
+`WineAndroidHostScale.kt` / `WineAndroidHostScaleTest.kt` / `WineAndroidDpiTest.kt`。
 
 ## 相关代码
 
@@ -96,6 +100,7 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 | `WineAndroidImeUi.kt` | 纯 `ImeUiState` reducer + composing chip 可见性（单测） |
 | `WineAndroidDebugImeInject.kt` | debug-only extras `IME_UNICODE_TEXT` + `IME_COMPOSING_TEXT`（`FLAG_DEBUGGABLE`）；清 composing 用 `--esn` |
 | `WineAndroidDebugImeRelayActivity`（`src/debug`） | 导出中继：adb 中途注入 → 同 UID 启动非导出 Session `onNewIntent` |
+| `WineAndroidGuestResolution.kt`（`core:engine`） | guest 预设目录 + preference 映射；Settings/Launcher 对齐 |
 | `WineAndroidHostScale.kt` | 纯 letterbox scale/offset 计算（单测覆盖多分辨率） |
 | `WineAndroidHostBridge.kt` | createWindow / windowPosChanged(visible_*) / setParent→reparent |
 | `WineAndroidWindow.kt` | window/client/visible rect、style、visible |

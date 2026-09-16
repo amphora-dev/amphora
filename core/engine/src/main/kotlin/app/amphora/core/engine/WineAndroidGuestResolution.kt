@@ -1,11 +1,11 @@
-package app.amphora.gamesession.wineandroid
+package app.amphora.core.engine
 
 /**
- * Named guest desktop size presets for wineandroid (/desktop=shell,WxH).
+ * Named guest desktop size presets for wineandroid (`/desktop=shell,WxH`).
  *
  * Changing guest edge length is how we "make chrome bigger/smaller" without
- * touching Wine LogPixels (stay classic 96). Product UI can later expose these;
- * this object is the stable catalog + short-side heuristic.
+ * touching Wine LogPixels (stay classic 96). Settings / Launcher persist via
+ * [preferenceName] / [fromPreference] into [RuntimeSettingsStore].
  */
 data class GuestResolution(
     val id: String,
@@ -34,6 +34,33 @@ object WineAndroidGuestResolution {
         listOf(HD_1280x720, XGA_1024x768, HD_PLUS_1600x900, FHD_1920x1080)
 
     fun byId(id: String): GuestResolution? = ALL.firstOrNull { it.id == id }
+
+    /**
+     * SharedPreferences / [RuntimeSettingsStore] value for this preset.
+     * House style uses `R{W}x{H}` (same as Settings/Launcher enum names).
+     */
+    fun preferenceName(preset: GuestResolution): String =
+        when (preset.id) {
+            HD_1280x720.id -> "R1280x720"
+            XGA_1024x768.id -> "R1024x768"
+            HD_PLUS_1600x900.id -> "R1600x900"
+            FHD_1920x1080.id -> "R1920x1080"
+            else -> preferenceName(DEFAULT)
+        }
+
+    /**
+     * Resolve a stored preference (enum name or guest id). Unknown / legacy
+     * values (e.g. old `R800x600`) fall back to [DEFAULT].
+     */
+    fun fromPreference(value: String?): GuestResolution =
+        when (value) {
+            null, "" -> DEFAULT
+            HD_1280x720.id, "R1280x720" -> HD_1280x720
+            XGA_1024x768.id, "R1024x768" -> XGA_1024x768
+            HD_PLUS_1600x900.id, "R1600x900" -> HD_PLUS_1600x900
+            FHD_1920x1080.id, "R1920x1080" -> FHD_1920x1080
+            else -> DEFAULT
+        }
 
     /**
      * Pick a preset from the **short** side of the host Activity (px), not DPI.

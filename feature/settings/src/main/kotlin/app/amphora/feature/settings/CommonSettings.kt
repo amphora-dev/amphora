@@ -22,8 +22,8 @@ internal fun CommonSettings(
         ChoiceSetting(
             title = "Resolution",
             description =
-            "Controls the Wine desktop size. Lower values reduce GPU work; higher values " +
-                "provide more space and sharper UI.",
+            "Wineandroid guest desktop size (HD / XGA / HD+ / FHD). Lower values reduce GPU " +
+                "work; higher values give more space. Applies on the next session launch.",
             impact = "Global default · applies on next launch",
             selected = state.resolution,
             defaultValue = DisplayResolution.DEFAULT,
