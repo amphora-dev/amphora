@@ -168,8 +168,14 @@ destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边
 
 - **IME commit 已落地**：`WineAndroidDesktop` 实现 `onCreateInputConnection` → 复用 `WineInputConnection`；committed ASCII/Latin 经 `KeyCharacterMap`（`VIRTUAL_KEYBOARD`）映射为 KeyEvent 再 `sendKeyboardEvent`。删除 / EditorAction(ENTER) / `onSendKeyEvent` 同管。
 - **软键盘策略（默认不自动弹出）**：触摸 DOWN 只设 `keyTargetHwnd` + `requestFocus`（硬件键），**不**调用 `showSoftKeyboard()`（`WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch() == false`）。无可靠 guest「文本框获焦」信号前，避免桌面/chrome 每点都弹 IME（HA262 沉浸冒烟曾半屏遮挡）。`onCheckIsTextEditor` 仅在显式 `showSoftKeyboard` 的 `imeWanted` 期间为 true（FrameLayout 无 TextView `setShowSoftInputOnFocus`），避免 focus 单独拉起 IME；Session `windowSoftInputMode=stateHidden|adjustNothing`。需要时显式 `showSoftKeyboard()` → `InputMethodManager.showSoftInput`。`hideSoftKeyboard()` 在 session `onPause` / 窗口失焦时调用。
-- **显式软键盘控件（本拍）**：Session 右上角 debug chip「键盘」/「收键盘」调用 `toggleSoftKeyboard()`（`showSoftKeyboard` / `hideSoftKeyboard`）。contentDescription 恒为 `wineandroid keyboard`（uiautomator 定位）。次要：长按 letterbox（`WineAndroidDesktop` 上、contentHost 外黑边）同样切换；guest WindowGroup 仍吃自己的触摸，不抢桌面长按。默认仍不随 tap/focus 弹出。配方：`/workspace/ha262-ime-explicit-show-recipe.md`。
-- **Debug `IME_SHOW` extra**：debuggable 下 `--ez app.amphora.debug.IME_SHOW true|false`（MainActivity 冷启；中途 → `WineAndroidDebugImeRelayActivity`）显式 show/hide，**不**改 tap 自动弹出策略。日志 `IME soft keyboard inject scheduled` + Desktop `IME soft keyboard show|hide`。冷启需 IMM serve-ready：`WineAndroidDesktop.showSoftKeyboard` 在 `imeWanted` 期间按 `0/100/400/1000ms` 重试 `requestFocus`+`restartInput`+`showSoftInput`（直至 served / 成功或 `imeWanted` 清除）；Session 另 `postDelayed(400)` 作为双保险。
+- **显式软键盘控件（已落地）**：Session 右上角 debug chip「键盘」/「收键盘」调用 `toggleSoftKeyboard()`（`showSoftKeyboard` / `hideSoftKeyboard`）。contentDescription 恒为 `wineandroid keyboard`（uiautomator 定位）。次要：长按 letterbox（`WineAndroidDesktop` 上、contentHost 外黑边）同样切换；guest WindowGroup 仍吃自己的触摸，不抢桌面长按。默认仍不随 tap/focus 弹出。配方：`/workspace/ha262-ime-explicit-show-recipe.md`。
+- **Debug `IME_SHOW` extra（已落地）**：debuggable 下 `--ez app.amphora.debug.IME_SHOW true|false`（MainActivity 冷启；中途 → `WineAndroidDebugImeRelayActivity`）显式 show/hide，**不**改 tap 自动弹出策略。日志 `IME soft keyboard inject scheduled` + Desktop `IME soft keyboard show|hide`。冷启需 IMM serve-ready：`WineAndroidDesktop.showSoftKeyboard` 在 `imeWanted` 期间按 `0/100/400/1000ms` 重试 `requestFocus`+`restartInput`+`showSoftInput`（直至 served / 成功或 `imeWanted` 清除）；Session 另 `postDelayed(400)` 作为双保险。
+- **HA262 keyboard chip + IME_SHOW serve-ready PASS**（`c5ede16`，2026-09-16 ~19:48 Asia/Shanghai）：
+  冷启 `--ez app.amphora.debug.IME_SHOW true` → `mInputShown=true`；log
+  `IME soft keyboard show served attempt=0`（无最终 Ignoring-not-served）。
+  Desktop tap → `mInputShown=false`。Chip `content-desc=wineandroid keyboard`
+  show then hide PASS。更早 chip-only PASS on `8fbcdca` ~19:43 亦 OK；本 tip 覆盖。
+  ART（Mac）：`smoke-artifacts/ha262-ime-show-serve-20260916-194731`。
 - **CJK/unicode commit 已落地**：`KeyCharacterMap` 无法映射的码点经 `nativeSendUnicodeChar` → 同 pipe 的 `KEYEVENTF_UNICODE`（BMP 一 wchar；补充平面 UTF-16 代理对两次 unicode 事件；各 down+up）。Guest 侧仍是 `NtUserSendHardwareInput`，**不做** IMM32/TSF。
 - **Debug IME 注入（HA262 冒烟）**：debuggable 下 `--es app.amphora.debug.IME_UNICODE_TEXT '中文A'`（MainActivity **冷启**转发；**中途**用 debug-only 导出 `WineAndroidDebugImeRelayActivity` → 同 UID `startActivity` 非导出 Session → `onNewIntent`）。勿直接 `am start` Session（SecurityException）；勿指望中途 `am start MainActivity`（Session 在上，只把 task 拉前台）。`WineAndroidDesktop.injectCommittedTextForDebug` 走与 soft IME 相同的 commit 路径；日志 `IME unicode inject …` + Desktop `IME unicode hwnd=…` + HostIpc `keyboard unicode …`。
 - **HA262 unicode 自动冒烟 PASS**（`702b165`，2026-09-16 ~14:08 Asia/Shanghai）：MainActivity 冷启
@@ -193,7 +199,8 @@ destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边
   Session `onNewIntent len=5` + Desktop inject len=5；chip 显示；
   `--esn IME_COMPOSING_TEXT` → `onNewIntent len=0`；chip 清；无 unicode/keyboard unicode 泄漏。
   ART（Mac）：`smoke-artifacts/ha262-ime-composing-relay-20260916-142224`。
-- **仍开（可选）**：真机 soft IME **眼验** composing chip（`adb input text` 无法模拟 composing）；
+- **软键盘入口已关**（chip / letterbox 长按 / `IME_SHOW` / `showSoftKeyboard`；**无** tap/focus 自动弹出）。
+- **仍开（可选）**：真机 soft IME **眼验** composing chip + CJK commit（`adb input text` 无法模拟 composing）；
   第二台真机 / 分屏（**已停**，勿排下一拍）。
 
 ## 非目标

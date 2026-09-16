@@ -86,9 +86,10 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - 推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸：`5515738`
 - SurfaceView 触摸 → wineandroid `MOTION_EVENT`（不注入 X）：`d3a7bd5`
 - 硬件 KEYBOARD → wineandroid `KEYBOARD_EVENT`（KEYCODE / `adb keyevent`）：`35c9921`
-- Soft IME commit → 同 `KEYBOARD_EVENT` 管（`WineInputConnection` + `WineAndroidImeCommit`）；CJK → `KEYEVENTF_UNICODE`（`nativeSendUnicodeChar`）；**host composing chip**（`ImeUiState` / SessionActivity TextView）；composition **不**进 guest
+- Soft IME commit → 同 `KEYBOARD_EVENT` 管（`WineInputConnection` + `WineAndroidImeCommit`）；CJK → `KEYEVENTF_UNICODE`（`nativeSendUnicodeChar`）；**host composing chip**（`ImeUiState` / SessionActivity TextView）；composition **不**进 guest；**无** tap/focus 自动弹出（显式 chip / letterbox 长按 / `IME_SHOW` / `showSoftKeyboard` only）
 - Debug IME unicode 自动冒烟 **PASS** on `702b165`（MainActivity 冷启 `IME_UNICODE_TEXT`；ART `ha262-ime-unicode-auto-20260916-140749`）
 - Debug IME composing：**cold chip PASS** `01cf904`；**mid-session relay PASS** `fe8f5a2`（~14:22 Asia/Shanghai；ART `ha262-ime-composing-relay-20260916-142224`）
+- **Keyboard chip + IME_SHOW serve-ready PASS** on `c5ede16`（~19:48 Asia/Shanghai；冷启 `IME_SHOW true` → `mInputShown=true` / `show served attempt=0`；chip show/hide；ART Mac `ha262-ime-show-serve-20260916-194731`）
 - DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；`fdda994` no-WIDTH pref；**第二台/分屏用户已停**
 - WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`（隐窗 removeView + sync bringToFront）；**HA262 stack smoke PASS**（~16:48 Asia/Shanghai；ART `ha262-window-stack-20260916-164730`）；重叠 z-order 人工眼验仍可选
 - **sensorLandscape** 会话锁：`a4cd0c0`；**HA262 PASS**（~17:40 Asia/Shanghai；portrait-locked → `SENSOR_LANDSCAPE`，ROTATION_90 **3040×1904**，hostScale **2.375**）
@@ -159,7 +160,7 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 
 **PASS 线索**：`motion hwnd=… ok=true`（DOWN/UP）；UI 上可见点击效果（如 winefile / Start）；**不得**走 `XServerInputSink` / `TouchpadView`。
 
-键盘（硬件 KEYCODE / `adb input keyevent`）：`key hwnd=… ok=true`；native `keyboard hwnd=… vkey=…`。`adb shell input keyevent 29`（A）或 `66`（ENTER）；`adb shell input text hello` 走 KEYCODE 注入。Soft IME：触摸后应弹出键盘；commit ASCII 应见同样 `key hwnd=…`；CJK commit 应见 `IME unicode` + native `keyboard unicode uchar=`。**Debug unicode 自动冒烟 PASS**（`702b165`）。**Cold composing chip PASS**（`01cf904`）。**Mid-session composing relay PASS**（`fe8f5a2`）。**仍开（可选）**：真机 CJK soft IME 眼验 composing chip（`adb input text` 仅 ASCII）。
+键盘（硬件 KEYCODE / `adb input keyevent`）：`key hwnd=… ok=true`；native `keyboard hwnd=… vkey=…`。`adb shell input keyevent 29`（A）或 `66`（ENTER）；`adb shell input text hello` 走 KEYCODE 注入。Soft IME：**不**随 tap/focus 自动弹出（策略：显式 chip `content-desc=wineandroid keyboard` / letterbox 长按 / `IME_SHOW` / `showSoftKeyboard` only）；commit ASCII 应见同样 `key hwnd=…`；CJK commit 应见 `IME unicode` + native `keyboard unicode uchar=`。**Debug unicode 自动冒烟 PASS**（`702b165`）。**Cold composing chip PASS**（`01cf904`）。**Mid-session composing relay PASS**（`fe8f5a2`）。**Keyboard chip + IME_SHOW serve-ready PASS**（`c5ede16`，~19:48 Asia/Shanghai；ART Mac `ha262-ime-show-serve-20260916-194731`）。**仍开（可选）**：真机 CJK soft IME 眼验 composing chip（`adb input text` 仅 ASCII）。
 
 ### 9.3 壳层 WS_VISIBLE / sibling z-order
 
@@ -216,7 +217,10 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 **已落地（2026-09-16）**：MOTION + 硬件 KEYBOARD + soft IME commit + CJK
 `KEYEVENTF_UNICODE`（**HA262 debug unicode 自动冒烟 PASS** @ `702b165`）+ **host
 composing overlay** + **cold chip PASS** `01cf904` + **mid-session composing relay
-PASS** `fe8f5a2`；DPI 96；hostScale 多分辨率单测（`034b38e`）+ HA262 旋转已验；
+PASS** `fe8f5a2` + **keyboard chip + IME_SHOW serve-ready PASS** @ `c5ede16`
+（~19:48 Asia/Shanghai；ART Mac `ha262-ime-show-serve-20260916-194731`；策略=
+**无** tap/focus 自动弹出，仅显式 chip / letterbox 长按 / `IME_SHOW` /
+`showSoftKeyboard`）；DPI 96；hostScale 多分辨率单测（`034b38e`）+ HA262 旋转已验；
 guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestResolution`）；
 游戏轨 AHB 已合入 `proton_11.0` @ `0a64ebc`，WCP 已发，HA262 Present **v10 PASS**
 （壳层当时 HEAD `728f3db`，~16:50 Asia/Shanghai；ART
@@ -224,7 +228,7 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
 （~17:40；ROTATION_90 3040×1904，hostScale 2.375）；**setCapture / setCursor**
 壳层接线（capture 路由 + PointerIcon；无 cursor overlay）。
 
-**IME 轨**：已关（除可选 soft-IME 眼验）。
+**IME / soft-IME 入口轨**：已关（除可选 CJK composing/commit 眼验）。
 
 **本拍优先 / 仍开：**
 
@@ -232,9 +236,9 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
    （session 1280×720；first register；`windowPosChanged`+`style=`；无 FATAL；
    ART `ha262-window-stack-20260916-164730`）。**仍开（可选）**：重叠 HWND
    z-order **人工眼验**；guest 分辨率 no-WIDTH pref（`fdda994`）真机 PASS 未宣称。
-2. **可选**：真机 soft IME 眼验 composing chip + commit（勿发明 IMM32/TSF；
-   composition 已 host-local）。无明确 soft-IME focus/`showSoftKeyboard`
-   可靠性缺口时勿垫新刀。
+2. **可选**：真机 soft IME **CJK** 眼验 composing chip + commit（勿发明 IMM32/TSF；
+   composition 已 host-local）。软键盘入口 / `IME_SHOW` serve-ready **已 PASS**，
+   勿再垫 soft-IME 弹出刀。
 3. **可选**：Mac/HA262 冒烟 verify capture（拖出窗口仍见 `motion hwnd=<capture>`）
    + cursor hide/arrow；Grok Bot **不**宣称设备 PASS。配方见
    `/workspace/ha262-capture-cursor-smoke-recipe.md`（Mac 侧同步后）。
@@ -242,7 +246,7 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
 **已停 / 勿排下一拍**：第二台真机 / 分屏 / hostScale 双机（用户 2026-09-16 停）。
 
 **不是**下一拍：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9 可选后置）；
-勿再叠 Present 刀尖 `.so`；**不做分屏**；独立自定义光标 overlay View。
+勿再叠 Present 刀尖 `.so`；**不做分屏**；独立自定义光标 overlay View；IMM32/TSF。
 
 动手前用 `git log` + progress **核对**上表，勿盲抄过期勾选。
 
