@@ -58,7 +58,7 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
                 width > 0 -> WineAndroidDpi.forVirtualDesktopWithHostScale()
                 else -> desktopDpi
             }
-        Log.i(TAG, "updateDesktopMetrics ${desktopWidth}x${desktopHeight} wineDpi=$desktopDpi")
+        Log.i(TAG, "updateDesktopMetrics ${desktopWidth}x$desktopHeight wineDpi=$desktopDpi")
         maybeNotifyDesktop()
     }
 
@@ -114,6 +114,12 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
                 window.windowRect = Rect(0, 0, desktopWidth, desktopHeight)
                 window.clientRect = Rect(0, 0, desktopWidth, desktopHeight)
                 window.visibleRect = Rect(0, 0, desktopWidth, desktopHeight)
+            }
+            if (isDesktop) {
+                // Desktop must paint before the first WINDOW_POS; align upstream
+                // create_whole_view which attaches the desktop view immediately.
+                window.style = WineAndroidWindowStack.WS_VISIBLE
+                window.visible = true
             }
             windows[hwnd to useOpengl] = window
             desktop.attachWindow(window) { attachedHwnd, surface ->
@@ -179,7 +185,7 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
                 existing.clientRect = Rect(clientRect)
                 existing.visibleRect = Rect(visibleRect)
                 existing.style = style
-                existing.visible = (style and WS_VISIBLE) != 0
+                existing.visible = WineAndroidWindowStack.isStyleVisible(style)
             }
             desktop.updateHwndRects(hwnd, windowRect, clientRect, visibleRect, style, flags, insertAfter)
         }
@@ -216,6 +222,5 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
 
     private companion object {
         const val TAG = "WineAndroidHostBridge"
-        const val WS_VISIBLE = 0x10000000
     }
 }

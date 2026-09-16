@@ -45,6 +45,9 @@ import kotlin.math.roundToInt
  *   (KEYEVENTF_UNICODE on EVENT_KEYBOARD). Composition stays host-local
  *   ([ImeUiState] chip); no IMM32/TSF into guest.
  *   Debug: [injectCommittedTextForDebug] reuses the same commit path (HA262 smoke).
+ * - Style / z-order: [WineAndroidWindowStack] tracks WS_VISIBLE + sibling order;
+ *   invisible HWND groups are removed from the parent (upstream add/remove), and
+ *   !(flags & SWP_NOZORDER) syncs bringChildToFront bottom→top.
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
@@ -69,6 +72,12 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private var imeUiStateListener: ((ImeUiState) -> Unit)? = null
 
     private val groups = LinkedHashMap<Key, WindowGroup>()
+
+    /**
+     * Per-parent sibling HWND order (top-first). Key 0 = contentHost top-level
+     * (parentHwnd 0 / desktop). Nested groups key by parent HWND.
+     */
+    private val siblingStacks = HashMap<Int, MutableList<Int>>()
 
     init {
         // Upstream WineView: GDI views are focusable so KeyEvents land here.
@@ -130,12 +139,12 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         outAttrs.inputType =
             InputType.TYPE_CLASS_TEXT or
-                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         outAttrs.imeOptions =
             EditorInfo.IME_ACTION_NONE or
-                EditorInfo.IME_FLAG_NO_EXTRACT_UI or
-                EditorInfo.IME_FLAG_NO_FULLSCREEN
+            EditorInfo.IME_FLAG_NO_EXTRACT_UI or
+            EditorInfo.IME_FLAG_NO_FULLSCREEN
         return WineInputConnection(
             this,
             object : WineInputConnection.Listener {
@@ -268,15 +277,22 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
         val group = WindowGroup(context, window, onSurface)
         groups[key] = group
-        addGroupToParent(group)
+        trackSibling(window)
         layoutGroup(group)
         group.applyFixedBufferSize(forceReregister = false)
         applyVisibility(group)
+        if (window.visible) syncZOrder(stackKeyFor(window.parentHwnd))
     }
 
     fun detachWindow(hwnd: Int) {
+        val parentHwnd = groups.values.firstOrNull { it.window.hwnd == hwnd }?.window?.parentHwnd
         listOf(false, true).forEach { client ->
             groups.remove(Key(hwnd, client))?.let { detachGroupView(it) }
+        }
+        if (parentHwnd != null) {
+            untrackSibling(hwnd, parentHwnd)
+        } else {
+            untrackSiblingEverywhere(hwnd)
         }
     }
 
@@ -297,40 +313,53 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         clientRect: Rect,
         visibleRect: Rect,
         style: Int,
-        flags: Int = SWP_NOZORDER,
+        flags: Int = WineAndroidWindowStack.SWP_NOZORDER,
         insertAfter: Int = 0,
     ) {
-        groups.filterKeys { it.hwnd == hwnd }.forEach { (_, held) ->
+        val matched = groups.filterKeys { it.hwnd == hwnd }
+        if (matched.isEmpty()) return
+        val wasVisible = matched.values.first().window.visible
+        val nowVisible = WineAndroidWindowStack.isStyleVisible(style)
+        matched.forEach { (_, held) ->
             held.window.windowRect = Rect(windowRect)
             held.window.clientRect = Rect(clientRect)
             held.window.visibleRect = Rect(visibleRect)
             held.window.style = style
-            held.window.visible = (style and WS_VISIBLE) != 0
+            held.window.visible = nowVisible
             layoutGroup(held)
             held.applyFixedBufferSize(forceReregister = true)
             applyVisibility(held)
-            if ((flags and SWP_NOZORDER) == 0) {
-                applyZOrder(held, insertAfter)
-            }
             held.requestLayout()
+        }
+        val stackKey = stackKeyFor(matched.values.first().window.parentHwnd)
+        when {
+            WineAndroidWindowStack.wantsZOrder(flags) -> applyZOrder(hwnd, insertAfter, stackKey)
+            nowVisible && !wasVisible -> syncZOrder(stackKey)
         }
     }
 
     fun reparent(hwnd: Int, newParentHwnd: Int) {
-        groups.filterKeys { it.hwnd == hwnd }.forEach { (_, held) ->
+        val matched = groups.filterKeys { it.hwnd == hwnd }
+        if (matched.isEmpty()) return
+        val oldParent = matched.values.first().window.parentHwnd
+        untrackSibling(hwnd, oldParent)
+        matched.forEach { (_, held) ->
             held.window.parentHwnd = newParentHwnd
-            ensureParent(held)
             layoutGroup(held)
             held.applyFixedBufferSize(forceReregister = false)
             applyVisibility(held)
             held.requestLayout()
+        }
+        trackSibling(matched.values.first().window)
+        if (matched.values.first().window.visible) {
+            syncZOrder(stackKeyFor(newParentHwnd))
         }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w == oldw && h == oldh) return
-        recalculateScale("onSizeChanged ${w}x${h}")
+        recalculateScale("onSizeChanged ${w}x$h")
         relayoutAll()
     }
 
@@ -356,8 +385,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         contentHost.requestLayout()
         Log.i(
             TAG,
-            "hostScale-to-fill $reason guest=${gw}x${gh} host=${width}x${height} " +
-                "scale=${layout.scale} offset=${offsetX},${offsetY} " +
+            "hostScale-to-fill $reason guest=${gw}x$gh host=${width}x$height " +
+                "scale=${layout.scale} offset=$offsetX,$offsetY " +
                 "content=${layout.contentWidth}x${layout.contentHeight}",
         )
     }
@@ -387,12 +416,42 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         return depth
     }
 
-    private fun isTopLevel(parentHwnd: Int): Boolean {
-        return parentHwnd == 0 || parentHwnd == desktopHwnd
+    private fun isTopLevel(parentHwnd: Int): Boolean = parentHwnd == 0 || parentHwnd == desktopHwnd
+
+    private fun findParentGroup(parentHwnd: Int): WindowGroup? =
+        groups[Key(parentHwnd, false)] ?: groups[Key(parentHwnd, true)]
+
+    private fun stackKeyFor(parentHwnd: Int): Int = if (isTopLevel(parentHwnd)) 0 else parentHwnd
+
+    private fun trackSibling(window: WineAndroidWindow) {
+        val key = stackKeyFor(window.parentHwnd)
+        val stack = siblingStacks.getOrPut(key) { mutableListOf() }
+        val updated = WineAndroidWindowStack.ensureTracked(stack, window.hwnd)
+        if (updated != stack) {
+            stack.clear()
+            stack.addAll(updated)
+        }
     }
 
-    private fun findParentGroup(parentHwnd: Int): WindowGroup? {
-        return groups[Key(parentHwnd, false)] ?: groups[Key(parentHwnd, true)]
+    private fun untrackSibling(hwnd: Int, parentHwnd: Int) {
+        val key = stackKeyFor(parentHwnd)
+        val stack = siblingStacks[key] ?: return
+        val updated = WineAndroidWindowStack.remove(stack, hwnd)
+        stack.clear()
+        stack.addAll(updated)
+        if (stack.isEmpty()) siblingStacks.remove(key)
+    }
+
+    private fun untrackSiblingEverywhere(hwnd: Int) {
+        val keys = siblingStacks.keys.toList()
+        for (key in keys) {
+            val stack = siblingStacks[key] ?: continue
+            if (!stack.contains(hwnd)) continue
+            val updated = WineAndroidWindowStack.remove(stack, hwnd)
+            stack.clear()
+            stack.addAll(updated)
+            if (stack.isEmpty()) siblingStacks.remove(key)
+        }
     }
 
     private fun addGroupToParent(group: WindowGroup) {
@@ -411,7 +470,11 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     }
 
     private fun ensureParent(group: WindowGroup) {
-        addGroupToParent(group)
+        if (group.window.visible) {
+            addGroupToParent(group)
+        } else {
+            detachGroupView(group)
+        }
     }
 
     private fun detachGroupView(group: WindowGroup) {
@@ -421,9 +484,11 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private fun layoutGroup(group: WindowGroup) {
         val window = group.window
         val isDesktop = window.hwnd == desktopHwnd && desktopHwnd != 0
-        if (isDesktop || (isTopLevel(window.parentHwnd) && guestDesktopWidth > 0 &&
-                window.visibleRect.width() >= guestDesktopWidth &&
-                window.visibleRect.height() >= guestDesktopHeight)
+        if (isDesktop || (
+                isTopLevel(window.parentHwnd) && guestDesktopWidth > 0 &&
+                    window.visibleRect.width() >= guestDesktopWidth &&
+                    window.visibleRect.height() >= guestDesktopHeight
+                )
         ) {
             // Desktop hwnd fills contentHost.
             group.layoutParams =
@@ -461,42 +526,48 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     }
 
     /**
-     * Upstream WineWindow.pos_changed: when !(flags & SWP_NOZORDER), reorder
-     * sibling WindowGroups under the same parent (bringToFront / insert after).
+     * Upstream WineWindow.set_zorder + sync_views_zorder: update sibling stack,
+     * then bringChildToFront visible groups bottom→top.
      */
-    private fun applyZOrder(group: WindowGroup, insertAfter: Int) {
-        if (!group.window.visible) return
-        val parent = group.parent as? FrameLayout ?: return
-        // HWND_TOP (0) / HWND_TOPMOST (-1) / HWND_NOTOPMOST (-2) → front
-        if (insertAfter == 0 || insertAfter == -1 || insertAfter == -2) {
-            parent.bringChildToFront(group)
-            parent.requestLayout()
-            return
-        }
-        // HWND_BOTTOM (1) → back (index 0, after content surface if any)
-        if (insertAfter == 1) {
-            parent.removeView(group)
-            parent.addView(group, 0)
-            parent.requestLayout()
-            return
-        }
-        val after =
-            groups.values.firstOrNull {
-                it.window.hwnd == insertAfter && it.parent === parent
-            }
-        if (after == null) {
-            parent.bringChildToFront(group)
-        } else {
-            val idx = parent.indexOfChild(after)
-            parent.removeView(group)
-            val insertAt = (if (idx >= 0) idx + 1 else parent.childCount).coerceAtMost(parent.childCount)
-            parent.addView(group, insertAt)
-        }
-        parent.requestLayout()
+    private fun applyZOrder(hwnd: Int, insertAfter: Int, stackKey: Int) {
+        val stack = siblingStacks.getOrPut(stackKey) { mutableListOf() }
+        val updated = WineAndroidWindowStack.reorder(stack, hwnd, insertAfter)
+        stack.clear()
+        stack.addAll(updated)
+        syncZOrder(stackKey)
     }
 
+    private fun syncZOrder(stackKey: Int) {
+        val stack = siblingStacks[stackKey] ?: return
+        val bringOrder =
+            WineAndroidWindowStack.syncBringToFrontOrder(stack) { hwnd ->
+                groups.values.any { it.window.hwnd == hwnd && it.window.visible && it.parent != null }
+            }
+        var touchedParent: FrameLayout? = null
+        for (hwnd in bringOrder) {
+            // GDI first, then OpenGL client so media-overlay client ends above pair.
+            listOf(false, true).forEach { client ->
+                val group = groups[Key(hwnd, client)] ?: return@forEach
+                val parent = group.parent as? FrameLayout ?: return@forEach
+                parent.bringChildToFront(group)
+                touchedParent = parent
+            }
+        }
+        touchedParent?.requestLayout()
+    }
+
+    /**
+     * Upstream add_view_to_parent / remove_view_from_parent driven by WS_VISIBLE.
+     * Invisible groups leave the parent entirely (not merely GONE) so SurfaceView
+     * stacking and hit-testing match sibling order.
+     */
     private fun applyVisibility(group: WindowGroup) {
-        group.visibility = if (group.window.visible) View.VISIBLE else View.GONE
+        if (group.window.visible) {
+            addGroupToParent(group)
+            group.visibility = View.VISIBLE
+        } else {
+            detachGroupView(group)
+        }
     }
 
     private inner class WindowGroup(
@@ -507,6 +578,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         private var lastBufferW: Int = -1
         private var lastBufferH: Int = -1
         private var surfaceValid: Boolean = false
+
         /** True after the first non-deferred nativeRegisterSurface for this surface. */
         private var firstRegisterDone: Boolean = false
 
@@ -526,12 +598,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                             tryEmitSurface(surface, "surfaceCreated")
                         }
 
-                        override fun surfaceChanged(
-                            holder: SurfaceHolder,
-                            format: Int,
-                            width: Int,
-                            height: Int,
-                        ) {
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                             // Upstream WineView.onSurfaceTextureSizeChanged re-binds;
                             // Amphora must re-nativeRegisterSurface so native sends
                             // SURFACE_CHANGED with the new buffer size.
@@ -727,8 +794,6 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
     private companion object {
         const val TAG = "WineAndroidDesktop"
-        const val WS_VISIBLE = 0x10000000
-        const val SWP_NOZORDER = 0x04
         const val MIN_GUEST_PX = 2
     }
 }

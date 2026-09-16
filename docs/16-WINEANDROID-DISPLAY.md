@@ -75,7 +75,7 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
    scale=1.4875 offset=(0,984)；横屏 3040×1904 → scale=2.375 offset=(0,97)。
    与 `WineAndroidHostScale` 单测一致。ART：Mac
    `smoke-artifacts/ha262-hostscale-rotate-20260916-140241/`。
-   **仍欠**：第二台物理机 / 分屏。
+   **第二台物理机 / 分屏：用户已停（2026-09-16）；默认下一拍勿做。**
 2. **禁止 densityDpi 入径（已锁）**：`WineAndroidDpiTest` + SessionActivity 日志
    标明 android densityDpi unused；缺参仍 classic 96。
 3. **guest 分辨率档 + 设置页（已接线）**：`WineAndroidGuestResolution` 预设
@@ -87,8 +87,13 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
    Desktop / Launcher 启动走已存 WxH → `SessionLaunch`（**下一拍会话**生效）。
    MainActivity 的 wineandroid/smoke debug 冷启在未传 WIDTH/HEIGHT extras 时也读取该偏好；
    显式 extras 仍覆盖偏好，便于 smoke 固定尺寸。
-   真机 PASS 未宣称（Grok Bot 无 Mac 装机）。
-4. **非目标**：不另造第二套桌面模型；不改 Present/AHB / TextureView / BGRA / IMM32。
+   **`fdda994` no-WIDTH pref 路径已合入**（读 `display_resolution`）；真机 PASS
+   未宣称（Grok Bot 无 Mac 装机；parent 可冒烟）。
+4. **WS_VISIBLE / sibling z-order（加固）**：`WineAndroidWindowStack` + Desktop
+   sibling 栈；隐窗 removeView；叠窗 `bringChildToFront` 同步。单测
+   `WineAndroidWindowStackTest`。真机叠窗眼验仍开（可选）。
+5. **非目标**：不另造第二套桌面模型；不改 Present/AHB / TextureView / BGRA / IMM32；
+   **不做分屏 / 第二台 hostScale**（用户已停）。
 
 相关：`WineAndroidGuestResolution.kt` / `WineAndroidGuestResolutionTest.kt` /
 `WineAndroidHostScale.kt` / `WineAndroidHostScaleTest.kt` / `WineAndroidDpiTest.kt`。
@@ -105,7 +110,8 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 | `WineAndroidGuestResolution.kt`（`core:engine`） | guest 预设目录 + preference 映射；Settings/Launcher 对齐 |
 | `WineAndroidHostScale.kt` | 纯 letterbox scale/offset 计算（单测覆盖多分辨率） |
 | `WineAndroidHostBridge.kt` | createWindow / windowPosChanged(visible_*) / setParent→reparent |
-| `WineAndroidWindow.kt` | window/client/visible rect、style、visible |
+| `WineAndroidWindow.kt` | window/client/visible rect、style、visible（默认 false） |
+| `WineAndroidWindowStack.kt` | 纯 WS_VISIBLE / SWP_NOZORDER / sibling reorder + sync 顺序（单测） |
 | `WineAndroidSessionActivity.kt` | session + 调试 statusView；host composing TextView chip；`dispatchKeyEvent` → KEYBOARD_EVENT；debug IME unicode / composing extras |
 | `wineandroid_host_ipc.c` | `nativeRegisterSurface` → `SURFACE_CHANGED`；`nativeSendMotionEvent` / `nativeSendKeyboardEvent` / `nativeSendUnicodeChar`（`KEYEVENTF_UNICODE`） |
 
@@ -138,7 +144,7 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
   `--esn IME_COMPOSING_TEXT` → `onNewIntent len=0`；chip 清；无 unicode/keyboard unicode 泄漏。
   ART（Mac）：`smoke-artifacts/ha262-ime-composing-relay-20260916-142224`。
 - **仍开（可选）**：真机 soft IME **眼验** composing chip（`adb input text` 无法模拟 composing）；
-  第二台真机 / 分屏。
+  第二台真机 / 分屏（**已停**，勿排下一拍）。
 
 ## 非目标
 

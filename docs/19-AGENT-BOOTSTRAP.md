@@ -89,7 +89,8 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - Soft IME commit → 同 `KEYBOARD_EVENT` 管（`WineInputConnection` + `WineAndroidImeCommit`）；CJK → `KEYEVENTF_UNICODE`（`nativeSendUnicodeChar`）；**host composing chip**（`ImeUiState` / SessionActivity TextView）；composition **不**进 guest
 - Debug IME unicode 自动冒烟 **PASS** on `702b165`（MainActivity 冷启 `IME_UNICODE_TEXT`；ART `ha262-ime-unicode-auto-20260916-140749`）
 - Debug IME composing：**cold chip PASS** `01cf904`；**mid-session relay PASS** `fe8f5a2`（~14:22 Asia/Shanghai；ART `ha262-ime-composing-relay-20260916-142224`）
-- DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；真机第二台仍见 `docs/16` TODO
+- DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；`fdda994` no-WIDTH pref；**第二台/分屏用户已停**
+- WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固（隐窗 removeView + sync bringToFront）
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
 游戏轨：
@@ -214,13 +215,15 @@ guest 分辨率预设目录 + **Settings/Launcher 接线**（`WineAndroidGuestRe
 
 **本拍优先 / 仍开：**
 
-1. docs/16：**第二台真机 / 分屏**仍开；guest 分辨率 settings UI 已接线（真机 PASS
-   未宣称）。
+1. **壳层叠窗眼验（可选）**：WS_VISIBLE 隐显 + sibling z-order（`WineAndroidWindowStack`）
+   真机确认重叠 HWND 顺序；guest 分辨率 no-WIDTH pref（`fdda994`）真机 PASS 未宣称。
 2. **可选**：真机 soft IME 眼验 composing chip + commit（勿发明 IMM32/TSF；
    composition 已 host-local）。
 
+**已停 / 勿排下一拍**：第二台真机 / 分屏 / hostScale 双机（用户 2026-09-16 停）。
+
 **不是**下一拍：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9 可选后置）；
-勿再叠 Present 刀尖 `.so`。
+勿再叠 Present 刀尖 `.so`；**不做分屏**。
 
 动手前用 `git log` + progress **核对**上表，勿盲抄过期勾选。
 

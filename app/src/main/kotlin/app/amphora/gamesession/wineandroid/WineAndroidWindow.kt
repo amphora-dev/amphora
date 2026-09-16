@@ -19,6 +19,6 @@ data class WineAndroidWindow(
     var clientRect: Rect = Rect(),
     var visibleRect: Rect = Rect(),
     var style: Int = 0,
-    var visible: Boolean = true,
+    var visible: Boolean = false,
     var surface: Surface? = null,
 )

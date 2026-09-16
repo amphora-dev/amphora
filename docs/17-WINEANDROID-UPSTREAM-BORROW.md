@@ -11,8 +11,7 @@ Amphora 实现面：`WineAndroidDesktop` / `WineAndroidHostBridge` /
 X11 对照与踩坑见 [`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md)。
 
 **已落地（`wip/ha262-paint`）**：嵌套 WindowGroup、visible_rect、surface 尺寸再
-register、WS_VISIBLE / z-order、min 2×2；**保留 statusView**。提交示例：
-`8a494cc`。
+register、WS_VISIBLE / z-order（`8a494cc` + WindowStack 加固）、min 2×2；**保留 statusView**。
 ~~推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸~~ **已做**（`5515738`；
 见 docs/18 §5 / §9）。
 
@@ -81,17 +80,23 @@ logcat：`windowPosChanged` 后应再出现 taskbar 约 `1280×46` 的 register�
 - `(flags & SWP_NOZORDER) == 0` 时 `set_zorder(insert_after)` +
   `sync_views_zorder`（`bringToFront`）。
 
-**我们的缺口（修前）**
+**已落地（加固）**
 
-- 未跟 style 显隐；未处理 z-order，叠窗顺序可能错。
-
-**如何采纳**
-
-- `WineAndroidWindow.style` / `visible`；`WindowGroup.visibility`
-  VISIBLE/GONE。
-- `updateHwndRects(..., flags, insertAfter)`：当 `!(flags & SWP_NOZORDER)` 时
-  在同一 parent 下按 `insertAfter`（HWND_TOP/BOTTOM/…）重排
+- 初版（`8a494cc`）：`style` → `visible` + `GONE`/`VISIBLE`；单次
   `bringChildToFront` / `addView(index)`。
+- **本拍加固**：纯逻辑 `WineAndroidWindowStack`（WS_VISIBLE / SWP_NOZORDER /
+  HWND_TOP|BOTTOM|… reorder + bottom→top sync 顺序，单测覆盖）；
+  `WineAndroidDesktop` 维护 per-parent sibling 栈（top-first）；
+  **隐窗从 parent 移除**（对齐上游 add/remove，不再仅 GONE）；
+  默认 `WineAndroidWindow.visible=false`（desktop create 仍立即可见）。
+- **仍开（可选）**：SurfaceView 层间 `setZOrderMediaOverlay` 细调；真机叠窗眼验。
+
+**如何采纳（现状）**
+
+- `WineAndroidWindow.style` / `visible`；不可见 → `removeView`，可见 →
+  `addView` + `syncZOrder`。
+- `updateHwndRects(..., flags, insertAfter)`：`wantsZOrder(flags)` 时
+  `WineAndroidWindowStack.reorder` 后 `bringChildToFront` 自底向上同步。
 
 ---
 
