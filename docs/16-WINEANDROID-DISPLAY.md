@@ -97,6 +97,14 @@ destroy 时恢复显示。状态栏、导航栏保持隐藏，只有从屏幕边
 `capture hwnd=…`。冒烟时 adb swipe 越过 hit-test 仍应见
 `motion hwnd=<capture> capture=<same>`。配方：`/workspace/ha262-capture-inject-recipe.md`。
 
+**HA262 CAPTURE_HWND inject routing PASS**（`82bf652`，2026-09-16 ~19:52 Asia/Shanghai）：
+冷启 `--ei CAPTURE_HWND -1` → deferred then `resolved=65568` / `capture hwnd=65568`；
+swipes `motion hwnd=65568 … capture=65568 hit=131156 ok=true`（4 routed）；
+relay `CAPTURE_HWND 0` → `capture hwnd=0` + motion hit-test `capture=0`；
+relay `-1` again → routed again。**capture routing 已可经 debug inject 冒烟**；
+可选 title-bar 真 `IOCTL_SET_CAPTURE` 眼验仍可选（非欠账）。
+ART（Mac）：`ha262-capture-inject-20260916-195128`。
+
 **推迟**
 
 - 独立自定义光标 overlay View / Vulkan 合成光标层（SurfaceView 路径用
