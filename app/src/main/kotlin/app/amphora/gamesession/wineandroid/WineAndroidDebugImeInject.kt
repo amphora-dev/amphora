@@ -9,8 +9,13 @@ import android.content.Intent
  * [WineAndroidSessionActivity] applies after layout (and for unicode, after desktop
  * hwnd is ready), or via onNewIntent once the session is already up.
  *
+ * Mid-session adb must target [WineAndroidDebugImeRelayActivity] (debug sourceSet),
+ * not MainActivity (buried under singleTask Session) and not Session directly
+ * (exported=false → SecurityException).
+ *
  * - [EXTRA_IME_UNICODE_TEXT]: commit path (KeyCharacterMap + unicode); empty/absent → no-op
- * - [EXTRA_IME_COMPOSING_TEXT]: host-only composing chip; absent → no-op; empty → clear chip
+ * - [EXTRA_IME_COMPOSING_TEXT]: host-only composing chip; absent → no-op; empty/null extra → clear
+ *   chip. Use `am … --esn KEY` for clear — Android shell rejects `--es KEY ''`.
  */
 object WineAndroidDebugImeInject {
     const val EXTRA_IME_UNICODE_TEXT = "app.amphora.debug.IME_UNICODE_TEXT"
@@ -40,8 +45,8 @@ object WineAndroidDebugImeInject {
     }
 
     /**
-     * Intent wrapper: requires [Intent.hasExtra] so empty `--es …IME_COMPOSING_TEXT ''`
-     * still clears the chip.
+     * Intent wrapper: requires [Intent.hasExtra] so `--esn …IME_COMPOSING_TEXT`
+     * (null String extra) still clears the chip. Do not use `--es … ''` — am rejects it.
      */
     fun composingFromIntent(intent: Intent?, debuggable: Boolean): String? {
         if (intent == null || !intent.hasExtra(EXTRA_IME_COMPOSING_TEXT)) {
@@ -53,4 +58,30 @@ object WineAndroidDebugImeInject {
             debuggable = debuggable,
         )
     }
+
+    /**
+     * Map raw adb extras onto [WineAndroidSessionActivity.intent] args.
+     *
+     * @return [unicodeText] null = omit; non-null non-empty = commit inject.
+     *   [composingText] null = omit; non-null (incl. empty) = put composing extra.
+     */
+    fun relayForward(
+        unicodeRaw: String?,
+        composingPresent: Boolean,
+        composingRaw: String?,
+    ): RelayExtras {
+        val unicode = unicodeRaw?.takeIf { it.isNotEmpty() }
+        val composing =
+            if (composingPresent) {
+                composingRaw ?: ""
+            } else {
+                null
+            }
+        return RelayExtras(unicodeText = unicode, composingText = composing)
+    }
+
+    data class RelayExtras(
+        val unicodeText: String?,
+        val composingText: String?,
+    )
 }

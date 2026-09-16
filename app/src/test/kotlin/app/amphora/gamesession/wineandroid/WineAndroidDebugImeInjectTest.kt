@@ -68,6 +68,7 @@ class WineAndroidDebugImeInjectTest {
                 debuggable = true,
             ),
         )
+        // --esn KEY → hasExtra=true, getStringExtra=null
         assertEquals(
             "",
             WineAndroidDebugImeInject.composingIfDebuggable(
@@ -88,5 +89,57 @@ class WineAndroidDebugImeInjectTest {
                 debuggable = true,
             ),
         )
+    }
+
+    @Test
+    fun relayForwardShowAndClearComposing() {
+        val show =
+            WineAndroidDebugImeInject.relayForward(
+                unicodeRaw = null,
+                composingPresent = true,
+                composingRaw = "nihao",
+            )
+        assertNull(show.unicodeText)
+        assertEquals("nihao", show.composingText)
+
+        val clearEsn =
+            WineAndroidDebugImeInject.relayForward(
+                unicodeRaw = null,
+                composingPresent = true,
+                composingRaw = null,
+            )
+        assertEquals("", clearEsn.composingText)
+
+        val clearEmpty =
+            WineAndroidDebugImeInject.relayForward(
+                unicodeRaw = null,
+                composingPresent = true,
+                composingRaw = "",
+            )
+        assertEquals("", clearEmpty.composingText)
+    }
+
+    @Test
+    fun relayForwardUnicodeOnlyOmitsComposing() {
+        val extras =
+            WineAndroidDebugImeInject.relayForward(
+                unicodeRaw = "中文A",
+                composingPresent = false,
+                composingRaw = null,
+            )
+        assertEquals("中文A", extras.unicodeText)
+        assertNull(extras.composingText)
+    }
+
+    @Test
+    fun relayForwardNoExtrasBothNull() {
+        val extras =
+            WineAndroidDebugImeInject.relayForward(
+                unicodeRaw = null,
+                composingPresent = false,
+                composingRaw = null,
+            )
+        assertNull(extras.unicodeText)
+        assertNull(extras.composingText)
     }
 }

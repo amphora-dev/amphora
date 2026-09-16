@@ -94,7 +94,8 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 | `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit + host composing |
 | `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点交给 `nativeSendUnicodeChar` |
 | `WineAndroidImeUi.kt` | 纯 `ImeUiState` reducer + composing chip 可见性（单测） |
-| `WineAndroidDebugImeInject.kt` | debug-only extras `IME_UNICODE_TEXT` + `IME_COMPOSING_TEXT`（`FLAG_DEBUGGABLE`）|
+| `WineAndroidDebugImeInject.kt` | debug-only extras `IME_UNICODE_TEXT` + `IME_COMPOSING_TEXT`（`FLAG_DEBUGGABLE`）；清 composing 用 `--esn` |
+| `WineAndroidDebugImeRelayActivity`（`src/debug`） | 导出中继：adb 中途注入 → 同 UID 启动非导出 Session `onNewIntent` |
 | `WineAndroidHostScale.kt` | 纯 letterbox scale/offset 计算（单测覆盖多分辨率） |
 | `WineAndroidHostBridge.kt` | createWindow / windowPosChanged(visible_*) / setParent→reparent |
 | `WineAndroidWindow.kt` | window/client/visible rect、style、visible |
@@ -107,7 +108,7 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 
 - **IME commit 已落地**：`WineAndroidDesktop` 实现 `onCreateInputConnection` → 复用 `WineInputConnection`；committed ASCII/Latin 经 `KeyCharacterMap`（`VIRTUAL_KEYBOARD`）映射为 KeyEvent 再 `sendKeyboardEvent`。删除 / EditorAction(ENTER) / `onSendKeyEvent` 同管。触摸设 `keyTargetHwnd` 后 `showSoftKeyboard()`。
 - **CJK/unicode commit 已落地**：`KeyCharacterMap` 无法映射的码点经 `nativeSendUnicodeChar` → 同 pipe 的 `KEYEVENTF_UNICODE`（BMP 一 wchar；补充平面 UTF-16 代理对两次 unicode 事件；各 down+up）。Guest 侧仍是 `NtUserSendHardwareInput`，**不做** IMM32/TSF。
-- **Debug IME 注入（HA262 冒烟）**：debuggable 下 `--es app.amphora.debug.IME_UNICODE_TEXT '中文A'`（MainActivity 冷启转发，或 session 已起后 `am start` → `WineAndroidSessionActivity` onNewIntent）。`WineAndroidDesktop.injectCommittedTextForDebug` 走与 soft IME 相同的 commit 路径；日志 `IME unicode inject …` + Desktop `IME unicode hwnd=…` + HostIpc `keyboard unicode …`。
+- **Debug IME 注入（HA262 冒烟）**：debuggable 下 `--es app.amphora.debug.IME_UNICODE_TEXT '中文A'`（MainActivity **冷启**转发；**中途**用 debug-only 导出 `WineAndroidDebugImeRelayActivity` → 同 UID `startActivity` 非导出 Session → `onNewIntent`）。勿直接 `am start` Session（SecurityException）；勿指望中途 `am start MainActivity`（Session 在上，只把 task 拉前台）。`WineAndroidDesktop.injectCommittedTextForDebug` 走与 soft IME 相同的 commit 路径；日志 `IME unicode inject …` + Desktop `IME unicode hwnd=…` + HostIpc `keyboard unicode …`。
 - **HA262 unicode 自动冒烟 PASS**（`702b165`，2026-09-16 ~14:08 Asia/Shanghai）：MainActivity 冷启
   `--ez …WINEANDROID true --ei WIDTH 1280 --ei HEIGHT 720 --es …IME_UNICODE_TEXT '中文A'`；
   `IME unicode inject scheduled reason=onCreate` → deferred → `hwnd=… text='中文A'`；
@@ -117,9 +118,10 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
   TextView chip（commit/finish/`WineInputConnection.reset` 清空）。**不做** IMM32/TSF；
   composition 永不进 guest。
 - **Debug composing 注入（HA262 冒烟）**：debuggable 下 `--es app.amphora.debug.IME_COMPOSING_TEXT 'nihao'`
-  （MainActivity 冷启转发，或 session 已起后 onNewIntent）。仅 `updateImeUiState(composingText=…)`，
-  **不**走 commit/unicode pipe。空串 / 缺省 clear path 清 chip。日志
-  `IME composing inject scheduled` + Desktop `IME composing inject len=… (host-local…)`。
+  （MainActivity **冷启**；中途 → `WineAndroidDebugImeRelayActivity`）。仅 `updateImeUiState(composingText=…)`，
+  **不**走 commit/unicode pipe。**清 chip 用 `--esn …IME_COMPOSING_TEXT`**（`am` 拒绝 `--es … ''`）。
+  日志 `IME composing inject scheduled` + Desktop `IME composing inject len=… (host-local…)`。
+  配方：`/workspace/ha262-ime-composing-overlay-smoke.md`。
 - **仍开（可选）**：真机 soft IME **眼验** composing chip（`adb input text` 无法模拟 composing）；
   第二台真机 / 分屏；guest 分辨率设置页 UI。
 
