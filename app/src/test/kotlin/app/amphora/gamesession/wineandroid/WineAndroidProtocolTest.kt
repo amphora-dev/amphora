@@ -24,7 +24,8 @@ class WineAndroidProtocolTest {
         assertEquals(10, WineAndroidProtocol.IOCTL_SET_SWAP_INT)
         assertEquals(11, WineAndroidProtocol.IOCTL_SET_CAPTURE)
         assertEquals(12, WineAndroidProtocol.IOCTL_SET_CURSOR)
-        assertEquals(13, WineAndroidProtocol.NB_IOCTLS)
+        assertEquals(13, WineAndroidProtocol.IOCTL_GET_BUFFER_SOCK)
+        assertEquals(14, WineAndroidProtocol.NB_IOCTLS)
     }
 
     @Test

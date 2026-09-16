@@ -28,7 +28,9 @@ object WineAndroidProtocol {
     const val IOCTL_SET_SWAP_INT = 10
     const val IOCTL_SET_CAPTURE = 11
     const val IOCTL_SET_CURSOR = 12
-    const val NB_IOCTLS = 13
+    /** Tip AMPHORA_BUF wine FD via SCM_RIGHTS (host_anw socketpair). */
+    const val IOCTL_GET_BUFFER_SOCK = 13
+    const val NB_IOCTLS = 14
 
     /** ioctl_header { int hwnd; BOOL opengl; } */
     const val SIZE_HEADER = 8
@@ -45,6 +47,7 @@ object WineAndroidProtocol {
     const val SIZE_PERFORM = SIZE_HEADER + 4 + 16
     const val SIZE_SET_SWAP_INT = SIZE_HEADER + 4
     const val SIZE_SET_CAPTURE = SIZE_HEADER
+    const val SIZE_GET_BUFFER_SOCK = SIZE_HEADER
 
     /** Win64 `union event_data` wire size written to the desktop event pipe. */
     const val EVENT_DATA_SIZE = 64

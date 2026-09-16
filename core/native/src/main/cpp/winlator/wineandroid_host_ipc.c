@@ -54,6 +54,7 @@ enum android_ioctl {
     IOCTL_SET_SWAP_INT,
     IOCTL_SET_CAPTURE,
     IOCTL_SET_CURSOR,
+    IOCTL_GET_BUFFER_SOCK,
     NB_IOCTLS
 };
 
@@ -116,6 +117,9 @@ struct native_win_data {
     int buffer_format;
     int swap_interval;
     int buffer_lru[NB_CACHED_BUFFERS];
+    /* Tip-model AMPHORA_BUF sock: host serve thread + wine peer fd. */
+    void *anw_serve;
+    int buf_wine_fd;
 };
 
 /* Win64 wineandroid union event_data wire size (see android.h). */
@@ -261,6 +265,50 @@ static void resolve_ahb(void)
 
 static void ensure_ahb(void) { pthread_once(&g_ahb_once, resolve_ahb); }
 
+/* wineandroid_host_anw.c — tip AMPHORA_BUF serve against real ANativeWindow. */
+extern void *amphora_host_anw_start_serve(ANativeWindow *win, int hwnd, int sock_fd);
+extern void amphora_host_anw_stop_serve(void *serve_ptr);
+extern void amphora_host_anw_bump_generation(void *serve_ptr);
+
+static void stop_anw_buf_serve(struct native_win_data *data)
+{
+    if (!data) return;
+    if (data->anw_serve) {
+        amphora_host_anw_stop_serve(data->anw_serve);
+        data->anw_serve = NULL;
+    }
+    if (data->buf_wine_fd >= 0) {
+        close(data->buf_wine_fd);
+        data->buf_wine_fd = -1;
+    }
+}
+
+/* Start host AMPHORA_BUF serve for WSI Present (opengl client). Returns 0 or -errno. */
+static int start_anw_buf_serve(struct native_win_data *data)
+{
+    int sv[2] = {-1, -1};
+    void *serve;
+
+    if (!data || !data->parent) return -ENOENT;
+    stop_anw_buf_serve(data);
+    if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) < 0) {
+        LOGE("AMPHORA_BUF socketpair failed hwnd=%08x errno=%d", data->hwnd, errno);
+        return -errno;
+    }
+    /* sv[0] = host serve end (owned by serve thread); sv[1] = wine peer kept until ioctl. */
+    serve = amphora_host_anw_start_serve((ANativeWindow *)data->parent, data->hwnd, sv[0]);
+    if (!serve) {
+        close(sv[1]);
+        LOGE("AMPHORA_BUF start_serve failed hwnd=%08x", data->hwnd);
+        return -EIO;
+    }
+    data->anw_serve = serve;
+    data->buf_wine_fd = sv[1];
+    LOGI("AMPHORA_BUF sock ready hwnd=%08x opengl=%d wine_fd=%d", data->hwnd, data->opengl,
+         data->buf_wine_fd);
+    return 0;
+}
+
 /* ---- server state ---- */
 static JavaVM *g_vm;
 static jobject g_callback; /* global WineAndroidIpcCallbacks */
@@ -295,6 +343,7 @@ static struct native_win_data *create_native_win_data(int32_t hwnd, int opengl)
     struct native_win_data *data = g_data_map[idx];
     int i;
     if (data) {
+        stop_anw_buf_serve(data);
         if (data->parent) {
             ANativeWindow_release((ANativeWindow *)data->parent);
             data->parent = NULL;
@@ -303,11 +352,14 @@ static struct native_win_data *create_native_win_data(int32_t hwnd, int opengl)
     } else {
         data = calloc(1, sizeof(*data));
         if (!data) return NULL;
+        data->buf_wine_fd = -1;
         g_data_map[idx] = data;
     }
     data->hwnd = hwnd;
     data->opengl = opengl;
     data->generation = 0;
+    data->buf_wine_fd = -1;
+    data->anw_serve = NULL;
     /* Match upstream wineandroid create_native_win_data: GDI must be CPU
      * producer so nativeRegisterSurface's API_CONNECT actually runs. OpenGL
      * stays 0 until EGL connect (do not force CPU on GL windows). */
@@ -329,6 +381,7 @@ static void free_native_win_data(struct native_win_data *data)
     int i;
     if (!data) return;
     idx = (unsigned)(((uint32_t)data->hwnd & 0xffffu) + !!data->opengl);
+    stop_anw_buf_serve(data);
     if (data->parent) {
         ANativeWindow_release((ANativeWindow *)data->parent);
         data->parent = NULL;
@@ -1433,6 +1486,25 @@ static int ioctl_set_cursor(JNIEnv *env, void *data, size_t in_size, size_t *ret
     return 0;
 }
 
+static int ioctl_get_buffer_sock(void *data, size_t in_size, size_t *ret_size, int *reply_fd)
+{
+    struct ioctl_header *hdr = data;
+    struct native_win_data *win;
+    int dupfd;
+
+    *ret_size = 0;
+    *reply_fd = -1;
+    if (in_size < sizeof(*hdr)) return -EINVAL;
+    win = get_native_win_data(hdr->hwnd, hdr->opengl);
+    if (!win) return -ENOENT;
+    if (win->buf_wine_fd < 0) return -EWOULDBLOCK;
+    dupfd = dup(win->buf_wine_fd);
+    if (dupfd < 0) return -errno;
+    *reply_fd = dupfd;
+    LOGI("IOCTL_GET_BUFFER_SOCK hwnd=%08x opengl=%d fd=%d", hdr->hwnd, hdr->opengl, dupfd);
+    return 0;
+}
+
 static int handle_ioctl_message(JNIEnv *env, int fd)
 {
     char buffer[4096];
@@ -1504,6 +1576,9 @@ static int handle_ioctl_message(JNIEnv *env, int fd)
             break;
         case IOCTL_SET_CURSOR:
             status = ioctl_set_cursor(env, buffer, (size_t)ret, &reply_size, &reply_fd);
+            break;
+        case IOCTL_GET_BUFFER_SOCK:
+            status = ioctl_get_buffer_sock(buffer, (size_t)ret, &reply_size, &reply_fd);
             break;
         default:
             status = -ENOTSUP;
@@ -1766,6 +1841,7 @@ Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeRegisterSurface
         ANativeWindow_release((ANativeWindow *)data->parent);
         memset(data->buffers, 0, sizeof(data->buffers));
     }
+    stop_anw_buf_serve(data);
     data->parent = (struct wine_native_window *)win;
     data->generation++;
     if (data->api)
@@ -1774,10 +1850,13 @@ Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeRegisterSurface
     data->parent->setSwapInterval(data->parent, data->swap_interval);
     data->parent->query(data->parent, 0, &w); /* NATIVE_WINDOW_WIDTH */
     data->parent->query(data->parent, 1, &h); /* NATIVE_WINDOW_HEIGHT */
+    /* OpenGL/client: tip-model host AMPHORA_BUF serve for WSI Present sock I/O. */
+    if (opengl)
+        start_anw_buf_serve(data);
     send_surface_changed_event(hwnd, opengl ? 1 : 0, (unsigned)w, (unsigned)h);
     pthread_mutex_unlock(&g_lock);
-    LOGI("registerSurface hwnd=%08x opengl=%d %dx%d gen=%d", hwnd, (int)opengl, w, h,
-         data->generation);
+    LOGI("registerSurface hwnd=%08x opengl=%d %dx%d gen=%d buf_fd=%d", hwnd, (int)opengl, w, h,
+         data->generation, data->buf_wine_fd);
     return JNI_TRUE;
 }
 
@@ -1791,6 +1870,7 @@ Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeUnregisterSurfa
     pthread_mutex_lock(&g_lock);
     data = get_native_win_data(hwnd, opengl ? 1 : 0);
     if (data && data->parent) {
+        stop_anw_buf_serve(data);
         ANativeWindow_release((ANativeWindow *)data->parent);
         data->parent = NULL;
         data->generation++;

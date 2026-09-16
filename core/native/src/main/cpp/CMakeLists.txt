@@ -255,6 +255,8 @@ target_link_libraries(amphora_wsi PRIVATE log dl)
 # fakeinput LD_PRELOAD shim intentionally not built (MVP input is XServer inject).
 # Source removed from tree; reintroduce from WinNative when native gamepad returns.
 
-# wineandroid host: upstream SEQPACKET ioctl server (\0\Device\WineAndroid)
-# 
-target_sources(winlator PRIVATE winlator/wineandroid_host_ipc.c)
+# wineandroid host: SEQPACKET ioctl server + tip AMPHORA_BUF sock serve
+# (host_anw serves dequeue/queue over per-HWND socketpair for WSI Present).
+target_sources(winlator PRIVATE
+        winlator/wineandroid_host_ipc.c
+        winlator/wineandroid_host_anw.c)
