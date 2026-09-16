@@ -8,8 +8,9 @@ import android.view.KeyEvent
  * Map IME-committed text to Android [KeyEvent]s for wineandroid KEYBOARD_EVENT.
  *
  * ASCII/Latin that [KeyCharacterMap] can encode become DOWN/UP pairs (same pipe as
- * hardware keys). Unmapped code points (typical CJK / emoji) are skipped and logged —
- * guest unicode / WM_CHAR remains an open gap; do not invent IMM32/TSF here.
+ * hardware keys). Unmapped code points (typical CJK / emoji) are returned in
+ * [MappedCommit.unmappedCodePoints] for the desktop to inject via
+ * [WineAndroidNative.nativeSendUnicodeChar] (KEYEVENTF_UNICODE) — not IMM32/TSF.
  */
 object WineAndroidImeCommit {
     const val MAX_IME_DELETE_COUNT = 256
@@ -61,10 +62,10 @@ object WineAndroidImeCommit {
                 mapped?.toList()
             }
         for (codePoint in unmapped) {
-            Log.w(
+            Log.d(
                 TAG,
                 "IME commit unmapped codePoint=U+${codePoint.toString(16)} " +
-                    "(CJK/unicode guest path still open)",
+                    "(caller injects KEYEVENTF_UNICODE)",
             )
         }
         return MappedCommit(events = events, unmappedCodePoints = unmapped)

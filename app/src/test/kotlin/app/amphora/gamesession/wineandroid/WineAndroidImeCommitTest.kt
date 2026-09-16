@@ -6,6 +6,10 @@ import org.junit.Test
 
 /**
  * Pure mapping cases for IME commit → KEYBOARD_EVENT (no KeyCharacterMap / Robolectric).
+ *
+ * Unmapped code points are returned for the desktop to inject via
+ * [WineAndroidNative.nativeSendUnicodeChar] (KEYEVENTF_UNICODE) on the native
+ * side — not covered here (JNI / event pipe).
  */
 class WineAndroidImeCommitTest {
     @Test
@@ -53,5 +57,16 @@ class WineAndroidImeCommitTest {
         assertEquals(listOf(0x1F600), seen)
         assertTrue(events.isEmpty())
         assertEquals(listOf(0x1F600), unmapped)
+    }
+
+    @Test
+    fun unmappedListIsUnicodeInjectionContract() {
+        // Desktop iterates unmappedCodePoints → nativeSendUnicodeChar (native-side).
+        val (events, unmapped) =
+            WineAndroidImeCommit.mapCommittedCodePoints("x中😀") { codePoint, _ ->
+                if (codePoint == 'x'.code) listOf(codePoint) else null
+            }
+        assertEquals(listOf('x'.code), events)
+        assertEquals(listOf('中'.code, 0x1F600), unmapped)
     }
 }

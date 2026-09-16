@@ -149,6 +149,7 @@ enum event_type {
 #define WA_INPUT_KEYBOARD           1
 #define WA_KEYEVENTF_EXTENDEDKEY    0x0001
 #define WA_KEYEVENTF_KEYUP          0x0002
+#define WA_KEYEVENTF_UNICODE        0x0004
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
@@ -1091,6 +1092,39 @@ static int send_keyboard_event(int32_t hwnd, int action, int keycode, int state)
     return send_event_bytes(buf, sizeof(buf));
 }
 
+/*
+ * KEYEVENTF_UNICODE on the same EVENT_KEYBOARD pipe (NtUserSendHardwareInput).
+ * vkey=0, scan=UTF-16 unit, dwFlags=KEYEVENTF_UNICODE [| KEYUP]. Not IMM32/TSF.
+ */
+static int send_unicode_keyboard_event(int32_t hwnd, uint16_t uchar, int is_up)
+{
+    uint8_t buf[EVENT_DATA_SIZE];
+    uint64_t hwnd64 = (uint32_t)hwnd;
+    uint32_t evtype = EVENT_KEYBOARD;
+    uint32_t lock_state = 0;
+    uint32_t input_type = WA_INPUT_KEYBOARD;
+    uint16_t vkey = 0;
+    uint16_t scan = uchar;
+    uint32_t dw_flags = WA_KEYEVENTF_UNICODE;
+    uint32_t time = 0;
+    uint64_t extra = 0;
+
+    if (is_up) dw_flags |= WA_KEYEVENTF_KEYUP;
+
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf + 0, &evtype, 4);
+    memcpy(buf + 8, &hwnd64, 8);
+    memcpy(buf + 16, &lock_state, 4);
+    memcpy(buf + 24, &input_type, 4);
+    memcpy(buf + 32, &vkey, 2);
+    memcpy(buf + 34, &scan, 2);
+    memcpy(buf + 36, &dw_flags, 4);
+    memcpy(buf + 40, &time, 4);
+    memcpy(buf + 48, &extra, 8);
+    LOGI("keyboard unicode hwnd=%08x uchar=%04x up=%d", hwnd, uchar, is_up);
+    return send_event_bytes(buf, sizeof(buf));
+}
+
 static JNIEnv *get_env(int *attached)
 {
     JNIEnv *env = NULL;
@@ -1937,6 +1971,48 @@ Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeSendKeyboardEve
     (void)clazz;
     pthread_mutex_lock(&g_lock);
     rc = send_keyboard_event((int32_t)hwnd, (int)action, (int)keycode, (int)state);
+    pthread_mutex_unlock(&g_lock);
+    if (rc != 0) return JNI_FALSE;
+    return JNI_TRUE;
+}
+
+/*
+ * Expand Unicode code point to UTF-16 unit(s) and inject KEYEVENTF_UNICODE
+ * down+up per unit (Windows IME surrogate pattern for supplementary planes).
+ */
+JNIEXPORT jboolean JNICALL
+Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeSendUnicodeChar(
+    JNIEnv *env, jclass clazz, jint hwnd, jint codePoint)
+{
+    uint16_t units[2];
+    int n;
+    int i;
+    int rc = 0;
+    (void)env;
+    (void)clazz;
+
+    if (codePoint < 0 || codePoint > 0x10FFFF ||
+        (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
+        return JNI_FALSE;
+    }
+
+    if (codePoint <= 0xFFFF) {
+        units[0] = (uint16_t)codePoint;
+        n = 1;
+    } else {
+        uint32_t cp = (uint32_t)codePoint - 0x10000u;
+        units[0] = (uint16_t)(0xD800u + (cp >> 10));
+        units[1] = (uint16_t)(0xDC00u + (cp & 0x3FFu));
+        n = 2;
+    }
+
+    pthread_mutex_lock(&g_lock);
+    for (i = 0; i < n; i++) {
+        if (send_unicode_keyboard_event((int32_t)hwnd, units[i], 0) != 0)
+            rc = -1;
+        if (send_unicode_keyboard_event((int32_t)hwnd, units[i], 1) != 0)
+            rc = -1;
+    }
     pthread_mutex_unlock(&g_lock);
     if (rc != 0) return JNI_FALSE;
     return JNI_TRUE;

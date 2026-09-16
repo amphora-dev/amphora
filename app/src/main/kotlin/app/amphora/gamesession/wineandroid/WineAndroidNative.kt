@@ -11,8 +11,9 @@ import android.view.Surface
  * [nativeSendMotionEvent] packs MOTION_EVENT + INPUT_MOUSE onto the same pipe
  * (upstream WineView → wine_motion_event).
  * [nativeSendKeyboardEvent] packs KEYBOARD_EVENT + INPUT_KEYBOARD (upstream
- * WineView.dispatchKeyEvent → wine_keyboard_event). Hardware KEYCODE_* only;
- * no InputConnection / IMM32 IME stack.
+ * WineView.dispatchKeyEvent → wine_keyboard_event). Hardware KEYCODE_* path.
+ * [nativeSendUnicodeChar] packs KEYEVENTF_UNICODE on the same pipe for IME
+ * commits KeyCharacterMap cannot map (CJK). Not IMM32/TSF.
  */
 object WineAndroidNative {
     init {
@@ -54,4 +55,11 @@ object WineAndroidNative {
         keycode: Int,
         state: Int,
     ): Boolean
+
+    /**
+     * Pack KEYEVENTF_UNICODE KEYBOARD_EVENT(s) for [codePoint] (UTF-16 units,
+     * down+up each). Supplementary planes → surrogate pair (Windows IME pattern).
+     * @return false if code point invalid or event pipe not ready.
+     */
+    external fun nativeSendUnicodeChar(hwnd: Int, codePoint: Int): Boolean
 }

@@ -86,19 +86,20 @@ bind。详见 docs/18 §5 / §9。布局仍用 min 2×2 占位，避免 ANW 0/1�
 | 文件 | 职责 |
 |------|------|
 | `WineAndroidDesktop.kt` | contentHost、WindowGroup 嵌套、visible 布局、setFixedSize、surfaceChanged 再 register；GDI 组可焦点 + `sendKeyboardEvent`；IME `WineInputConnection` commit |
-| `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点跳过 |
+| `WineAndroidImeCommit.kt` | IME 提交文本 → `KeyCharacterMap.getEvents` → KEYBOARD_EVENT；未映射码点交给 `nativeSendUnicodeChar` |
 | `WineAndroidHostScale.kt` | 纯 letterbox scale/offset 计算（单测覆盖多分辨率） |
 | `WineAndroidHostBridge.kt` | createWindow / windowPosChanged(visible_*) / setParent→reparent |
 | `WineAndroidWindow.kt` | window/client/visible rect、style、visible |
 | `WineAndroidSessionActivity.kt` | session + 调试 statusView；desktop 嵌套布局；`dispatchKeyEvent` → KEYBOARD_EVENT |
-| `wineandroid_host_ipc.c` | `nativeRegisterSurface` → `SURFACE_CHANGED`；`nativeSendMotionEvent` / `nativeSendKeyboardEvent` |
+| `wineandroid_host_ipc.c` | `nativeRegisterSurface` → `SURFACE_CHANGED`；`nativeSendMotionEvent` / `nativeSendKeyboardEvent` / `nativeSendUnicodeChar`（`KEYEVENTF_UNICODE`） |
 
 ## 键盘（EVENT_KEYBOARD）
 
-硬件 / `adb input keyevent` / `adb input text`（KEYCODE 注入）与 soft IME **commit** 都走与 MOTION 同一条 desktop event pipe（`nativeSendKeyboardEvent`）。
+硬件 / `adb input keyevent` / `adb input text`（KEYCODE 注入）与 soft IME **commit** 都走与 MOTION 同一条 desktop event pipe（`nativeSendKeyboardEvent` / `nativeSendUnicodeChar`）。
 
 - **IME commit 已落地**：`WineAndroidDesktop` 实现 `onCreateInputConnection` → 复用 `WineInputConnection`；committed ASCII/Latin 经 `KeyCharacterMap`（`VIRTUAL_KEYBOARD`）映射为 KeyEvent 再 `sendKeyboardEvent`。删除 / EditorAction(ENTER) / `onSendKeyEvent` 同管。触摸设 `keyTargetHwnd` 后 `showSoftKeyboard()`。
-- **仍开**：CJK composition 只留在 `WineInputConnection` 本地（`onComposingTextChanged` 仅 Log）；`KeyCharacterMap` 无法映射的 Unicode（CJK / emoji）跳过并打日志 — **不做** IMM32/TSF；guest unicode / `WM_CHAR` 路径仍开。
+- **CJK/unicode commit 已落地**：`KeyCharacterMap` 无法映射的码点经 `nativeSendUnicodeChar` → 同 pipe 的 `KEYEVENTF_UNICODE`（BMP 一 wchar；补充平面 UTF-16 代理对两次 unicode 事件；各 down+up）。Guest 侧仍是 `NtUserSendHardwareInput`，**不做** IMM32/TSF。
+- **仍开**：CJK **composition** 只留在 `WineInputConnection` 本地（`onComposingTextChanged` 仅 Log）；真机 CJK soft IME 眼验。
 
 ## 非目标
 

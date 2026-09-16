@@ -40,8 +40,8 @@ import kotlin.math.roundToInt
  *   (KEYBOARD_EVENT). Hardware KEYCODE_* / `adb input keyevent|text`.
  * - Soft IME: [onCreateInputConnection] → [WineInputConnection]; committed
  *   ASCII/Latin maps via `KeyCharacterMap` → same [sendKeyboardEvent] pipe.
- *   CJK composition stays local in WineInputConnection; unicode / WM_CHAR
- *   for unmapped code points is still open (no IMM32/TSF).
+ *   Unmapped code points (CJK / emoji) → [nativeSendUnicodeChar]
+ *   (KEYEVENTF_UNICODE on EVENT_KEYBOARD). Composition stays local; no IMM32/TSF.
  */
 class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private data class Key(val hwnd: Int, val client: Boolean)
@@ -129,6 +129,14 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                     val mapped = WineAndroidImeCommit.mapCommittedText(text)
                     for (event in mapped.events) {
                         sendKeyboardEvent(event)
+                    }
+                    val hwnd = if (keyTargetHwnd != 0) keyTargetHwnd else desktopHwnd
+                    for (codePoint in mapped.unmappedCodePoints) {
+                        val ok = WineAndroidNative.nativeSendUnicodeChar(hwnd, codePoint)
+                        Log.i(
+                            TAG,
+                            "IME unicode hwnd=$hwnd codePoint=U+${codePoint.toString(16)} ok=$ok",
+                        )
                     }
                 }
 
