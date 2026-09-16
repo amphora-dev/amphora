@@ -86,7 +86,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 - 推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸：`5515738`
 - SurfaceView 触摸 → wineandroid `MOTION_EVENT`（不注入 X）：`d3a7bd5`
 - 硬件 KEYBOARD → wineandroid `KEYBOARD_EVENT`（KEYCODE / `adb keyevent`；**非** IME）：`35c9921`
-- DPI 经典 **96** 已落地（`d264af1`）；多设备 `hostScale` 验收清单见 `docs/16` TODO
+- DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；真机第二台仍见 `docs/16` TODO
 - GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
 
 游戏轨：
@@ -200,19 +200,18 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 
 ## 12. 默认下一拍（文档顺序，可能随进度变）
 
-**MOTION + 硬件 KEYBOARD 已落地**（IME 仍开，**勿堆 IME** 当下一刀）。
+**已落地（2026-09-16）**：MOTION + 硬件 KEYBOARD；DPI 96；hostScale 多分辨率
+单测（`034b38e`）；游戏轨 AHB 已合入 `proton_11.0` @ `0a64ebc`，WCP 已发，
+HA262 Present **v9c PASS**（公开 pin）。
 
-下一拍优先开项（二选一/并行均可）：
+**本拍优先：**
 
-1. 多设备 `hostScale` 验收（DPI 96 已落地；清单见 `docs/16` TODO）
-2. 游戏轨：先合 proton-wine AHB 补丁 + imagefs 重发 WCP / bump pin，**再** CI APK+WCP 在 HA262 冒烟（`docs/14` Next；勿刀尖 `.so`）
+1. wineandroid **IME 缺口**（InputConnection → KEYBOARD_EVENT / 可提交文本；
+   CJK composition 可分期）。勿当硬件 KEYCODE 未做。
+2. docs/16 仍开：第二台真机 / 旋转分屏眼验；guest 分辨率档 / 可选 UI。
 
-仍开但非本拍优先：
-
-3. IME 缺口（InputConnection / IMM32 / CJK）；勿当硬件 KEYCODE 未做
-4. 文档与 progress 保持与 HEAD 同步（勿把已做项写成未做）
-
-**不是**下一拍：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9 可选后置）。
+**不是**下一拍：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9 可选后置）；
+勿再叠 Present 刀尖 `.so`。
 
 动手前用 `git log` + progress **核对**上表，勿盲抄过期勾选。
 

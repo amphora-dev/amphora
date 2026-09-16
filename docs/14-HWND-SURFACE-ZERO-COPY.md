@@ -26,38 +26,35 @@ knife13 hot path is already HWND Surface AHB zero-copy. Present does **not** go 
 - Do **not** touch AHB CreateSwapchain / import / create-time win_queue
 - Do **not** GB / VkLayer / table scan
 
-## Next — CI Present smoke (unblocked pin as of 2026-09-16)
+## CI Present smoke — DONE on public proton_11.0 (2026-09-16)
 
-**Goal:** smoke **CI/release** Amphora APK + Proton WCP on HA262AAH until
+**Goal met:** smoke release Amphora APK + Proton WCP on HA262AAH with
 `AHB_SC … import=ok` / Present≥50. **Not** knife-manual `.so` sideload.
 
-**Status (2026-09-16 ~11:35 Asia/Shanghai):**
+**Status (2026-09-16 ~13:08 Asia/Shanghai):**
 
-- **CI Present smoke v8b PASSED** (~11:26): amphora `21034ee` + WCP
-  `Proton-11.0-df643f5db` + long smoke 175 frames. DIRECT hwnd-ANW,
+- **v9c PASSED** (~13:08): amphora `034b38e` + public WCP
+  `Proton-11.0-0a64ebc8d-x86_64.wcp` (sha256 `c6b42624…`). DIRECT hwnd-ANW,
   `SET_BUFFER_COUNT want=5 ret=0`, `import=ok`, Present≥50, guest-readback
   CLASS=MAGENTA @50/@100, screen center magenta.
-  Mac ART: `/Users/sky/co/src/amphora-dev/smoke-artifacts/ci-present-20260916-112604-v8b/`
-  Box note: `/workspace/ha262-ci-present-v8b-pass.md`.
-- Wine client branch `wip/ahb-dxvk-from-knife-tip` tip now `0a64ebc8d69`
-  (`fix(wineandroid): SET_BUFFER_COUNT ≥ MIN_UNDEQUEUED+1 for BLAST`) —
-  one commit ahead of smoked `df643f5db06`. Still **not** merged to `proton_11.0`.
-- imagefs `wip/ahb-wcp-69bc79bcc6e` @ `7fcc19a` still pins `df643f5db06`;
-  local WCP built: `/workspace/wcp-df643f5-out/artifacts/Proton-11.0-df643f5db-x86_64.wcp`
-  (sha256 `f60305913e16…`).
-- `content_manifest` main `c391774` pins `Proton-11.0-df643f5db-x86_64`
-  (wine release asset already published).
+  Mac ART: `/Users/sky/co/src/amphora-dev/smoke-artifacts/ci-present-20260916-130751-v9c/`
+  Box note: `/workspace/ha262-ci-present-v9c-0a64ebc-pass.md`.
+- **v8b** (~11:26) was the first PASS on intermediate pin `df643f5db` + APK
+  `21034ee` (same criteria).
+- `origin/proton_11.0` @ `0a64ebc8d69` (AHB Present + SET_BUFFER_COUNT).
+- imagefs `wip/ahb-wcp-0a64ebc8d69` @ `555a08b` pins that tip; wine release
+  asset published; `content_manifest` main `967cc67` pins
+  `Proton-11.0-0a64ebc8d-x86_64`.
 
-**Earlier trail:** v5 PARTIAL on 651198953 (DIRECT+WSI size, no CreateSwapchain);
-v4 FAIL on a856835d0 (no DIRECT hwnd-ANW).
+**Earlier trail:** v5 PARTIAL on 651198953; v4 FAIL on a856835d0; v9/v9b
+hung when stale `ab04edc` box64/wineserver survived `am force-stop` — kill
+orphans before Present smoke.
 
-**Now do:** decide continue-vs-switch — either pin/rebuild WCP for tip
-`0a64ebc8d69` (wine-side SET_BUFFER_COUNT to match amphora host) or treat
-df643f5+v8b as enough and merge/pin subset to `proton_11.0`. Ban DPI/IME /
-knife `.so` sideload.
+**Shell next (not Present):** docs/16 hostScale unit tests landed (`034b38e`);
+IME InputConnection still open. Ban knife `.so` sideload.
 
 **Also:** `amphora-dxvk-smoke.exe` is **not** in content_manifest / releases
-(only Graphics-Test-* are). Locate on Mac knife/smoke dirs or vendor later.
+(only Graphics-Test-* are). Locate on Mac `/Users/sky/co/tmp/amphora-dxvk-smoke.exe`.
 
 **Do not** revive knife `.so` sideload / `su cp` of `wineandroid.so` /
 `win32u.so` as truth — that was knife13 proof only, not a ship path.
