@@ -1428,11 +1428,43 @@ static void *wsi_sc_serve(void *arg)
     return NULL;
 }
 
+/* Box64 wraps dlopen/dlsym of libandroid.so/liblog.so by basename and hides the
+ * NDK symbols from x86_64 guests. Publish symlinks under un-wrapped names in
+ * the guest lib dir (first LD_LIBRARY_PATH entry) so wineandroid.drv can
+ * dlopen the real libs as libandroid-real.so / liblog-real.so. */
+static void publish_real_lib_aliases(void)
+{
+    static const struct { const char *alias; const char *target; } aliases[] = {
+        { "libandroid-real.so", "/system/lib64/libandroid.so" },
+        { "liblog-real.so", "/system/lib64/liblog.so" },
+    };
+    const char *ldpath = getenv("LD_LIBRARY_PATH");
+    char dir[1024];
+    size_t n;
+    size_t i;
+
+    if (!ldpath || !*ldpath) return;
+    n = strcspn(ldpath, ": ");
+    if (!n || n >= sizeof(dir)) return;
+    memcpy(dir, ldpath, n);
+    dir[n] = 0;
+
+    for (i = 0; i < sizeof(aliases) / sizeof(aliases[0]); i++)
+    {
+        char path[1200];
+        snprintf(path, sizeof(path), "%s/%s", dir, aliases[i].alias);
+        unlink(path);
+        if (symlink(aliases[i].target, path) != 0)
+            LOGE("wsi alias %s: %s", path, strerror(errno));
+    }
+}
+
 __attribute__((constructor))
 static void amphora_wsi_ctor(void)
 {
     pthread_t th, th_sc;
     LOGI("wsi ctor pid=%d knife13-src-createswapchain", (int)getpid());
+    publish_real_lib_aliases();
     /* Runtime hook installer disabled; Wine CreateSwapchain calls amphora_ahb_sc_*. */
     if (pthread_create(&th, NULL, wsi_serve, NULL) == 0)
         pthread_detach(th);
