@@ -3,7 +3,7 @@
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
 > 最后更新: 2026-09-24 · 文末补 wineandroid 指针；上方历史条目仍是当时快照
 > 2026-08-11 时 **v0.1 端到端已跑通** (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。当前已采用远程 manifest 内容供应、自建 imagefs/Proton/Box64/DXVK/VKD3D、共享字体，并加入可选 PulseAudio/AAudio（ALSA 默认回退）。架构真源见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)。
-> 必读: 仓库旁 `amphora-progress.md` · [`16-WINEANDROID-DISPLAY.md`](16-WINEANDROID-DISPLAY.md) · [`17-WINEANDROID-UPSTREAM-BORROW.md`](17-WINEANDROID-UPSTREAM-BORROW.md) · [`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md) · [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)
+> 必读: 仓库旁 `amphora-progress.md` · [`16-WINEANDROID-DISPLAY.md`](16-WINEANDROID-DISPLAY.md) · [`17-WINEANDROID-UPSTREAM-BORROW.md`](17-WINEANDROID-UPSTREAM-BORROW.md) · [`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md) · [`19-AGENT-BOOTSTRAP.md`](19-AGENT-BOOTSTRAP.md) · [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)
 > 早期必读仍有效: [`01-RFC.md`](01-RFC.md) · [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
 
 ---
@@ -360,9 +360,10 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 ## 2026-09-24 · 指针（整理，不重写历史）
 
 > 本节只指路。2026-09-14 及更早条目仍是当时快照，**不是**当前下一步。
+> tip 对齐时发现：仓库已有 `docs/19`；「推迟第一次 register」**已落地**（`5515738`），勿再当欠账。
 
 - 当前 wineandroid / 出窗文档真源：[`16-WINEANDROID-DISPLAY.md`](16-WINEANDROID-DISPLAY.md)、[`17-WINEANDROID-UPSTREAM-BORROW.md`](17-WINEANDROID-UPSTREAM-BORROW.md)、[`18-WINEANDROID-VS-X11-SURFACES.md`](18-WINEANDROID-VS-X11-SURFACES.md)
+- 开工方法论与默认下一项：[`19-AGENT-BOOTSTRAP.md`](19-AGENT-BOOTSTRAP.md) §12
 - 下一会话进度：仓库旁 `amphora-progress.md`（`/workspace` 下同名副本为废档，勿升真源）
-- **当前下一步（代码）**：推迟第一次 `nativeRegisterSurface` 到真实 guest w/h（>0 或 ≥2）；**不是**旧的 HWND Surface 零拷贝 / AHB Present 下一刀
-- AHB / CreateSwapchain / wsi-sc / 私有 host.sock：搁置，勿拉回主线（纪律见 amphora-clean / progress Bans）
-
+- **当前下一步**：以 `docs/19` §12 为准——主动排期基本已关；仅剩可选人工目视确认（叠窗眼验 / title-bar capture / CJK IME）。**不是**旧的 HWND 零拷贝 / AHB Present / 推迟 register
+- AHB / CreateSwapchain / wsi-sc / 私有 host.sock / 侧载非正式 Present `.so`：搁置，勿拉回主线
