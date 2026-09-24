@@ -18,6 +18,7 @@ data class ContentComponentHealth(
 ) {
     enum class State {
         READY,
+
         /** Installed at the effective catalog pin which came from [app.amphora.core.content.DevPinOverlay]. */
         LOCAL_OVERRIDE,
         MISSING,
@@ -41,6 +42,7 @@ data class RuntimeAssetHealth(
         MISSING,
         MISMATCH,
         UNVERIFIED,
+
         /** Matches the effective pin from [app.amphora.core.content.DevPinOverlay]. */
         LOCAL_OVERRIDE,
     }

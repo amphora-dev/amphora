@@ -36,25 +36,13 @@ object WineAndroidNative {
      * Pack and write a wineandroid MOTION_EVENT (guest desktop px).
      * @return false if action unsupported or event pipe not ready.
      */
-    external fun nativeSendMotionEvent(
-        hwnd: Int,
-        action: Int,
-        x: Int,
-        y: Int,
-        state: Int,
-        vscroll: Int,
-    ): Boolean
+    external fun nativeSendMotionEvent(hwnd: Int, action: Int, x: Int, y: Int, state: Int, vscroll: Int): Boolean
 
     /**
      * Pack and write a wineandroid KEYBOARD_EVENT (AKEYCODE → vkey/scancode).
      * @return false if keycode is unmapped or event pipe not ready.
      */
-    external fun nativeSendKeyboardEvent(
-        hwnd: Int,
-        action: Int,
-        keycode: Int,
-        state: Int,
-    ): Boolean
+    external fun nativeSendKeyboardEvent(hwnd: Int, action: Int, keycode: Int, state: Int): Boolean
 
     /**
      * Pack KEYEVENTF_UNICODE KEYBOARD_EVENT(s) for [codePoint] (UTF-16 units,

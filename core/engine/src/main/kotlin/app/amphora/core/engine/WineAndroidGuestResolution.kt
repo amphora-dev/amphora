@@ -7,12 +7,7 @@ package app.amphora.core.engine
  * touching Wine LogPixels (stay classic 96). Settings / Launcher persist via
  * [preferenceName] / [fromPreference] into [RuntimeSettingsStore].
  */
-data class GuestResolution(
-    val id: String,
-    val width: Int,
-    val height: Int,
-    val label: String,
-) {
+data class GuestResolution(val id: String, val width: Int, val height: Int, val label: String) {
     init {
         require(width > 0 && height > 0)
     }
@@ -39,38 +34,32 @@ object WineAndroidGuestResolution {
      * SharedPreferences / [RuntimeSettingsStore] value for this preset.
      * House style uses `R{W}x{H}` (same as Settings/Launcher enum names).
      */
-    fun preferenceName(preset: GuestResolution): String =
-        when (preset.id) {
-            HD_1280x720.id -> "R1280x720"
-            XGA_1024x768.id -> "R1024x768"
-            HD_PLUS_1600x900.id -> "R1600x900"
-            FHD_1920x1080.id -> "R1920x1080"
-            else -> preferenceName(DEFAULT)
-        }
+    fun preferenceName(preset: GuestResolution): String = when (preset.id) {
+        HD_1280x720.id -> "R1280x720"
+        XGA_1024x768.id -> "R1024x768"
+        HD_PLUS_1600x900.id -> "R1600x900"
+        FHD_1920x1080.id -> "R1920x1080"
+        else -> preferenceName(DEFAULT)
+    }
 
     /**
      * Resolve a stored preference (enum name or guest id). Unknown / legacy
      * values (e.g. old `R800x600`) fall back to [DEFAULT].
      */
-    fun fromPreference(value: String?): GuestResolution =
-        when (value) {
-            null, "" -> DEFAULT
-            HD_1280x720.id, "R1280x720" -> HD_1280x720
-            XGA_1024x768.id, "R1024x768" -> XGA_1024x768
-            HD_PLUS_1600x900.id, "R1600x900" -> HD_PLUS_1600x900
-            FHD_1920x1080.id, "R1920x1080" -> FHD_1920x1080
-            else -> DEFAULT
-        }
+    fun fromPreference(value: String?): GuestResolution = when (value) {
+        null, "" -> DEFAULT
+        HD_1280x720.id, "R1280x720" -> HD_1280x720
+        XGA_1024x768.id, "R1024x768" -> XGA_1024x768
+        HD_PLUS_1600x900.id, "R1600x900" -> HD_PLUS_1600x900
+        FHD_1920x1080.id, "R1920x1080" -> FHD_1920x1080
+        else -> DEFAULT
+    }
 
     /**
      * Resolve optional debug launch overrides against the stored guest size.
      * A non-null override represents an explicit WIDTH / HEIGHT smoke extra.
      */
-    fun resolveDebugDimensions(
-        preferenceName: String?,
-        widthOverride: Int?,
-        heightOverride: Int?,
-    ): Pair<Int, Int> {
+    fun resolveDebugDimensions(preferenceName: String?, widthOverride: Int?, heightOverride: Int?): Pair<Int, Int> {
         val configured = fromPreference(preferenceName)
         return (widthOverride ?: configured.width) to (heightOverride ?: configured.height)
     }
@@ -82,11 +71,7 @@ object WineAndroidGuestResolution {
      * - `pref`: no size extras; SharedPreferences name present
      * - `default`: no size extras and no stored preference
      */
-    fun describeDebugDimensionSource(
-        preferenceName: String?,
-        widthOverride: Int?,
-        heightOverride: Int?,
-    ): String {
+    fun describeDebugDimensionSource(preferenceName: String?, widthOverride: Int?, heightOverride: Int?): String {
         val hasW = widthOverride != null
         val hasH = heightOverride != null
         return when {
@@ -102,11 +87,10 @@ object WineAndroidGuestResolution {
      * Conservative: stay at 720p until the short side is large enough that a
      * bigger guest still letterboxes with scale ≥ ~1.5.
      */
-    fun suggestForHostShortSide(shortSidePx: Int): GuestResolution =
-        when {
-            // Keep HA262 (~1904 short) on 720p; only step up on very large panels.
-            shortSidePx >= 2560 -> FHD_1920x1080
-            shortSidePx >= 2160 -> HD_PLUS_1600x900
-            else -> HD_1280x720
-        }
+    fun suggestForHostShortSide(shortSidePx: Int): GuestResolution = when {
+        // Keep HA262 (~1904 short) on 720p; only step up on very large panels.
+        shortSidePx >= 2560 -> FHD_1920x1080
+        shortSidePx >= 2160 -> HD_PLUS_1600x900
+        else -> HD_1280x720
+    }
 }

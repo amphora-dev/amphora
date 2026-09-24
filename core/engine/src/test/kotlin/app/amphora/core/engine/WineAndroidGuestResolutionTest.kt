@@ -118,7 +118,10 @@ class WineAndroidGuestResolutionTest {
     fun preferenceNamesMatchHouseEnumStyle() {
         assertEquals("R1280x720", WineAndroidGuestResolution.preferenceName(WineAndroidGuestResolution.HD_1280x720))
         assertEquals("R1024x768", WineAndroidGuestResolution.preferenceName(WineAndroidGuestResolution.XGA_1024x768))
-        assertEquals("R1600x900", WineAndroidGuestResolution.preferenceName(WineAndroidGuestResolution.HD_PLUS_1600x900))
+        assertEquals(
+            "R1600x900",
+            WineAndroidGuestResolution.preferenceName(WineAndroidGuestResolution.HD_PLUS_1600x900),
+        )
         assertEquals("R1920x1080", WineAndroidGuestResolution.preferenceName(WineAndroidGuestResolution.FHD_1920x1080))
     }
 }

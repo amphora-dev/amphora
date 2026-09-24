@@ -820,12 +820,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
      * Upstream WineWindow.set_zorder + sync_views_zorder: update sibling stack,
      * then bringChildToFront visible groups bottom→top.
      */
-    private fun applyZOrder(
-        hwnd: Int,
-        insertAfter: Int,
-        stackKey: Int,
-        reason: String = "apply",
-    ) {
+    private fun applyZOrder(hwnd: Int, insertAfter: Int, stackKey: Int, reason: String = "apply") {
         val stack = siblingStacks.getOrPut(stackKey) { mutableListOf() }
         val updated = WineAndroidWindowStack.reorder(stack, hwnd, insertAfter)
         stack.clear()

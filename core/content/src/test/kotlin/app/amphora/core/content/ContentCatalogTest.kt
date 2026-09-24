@@ -96,7 +96,6 @@ class ContentCatalogTest {
         assertEquals(null, catalog.peek())
     }
 
-
     @Test
     fun requireAppliesDevPinOverlayToDiskCache() = runBlocking {
         val cacheFile = cacheFile().apply { writeText(ContentManifestTest.SAMPLE) }

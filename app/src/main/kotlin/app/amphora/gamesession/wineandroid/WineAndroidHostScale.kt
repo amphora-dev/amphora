@@ -30,12 +30,7 @@ object WineAndroidHostScale {
      * Scale = min(hostW/guestW, hostH/guestH); content centered in host.
      * Invalid sizes return [WineAndroidHostScaleLayout.IDENTITY].
      */
-    fun compute(
-        guestWidth: Int,
-        guestHeight: Int,
-        hostWidth: Int,
-        hostHeight: Int,
-    ): WineAndroidHostScaleLayout {
+    fun compute(guestWidth: Int, guestHeight: Int, hostWidth: Int, hostHeight: Int): WineAndroidHostScaleLayout {
         if (guestWidth <= 0 || guestHeight <= 0 || hostWidth <= 0 || hostHeight <= 0) {
             return WineAndroidHostScaleLayout.IDENTITY
         }

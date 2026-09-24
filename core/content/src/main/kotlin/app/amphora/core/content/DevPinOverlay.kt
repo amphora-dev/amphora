@@ -275,11 +275,7 @@ data class ComponentPinPatch(
     }
 }
 
-data class RuntimeAssetPinPatch(
-    val sha256: String? = null,
-    val size: Long? = null,
-    val remoteUrl: String? = null,
-) {
+data class RuntimeAssetPinPatch(val sha256: String? = null, val size: Long? = null, val remoteUrl: String? = null) {
     fun toJson(): JSONObject = JSONObject().apply {
         sha256?.let { put("sha256", it) }
         size?.let { put("size", it) }

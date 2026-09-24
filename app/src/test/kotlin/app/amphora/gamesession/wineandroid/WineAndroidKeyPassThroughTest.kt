@@ -16,8 +16,12 @@ class WineAndroidKeyPassThroughTest {
     @Test
     fun volumeAndSystemKeysPassThrough() {
         assertTrue(WineAndroidKeyPassThrough.isIntentionalHostPassThrough(WineAndroidKeyPassThrough.KEYCODE_VOLUME_UP))
-        assertTrue(WineAndroidKeyPassThrough.isIntentionalHostPassThrough(WineAndroidKeyPassThrough.KEYCODE_VOLUME_DOWN))
-        assertTrue(WineAndroidKeyPassThrough.isIntentionalHostPassThrough(WineAndroidKeyPassThrough.KEYCODE_VOLUME_MUTE))
+        assertTrue(
+            WineAndroidKeyPassThrough.isIntentionalHostPassThrough(WineAndroidKeyPassThrough.KEYCODE_VOLUME_DOWN),
+        )
+        assertTrue(
+            WineAndroidKeyPassThrough.isIntentionalHostPassThrough(WineAndroidKeyPassThrough.KEYCODE_VOLUME_MUTE),
+        )
         assertTrue(WineAndroidKeyPassThrough.isIntentionalHostPassThrough(WineAndroidKeyPassThrough.KEYCODE_HOME))
         assertTrue(WineAndroidKeyPassThrough.isIntentionalHostPassThrough(WineAndroidKeyPassThrough.KEYCODE_POWER))
     }

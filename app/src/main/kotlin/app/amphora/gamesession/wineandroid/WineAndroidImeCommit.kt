@@ -15,10 +15,7 @@ import android.view.KeyEvent
 object WineAndroidImeCommit {
     const val MAX_IME_DELETE_COUNT = 256
 
-    data class MappedCommit(
-        val events: List<KeyEvent>,
-        val unmappedCodePoints: List<Int>,
-    )
+    data class MappedCommit(val events: List<KeyEvent>, val unmappedCodePoints: List<Int>)
 
     /**
      * Pure mapping over committed text: for each Unicode code point, call [eventsForChars]

@@ -13,13 +13,8 @@ package app.amphora.gamesession.wineandroid
 sealed class WineAndroidCursorSpec {
     data class System(val id: Int) : WineAndroidCursorSpec()
 
-    data class Custom(
-        val width: Int,
-        val height: Int,
-        val hotspotX: Int,
-        val hotspotY: Int,
-        val bits: IntArray,
-    ) : WineAndroidCursorSpec() {
+    data class Custom(val width: Int, val height: Int, val hotspotX: Int, val hotspotY: Int, val bits: IntArray) :
+        WineAndroidCursorSpec() {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (other !is Custom) return false

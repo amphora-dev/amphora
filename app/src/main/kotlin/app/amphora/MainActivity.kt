@@ -83,37 +83,37 @@ class MainActivity : ComponentActivity() {
                         graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
                         exeArgs = debugExeArgs(),
                         debugImeUnicodeText =
-                            intent.getStringExtra(EXTRA_DEBUG_IME_UNICODE_TEXT),
+                        intent.getStringExtra(EXTRA_DEBUG_IME_UNICODE_TEXT),
                         debugImeComposingText =
-                            if (intent.hasExtra(EXTRA_DEBUG_IME_COMPOSING_TEXT)) {
-                                intent.getStringExtra(EXTRA_DEBUG_IME_COMPOSING_TEXT) ?: ""
-                            } else {
-                                null
-                            },
+                        if (intent.hasExtra(EXTRA_DEBUG_IME_COMPOSING_TEXT)) {
+                            intent.getStringExtra(EXTRA_DEBUG_IME_COMPOSING_TEXT) ?: ""
+                        } else {
+                            null
+                        },
                         debugImeShow =
-                            if (intent.hasExtra(EXTRA_DEBUG_IME_SHOW)) {
-                                intent.getBooleanExtra(EXTRA_DEBUG_IME_SHOW, false)
-                            } else {
-                                null
-                            },
+                        if (intent.hasExtra(EXTRA_DEBUG_IME_SHOW)) {
+                            intent.getBooleanExtra(EXTRA_DEBUG_IME_SHOW, false)
+                        } else {
+                            null
+                        },
                         debugCaptureHwnd =
-                            if (intent.hasExtra(EXTRA_DEBUG_CAPTURE_HWND)) {
-                                intent.getIntExtra(EXTRA_DEBUG_CAPTURE_HWND, 0)
-                            } else {
-                                null
-                            },
+                        if (intent.hasExtra(EXTRA_DEBUG_CAPTURE_HWND)) {
+                            intent.getIntExtra(EXTRA_DEBUG_CAPTURE_HWND, 0)
+                        } else {
+                            null
+                        },
                         debugDumpZOrder =
-                            if (intent.hasExtra(EXTRA_DEBUG_DUMP_ZORDER)) {
-                                intent.getBooleanExtra(EXTRA_DEBUG_DUMP_ZORDER, false)
-                            } else {
-                                null
-                            },
+                        if (intent.hasExtra(EXTRA_DEBUG_DUMP_ZORDER)) {
+                            intent.getBooleanExtra(EXTRA_DEBUG_DUMP_ZORDER, false)
+                        } else {
+                            null
+                        },
                         debugZOrderTopHwnd =
-                            if (intent.hasExtra(EXTRA_DEBUG_ZORDER_TOP_HWND)) {
-                                intent.getIntExtra(EXTRA_DEBUG_ZORDER_TOP_HWND, 0)
-                            } else {
-                                null
-                            },
+                        if (intent.hasExtra(EXTRA_DEBUG_ZORDER_TOP_HWND)) {
+                            intent.getIntExtra(EXTRA_DEBUG_ZORDER_TOP_HWND, 0)
+                        } else {
+                            null
+                        },
                     )
                 }
             }
@@ -125,8 +125,7 @@ class MainActivity : ComponentActivity() {
         ?.takeIf { it.isNotBlank() }
         ?: stageDebugWineExe(this)
 
-    private fun debugExeArgs(): String =
-        intent.getStringExtra(EXTRA_DEBUG_WINE_ARGS).orEmpty()
+    private fun debugExeArgs(): String = intent.getStringExtra(EXTRA_DEBUG_WINE_ARGS).orEmpty()
 
     companion object {
         private const val TAG = "MainActivity"
@@ -134,6 +133,7 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_SETTINGS = "app.amphora.desktop.OPEN_SETTINGS"
         private const val EXTRA_DEBUG_WINE_SMOKE = "app.amphora.debug.WINE_SMOKE"
         private const val EXTRA_DEBUG_WINE_EXE = "app.amphora.debug.WINE_EXE"
+
         /** Debug-only: trailing Wine program CLI args (e.g. `--cube vk --bench 8`). */
         private const val EXTRA_DEBUG_WINE_ARGS = "app.amphora.debug.WINE_ARGS"
         private const val EXTRA_DEBUG_WIDTH = "app.amphora.debug.WIDTH"

@@ -60,11 +60,9 @@ class ContentCatalog internal constructor(
     val overriddenRuntimeAssets: Set<String>
         get() = (_status.value as? Status.Ready)?.overriddenRuntimeAssets.orEmpty()
 
-    fun isComponentOverridden(component: ContentComponent): Boolean =
-        component in overriddenComponents
+    fun isComponentOverridden(component: ContentComponent): Boolean = component in overriddenComponents
 
-    fun isRuntimeAssetOverridden(assetPath: String): Boolean =
-        assetPath in overriddenRuntimeAssets
+    fun isRuntimeAssetOverridden(assetPath: String): Boolean = assetPath in overriddenRuntimeAssets
 
     /**
      * Return the in-memory or disk-cached manifest, fetching from the remote URL

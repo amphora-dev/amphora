@@ -24,11 +24,7 @@ object WineAndroidDebugCaptureInject {
      * null = absent / not debuggable (no-op); otherwise the requested hwnd
      * (incl. 0 = release, [SENTINEL_DESKTOP] = use desktop when ready).
      */
-    fun captureHwndIfDebuggable(
-        present: Boolean,
-        value: Int,
-        debuggable: Boolean,
-    ): Int? {
+    fun captureHwndIfDebuggable(present: Boolean, value: Int, debuggable: Boolean): Int? {
         if (!debuggable || !present) return null
         return value
     }
@@ -64,6 +60,5 @@ object WineAndroidDebugCaptureInject {
     /**
      * Mid-session relay: null = omit; non-null = put CAPTURE_HWND extra.
      */
-    fun relayForward(capturePresent: Boolean, captureValue: Int): Int? =
-        if (capturePresent) captureValue else null
+    fun relayForward(capturePresent: Boolean, captureValue: Int): Int? = if (capturePresent) captureValue else null
 }

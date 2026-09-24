@@ -22,11 +22,7 @@ object WineAndroidDebugZOrderInject {
      * null = absent / not debuggable; true/false when present and debuggable.
      * Only `true` schedules a dump (false is a no-op honor of the extra).
      */
-    fun dumpRequestedIfDebuggable(
-        present: Boolean,
-        value: Boolean,
-        debuggable: Boolean,
-    ): Boolean? {
+    fun dumpRequestedIfDebuggable(present: Boolean, value: Boolean, debuggable: Boolean): Boolean? {
         if (!debuggable || !present) return null
         return value
     }
@@ -50,11 +46,7 @@ object WineAndroidDebugZOrderInject {
      * null = absent / not debuggable; otherwise the hwnd to force to HWND_TOP
      * (0 is allowed but usually meaningless — treated as concrete inject).
      */
-    fun zOrderTopHwndIfDebuggable(
-        present: Boolean,
-        value: Int,
-        debuggable: Boolean,
-    ): Int? {
+    fun zOrderTopHwndIfDebuggable(present: Boolean, value: Int, debuggable: Boolean): Int? {
         if (!debuggable || !present) return null
         return value
     }
@@ -74,21 +66,15 @@ object WineAndroidDebugZOrderInject {
         )
     }
 
-    fun relayDump(dumpPresent: Boolean, dumpValue: Boolean): Boolean? =
-        if (dumpPresent) dumpValue else null
+    fun relayDump(dumpPresent: Boolean, dumpValue: Boolean): Boolean? = if (dumpPresent) dumpValue else null
 
-    fun relayZOrderTop(topPresent: Boolean, topValue: Int): Int? =
-        if (topPresent) topValue else null
+    fun relayZOrderTop(topPresent: Boolean, topValue: Int): Int? = if (topPresent) topValue else null
 
     /**
      * One log line for a parent sibling stack (top-first).
      * Visible hwnds marked with `*`; hidden unmarked.
      */
-    fun formatStackLine(
-        parentKey: Int,
-        topFirst: List<Int>,
-        visible: (Int) -> Boolean,
-    ): String {
+    fun formatStackLine(parentKey: Int, topFirst: List<Int>, visible: (Int) -> Boolean): String {
         val body =
             if (topFirst.isEmpty()) {
                 "(empty)"
@@ -105,17 +91,9 @@ object WineAndroidDebugZOrderInject {
      * True when a stack has ≥2 visible hwnds — useful for overlap eye-check
      * logging without spamming single-child syncs.
      */
-    fun hasOverlapCandidates(
-        topFirst: List<Int>,
-        visible: (Int) -> Boolean,
-    ): Boolean = topFirst.count(visible) >= 2
+    fun hasOverlapCandidates(topFirst: List<Int>, visible: (Int) -> Boolean): Boolean = topFirst.count(visible) >= 2
 
-    fun formatSyncLine(
-        parentKey: Int,
-        topFirst: List<Int>,
-        bringOrder: List<Int>,
-        reason: String,
-    ): String {
+    fun formatSyncLine(parentKey: Int, topFirst: List<Int>, bringOrder: List<Int>, reason: String): String {
         val top =
             topFirst.joinToString(separator = ",") { "0x${it.toString(16)}" }
         val bring =

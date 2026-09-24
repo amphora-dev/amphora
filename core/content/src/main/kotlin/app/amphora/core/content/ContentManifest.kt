@@ -29,8 +29,7 @@ class ContentManifest private constructor(
     fun runtimeAssets(): List<RuntimeAssetEntry> = runtimeAssetEntries
 
     /** Apply development-time catalog pins; see [DevPinOverlay]. */
-    fun withDevPins(pins: DevPins): Pair<ContentManifest, DevPinApplication> =
-        DevPinOverlay.apply(this, pins)
+    fun withDevPins(pins: DevPins): Pair<ContentManifest, DevPinApplication> = DevPinOverlay.apply(this, pins)
 
     companion object {
         /**

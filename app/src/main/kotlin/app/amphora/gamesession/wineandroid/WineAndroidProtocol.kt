@@ -28,6 +28,7 @@ object WineAndroidProtocol {
     const val IOCTL_SET_SWAP_INT = 10
     const val IOCTL_SET_CAPTURE = 11
     const val IOCTL_SET_CURSOR = 12
+
     /** Tip AMPHORA_BUF wine FD via SCM_RIGHTS (host_anw socketpair). */
     const val IOCTL_GET_BUFFER_SOCK = 13
     const val NB_IOCTLS = 14

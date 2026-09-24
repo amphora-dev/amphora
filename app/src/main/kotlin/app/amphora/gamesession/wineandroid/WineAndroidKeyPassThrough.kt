@@ -21,17 +21,16 @@ object WineAndroidKeyPassThrough {
     const val KEYCODE_VOLUME_MUTE = 164
 
     /** True when host must own the key (guest pipe must not swallow it). */
-    fun isIntentionalHostPassThrough(keyCode: Int): Boolean =
-        when (keyCode) {
-            KEYCODE_HOME,
-            KEYCODE_BACK,
-            KEYCODE_VOLUME_UP,
-            KEYCODE_VOLUME_DOWN,
-            KEYCODE_POWER,
-            KEYCODE_VOLUME_MUTE,
-            -> true
-            else -> false
-        }
+    fun isIntentionalHostPassThrough(keyCode: Int): Boolean = when (keyCode) {
+        KEYCODE_HOME,
+        KEYCODE_BACK,
+        KEYCODE_VOLUME_UP,
+        KEYCODE_VOLUME_DOWN,
+        KEYCODE_POWER,
+        KEYCODE_VOLUME_MUTE,
+        -> true
+        else -> false
+    }
 
     /**
      * Classify a failed native send for logging.

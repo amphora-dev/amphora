@@ -1,10 +1,10 @@
 package app.amphora.ui
 
 import android.content.Context
+import app.amphora.core.engine.WineAndroidGuestResolution
 import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.gamesession.SessionActivity
-import app.amphora.core.engine.WineAndroidGuestResolution
 import app.amphora.gamesession.wineandroid.WineAndroidSessionActivity
 
 /**

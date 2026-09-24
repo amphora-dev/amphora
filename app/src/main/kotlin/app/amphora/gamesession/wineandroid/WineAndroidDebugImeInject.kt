@@ -66,11 +66,7 @@ object WineAndroidDebugImeInject {
      * Explicit soft-IME show/hide: null = absent / not debuggable (no-op);
      * true = [WineAndroidDesktop.showSoftKeyboard]; false = hide.
      */
-    fun showSoftKeyboardIfDebuggable(
-        present: Boolean,
-        value: Boolean,
-        debuggable: Boolean,
-    ): Boolean? {
+    fun showSoftKeyboardIfDebuggable(present: Boolean, value: Boolean, debuggable: Boolean): Boolean? {
         if (!debuggable || !present) return null
         return value
     }
@@ -124,9 +120,5 @@ object WineAndroidDebugImeInject {
         )
     }
 
-    data class RelayExtras(
-        val unicodeText: String?,
-        val composingText: String?,
-        val showSoftKeyboard: Boolean? = null,
-    )
+    data class RelayExtras(val unicodeText: String?, val composingText: String?, val showSoftKeyboard: Boolean? = null)
 }

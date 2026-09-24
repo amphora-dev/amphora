@@ -11,6 +11,5 @@ package app.amphora.gamesession.wineandroid
  */
 object WineAndroidCaptureTarget {
     /** Non-zero [captureHwnd] wins; otherwise the view under the pointer. */
-    fun resolve(captureHwnd: Int, hitTestHwnd: Int): Int =
-        if (captureHwnd != 0) captureHwnd else hitTestHwnd
+    fun resolve(captureHwnd: Int, hitTestHwnd: Int): Int = if (captureHwnd != 0) captureHwnd else hitTestHwnd
 }
