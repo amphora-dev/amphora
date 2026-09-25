@@ -9,8 +9,8 @@
 
 | 组件 | 当前 pin | 压缩大小 |
 |---|---|---:|
-| rootfs | `imagefs.txz` v44（xz） | 12,161,984 B |
-| Wine | `Proton-11.0-d12a5634a-x86_64.wcp` | 66,328,030 B |
+| rootfs | `imagefs.txz` v46（xz） | 12,203,684 B |
+| Wine | `Proton-11.0-05ca3a658-x86_64.wcp` | 66,346,658 B |
 | Box64 | `Box64-0.4.5-0db8df775.wcp` | 2,699,688 B |
 | DXVK | `Dxvk-3.0.2-gplasync-6b20f622a.wcp` | 8,048,148 B |
 | VKD3D | `Vkd3d-3.0.1-3b10bd7a7.wcp` | 3,276,904 B |
@@ -20,10 +20,9 @@
 PulseAudio 是例外，不属于远程 manifest：`pulseaudio.tzst`（78,340 B）与约 2.03 MB
 PA13 Android JNI 依赖随 APK 固定交付，避免 Wine 客户端、守护进程和模块跨版本漂移。
 
-> **发布联动状态（2026-08-30）**：imagefs `wine` Release 已在 2026-08-11 用同一
-> 文件名替换为含 `winepulse` 的 WCP。生产 pin 仍是
-> `Proton-11.0-d12a5634a-x86_64.wcp`，SHA `99c664d9994a5876a6e0e34eec252c5eb9f5074efec52ae68d0be8b37ead4b6e`。
-> 设备上的 `winepulse.so` 为 x86_64，`DT_NEEDED=libpulse.so`（无 guest `libpulse`）。
+> **发布联动状态（2026-09-22）**：生产 pin 现为
+> `Proton-11.0-05ca3a658-x86_64.wcp`，SHA `395cc2732961e93022e80bd538de58c5d266f2fe2bb0df8cf8b8d1be705d46ff`。
+> 包含 Vulkan PresentModes 兼容扩展与 version 48 统一驱动 ABI。
 > 4 KB 页上选择 Pulse 不再因缺失驱动回退 ALSA。
 
 ---
@@ -63,7 +62,7 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 
 | 资产 | 压缩 | 大小 | 内容 |
 |---|---|---|---|
-| `Proton-11.0-d12a5634a-x86_64.wcp` | 以 profile 为准 | 66.3 MB | `bin/` `lib/` `share/` `prefixPack.txz` `profile.json` |
+| `Proton-11.0-05ca3a658-x86_64.wcp` | 以 profile 为准 | 66.3 MB | `bin/` `lib/` `share/` `prefixPack.txz` `profile.json` |
 | `Box64-0.4.5-0db8df775.wcp` | xz | 2.7 MB | `box64` + `profile.json` |
 
 ### C. DirectX 翻译层 — WCP，但内容是 Windows DLL，落容器 `system32`/`syswow64`
@@ -608,7 +607,7 @@ https://raw.githubusercontent.com/nicholasx417/WinNative-Components/refs/heads/m
 |---|---|---|---|
 | **DXVK** | `Dxvk-3.0.2-gplasync-6b20f622a.wcp` | `DXVK-3.0.2-gplasync-6b20f622a-0` | D3D8/9/10/11 → Vulkan |
 | **VKD3D** | `Vkd3d-3.0.1-3b10bd7a7.wcp` | `VKD3D-3.0.1-3b10bd7a7-0` | D3D12 → Vulkan |
-| **Proton** | `Proton-11.0-d12a5634a-x86_64.wcp` | `Proton-11.0-d12a5634a-x86_64-0` | 自建 Wine/Proton + prefixPack |
+| **Proton** | `Proton-11.0-05ca3a658-x86_64.wcp` | `Proton-11.0-05ca3a658-x86_64-0` | 自建 Wine/Proton + prefixPack |
 | **Box64** | `Box64-0.4.5-0db8df775.wcp` | `Box64-0.4.5-0db8df775-0` | x86_64 → ARM64 用户态翻译 |
 | **Wrapper** | `wrapper-7eae6442f.tzst` | runtime asset `graphics_driver/wrapper.tzst` | Guest Vulkan ICD + adrenotools hooks |
 
