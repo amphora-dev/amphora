@@ -45,7 +45,7 @@ import org.json.JSONObject
  * 2. `syncContents()` on this manager's [ContentsManager] so `createContainer` +
  *    `WineInfo.fromIdentifier` see the installed profiles. The engine and the
  *    preparer each own a separate [ContentsManager] and sync independently
- *    (per-instance state -- see `docs/03-TRACKING.md` §P2 #7c).
+ *    (per-instance state -- see `docs/02-TRACKING.md` §P2 #7c).
  * 3. Create-or-load the WinNative container (id `xuser-<n>` under `home/`),
  *    extracting the Wine prefix from the Proton `prefixPack.txz` on first
  *    creation ([WnContainerManager.createContainer] ->

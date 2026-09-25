@@ -135,7 +135,7 @@ class HeadlessWineBootTest {
         // NOTE: uses internal filesDir (not getExternalFilesDir) because on API 30+ adb shell
         // cannot push to /sdcard/Android/data/<pkg>/ (FUSE-scoped). The host stages the .wcp
         // into filesDir via `adb shell "cat /data/local/tmp/x.wcp | run-as app.amphora sh -c
-        // 'cat > /data/data/app.amphora/files/x.wcp'"` (see docs/03-TRACKING.md §P4-followup).
+        // 'cat > /data/data/app.amphora/files/x.wcp'"` (see docs/02-TRACKING.md §P4-followup).
         val wcpDir = appCtx.filesDir
         val protonWcp = File(wcpDir, "Proton-10.0-4-x86_64.wcp")
         val box64Wcp = File(wcpDir, "Bionic-Box64-0.4.3-8ee3d8f2c.wcp")
@@ -202,7 +202,7 @@ class HeadlessWineBootTest {
         if (File(imagefsDir, "usr/lib").isDirectory) return
         val assets = testCtx.assets.list("").orEmpty().toList()
         assumeTrue(
-            "imagefs.tzst not staged in androidTest/assets (have: $assets); see docs/04-ASSET-MANIFEST.md",
+            "imagefs.tzst not staged in androidTest/assets (have: $assets); see docs/03-ASSET-MANIFEST.md",
             "imagefs.tzst" in assets,
         )
         imagefsDir.deleteRecursively()

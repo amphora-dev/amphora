@@ -18,7 +18,7 @@
 #   ADB              adb binary (default: adb)
 #
 # Does NOT publish to GitHub / content_manifest. Clear the overlay to return
-# to remote pins. See docs/15-DEV-PIN-OVERLAY.md.
+# to remote pins. See docs/07-DEV-PIN-OVERLAY.md.
 set -euo pipefail
 
 PACKAGE="${PACKAGE:-app.amphora}"

@@ -608,4 +608,4 @@ GLX(41)、XKB(32)、XINERAMA(4)、DRI3(3)、SYNC/RENDER(2)、XFIXES/SHAPE/RANDR/
 ### 12.5 对 Amphora 的含义
 
 - 复刻 EGG 桌面观感的真正前置是把 Java X server 换成 native Xorg 系（Termux:X11 / WinEmuKernel 同路线）；jwm 侧只是 MIT 许可证下的一份 jwmrc 配置（`Background`/`Clock`/`TrayButton` 三行可直接抄）。
-- 在此之前 Amphora 维持 explorer `/desktop=shell` shell；文件浏览已切 `winefile.exe`（`buildWineExplorerCommand`，真机截图验证 2026-09-13，见 [`03-TRACKING.md`](03-TRACKING.md) §P5）。
+- 在此之前 Amphora 维持 explorer `/desktop=shell` shell；文件浏览已切 `winefile.exe`（`buildWineExplorerCommand`，真机截图验证 2026-09-13，见 [`03-TRACKING.md`](../02-TRACKING.md) §P5）。

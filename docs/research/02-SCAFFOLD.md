@@ -1,6 +1,6 @@
 # 02 - Scaffold 落地 (As-Built)
 
-> Status: scaffold 完成（历史文档）。**当前架构真源**见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)；进度见 [`03-TRACKING.md`](03-TRACKING.md)。
+> Status: scaffold 完成（历史文档）。**当前架构真源**见 [`05-ARCHITECTURE.md`](../01-ARCHITECTURE.md)；进度见 [`03-TRACKING.md`](../02-TRACKING.md)。
 > 日期: 2026-07-11。本文仍是技术栈版本与 AGP9 踩坑的可靠参考；§5/§7 中的 stub / 下一步已过时。
 > 组合对齐 Google `android/compose-samples`（Reply/Jetcaster，2026-07）当前参考栈。
 
@@ -67,7 +67,7 @@
 
 ## 5. 关键接口（RFC §6；现均已实现）
 
-接口定义未变。实现与 DIP 落点见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §2——`WineEngineImpl` / `RemoteContentSource` / `WinlatorContainerManager` / `ImageFsRootfsInstaller` 等，**无 stub**。
+接口定义未变。实现与 DIP 落点见 [`05-ARCHITECTURE.md`](../01-ARCHITECTURE.md) §2——`WineEngineImpl` / `RemoteContentSource` / `WinlatorContainerManager` / `ImageFsRootfsInstaller` 等，**无 stub**。
 
 ## 6. 验证
 
@@ -82,4 +82,4 @@ APK `app/build/outputs/apk/debug/app-debug.apk` 内含 `lib/arm64-v8a/libwinlato
 
 ## 7. 下一步
 
-v0.1 已跑通。后续候选见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9 与 [`03-TRACKING.md`](03-TRACKING.md) 状态快照。
+v0.1 已跑通。后续候选见 [`05-ARCHITECTURE.md`](../01-ARCHITECTURE.md) §9 与 [`03-TRACKING.md`](../02-TRACKING.md) 状态快照。

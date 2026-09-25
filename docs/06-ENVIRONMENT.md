@@ -1,4 +1,4 @@
-# Development environment
+# 06 · 开发与调试环境指南 (Environment)
 
 This document describes the reproducible cloud build and physical-device test
 environment used for Amphora. The verified device is a Lenovo TB322FC

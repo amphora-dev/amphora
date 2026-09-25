@@ -1,8 +1,9 @@
-# 03 - 进度跟踪 / Handoff
+# 02 · 进度跟踪与状态真源 (Tracking)
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-09-16 · **v0.1 端到端已跑通**；AIO PresentModes / 黑屏见 [`20-AIO-VK-PRESENTMODES-STATUS.md`](20-AIO-VK-PRESENTMODES-STATUS.md) (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。当前已采用远程 manifest 内容供应、自建 imagefs/Proton/Box64/DXVK/VKD3D、共享字体，并加入可选 PulseAudio/AAudio（ALSA 默认回退）。架构真源见 [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md)。
-> 必读: [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) · [`01-RFC.md`](01-RFC.md) · [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) · [`02-SCAFFOLD.md`](02-SCAFFOLD.md)
+> 最后更新: 2026-09-25 · **当前状态与下一步只看文末「当前状态指针」**；下方按时间追加的条目都是当时快照。
+> **v0.1 端到端已跑通**；AIO PresentModes / 黑屏见 [`09-AIO-VK-PRESENTMODES-STATUS.md`](09-AIO-VK-PRESENTMODES-STATUS.md) (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。当前已采用远程 manifest 内容供应、自建 imagefs/Proton/Box64/DXVK/VKD3D、共享字体，并加入可选 PulseAudio/AAudio（ALSA 默认回退）。架构真源见 [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md)。
+> 必读: [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) · [`01-RFC.md`](research/01-RFC.md) · [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) · [`02-SCAFFOLD.md`](research/02-SCAFFOLD.md)
 
 ---
 
@@ -37,11 +38,11 @@
 > 本节按时间追加，记录“当时做了什么”；早期的 ALSA-only、删除 Pulse 组件、
 > 本地 bundled manifest 等条目已被后面的演进条目替代，不应单独视为当前状态。
 
-- ⚠ **AIO Vulkan PresentModes / HA262 黑屏（开放）** (2026-09-16): 为消「Present mode unsupported」在 win32u 全局假报 FIFO/MAILBOX/IMMEDIATE（proton-wine `05ca3a658db`，WCP 同 tip）；包内 DRIVER_VERSION=48 一致。干净一轮真机 guest 以 `kernel32.dll` `c0000135` 退出，未见 `AHB_SC create images`。详 [`20-AIO-VK-PRESENTMODES-STATUS.md`](20-AIO-VK-PRESENTMODES-STATUS.md)。
+- ⚠ **AIO Vulkan PresentModes / HA262 黑屏（开放）** (2026-09-16): 为消「Present mode unsupported」在 win32u 全局假报 FIFO/MAILBOX/IMMEDIATE（proton-wine `05ca3a658db`，WCP 同 tip）；包内 DRIVER_VERSION=48 一致。干净一轮真机 guest 以 `kernel32.dll` `c0000135` 退出，未见 `AHB_SC create images`。详 [`09-AIO-VK-PRESENTMODES-STATUS.md`](09-AIO-VK-PRESENTMODES-STATUS.md)。
 - ✅ scaffold 已落地并提交 (`fc14357`)。
 - ✅ P0 已落地并提交 (`9e0929f`): `:core:native` 真实 `libwinlator.so`+`libfakeinput.so` (62 JNI 导出 + JNI_OnLoad, adrenotools 静态链入, 19 shader 编入)。`./gradlew :app:assembleDebug` 绿, APK `lib/arm64-v8a/` 含真 `.so`。
 - ✅ P1 已落地并提交 (`dee877e`+`92b00ef`): `:core:engine` runtime Java 内核 (221 .java + 3 .kt) + 11 JNI 绑定 + AdrenotoolsManager 精简 (D8) + cut 类 stub; `WineEngineImpl` facade skeleton (注入 ContainerManager/RootfsInstaller/WineSessionPreparer, launch 编排骨架委托 com.winlator.cmod, 每步 TODO 标 P-phase) + `WineSessionPreparer` 接口 (6 方法, compile-only)。`./gradlew :app:assembleDebug` 绿, APK 31.9MB 含 libwinlator.so 964K。
-- ✅ 技术栈对齐 Google `android/compose-samples` 当前参考 (比 `android/nowinandroid` 新一档)。详见 [02-SCAFFOLD.md §1](02-SCAFFOLD.md)。
+- ✅ 技术栈对齐 Google `android/compose-samples` 当前参考 (比 `android/nowinandroid` 新一档)。详见 [02-SCAFFOLD.md §1](research/02-SCAFFOLD.md)。
 - ✅ P2(部分) 已落地并提交 (`c593021`): native 资产提取能力恢复 (修正 P0 over-exclusion -- `native_content_io.cpp` 回归, zstd v1.5.6 + liblzma v5.4.6 静态链入, curl/download 2 JNI stub per D4); libwinlator.so 66 JNI 导出 (62+4 NativeContentIO), `TarCompressorUtils` kernel-wide 可用; `ImageFsRootfsInstaller` 真实现 (适配 `ImageFsInstaller`, 剥 Steam/Container/Activity, 仅 imagefs 提取+版本), EngineModule 绑定, `StubRootfsInstaller` 删除。`./gradlew :app:assembleDebug` 绿, APK 34.5MB 含 libwinlator.so 2.5MB (zstd+xz 静态链入)。compile-only。
 - ✅ P2(续) `WineSessionPreparer` body 抽取已落地 (`829e83b`): D9 XSDA 6 方法 body 逐字移植到 `XServerWineSessionPreparer` (849 行, XSDA L6127/7127/6280/7164/7970/7537 + helpers L6290/7950/5777/6398/6410/8098/8124/10793), 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI-refresh (D5/D8/D9); 4 个 feature-layer/.kt 小类移植 (WinComponentSetup 145 行 + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils 共 193 行 -> `com.winlator.cmod.runtime.{wine,container}`); 接口加 `envVars(): Map<String,String>` 输出 accessor (XSDA `envVars` 字段, 供 P3 launch 合并); `StubWineSessionPreparer` 删除, EngineModule 绑真实现。`./gradlew :app:assembleDebug` 绿, APK 34.5MB。compile-only (端到端验待资产)。
 - ✅ 早期用 WinNative LFS `imagefs.tzst` 验证 Bionic/rootfs 提取链；生产随后迁移到
@@ -90,7 +91,7 @@
   (`zink_render_pass.c` 只剩属性计算，无 `vkCreateRenderPass`)。Adreno / Turnip
   两个扩展齐备，高通路径不受影响。
 - ✅ **VirGL 阶段 0：链路与性能判据通过** (2026-08-13): 方案见
-  [`09-VIRGL-PLAN.md`](09-VIRGL-PLAN.md)。imagefs 侧 `graphics/mesa-gl.bst` 加了
+  [`09-VIRGL-PLAN.md`](research/09-VIRGL-PLAN.md)。imagefs 侧 `graphics/mesa-gl.bst` 加了
   `virgl`（[imagefs#5](https://github.com/amphora-dev/imagefs/pull/5)，CI 绿，产物验过
   `virpipe` 字面量与 `.libgl-virgl` 标记）；安卓侧直接用 Termux 的
   `virglrenderer-android`（上游协议、自包含、标准 linker64），**省掉 libepoxy/gbm 两个
@@ -102,7 +103,7 @@
 - ⏭ 下一步: 把 VirGL renderer、socket 生命周期和 OpenGL 后端三态选择集成进 app；手柄 / FEX 等明确扩展项；
   WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。Pulse 生产 WCP 已含
   `winepulse`（2026-08-11 pin SHA `99c664d9…`）；真机栈回归见 `GameSessionPulseAudioTest`。详见
-  [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) §9。
+  [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) §9。
 
 | 项 | 值 |
 |---|---|
@@ -110,7 +111,7 @@
 | Hilt / Compose BOM | 2.59.2 / 2026.06.01 |
 | compileSdk / targetSdk / minSdk / NDK | 37 / **36** / **30** / r28 (28.2.13676358) — minSdk 对齐发布运行时的 `LIBC_R` 依赖；linker64 首启 + `libamphora-exec.so` 递归拦截满足 app-data W^X |
 | 包名 / 模块数 | `app.amphora` / 9 模块 + build-logic（已删空壳 `core/ui`） |
-| 架构文档 | [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) |
+| 架构文档 | [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) |
 
 ---
 
@@ -183,7 +184,7 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 - [x] `RootfsInstaller` 真实现 (`c593021`, `ImageFsRootfsInstaller` in `:core:engine`): imagefs 提取 (shard/单档) + 版本 (`.img_version`); 剥 Steam/Container/Activity. **契约留 `:core:rootfs`, concretion 落 `:core:engine` (DIP -- `:core:rootfs` 不可见 `TarCompressorUtils`/`ImageFs`)**
 - [x] termuxfs rpath 核实 (D7): imagefs 内**无** `/data/data/com.termux/...` 路径 (grep 0 命中); rpath 烙在 Wine ELF, 运行时由 launch `LD_LIBRARY_PATH` 解析 (P3 事项, 非提取阻塞)
 - [x] 自建 Proton 11 x86_64（`amphora-dev/proton-wine`，默认 pin `Proton-11.0-amphora-x86_64`；见远程 `content_manifest`）
-- [x] box64 / Turnip / DXVK: SHA256 锁定 (D4/D8, MVP 单 Turnip=`graphics_driver/wrapper.tzst`; 见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) §2)
+- [x] box64 / Turnip / DXVK: SHA256 锁定 (D4/D8, MVP 单 Turnip=`graphics_driver/wrapper.tzst`; 见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) §2)
 - [x] `:core:content` `BundledContentSource` 实现 (2026-07-13): `ContentManifest`+`content_manifest.json` (5 组件, 04-ASSET-MANIFEST 派生) + `BundledContentSource` (编排: 查 manifest -> 拷资产 + SHA-256 流式校验 -> 委托 `BundledAssetInstaller` -> `Resolved`) + `WinlatorBundledAssetInstaller` (`:core:engine`, ARCHIVE=`TarCompressorUtils.extract(File)`, WCP=`ContentsManager.extraContentFile`+`finishInstallContent`); `EngineModule` 绑 `ContentSource`. DIP (契约 `:core:content`, concretion `:core:engine`). `:core:content:test` 6 JVM 单测过, `:app:assembleDebug` 绿 (APK 含 manifest+libwinlator.so). 详见 §P2 #8.
 - [x] **`WineSessionPreparer` body 抽取** (D9, `829e83b`): `XServerWineSessionPreparer` 849 行, XSDA 6 方法 + helpers 逐字移植, 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI (D5/D8/D9); 4 个小类移植 (WinComponentSetup + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils); 接口加 `envVars()` 输出 accessor; `StubWineSessionPreparer` 删除, EngineModule 绑真实现。✅ **真机验证通过** (见 §P2 #7): `extractGraphicsDriverFiles` 填 14 envVars (`WRAPPER_VK_VERSION=1.3.284` 等) + `wrapper.tzst` 提进 imagefs root。
 
@@ -193,7 +194,7 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 3. **imagefs 资产仍是占位**: WinNative `assets/imagefs.tzst` 仅 134 字节 (占位), 真实 ~869MB 提取产物来自 `winlator-imagefs` (本地未检出). `gh search repos` 找到 `Other-backup/winlator-imagefs-v2` + `kissGPT/imagefs-winlator` 但非 `WinNative-Emu/` 下; clone + SHA 锁仍是 P2 资产项. `ImageFsRootfsInstaller` 提取路径正确 (对 shard/单档), 端到端验待资产.
 4. **xz 测试二进制 bloat**: xz FetchContent 默认建 test_*/xzdec 二进制 (非链入 .so, 仅占 build 空间+时间). 已加 `XZ_BUILD_TESTS OFF` 抑制. `ensure_parent_dir` (cpp L75) 在 download stub 后无调用者, 编译报 unused-function 警告 (无害, 保留待 v0.3 download 恢复).
 5. **XSDA body 抽取: envVars 输出 accessor + 4 类小补丁 + AdrenotoolsManager stub**: (a) XSDA 的 `envVars` 是 Activity 字段, 被 `extractGraphicsDriverFiles`/DXVK/wined3d `setEnvVars` 累积, launch 时消费. 接口原 6 方法全 `Unit` 返回, 没有输出通道 -> 给 `WineSessionPreparer` 加 `envVars(): Map<String,String>` (additive, 不改现有签名), impl 持 `EnvVars envState` 累积, `WineEngineImpl` P3 合并进 launch env. (b) 6 方法依赖 4 个 WinNative feature-layer/.kt 小类 (`WinComponentSetup` 145 行 .kt + `DXVKConfigUtils`/`WineD3DConfigUtils`/`GraphicsDriverConfigUtils` 共 193 行), 全部移植到 `com.winlator.cmod.runtime.{wine,container}` (包名从 `feature.settings` 提升到 runtime, 逻辑零改). (c) `extractGraphicsDriverFiles` 的 adrenotools 驱动加载块 stub: D8 已把 `AdrenotoolsManager` 精简到只剩 `getLibraryName` (删 `setDriverById`/`getDriverName`/`getDriverVersion`), 单固定 Turnip 驱动 env-var 设置 (ADRENOTOOLS_DRIVER_PATH/NAME/HOOKS_PATH) 留 TODO, 资产到位 (P2) + runtime (P3) 恢复. (d) `getDxvkFrameRateOverride` stub=0 (快捷方式/偏好驱动, amphora 无), `getActiveGameDirectoryPath`=null / `isSteamShortcut`=false (快捷方式-only, D9 砍). (e) `desktopTheme` apply (`WineThemeManager.apply` 需 `xServer.screenInfo`) 延后 P3 setupXEnvironment (prep 阶段无 xServer). (f) `AmphoraContainer`->WinNative `Container` 解析: `ContainerManager.loadContainers()` + 按 `rootPath` 匹配 `getRootDir()` (P4 ContainerManager 接管桥接). (g) `WinHandler.FLAG_INPUT_TYPE_DINPUT` 是 `byte`, Kotlin `and` 需 `.toInt()` (Java 自动提升). 全 849 行 compile-only, `:app:assembleDebug` 绿.
-6. **资产获取 + 真机 rootfs 提取验证**: (a) `winlator-imagefs` (cnb.cool/atowerlight) 是**构建配方仓** (1.2MB 脚本+CI, 产 `imagefs.txz` 18MB 重建版 SHA `af66e28b`), 非预产物; imagefs.tzst 真资产 (190MB, zstd, SHA `0902e324...`, **Bionic libc**) 实为 WinNative Git LFS blob (`git lfs install` + `git lfs pull --include="app/src/main/assets/imagefs.tzst"`), 与 amphora `ImageFsRootfsInstaller` (ZSTD/`.tzst`) 直配, 无需转码. 解压 877MB / 10,892 条目 / merged-usr / `libc.so -> /system/lib64/libc.so` (Bionic 确认, 无 glibc 标记). (b) box64/Turnip/DXVK 资产已存 WinNative assets (非 LFS), 全 SHA 锁定 ([`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)); Turnip=`graphics_driver/wrapper.tzst`, DXVK=`dxwrapper/d8vk-1.0.tzst`, box64 二进制不在 imagefs (走 installable). (c) **真机验证**: Lenovo TB322FC (arm64-v8a / API 36 / Adreno 830) instrumented `ImagefsExtractionTest` 通过 -- `libwinlator.so` 加载 OK, `TarCompressorUtils.extract(ZSTD)` 提取 877MB rootfs (27,614 条目, 1.5s), Bionic 结构 + merged-usr + libc.so 符号链接断言全过. (d) **preparer 真机验 ✅ 已通过** (见 #7): 原阻塞 (需 Proton 资产 + Container 创建) 已用运行时 .wcp 本地安装绕过; `extractGraphicsDriverFiles` 的 native 提取原语 (`TarCompressorUtils.extract`) 与 rootfs 同路径已证. (e) D7 termuxfs rpath: imagefs 内无 `/data/data/com.termux/...`, rpath 烙 Wine ELF, 运行时 `LD_LIBRARY_PATH` 解析 (P3). (f) imagefs.tzst 测试资产 (190MB) git-ignored (`*.tzst`), 测试用 `assumeTrue` 资产缺时 skip.
+6. **资产获取 + 真机 rootfs 提取验证**: (a) `winlator-imagefs` (cnb.cool/atowerlight) 是**构建配方仓** (1.2MB 脚本+CI, 产 `imagefs.txz` 18MB 重建版 SHA `af66e28b`), 非预产物; imagefs.tzst 真资产 (190MB, zstd, SHA `0902e324...`, **Bionic libc**) 实为 WinNative Git LFS blob (`git lfs install` + `git lfs pull --include="app/src/main/assets/imagefs.tzst"`), 与 amphora `ImageFsRootfsInstaller` (ZSTD/`.tzst`) 直配, 无需转码. 解压 877MB / 10,892 条目 / merged-usr / `libc.so -> /system/lib64/libc.so` (Bionic 确认, 无 glibc 标记). (b) box64/Turnip/DXVK 资产已存 WinNative assets (非 LFS), 全 SHA 锁定 ([`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md)); Turnip=`graphics_driver/wrapper.tzst`, DXVK=`dxwrapper/d8vk-1.0.tzst`, box64 二进制不在 imagefs (走 installable). (c) **真机验证**: Lenovo TB322FC (arm64-v8a / API 36 / Adreno 830) instrumented `ImagefsExtractionTest` 通过 -- `libwinlator.so` 加载 OK, `TarCompressorUtils.extract(ZSTD)` 提取 877MB rootfs (27,614 条目, 1.5s), Bionic 结构 + merged-usr + libc.so 符号链接断言全过. (d) **preparer 真机验 ✅ 已通过** (见 #7): 原阻塞 (需 Proton 资产 + Container 创建) 已用运行时 .wcp 本地安装绕过; `extractGraphicsDriverFiles` 的 native 提取原语 (`TarCompressorUtils.extract`) 与 rootfs 同路径已证. (e) D7 termuxfs rpath: imagefs 内无 `/data/data/com.termux/...`, rpath 烙 Wine ELF, 运行时 `LD_LIBRARY_PATH` 解析 (P3). (f) imagefs.tzst 测试资产 (190MB) git-ignored (`*.tzst`), 测试用 `assumeTrue` 资产缺时 skip.
 > 数量口径说明：同一历史段中的 10,892（归档条目）与 27,614（测试遍历计数）
 > 来自不同统计方法，均只保留为当时日志，不代表当前 `imagefs.txz` 的条目数或体积。
 
@@ -249,11 +250,11 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 - [x] 真实 DXVK WCP + 旧 `dxvk-1.0` 容器迁移
 - [x] host/guest Vulkan 后端对齐：默认 wrapper → system Adreno；显式 Turnip → 双端 adrenotools
 - [x] `GameSessionLaunchTest` / `XServerSurfaceViewInitTest` + content-aware connected 测试入口
-- [x] 文档: [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) as-built 架构真源
+- [x] 文档: [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) as-built 架构真源
 
 ### P4-followup · no-GPU 测试路径 (headless Wine) -- ✅ mac ARM 模拟器验通 (`feat/headless-wine-test`)
 
-> 注 (2026-09-13): 本节的 `wine-10.0` / `Proton-10.0-4-x86_64.wcp` 是**当时旧 pin** 的实测记录; 当前生产 pin 已是 `Proton-11.0-d12a5634a-x86_64-0` (见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) §5.1, 2026-08-11 起)。本节结论不受版本差异影响。
+> 注 (2026-09-13): 本节的 `wine-10.0` / `Proton-10.0-4-x86_64.wcp` 是**当时旧 pin** 的实测记录; 当前生产 pin 已是 `Proton-11.0-d12a5634a-x86_64-0` (见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) §5.1, 2026-08-11 起)。本节结论不受版本差异影响。
 
 分支 `feat/headless-wine-test` 加了一条**不碰 GPU** 的测试路径,把 box64+Wine+Bionic-rootfs+prefix 的 CPU 栈从 Adreno Vulkan 渲染里剥出来,能在 mac ARM 模拟器上迭代(无需真机)。
 
@@ -267,8 +268,8 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 ### P5 · 桌面/shell 复核 + winefile 切换 (2026-09-13) ✅
 
 - [x] **文件浏览路径切 winefile**: `WineEngineImpl.buildWineExplorerCommand` 的 trailing arg `explorer.exe` → `winefile.exe` (Wine 内建, system32 裸名解析, 无需新增组件 pin); 测试改名 `explorerLaunchOpensWinefileInsideWineDesktop`; 真机 TB322FC 截图验证 (Wine File Manager 在 `/desktop=shell` 桌面内正常显示, 外层容器与 Start 任务栏不变)。游戏路径 (`LaunchTarget.PROGRAM`) 不动。
-- [x] **真机内容 pin 确认**: `files/contents/Proton/11.0-d12a5634a-x86_64-0` (= 2026-08-11 起的生产 pin, 见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) §5.1)。上文 P2/P4-followup 段落里的 `Proton-10.0-4` / `wine-10.0` 均为**当时旧 pin 的历史实测记录**, 不描述当前内容; 与 EGG 的桌面 UI 差异和 Wine 版本无关 (双方都是 Wine 11 explorer)。
-- [x] **EGG (`com.xiaoji.egggame` 6.2.1) 桌面拆解** → [`08-EGGGAME-COMPARISON.md`](08-EGGGAME-COMPARISON.md) §12: 桌面 UI (壁纸/时钟/"应用"任务栏) 全部来自 rootfs 内置 **jwm** (`system.jwmrc` 的 `Background`/`Clock`/`TrayButton`/`TaskList`), **不是** `SPI_SETDESKWALLPAPER` (注册表 `Wallpaper=""`, `libwinemu.so` 无相关调用); explorer.exe 裸跑 (无 `/desktop=`) 且未定制 (字符串表与 Wine 自带一致, 仅重编译); `libxserver.so` = NDK 自编译 Xorg (WinEmuKernel), 含 RANDR/GLX/XKB/XFIXES 等完整扩展集——Amphora Java X server 缺 RANDR (`/desktop=` 绕法仍必要) 与 WM 依赖扩展 (jwm 路线需先换 native X server)。
+- [x] **真机内容 pin 确认**: `files/contents/Proton/11.0-d12a5634a-x86_64-0` (= 2026-08-11 起的生产 pin, 见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) §5.1)。上文 P2/P4-followup 段落里的 `Proton-10.0-4` / `wine-10.0` 均为**当时旧 pin 的历史实测记录**, 不描述当前内容; 与 EGG 的桌面 UI 差异和 Wine 版本无关 (双方都是 Wine 11 explorer)。
+- [x] **EGG (`com.xiaoji.egggame` 6.2.1) 桌面拆解** → [`08-EGGGAME-COMPARISON.md`](research/08-EGGGAME-COMPARISON.md) §12: 桌面 UI (壁纸/时钟/"应用"任务栏) 全部来自 rootfs 内置 **jwm** (`system.jwmrc` 的 `Background`/`Clock`/`TrayButton`/`TaskList`), **不是** `SPI_SETDESKWALLPAPER` (注册表 `Wallpaper=""`, `libwinemu.so` 无相关调用); explorer.exe 裸跑 (无 `/desktop=`) 且未定制 (字符串表与 Wine 自带一致, 仅重编译); `libxserver.so` = NDK 自编译 Xorg (WinEmuKernel), 含 RANDR/GLX/XKB/XFIXES 等完整扩展集——Amphora Java X server 缺 RANDR (`/desktop=` 绕法仍必要) 与 WM 依赖扩展 (jwm 路线需先换 native X server)。
 - 取证方法可复用: EGG 会话 launch 参数读 `files/pcLaunchLog/launchLog*.txt` 的 `WINEMU_LAUNCH_CONFIG` 块; 容器/rootfs 经 KernelSU `su` 读 `/data/data/com.xiaoji.egggame`。
 
 ---
@@ -295,7 +296,7 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 | 用途 | 位置 |
 |---|---|
-| **as-built 架构 (优先读)** | `docs/05-ARCHITECTURE.md` |
+| **as-built 架构 (优先读)** | `docs/01-ARCHITECTURE.md` |
 | 项目决议 | `docs/01-RFC.md` (D1-D9 已定) |
 | 研究基础 (WinNative 拆解) | `docs/00-RESEARCH.md` |
 | Proton 自建 | `docs/RESEARCH-proton-wine-selfbuild.md` |
@@ -304,7 +305,7 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 | 栈版本参考 (最新) | `android/compose-samples` (Reply/Jetcaster) `gradle/libs.versions.toml` |
 | 栈/convention 参考 (正典, 略旧) | `android/nowinandroid` (注意无连字符) |
 | rootfs 源 | 当前为 `amphora-dev/imagefs`；早期验证使用过现已不可访问的 cnb 配方与 WinNative Git LFS 样本 |
-| 资产 SHA 锁 | [`docs/04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) |
+| 资产 SHA 锁 | [`docs/03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) |
 
 ---
 
@@ -336,7 +337,7 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 ## 2026-09-14 · AHB import Present≥50 关门
 
-- 文档：[`13-AHB-IMPORT-PRESENT.md`](13-AHB-IMPORT-PRESENT.md)
+- 文档：[`13-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md)
 - amphora `344f731` / proton-wine `1c62dd9a8ba`
 - HA262AAH：`import=ok`，Present≥50，guest-readback MAGENTA @50，无 CPU fill
 - 下一刀：HWND Surface 零拷贝（清 host blit）；不得退回 AHB import
@@ -353,3 +354,17 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 - proton-wine: drop `amphora_parent_vk_present`; `surface_get_fshack_dpi` → 0 under `amphora_wsi_wanted()`
 - AHB CreateSwapchain / import / create-time `win_queue` **untouched**
 - Next: bump imagefs Proton WCP pin → CI WCP + Amphora APK; sideload CI arts on HA262AAH
+
+---
+
+## 当前状态指针（2026-09-25，唯一真源）
+
+> 进度只维护本节；本机 `amphora-progress.md` 是个人手记，与本节冲突时以本节为准。
+> 上面各日期条目是当时快照，里面的 “Next / 下一刀” 不代表现在。
+
+- **壳层（GDI 出画 / 输入 / IME / z-order）**：主动项已关，只剩可选人工目视确认 → [`08`](08-AGENT-BOOTSTRAP.md) §12；细节 [`04`](04-WINEANDROID-DISPLAY.md)。
+- **游戏 Vulkan Present**：AHB import CreateSwapchain 是现行路径，勿退（[`05`](05-AHB-IMPORT-PRESENT.md)）。GDI 壳层不走 CreateSwapchain、禁私有 host.sock。
+- **开放排查（已暂停）**：AIO PresentModes / HA262 黑屏，2026-09-16 用户叫停 → [`09`](09-AIO-VK-PRESENTMODES-STATUS.md) §4（主假设：`kernel32.dll` `c0000135` + `execmod`）。
+- **未合入的跨仓改动**：box64 设备（OnePlus 6T）上 libandroid/liblog 被 box64 包装 → amphora 专项分支 `wip/box64-libandroid`（含 `f701264`） + proton-wine `fix/real-loader-chain`（本地，未推送）。两边必须一起真机验证、一起推送；尚无 PASS。
+- **已停**：第二台真机 / 分屏 / hostScale 双机。
+- **CI**：`spotlessKotlinCheck` 自 2026-09-16 起让 main CI 变红，本次 `style: spotlessApply` 修复；ReDroid 冒烟最近 60 次无绿（最后一次实跑 `a17810b`：`guest did not stay running`），待单独排查。

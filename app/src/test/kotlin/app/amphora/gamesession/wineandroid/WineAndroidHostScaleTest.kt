@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Multi-resolution letterbox cases for docs/16 hostScale TODO item 1
+ * Multi-resolution letterbox cases for docs/04 hostScale TODO item 1
  * (math / no-crop / centered) without needing a second physical device.
  */
 class WineAndroidHostScaleTest {

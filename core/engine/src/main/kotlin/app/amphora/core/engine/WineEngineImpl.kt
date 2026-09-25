@@ -154,7 +154,7 @@ constructor(
             // This engine instance's ContentsManager needs the installed profiles loaded for
             // WineInfo.fromIdentifier (step 4) + buildGuestLauncher (getProfileByEntryName).
             // The ContainerManager + preparer each sync their own ContentsManager instance
-            // (per-instance state -- see docs/03-TRACKING.md §P2 #7c).
+            // (per-instance state -- see docs/02-TRACKING.md §P2 #7c).
             contentsManager.syncContents()
             // 3. Prefix + runtime files + DX wrapper + graphics driver (P2 WineSessionPreparer).
             progressBus.update(ProvisionProgress(stage = "prefix", detail = "Setting up Wine prefix…"))

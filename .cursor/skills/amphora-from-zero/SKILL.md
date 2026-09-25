@@ -7,7 +7,7 @@ description: >-
 ---
 # Amphora from zero
 
-Full methodology (Chinese): [`docs/19-AGENT-BOOTSTRAP.md`](../../../docs/19-AGENT-BOOTSTRAP.md).  
+Full methodology (Chinese): [`docs/08-AGENT-BOOTSTRAP.md`](../../../docs/08-AGENT-BOOTSTRAP.md).  
 Also read [`AGENTS.md`](../../../AGENTS.md) first.
 
 ## When
@@ -30,8 +30,8 @@ Onboarding, handoff, or any agent that has not worked this tree before. Not a su
 mkdir -p /home/box/co/github && cd /home/box/co/github
 git clone git@github.com:amphora-dev/amphora.git   # or gh repo clone
 cd amphora && git submodule update --init --recursive
-git fetch origin wip/ha262-paint && git checkout wip/ha262-paint
-git merge --ff-only FETCH_HEAD   # prefer FETCH_HEAD if origin/* looks stale
+git fetch origin && git switch -c wip/<topic> origin/main   # base on main; rebase before push
+./gradlew spotlessCheck :app:testDebugUnitTest            # must pass before push (same as CI)
 ```
 
 Org siblings as needed: `imagefs`, `content_manifest`, `proton-wine`.
@@ -40,8 +40,8 @@ Git author (local): `skywalker512` / `houzhenhong@outlook.com`.
 
 ## Read order
 
-1. `AGENTS.md` → `docs/19-AGENT-BOOTSTRAP.md`
-2. Progress: Mac `amphora-progress.md` if present, else `git log -15`
+1. `AGENTS.md` → `docs/08-AGENT-BOOTSTRAP.md`
+2. Progress: `docs/03` last section (current-status pointer) + `git log -15`; open investigation in `docs/20`
 3. Shell: `docs/16` → `17` → `18`; migration phases `docs/12`
 4. Present (only if tasked): `docs/13`–`14`
 

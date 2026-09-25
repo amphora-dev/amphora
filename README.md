@@ -10,7 +10,7 @@
 A modern, minimal-first, long-term-engineered Android Wine emulator.
 
 > **Status: v0.1 end-to-end working** - launch a Windows `.exe` with Vulkan desktop surface + relative touch on device.
-> Architecture: [`docs/05-ARCHITECTURE.md`](docs/05-ARCHITECTURE.md) · RFC: [`docs/01-RFC.md`](docs/01-RFC.md) · Tracking: [`docs/03-TRACKING.md`](docs/03-TRACKING.md)
+> Architecture: [`docs/01-ARCHITECTURE.md`](docs/01-ARCHITECTURE.md) · RFC: [`docs/01-RFC.md`](docs/research/01-RFC.md) · Tracking: [`docs/02-TRACKING.md`](docs/02-TRACKING.md)
 
 Name from *amphora* — the ancient two-handled vessel that carried wine. A container that holds Wine containers.
 
@@ -76,14 +76,17 @@ Device instrumented coverage stays on Tailscale ADB - see
 
 ## Docs
 
+Overview and navigation map: [`docs/README.md`](docs/README.md)
+
 | Doc | Role |
 |---|---|
-| [`docs/05-ARCHITECTURE.md`](docs/05-ARCHITECTURE.md) | As-built architecture (start here) |
-| [`docs/01-RFC.md`](docs/01-RFC.md) | Project decisions (D1–D9) |
-| [`docs/03-TRACKING.md`](docs/03-TRACKING.md) | Progress / agent handoff |
-| [`docs/04-ASSET-MANIFEST.md`](docs/04-ASSET-MANIFEST.md) | Asset SHA locks |
+| [`docs/01-ARCHITECTURE.md`](docs/01-ARCHITECTURE.md) | As-built architecture (start here) |
+| [`docs/02-TRACKING.md`](docs/02-TRACKING.md) | Progress / agent handoff & state pointer |
+| [`docs/03-ASSET-MANIFEST.md`](docs/03-ASSET-MANIFEST.md) | Asset SHA locks |
+| [`docs/04-WINEANDROID-DISPLAY.md`](docs/04-WINEANDROID-DISPLAY.md) | WineAndroid host display, windowing, and surfaces |
+| [`docs/05-AHB-IMPORT-PRESENT.md`](docs/05-AHB-IMPORT-PRESENT.md) | Vulkan zero-copy AHB import Present |
 | [`docs/06-ENVIRONMENT.md`](docs/06-ENVIRONMENT.md) | Cloud build, Tailscale ADB and physical-device testing |
-| [`docs/02-SCAFFOLD.md`](docs/02-SCAFFOLD.md) | Scaffold-era stack & pitfalls |
-| [`docs/00-RESEARCH.md`](docs/00-RESEARCH.md) | WinNative research basis |
-| [`docs/09-FRAME-GENERATION-RESEARCH.md`](docs/09-FRAME-GENERATION-RESEARCH.md) | Frame generation audit (GameHub / WinNative / open-source) |
+| [`docs/07-DEV-PIN-OVERLAY.md`](docs/07-DEV-PIN-OVERLAY.md) | Local dev component overlay (`dev_pins.json`) |
+| [`docs/08-AGENT-BOOTSTRAP.md`](docs/08-AGENT-BOOTSTRAP.md) | Agent bootstrap guide and rules |
+| [`docs/research/`](docs/research/) | Historical research, RFC-001, and component audit archives |
 <!-- CI push-trigger probe -->

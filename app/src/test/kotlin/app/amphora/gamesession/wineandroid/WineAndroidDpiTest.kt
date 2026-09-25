@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
-/** docs/16: Wine DPI stays classic 96; never invent Android densityDpi. */
+/** docs/04: Wine DPI stays classic 96; never invent Android densityDpi. */
 class WineAndroidDpiTest {
     @Test
     fun virtualDesktopUsesClassic96() {

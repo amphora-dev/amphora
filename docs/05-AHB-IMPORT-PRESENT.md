@@ -1,8 +1,8 @@
-# 13 · AHB Import CreateSwapchain + Present≥50（knife13）
+# 05 · Vulkan AHB 零拷贝游戏渲染 (AHB Import Present)
 
 > 状态：**关键门已过**（2026-09-14 HA262AAH）。  
-> 受众：其他 Amphora / wineandroid agent 做审查与后续项（零拷贝 HWND Surface；见 docs/14）。  
-> 相关：[`12-WINEANDROID-MIGRATION.md`](12-WINEANDROID-MIGRATION.md)、[`11-ANDROID-NATIVE-VULKAN-PLAN.md`](11-ANDROID-NATIVE-VULKAN-PLAN.md)。  
+> 受众：其他 Amphora / wineandroid agent 做审查与后续项（零拷贝 HWND Surface；见第 5、8 节）。  
+> 相关：[`12-WINEANDROID-MIGRATION.md`](04-WINEANDROID-DISPLAY.md)、[`11-ANDROID-NATIVE-VULKAN-PLAN.md`](research/11-ANDROID-NATIVE-VULKAN-PLAN.md)。  
 > 路径巡检口径：无 GB / VkLayer / 扫表；后续若清 host blit，**不得退回已通的 AHB import**。
 
 ---
@@ -12,7 +12,7 @@
 Wine/DXVK 的 swapchain 图像不是 ICD 自己建的，而是把宿主 `ANativeWindow` 队列里已经带 `AHardwareBuffer` 的 buffer **导入成 `VkImage`**；GPU clear/绘制直接写进这块共享内存。Present 循环在修好 DXVK 队列线程上的 semaphore/fence 同步后，可稳定跑过第 50 帧，guest staging 读回仍是品红。
 
 **已有零拷贝**：GPU → AHB。  
-**HWND Surface 零拷贝热路径已落地**（见 docs/14）：Present 不经 ImageReader / HostVk blit。
+**HWND Surface 零拷贝热路径已落地**（见第 5、8 节）：Present 不经 ImageReader / HostVk blit。
 
 ---
 
@@ -116,7 +116,7 @@ Kotlin WineAndroidSessionActivity
 
 ---
 
-## 5. 真机 HWND Surface 零拷贝（状态见 docs/14）
+## 5. 真机 HWND Surface 零拷贝（状态见第 5、8 节）
 
 ### 目标
 
@@ -156,12 +156,14 @@ Present 落到 HWND / 会话 Activity 自己的 `Surface`，去掉仍经 host Im
 
 ---
 
-## 2026-09-14 · HWND Surface zero-copy 验收
+## 8. CI Present 冒烟验收（已在 public proton_11.0 通过）
 
-热路径已是 Present → HWND sock-proxy ANW → 同一批 AHB（create 时 `win_queue`），**无** ImageReader / HostVk blit。
-
-HA262AAH logcat 证明：
-- 有：`DIRECT hwnd-ANW (no ImageReader)`、`AHB_SC create images=3 import=ok`、`guest-readback CLASS=MAGENTA` @50/@100
-- 无：`WineAndroidHostVk`、`GUEST_CPU_FILL`
-
-详见 `/workspace/swapchain-knife/HWND-SURFACE-MAP.md`（本机）与仓库内 docs/14。当前 **0 行 Present 改动**；勿退 AHB import CreateSwapchain。
+- **验收目标**：在 HA262AAH 真机上跑通正式 Release Amphora APK + Proton WCP，验证 `AHB_SC … import=ok` 与 `Present≥50`。
+- **验收结果（2026-09-16）**：
+  - **v10 PASS**：amphora `728f3db` + 公共 WCP `Proton/11.0-0a64ebc8d-x86_64-0`。`DIRECT hwnd-ANW`，`SET_BUFFER_COUNT want=5 ret=0`，`import=ok`，guest-readback `CLASS=MAGENTA @50`，无 FATAL。
+  - **v9c PASS**：amphora `034b38e` + 公共 WCP `Proton-11.0-0a64ebc8d-x86_64.wcp`。`DIRECT hwnd-ANW`，`import=ok`，`Present≥50`，屏幕中央品红。
+- **死代码清理已闭环**：
+  - 清除了 `libwinlator` 中的 `wineandroid_host_vk.c`；
+  - 移除了无用的 `amphora_parent_vk_present`；
+  - 移除了 Kotlin `ImageReader`，确立热路径为纯零拷贝 BufferQueue 转发。
+- **守则**：严禁退回 AHB import CreateSwapchain；禁止侧载非正式 `.so` 作为真源。

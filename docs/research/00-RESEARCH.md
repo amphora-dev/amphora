@@ -4,8 +4,8 @@
 > 目的: 为 Amphora 项目提供事实依据。所有结论标注来源/验证方式。
 > 最后更新: 2026-08-11。
 > 本文描述移植前的 WinNative 样本，不是 Amphora 当前实现清单；当前架构与资产分别以
-> [`05-ARCHITECTURE.md`](05-ARCHITECTURE.md) 和
-> [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md) 为准。
+> [`05-ARCHITECTURE.md`](../01-ARCHITECTURE.md) 和
+> [`04-ASSET-MANIFEST.md`](../03-ASSET-MANIFEST.md) 为准。
 > 本文样本早于 WinNative 的插帧实验；相关后续研究见
 > [`09-FRAME-GENERATION-RESEARCH.md`](09-FRAME-GENERATION-RESEARCH.md)。
 

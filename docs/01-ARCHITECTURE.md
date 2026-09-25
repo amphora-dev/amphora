@@ -1,6 +1,6 @@
-# 05 - As-Built 架构
+# 01 · As-Built 架构设计
 
-> 当前实现的架构真源。决议见 [`01-RFC.md`](01-RFC.md)；进度手账见 [`03-TRACKING.md`](03-TRACKING.md)；资产锁见 [`04-ASSET-MANIFEST.md`](04-ASSET-MANIFEST.md)。
+> 当前实现的架构真源。决议见 [`01-RFC.md`](research/01-RFC.md)；进度手账见 [`02-TRACKING.md`](02-TRACKING.md)；资产锁见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md)。
 > 最后更新: 2026-08-30 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐；Pulse 生产 pin 已含 winepulse）
 
 ---
@@ -28,7 +28,7 @@ Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 
         └─ :core:common      协程 dispatcher
 ```
 
-`core/ui` 已删除（从未 include，无源码）。
+`core:ui` 提供通用的 UI 设计 Token 和动效规范（DesignTokens、AmphoraMotion）。
 
 `build-logic`（included build）提供 convention 插件：`amphora.android.{application,library,compose,hilt,native,feature}` + `amphora.content.staging`。
 
@@ -76,7 +76,7 @@ GameSessionScreen
 ```
 
 Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停环境并回收 Wine 子进程。
-> **专项**：Exit 曾因 Main 上 `join` + `recvAncillaryMsg` 阻塞触发 ANR；已 IO 调度 + **先关 client FD 再 join** 根治（2s timeout 仅兜底）。见 [`03-TRACKING.md` §专项](03-TRACKING.md)。
+> **专项**：Exit 曾因 Main 上 `join` + `recvAncillaryMsg` 阻塞触发 ANR；已 IO 调度 + **先关 client FD 再 join** 根治（2s timeout 仅兜底）。见 [`03-TRACKING.md` §专项](02-TRACKING.md)。
 
 ---
 
@@ -208,7 +208,7 @@ queue-present 无样本时才回退到 XServer Source FPS，渲染与 Present �
 
 已知裁剪：IME 浮条只预览 Android composition，候选列表仍由系统输入法展示；“CLIPBOARD”是 Unicode 文本注入，不是 Wine 剪贴板/`Ctrl+V`，不承诺绕过拒绝字符输入的游戏控件。没有独立 Windows OSK 或 IMM32/TSF 桥；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false），RTS 手势也只输出 X11 键鼠事件；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
 
-当前基线没有插帧后端；GameHub、WinNative 与开源候选仅见 [`09-FRAME-GENERATION-RESEARCH.md`](09-FRAME-GENERATION-RESEARCH.md)，不属于已落地架构。
+当前基线没有插帧后端；GameHub、WinNative 与开源候选仅见 [`09-FRAME-GENERATION-RESEARCH.md`](research/09-FRAME-GENERATION-RESEARCH.md)，不属于已落地架构。
 
 ---
 

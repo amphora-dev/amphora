@@ -7,7 +7,7 @@ package app.amphora.ui
  * `displayBackend = DisplayBackend.X11` (e.g. [SessionLaunch.program]) or the
  * debuggable MainActivity extra `app.amphora.debug.X11=true`.
  *
- * See docs/12-WINEANDROID-MIGRATION.md.
+ * See docs/04-WINEANDROID-DISPLAY.md.
  */
 object WineAndroidLaunchGate {
     const val FORCE_WINEANDROID_HOST = true

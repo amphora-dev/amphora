@@ -1,4 +1,4 @@
-# 04 - 资产清单 / SHA 锁 (Asset Manifest)
+# 03 · 资产清单与 SHA 锁 (Asset Manifest)
 
 > 资产研究、历史实测与当前分包决策。**生产 pin 的唯一真源是**
 > `amphora-dev/content_manifest/content_manifest.json`；本文中的旧 WinNative 表格仅保留为来源研究，

@@ -1,4 +1,4 @@
-# 15 · 开发态 content pin overlay（`dev_pins.json`）
+# 07 · 开发态组件覆盖层 (Dev Pin Overlay)
 
 ## 目的
 

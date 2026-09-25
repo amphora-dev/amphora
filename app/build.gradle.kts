@@ -103,7 +103,7 @@ val winNativeAssetsDir =
 // Proton .wcp would bloat every debug APK). The plugin exactly synchronizes verified
 // manifest assets under build/generated/assets/bundledContent and registers that
 // directory with the main Android asset source set. `clean` restores a slim APK.
-// See docs/04-ASSET-MANIFEST.md §4.
+// See docs/03-ASSET-MANIFEST.md §4.
 amphoraContentStaging {
     winnativeDir.set(winNativeAssetsDir)
 }

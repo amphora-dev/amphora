@@ -4,13 +4,13 @@
 > 目标读者：接手实现的 agent。本文自包含，不依赖对话上下文。
 > 一句话：**在 wineandroid.drv 里补上缺失的 Vulkan 呈现路径，让 D3D/Vulkan 游戏绕过 X11 直达 Android SurfaceFlinger；X11 路径全程保留为对照组与回退。**
 
-> 实施跟踪与 **pin 接口（v47）** 以 [`12-WINEANDROID-MIGRATION.md`](12-WINEANDROID-MIGRATION.md) 为准；本文 master 签名不要直接照抄。
+> 实施跟踪与 **pin 接口（v47）** 以 [`12-WINEANDROID-MIGRATION.md`](../04-WINEANDROID-DISPLAY.md) 为准；本文 master 签名不要直接照抄。
 
 ---
 
 ## 0. 环境与工作区事实
 
-- 仓库：`/Users/sky/co/github/amphora`（Android 工程，Winlator/WinNative 血统，见 `docs/05-ARCHITECTURE.md`）。
+- 仓库：`/Users/sky/co/github/amphora`（Android 工程，Winlator/WinNative 血统，见 `docs/01-ARCHITECTURE.md`）。
 - 测试真机：**Lenovo TB322FC**（Legion 平板，Adreno GPU，ZUI ROM，带 KernelSU 可 `su`），adb 序列号 `HA262AAH`。该机已装 Amphora，内容为 **Proton 11.0**（`/data/data/app.amphora/files/contents/Proton/11.0-d12a5634a-x86_64-0`，纯 x86_64 构建）。
 - 模拟器（mac ARM）只够无 GPU 无头测试（`WineHeadlessRunner` / `HeadlessWineBootTest`），**本计划的所有验证都在真机做**。
 - 仓库约束（`AGENTS.md`）：当前设计是唯一真源；不做旧版兼容分支；新 rootfs 内容必须走 pin + AppliedMarks 体系；ktlint 必须过。
@@ -174,7 +174,7 @@ win32u/vulkan.c（3196 行）通过 `driver_funcs` 分发，有 `nulldrv_funcs` 
 - 安装：`adb -s HA262AAH install -r app/build/outputs/apk/debug/app-debug.apk`；启动命令 logcat 验证：`adb logcat -d | grep guestExecutable`（tag `WineEngineImpl`）。
 - 设备上 su 可用（KernelSU），可用于查看 `/data/data/app.amphora`、`/data/data/com.xiaoji.egggame`（EGG 参照物）。
 - X11 路径是活着的对照组：**任何改动不得使其行为变化**；native 路径做成独立分支/配置，默认关闭，Spike 逐级打开。
-- 相关文档：`docs/05-ARCHITECTURE.md`（总架构）、`docs/07-TARGETSDK-SELINUX.md`（linker64 路由）、`docs/08-EGGGAME-COMPARISON.md`（EGG 对比）、`docs/03-TRACKING.md`（注意其 Proton-10.0-4/wine-10.0 记录已过时，现 pin 为 11.0）。
+- 相关文档：`docs/01-ARCHITECTURE.md`（总架构）、`docs/07-TARGETSDK-SELINUX.md`（linker64 路由）、`docs/08-EGGGAME-COMPARISON.md`（EGG 对比）、`docs/02-TRACKING.md`（注意其 Proton-10.0-4/wine-10.0 记录已过时，现 pin 为 11.0）。
 
 ## 9. 关键上游源码索引（实现时对照）
 

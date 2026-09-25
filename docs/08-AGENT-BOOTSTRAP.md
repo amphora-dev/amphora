@@ -1,8 +1,8 @@
-# 19 · Agent 从零开工方法论（Amphora Android）
+# 08 · 开发者与 Agent 上手指南 (Agent Bootstrap)
 
 > 给任意新 agent / 多 bot 协作者：**先读本文 + `AGENTS.md`**，再动代码。  
 > 可执行短配方见 [`.cursor/skills/amphora-from-zero/SKILL.md`](../.cursor/skills/amphora-from-zero/SKILL.md)。  
-> 进度手记（会话间交接）：Mac 旁路 `amphora-progress.md`（若存在）；否则以本文 + `docs/16–18` + git log 为准。
+> 当前状态 / 下一步：[`docs/02`](02-TRACKING.md) 末节「当前状态指针」 + git log。本机 `amphora-progress.md` 只是个人手记，与仓库冲突时以仓库为准。
 
 ## 0. 一句话
 
@@ -22,9 +22,9 @@ Amphora 是 Android 上的 Wine 模拟器。当前壳层真源是 **wineandroid*
 
 | 轨 | 内容 | 主文档 |
 |----|------|--------|
-| **A 壳层** | 布局、Surface 时机、DPI、letterbox、输入 | `AGENTS.md`、`docs/16`–`18`、`12` |
-| **B 游戏 present** | AHB import CreateSwapchain、HWND ANW 零拷贝 | `docs/13`–`14`（门已过；下一项多为 CI 产物冒烟） |
-| **C 构建** | imagefs / Proton WCP / content_manifest | imagefs 仓 + `docs/15` |
+| **A 壳层** | 布局、Surface 时机、DPI、letterbox、输入 | `AGENTS.md`、`docs/04`–`18`、`12` |
+| **B 游戏 present** | AHB import CreateSwapchain、HWND ANW 零拷贝 | `docs/05`–`14`（门已过；下一项多为 CI 产物冒烟） |
+| **C 构建** | imagefs / Proton WCP / content_manifest | imagefs 仓 + `docs/07` |
 
 同一次任务不要把 A/B 搅在同一批 PR 里，除非用户明确要求。
 
@@ -35,7 +35,7 @@ Amphora 是 Android 上的 Wine 模拟器。当前壳层真源是 **wineandroid*
 | 改代码 / 读仓 / 文档 | Grok Bot 本机（约定） | `/home/box/co/github/amphora`（旁路可读 `/workspace/amphora-dev/amphora`；**勿为卫生删树**） |
 | APK 真源 + adb | 用户 Mac mini | `/Users/sky/co/src/amphora-dev/amphora` |
 | 真机 | Y700 TB322FC | serial **`HA262AAH`** |
-| 进度手记 | Mac（常见） | `/Users/sky/co/src/amphora-dev/amphora-progress.md` |
+| 个人手记（可选，非真源） | Mac mini | `/Users/sky/co/src/amphora-dev/amphora-progress.md` |
 
 **硬约定（本轨）**
 
@@ -57,15 +57,18 @@ cd amphora
 git submodule update --init --recursive   # adrenotools 等；缺了 native 全量编会挂
 ```
 
-壳层工作分支（除非用户另指）：
+工作分支（除非用户另指）：以 **`main`** 为底，每个任务开短命分支，推前 rebase 回 main。
 
 ```bash
-git fetch origin wip/ha262-paint
-git checkout wip/ha262-paint
-git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
+git fetch origin
+git switch -c wip/<topic> origin/main
+# ... 提交 ...
+git fetch origin && git rebase origin/main
+./gradlew spotlessCheck :app:testDebugUnitTest   # 推前必须绿（CI 同款）
 ```
 
-**Mac 上 remote-tracking 分叉时**：`git fetch origin wip/ha262-paint` 后用 **`FETCH_HEAD`** 做 ff，不要死盯可能过期的 `origin/wip/ha262-paint` 对象。
+`wip/ha262-paint` 已于 2026-09-16 合入 main，不再作为共享工作分支；**不要**
+`reset --hard` 到别人的分支头（会丢本地未推提交）。
 
 旁路树 `/workspace/amphora-dev/*` 可以并存；**不要**为了路径整洁去删。
 
@@ -73,14 +76,14 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 
 1. `AGENTS.md`（禁令 + 宿主出画要点）
 2. 本文（方法论）
-3. 进度：`amphora-progress.md`（若有）或 `git log --oneline -15`
-4. 壳层：`docs/16` → `17` → `18`（对照 X11、已知问题、下一项）
+3. 进度：`docs/02` 末节「当前状态指针」 + `git log --oneline -15`；开放排查见 `docs/09`
+4. 壳层：`docs/04` → `17` → `18`（对照 X11、已知问题、下一项）
 5. 迁移阶段：`docs/12`（勾选可能略旧；以 git + 18 为准）
-6. 若碰游戏 present：`docs/13`–`14`（勿退 AHB import）
+6. 若碰游戏 present：`docs/05`–`14`（勿退 AHB import）
 
 ## 6. 已落地事实（别再当欠账）
 
-壳层（`wip/ha262-paint`，示例提交）：
+壳层（均已在 main，示例提交）：
 
 - 嵌套 `WindowGroup` + `visible_rect`：`8a494cc`
 - 推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸：`5515738`
@@ -99,17 +102,17 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 
 游戏轨：
 
-- AHB import CreateSwapchain + Present≥50：见 `docs/13`
+- AHB import CreateSwapchain + Present≥50：见 `docs/05`
 - HWND ANW 零拷贝热路径：见 `docs/14`；CI Present 冒烟 **先**合 AHB 补丁并 bump WCP，再真机；不侧载非正式 Present `.so`
 
 ## 7. 硬禁（违反即停）
 
 - Surface/ANW 路径 `SET_BUFFERS_FORMAT(BGRA=5)`（保持 RGBA + 宿主 R/B swizzle）
 - 删除 session 调试 `statusView`
-- 把私有 CreateSwapchain / 私有 `host.sock` 当真源（官方 amphora AHB WSI 另见 docs/13）
+- 把私有 CreateSwapchain / 私有 `host.sock` 当真源（官方 amphora AHB WSI 另见 docs/05）
 - 盲切 TextureView / 整棵退回 X11 当长期内层
 - 用壳层多 Surface「假装」游戏 present；DXVK→AHB 另轨
-- 临时 / 侧载非正式 `.so` / `.local-override` 当真源（开发钉包用 `docs/15` `dev_pins.json`）
+- 临时 / 侧载非正式 `.so` / `.local-override` 当真源（开发钉包用 `docs/07` `dev_pins.json`）
 - 为卫生删 checkout；Cursor cloud 改本轨代码
 - 把 Android `densityDpi`（如 440）直接当 Wine DPI 喂 720p
 
@@ -119,7 +122,7 @@ git merge --ff-only origin/wip/ha262-paint   # 或: git reset --hard FETCH_HEAD
 
 ```bash
 cd /Users/sky/co/src/amphora-dev/amphora   # Mac APK 真源
-git fetch origin wip/ha262-paint && git merge --ff-only FETCH_HEAD
+git fetch origin && git switch main && git merge --ff-only origin/main   # 或所测的 wip/<topic>
 ./gradlew :app:assembleDebug
 # 产物: app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -128,7 +131,7 @@ Grok Bot 上可跑 Kotlin 编译做快速检查；**全量 native** 依赖 submo
 
 ### 8.2 开发换包（WCP / Box64 等）
 
-见 `docs/15` + `scripts/inject-dev-pin.sh`（写全 WCP identity）。不要复活 `.local-override`。
+见 `docs/07` + `scripts/inject-dev-pin.sh`（写全 WCP identity）。不要复活 `.local-override`。
 
 ### 8.3 正式 WCP / imagefs
 
@@ -214,6 +217,8 @@ Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代
 
 ## 12. 默认下一项（文档顺序，可能随进度变）
 
+> 壳层之外的开放项：AIO Vulkan PresentModes / HA262 黑屏（2026-09-16 用户暂停），见 [`docs/09`](09-AIO-VK-PRESENTMODES-STATUS.md) §4。总状态以 [`docs/02`](02-TRACKING.md) 末节为准。
+
 **已落地（2026-09-16）摘要**：MOTION + 硬件 KEYBOARD + soft IME commit + CJK
 `KEYEVENTF_UNICODE`（debug unicode / composing / IME_SHOW / BACK pass-through /
 CAPTURE_HWND / DUMP_ZORDER / sensorLandscape / no-WIDTH pref / window-stack /
@@ -251,8 +256,8 @@ Present v10 公共 WCP 均有 HA262 PASS，见 §6）。软键盘**无** tap/foc
 ## 14. 相关索引
 
 - `AGENTS.md` — 开发态纪律与宿主禁令  
-- `docs/05-ARCHITECTURE.md` — 模块与启动链  
+- `docs/01-ARCHITECTURE.md` — 模块与启动链  
 - `docs/12` — wineandroid 切换阶段  
-- `docs/13`–`14` — AHB / HWND 零拷贝  
-- `docs/15` — dev pin overlay  
-- `docs/16`–`18` — 显示、借上游、X11 对照与已知问题  
+- `docs/05`–`14` — AHB / HWND 零拷贝  
+- `docs/07` — dev pin overlay  
+- `docs/04`–`18` — 显示、借上游、X11 对照与已知问题  

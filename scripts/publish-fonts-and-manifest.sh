@@ -119,8 +119,8 @@ git add \
   scripts/build-fonts-tzst.sh \
   scripts/patch-manifest-drop-pattern.py \
   scripts/publish-fonts-and-manifest.sh \
-  docs/04-ASSET-MANIFEST.md \
-  docs/05-ARCHITECTURE.md
+  docs/03-ASSET-MANIFEST.md \
+  docs/01-ARCHITECTURE.md
 
 git status
 if git diff --cached --quiet; then
