@@ -247,7 +247,7 @@ static void host_resolve_ahb(void)
          (void *)g_ahb_get_native_handle);
 }
 
-/* knife7: fstat native_handle fds for buffer-fork identity match. */
+/* Fstat native_handle fds for buffer-fork identity match. */
 static void anw_log_nh_fstat(const char *tag, const native_handle_t *nh)
 {
     int i, nints;
@@ -399,7 +399,7 @@ static void anw_dump_client_queue_pixels(struct wine_native_buffer *buf, int hwn
 
     g_anw_client_queue_n++;
     queue_n = g_anw_client_queue_n;
-    /* knife7: always dump both QUEUE 50 and 100 (no BLACK gate). */
+    /* Always dump both QUEUE 50 and 100 (no BLACK gate). */
     if (queue_n != 50 && queue_n != 100) return;
 
     anw_fence_wait_brief(fenceFd);
@@ -556,7 +556,7 @@ static int send_handle_reply(int sock, int status, struct wine_native_buffer *bu
         }
         LOGI("AHB_SEND ok id=%d %dx%d fmt=%d usage=0x%x",
              buffer_id, hdr.width, hdr.height, hdr.format, hdr.usage);
-        /* knife7: identity of buffer just sent — guest GUEST_RECV can match. */
+        /* Identity of buffer just sent — guest GUEST_RECV can match. */
         anw_log_ahb_identity("HOST_SEND", buffer_id, 0, ahb, buffer);
         g_ahb_release(ahb);
         return 0;
