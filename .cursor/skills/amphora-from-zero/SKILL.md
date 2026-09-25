@@ -41,15 +41,15 @@ Git author (local): `skywalker512` / `houzhenhong@outlook.com`.
 ## Read order
 
 1. `AGENTS.md` → `docs/08-AGENT-BOOTSTRAP.md`
-2. Progress: `docs/03` last section (current-status pointer) + `git log -15`; open investigation in `docs/20`
-3. Shell: `docs/16` → `17` → `18`; migration phases `docs/12`
-4. Present (only if tasked): `docs/13`–`14`
+2. Progress: `docs/02-TRACKING.md` last section (current-status pointer) + `git log -15`; open investigation in `docs/09-AIO-VK-PRESENTMODES-STATUS.md`
+3. Shell: `docs/04-WINEANDROID-DISPLAY.md`
+4. Present (only if tasked): `docs/05-AHB-IMPORT-PRESENT.md`
 
 ## Tracks (do not mix casually)
 
-- **A shell:** wineandroid Surface / layout / input — docs 16–18
-- **B present:** AHB / HWND zero-copy — docs 13–14 (gates closed; next often CI artifact smoke)
-- **C build:** imagefs WCP + manifest
+- **A shell:** wineandroid Surface / layout / input — `docs/04-WINEANDROID-DISPLAY.md`
+- **B present:** AHB / HWND zero-copy — `docs/05-AHB-IMPORT-PRESENT.md` (gates closed; next often CI artifact smoke)
+- **C build:** imagefs WCP + manifest (`docs/03-ASSET-MANIFEST.md`, `docs/07-DEV-PIN-OVERLAY.md`)
 
 ## Hard bans
 
@@ -76,7 +76,7 @@ adb -s HA262AAH install -r app/build/outputs/apk/debug/app-debug.apk
 ## Multi-bot / skills / routines
 
 - Prefer **one owner** bot + optional read-only specialist + skills + routines.
-- In-repo skill: this file. Companion docs: `docs/19`.
+- In-repo skill: this file. Companion docs: [`docs/08-AGENT-BOOTSTRAP.md`](../../../docs/08-AGENT-BOOTSTRAP.md).
 - Grok Bot may also have: HA262 wineandroid shell, HA262 device smoke, imagefs CAS build — use them after this onboarding skill.
 - Specialists must not change window granularity (top-level-only / TextureView / X11) unless the user asked.
 

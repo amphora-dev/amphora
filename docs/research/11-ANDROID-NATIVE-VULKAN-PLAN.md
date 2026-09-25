@@ -4,7 +4,7 @@
 > 目标读者：接手实现的 agent。本文自包含，不依赖对话上下文。
 > 一句话：**在 wineandroid.drv 里补上缺失的 Vulkan 呈现路径，让 D3D/Vulkan 游戏绕过 X11 直达 Android SurfaceFlinger；X11 路径全程保留为对照组与回退。**
 
-> 实施跟踪与 **pin 接口（v47）** 以 [`12-WINEANDROID-MIGRATION.md`](../04-WINEANDROID-DISPLAY.md) 为准；本文 master 签名不要直接照抄。
+> 实施跟踪与 **pin 接口（v47）** 以 [`04-WINEANDROID-DISPLAY.md`](../04-WINEANDROID-DISPLAY.md) 为准；本文 master 签名不要直接照抄。
 
 ---
 
