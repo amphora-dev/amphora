@@ -27,7 +27,11 @@ WCP component pin 必须带 identity（`version`/`verName`/`verCode`/`contentTyp
 ## 提交与推送
 
 - 以 `main` 为底开 `wip/<topic>`，推前 `git rebase origin/main`；不要把共享 wip 分支当长期主线。
-- 推前跑 `./gradlew spotlessCheck :app:testDebugUnitTest`，与 CI 同款，红了不推。
+- **本地质量门禁已标准化接入 Git 钩子（`.githooks/`）**：
+  - 运行任何 Gradle 任务或 `bash scripts/setup-git-hooks.sh` 会自动激活 `core.hooksPath`；
+  - `pre-commit` 会在提交时对暂存的 Kotlin/Gradle 代码做 Spotless 格式校验；
+  - `pre-push` 会在推送前自动运行 `./gradlew spotlessCheck :app:testDebugUnitTest :app:lintDebug`，与 CI 完全同款，红了自动拦截禁止推送；
+  - 遇到格式错误时运行 `./gradlew spotlessApply` 自动修复排版。
 - 真机 PASS 记录并进被验证的那个提交，或每次推送合成一条；不要一个功能配一个 "record PASS" 提交。
 - 没推之前的试错（改了又 revert、spotless 补丁）先在本地 squash 掉再推。
 - 跨仓改动（amphora ↔ proton-wine / imagefs）在提交信息里写对方仓的分支和 SHA；两边一起验、一起推，不要只推一半。

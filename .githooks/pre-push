@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Amphora Git Hook: pre-push
+# Strict local gate before pushing code to remote:
+# Mirrors CI gates (Spotless format + Unit Tests + Android Lint).
+
+set -euo pipefail
+
+if [[ "${AMPHORA_SKIP_HOOKS:-0}" == "1" ]]; then
+    exit 0
+fi
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+# Check if this is a branch deletion (e.g. git push origin :branch)
+# pre-push receives lines on stdin: <local ref> <local sha> <remote ref> <remote sha>
+z40="0000000000000000000000000000000000000000"
+is_all_delete=true
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [[ -n "$local_sha" && "$local_sha" != "$z40" ]]; then
+        is_all_delete=false
+        break
+    fi
+done
+
+if [[ "$is_all_delete" == "true" ]]; then
+    # Deleting remote branch, no need to run tests
+    exit 0
+fi
+
+echo "🚀 [Amphora 预推送门禁] 正在执行本地验证 (Spotless + 单元测试 + Android Lint)..."
+
+if ! ./gradlew spotlessCheck :app:testDebugUnitTest :app:lintDebug --daemon; then
+    cat << 'EOF'
+
+================================================================================
+❌ [Amphora 门禁拦截] 提交预推送检查 (Pre-push Gate) 失败！
+================================================================================
+本地质量门禁验证未通过。为了防止远端 GitHub CI 飘红并保持主干稳定，推送已被拦截。
+
+🔍 常见问题排查与修复指引：
+1. 代码格式问题 (Spotless)：
+   运行: ./gradlew spotlessApply
+   自动格式化代码后，执行:
+       git add .
+       git commit --amend --no-edit
+
+2. 单元测试失败 (Unit Tests)：
+   运行: ./gradlew :app:testDebugUnitTest --info
+   查看具体失败用例并修正逻辑。
+
+3. 规范与兼容性报错 (Android Lint)：
+   运行: ./gradlew :app:lintDebug
+   查看 app/build/reports/lint-results-debug.html 或终端错误日志。
+
+(如需紧急绕过门禁，可在 push 时追加 --no-verify)
+================================================================================
+
+EOF
+    exit 1
+fi
+
+echo "✅ [Amphora 预推送门禁] 验证全部通过，允许推送到远端！"

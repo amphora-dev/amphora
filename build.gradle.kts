@@ -184,3 +184,45 @@ tasks.register<AggregateJvmCoverageTask>("jvmCoverage") {
     )
     summaryFile.set(layout.buildDirectory.file("reports/coverage/jvm-summary.txt"))
 }
+
+abstract class InstallGitHooksTask : DefaultTask() {
+    @get:Internal
+    abstract val rootDirectory: DirectoryProperty
+
+    @get:javax.inject.Inject
+    abstract val execOperations: org.gradle.process.ExecOperations
+
+    @TaskAction
+    fun install() {
+        val root = rootDirectory.get().asFile
+        val gitDir = root.resolve(".git")
+        val hooksDir = root.resolve(".githooks")
+        if (gitDir.exists() && hooksDir.isDirectory) {
+            execOperations.exec {
+                workingDir = root
+                commandLine("git", "config", "core.hooksPath", ".githooks")
+                isIgnoreExitValue = true
+            }
+        }
+    }
+}
+
+// Automatically configure git to use the version-controlled .githooks directory.
+// This ensures developers and AI agents automatically have pre-commit and pre-push
+// gates active without manual setup.
+val installGitHooks =
+    tasks.register<InstallGitHooksTask>("installGitHooks") {
+        group = "verification"
+        description = "Configures Git to use version-controlled hooks from .githooks/"
+        rootDirectory.set(layout.projectDirectory)
+    }
+
+tasks.matching { it.name in listOf("spotlessCheck", "jvmTest") }.configureEach {
+    dependsOn(installGitHooks)
+}
+
+subprojects {
+    tasks.matching { it.name == "preBuild" }.configureEach {
+        dependsOn(installGitHooks)
+    }
+}

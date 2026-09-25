@@ -68,7 +68,13 @@ git submodule update --init --recursive
 # 3. 创建专属开发分支进行工作
 git fetch origin
 git switch -c wip/<topic> origin/main
+
+# 4. 配置代码质量门禁（可选：执行脚本或运行任意 ./gradlew 任务均会自动激活 .githooks）
+bash scripts/setup-git-hooks.sh
 ```
+
+> **门禁说明**：项目配置了自动化 Git 钩子（`.githooks/`）。在执行 `git commit` 时会自动校验暂存区 Kotlin 格式，在执行 `git push` 前会自动运行 `./gradlew spotlessCheck :app:testDebugUnitTest :app:lintDebug` 对齐 CI。若格式检查不通过，运行 `./gradlew spotlessApply` 即可一键自动修复。
+
 
 ---
 

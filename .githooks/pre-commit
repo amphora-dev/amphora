@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Amphora Git Hook: pre-commit
+# Fast local check before committing: ensures Kotlin/Gradle files conform to Spotless.
+
+set -euo pipefail
+
+# Allow skipping via environment variable if ever needed
+if [[ "${AMPHORA_SKIP_HOOKS:-0}" == "1" ]]; then
+    exit 0
+fi
+
+# Locate repository root
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+# Only run spotlessCheck if staged files include Kotlin or Gradle files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM || true)
+if ! echo "$STAGED_FILES" | grep -E '\.(kt|kts)$' > /dev/null 2>&1; then
+    # No Kotlin or Gradle files staged; pass instantly (0s delay for docs/scripts)
+    exit 0
+fi
+
+echo "🔍 [Amphora 预提交门禁] 正在校验代码格式规范 (Spotless)..."
+
+if ! ./gradlew spotlessCheck --daemon -q; then
+    cat << 'EOF'
+
+================================================================================
+❌ [Amphora 门禁拦截] 代码格式规范检查未通过 (Spotless Check Failed)！
+================================================================================
+检测到暂存区中存在不符合项目排版风格的代码。
+为了保证代码库整洁并防止 CI 构建失败，提交已被自动拦截。
+
+💡 快速自动修复方法：
+在终端执行以下命令，Gradle 会自动按照统一规范格式化代码：
+    ./gradlew spotlessApply
+
+格式化完成后，重新暂存并提交：
+    git add .
+    git commit ...
+
+(若遇极端紧急情况需临时绕过，可在 commit 时追加 --no-verify)
+================================================================================
+
+EOF
+    exit 1
+fi

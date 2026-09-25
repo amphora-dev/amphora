@@ -31,7 +31,7 @@ mkdir -p /home/box/co/github && cd /home/box/co/github
 git clone git@github.com:amphora-dev/amphora.git   # or gh repo clone
 cd amphora && git submodule update --init --recursive
 git fetch origin && git switch -c wip/<topic> origin/main   # base on main; rebase before push
-./gradlew spotlessCheck :app:testDebugUnitTest            # must pass before push (same as CI)
+./gradlew spotlessCheck :app:testDebugUnitTest :app:lintDebug   # pre-push gate (enforced by .githooks)
 ```
 
 Org siblings as needed: `imagefs`, `content_manifest`, `proton-wine`.
