@@ -1,5 +1,6 @@
 package app.amphora.gamesession.wineandroid
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
@@ -263,10 +264,6 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
      * Call on the UI thread. API 24+ only (upstream WineActivity gate).
      */
     fun setCursor(id: Int, width: Int, height: Int, hotspotX: Int, hotspotY: Int, bits: IntArray?) {
-        if (Build.VERSION.SDK_INT < 24) {
-            Log.i(TAG, "setCursor skipped (API ${Build.VERSION.SDK_INT} < 24)")
-            return
-        }
         val spec = WineAndroidCursorSpec.classify(id, width, height, hotspotX, hotspotY, bits)
         val icon =
             when (spec) {
@@ -942,6 +939,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                 surfaceView,
                 LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
             )
+            @SuppressLint("ClickableViewAccessibility")
             surfaceView.setOnTouchListener { _, event -> handleTouch(event) }
             surfaceView.setOnGenericMotionListener { _, event -> handleGenericMotion(event) }
         }
@@ -1023,7 +1021,6 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             )
         }
 
-        @android.annotation.TargetApi(24)
         override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? =
             currentPointerIcon ?: super.onResolvePointerIcon(event, pointerIndex)
 

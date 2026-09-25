@@ -248,6 +248,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
         super.onPause()
     }
 
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // Same pipe as MOTION: KEYBOARD_EVENT via nativeSendKeyboardEvent.
         // Intentional host pass-through (BACK, VOLUME_*, …) — see WineAndroidKeyPassThrough.
