@@ -73,7 +73,7 @@
   ddraw / metadata 仍 pin 到 WinNative raw，后续逐步自有化。
 - ✅ **`extra_libs.tzst` 已废止 / Mesa GL 自建并入 imagefs** (2026-08-01)。
 - 🩹 **Wine 全白窗口 / libpng patchelf** (2026-08-01): 已在 imagefs 配方侧修（链接期 SONAME + LOAD 同余断言）；见 imagefs `ELF-PITFALLS.md`。
-- ✅ **staging 可靠性收敛** (2026-08-11): `stageBundledContent` 不再写 `app/src/main/assets`，改为精确同步到已接入 Android source set 的 `build/generated/assets/bundledContent`；遍历非 ROOTFS components + runtimeAssets，本地缺项按 manifest URL 下载，size/SHA 任一不符即失败。本文 P2 #9 的 best-effort/旧输出路径仅为历史记录，以当前插件和 `05-ARCHITECTURE.md` §5 为准。
+- ✅ **staging 可靠性收敛** (2026-08-11): `stageBundledContent` 不再写 `app/src/main/assets`，改为精确同步到已接入 Android source set 的 `build/generated/assets/bundledContent`；遍历非 ROOTFS components + runtimeAssets，本地缺项按 manifest URL 下载，size/SHA 任一不符即失败。本文 P2 #9 的 best-effort/旧输出路径仅为历史记录，以当前插件和 `01-ARCHITECTURE.md` §5 为准。
 - ✅ **PulseAudio/AAudio 可选后端** (2026-08-11): 恢复并加固
   `PulseAudioComponent`；PA13 native 库与匹配模块随 APK 交付，Proton WCP 自构建
   `winepulse.so`/`winepulse.drv`；设置可选 Pulse，4 KB 页/驱动完整性不满足时保留
@@ -296,27 +296,27 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 | 用途 | 位置 |
 |---|---|
-| **as-built 架构 (优先读)** | `docs/01-ARCHITECTURE.md` |
-| 项目决议 | `docs/01-RFC.md` (D1-D9 已定) |
-| 研究基础 (WinNative 拆解) | `docs/00-RESEARCH.md` |
-| Proton 自建 | `docs/RESEARCH-proton-wine-selfbuild.md` |
-| scaffold 栈 + 踩坑 | `docs/02-SCAFFOLD.md` |
-| 移植源码 | `WinNative-Emu/WinNative` @ `48fe6b9` |
-| 栈版本参考 (最新) | `android/compose-samples` (Reply/Jetcaster) `gradle/libs.versions.toml` |
-| 栈/convention 参考 (正典, 略旧) | `android/nowinandroid` (注意无连字符) |
-| rootfs 源 | 当前为 `amphora-dev/imagefs`；早期验证使用过现已不可访问的 cnb 配方与 WinNative Git LFS 样本 |
-| 资产 SHA 锁 | [`docs/03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) |
+| **As-Built 架构 (优先读)** | [`docs/01-ARCHITECTURE.md`](01-ARCHITECTURE.md) |
+| 项目立项决议 | [`research/01-RFC.md`](research/01-RFC.md) (D1-D9 已定) |
+| 移植研究基础 (WinNative 拆解) | [`research/00-RESEARCH.md`](research/00-RESEARCH.md) |
+| Proton 自建方案 | [`research/RESEARCH-proton-wine-selfbuild.md`](research/RESEARCH-proton-wine-selfbuild.md) |
+| 脚手架与踩坑记 | [`research/02-SCAFFOLD.md`](research/02-SCAFFOLD.md) |
+| 移植源码基线 | `WinNative-Emu/WinNative` @ `48fe6b9` |
+| 依赖版本参考 | `android/compose-samples` (Reply/Jetcaster) `gradle/libs.versions.toml` |
+| 规范工程参考 | `android/nowinandroid` |
+| rootfs 资产源 | 当前为 `amphora-dev/imagefs` |
+| 资产 SHA 锁与清单 | [`docs/03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) |
 
 ---
 
 ## 5. 验证命令
 
 ```bash
-./gradlew help                       # 全工程配置
-./gradlew :app:assembleDebug         # 全量 (Kotlin+KSP/Hilt+native .so+Compose+APK)
-./gradlew jvmTest                    # 仓库 JVM 单测
-./gradlew :app:connectedAndroidTestWithContent  # staging 后跑资产门禁真机测试
-# APK: app/build/outputs/apk/debug/app-debug.apk (含 lib/arm64-v8a/libwinlator.so)
+./gradlew help                       # 全工程配置检查
+./gradlew :app:assembleDebug         # 全量编译 (Kotlin + KSP + native .so + Compose + APK)
+./gradlew jvmTest                    # 运行全仓 JVM 单元测试
+./gradlew :app:connectedAndroidTestWithContent  # 资产准备就绪后运行真机测试
+# 编译产物位于: app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---
@@ -337,23 +337,23 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 ## 2026-09-14 · AHB import Present≥50 关门
 
-- 文档：[`13-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md)
-- amphora `344f731` / proton-wine `1c62dd9a8ba`
-- HA262AAH：`import=ok`，Present≥50，guest-readback MAGENTA @50，无 CPU fill
-- 下一刀：HWND Surface 零拷贝（清 host blit）；不得退回 AHB import
+- 文档：[`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md)
+- 代码版本：amphora `344f731` / proton-wine `1c62dd9a8ba`
+- HA262AAH 真机表现：`import=ok`，Present≥50 帧稳定运行，显存回读品红采样（MAGENTA @50），完全关闭 CPU fill
+- 演进目标：HWND Surface 原生零拷贝直通（清除残留的 host blit 拷贝）；严格保留 AHB import CreateSwapchain 成果
 
 ## 2026-09-14 · HWND Surface 零拷贝验收关门
 
-- 热路径已零拷贝（无 ImageReader / HostVk blit）；本拍不改 Present
-- HA262AAH：`DIRECT hwnd-ANW` + `import=ok` + MAGENTA@50/100；无 `WineAndroidHostVk` / `GUEST_CPU_FILL`
-- ✅ 已清 `CMD_VK_PRESENT` / HostVk 死码 + fs_hack guard；禁止动 AHB CreateSwapchain
+- 状态：呈现热路径实现原生零拷贝（无 ImageReader 与 HostVk blit 开销）；Present 逻辑保持稳定
+- HA262AAH 真机表现：`DIRECT hwnd-ANW` + `import=ok` + MAGENTA@50/100；无 `WineAndroidHostVk` 与 `GUEST_CPU_FILL`
+- 架构清理：清除 `CMD_VK_PRESENT` 与 HostVk 冗余死代码；严禁触碰 AHB CreateSwapchain 稳定路径
 
-## 2026-09-14 · Cleanup for CI smoke
+## 2026-09-14 · CI 冒烟清理与 WCP 联动
 
-- Removed HostVk Present dead code (`wineandroid_host_vk.c`); stub `CMD_VK_PRESENT`
-- proton-wine: drop `amphora_parent_vk_present`; `surface_get_fshack_dpi` → 0 under `amphora_wsi_wanted()`
-- AHB CreateSwapchain / import / create-time `win_queue` **untouched**
-- Next: bump imagefs Proton WCP pin → CI WCP + Amphora APK; sideload CI arts on HA262AAH
+- 清理 HostVk Present 冗余源码（`wineandroid_host_vk.c`）；将 `CMD_VK_PRESENT` 处理置为 stub
+- proton-wine 侧：移除无用的 `amphora_parent_vk_present`；在 `amphora_wsi_wanted()` 条件下将 `surface_get_fshack_dpi` 置 0
+- 核心稳定性：AHB CreateSwapchain / 导入 / 创建期 `win_queue` 逻辑完全保持不变
+- 后续跟进：提升 imagefs Proton WCP pin 版本，在真机上验证 Release APK 与 CI WCP 的组合效果
 
 ---
 

@@ -1,263 +1,160 @@
 # 08 · 开发者与 Agent 上手指南 (Agent Bootstrap)
 
-> 给任意新 agent / 多 bot 协作者：**先读本文 + `AGENTS.md`**，再动代码。  
-> 可执行短配方见 [`.cursor/skills/amphora-from-zero/SKILL.md`](../.cursor/skills/amphora-from-zero/SKILL.md)。  
-> 当前状态 / 下一步：[`docs/02`](02-TRACKING.md) 末节「当前状态指针」 + git log。本机 `amphora-progress.md` 只是个人手记，与仓库冲突时以仓库为准。
+> **接手须知**：任何新加入的开发者或 AI 协同 Agent，在阅读代码或修改前，**请务必先通读本文与项目根目录的 [`AGENTS.md`](../AGENTS.md)**。  
+> 快速可执行配方参见：[`.cursor/skills/amphora-from-zero/SKILL.md`](../.cursor/skills/amphora-from-zero/SKILL.md)。  
+> 当前项目进展与下一步工作：统一以 [`docs/02-TRACKING.md`](02-TRACKING.md) 末节「当前状态指针」及最新的 Git 提交历史为准。
 
-## 0. 一句话
+---
 
-Amphora 是 Android 上的 Wine 模拟器。当前壳层真源是 **wineandroid**（每 HWND 一块 SurfaceView），不是 Winlator X11 长期内层。真机默认验证机是 Lenovo Y700（ADB `HA262AAH`）。
+## 0. 一句话定位
 
-## 1. 产品三层（别搞混）
+Amphora 是面向 Android 平台的模块化 Windows/Wine 模拟器。
+- **现行显示真源**：采用纯 Kotlin 实现的 **wineandroid** 宿主体系（每个 Windows HWND 对应独立的 SurfaceView，通过 SurfaceFlinger 硬件合成），**彻底弃用**了 Winlator 遗留的 Java XServer/X11 架构。
+- **真机基准环境**：官方日常验证设备为 Lenovo Y700 (TB322FC，Adreno 830，ADB 设备序列号 `HA262AAH`)。
 
-对应 `docs/12` + `DesktopActivity`，**不是** Android 企业 Work Profile，也不替换 ZUI Work：
+---
 
-1. **外层**：Amphora Desktop（壁纸 / 图标网格 / 底栏；v1 不抢 `SECONDARY_HOME`）
-2. **中层**：一程序一 freeform 会话 Activity（默认 `WineAndroidSessionActivity`）
-3. **内层**：`wineandroid` 管该会话里的 HWND；**不做**每 HWND 一个系统 freeform
+## 1. 软件层次划分
 
-改「只给顶层建 Surface」只影响会话内 SF 层数，**不改**「一程序一窗」壳模型。X11 单合成器不是长期内层。
+理解本项目的分层架构，避免概念混淆：
 
-## 2. 工作轨（分开排期）
+1. **外层（桌面启动器）**：Amphora Desktop（负责壁纸、游戏图标网格、系统底栏以及参数配置；首发版本不接管 Android 系统的 `SECONDARY_HOME`）。
+2. **中层（会话容器）**：每个运行的 Windows 程序运行在独立的 freeform 会话 Activity 中（默认即为 `WineAndroidSessionActivity`）。
+3. **内层（窗口体系）**：通过 `wineandroid.drv` 驱动管理会话内的具体 Windows 窗口（HWND），通过原生 SurfaceView 挂载，不将每个内部子窗口做成 Android 系统任务。
 
-| 轨 | 内容 | 主文档 |
-|----|------|--------|
-| **A 壳层** | 布局、Surface 时机、DPI、letterbox、输入 | `AGENTS.md`、`docs/04`–`18`、`12` |
-| **B 游戏 present** | AHB import CreateSwapchain、HWND ANW 零拷贝 | `docs/05`–`14`（门已过；下一项多为 CI 产物冒烟） |
-| **C 构建** | imagefs / Proton WCP / content_manifest | imagefs 仓 + `docs/07` |
+---
 
-同一次任务不要把 A/B 搅在同一批 PR 里，除非用户明确要求。
+## 2. 研发模块分工
 
-## 3. 机器与路径
+为保持代码整洁并避免不同功能相互干扰，工程按领域划分为三大工作方向：
 
-| 角色 | 机器 | 路径 |
-|------|------|------|
-| 改代码 / 读仓 / 文档 | Grok Bot 本机（约定） | `/home/box/co/github/amphora`（旁路可读 `/workspace/amphora-dev/amphora`；**勿为卫生删树**） |
-| APK 真源 + adb | 用户 Mac mini | `/Users/sky/co/src/amphora-dev/amphora` |
-| 真机 | Y700 TB322FC | serial **`HA262AAH`** |
-| 个人手记（可选，非真源） | Mac mini | `/Users/sky/co/src/amphora-dev/amphora-progress.md` |
+| 研发方向 | 核心职责 | 关联核心文档 |
+|---|---|---|
+| **A. 壳层显示与输入** | 窗口嵌套布局、Surface 生命周期、DPI 适配、letterbox 居中缩放、触控与软键盘输入 | [`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md) |
+| **B. 3D 游戏渲染呈现** | Vulkan AHB 导入、交换链创建（CreateSwapchain）、零拷贝送显通道 | [`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md) |
+| **C. 资产与基础设施** | imagefs 镜像制作、Proton WCP 编译打包、manifest 清单分发及本地覆盖 | [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md)、[`07-DEV-PIN-OVERLAY.md`](07-DEV-PIN-OVERLAY.md) |
 
-**硬约定（本轨）**
+> **提示**：日常开发应保持聚焦，不要在同一个提交或分支中同时混合重构显示壳层与底层渲染管线，除非有明确的跨层联动需求。
 
-- 业务代码改在 **Grok Bot 本机**，**不要**用 Cursor cloud agent 改本仓。
-- **不要** CopyFromBox 倒腾约 80MB APK；在 Mac 上 `assembleDebug`。
-- Git 作者（本机 local config）：`skywalker512` \<houzhenhong@outlook.com\>。
-- 用户偏好中文沟通。
+---
 
-## 4. Clone（从零）
+## 3. 开发环境与协作设备
 
-组织：`amphora-dev`（至少：`amphora`、`imagefs`、`content_manifest`、`proton-wine`；按任务再拉）。
+| 角色 | 运行环境 | 标准工作路径 | 职责说明 |
+|---|---|---|---|
+| **代码编写与审查** | 开发工作机 / Agent 容器 | 项目代码根目录 | 负责代码编辑、静态分析、单元测试及文档维护 |
+| **真机联调与构建** | 用户联调机 (Mac mini) | `/Users/sky/co/src/amphora-dev/amphora` | 执行 `./gradlew :app:assembleDebug` 生成真机 APK，直连 ADB |
+| **验证真机** | Lenovo Y700 (TB322FC) | 设备序列号 **`HA262AAH`** | 负责 APK 安装、冒烟用例运行及实际渲染表现校验 |
+
+**协作规范**：
+- 避免在不同机器之间频繁人工倒腾数十兆的 debug APK 文件，推荐在连接 ADB 的联调机上直接构建并安装；
+- 保持中文沟通，提交信息清晰反映改动意图并关联相关文档编号；
+- 每次推送代码前，必须保证本地 `./gradlew spotlessCheck :app:testDebugUnitTest` 测试完全通过。
+
+---
+
+## 4. 从零初始化仓库
+
+在全新环境下克隆并准备工程：
 
 ```bash
-mkdir -p /home/box/co/github && cd /home/box/co/github
-# 需要鉴权时用已配置的 gh / SSH；勿把 token 打进聊天或日志
+# 1. 克隆代码仓库
 git clone git@github.com:amphora-dev/amphora.git
-# 或: gh repo clone amphora-dev/amphora
 cd amphora
-git submodule update --init --recursive   # adrenotools 等；缺了 native 全量编会挂
-```
 
-工作分支（除非用户另指）：以 **`main`** 为底，每个任务开短命分支，推前 rebase 回 main。
+# 2. 必须初始化递归子模块（编入 adrenotools 等底层驱动库，否则 native 编译将报错）
+git submodule update --init --recursive
 
-```bash
+# 3. 创建专属开发分支进行工作
 git fetch origin
 git switch -c wip/<topic> origin/main
-# ... 提交 ...
-git fetch origin && git rebase origin/main
-./gradlew spotlessCheck :app:testDebugUnitTest   # 推前必须绿（CI 同款）
 ```
 
-`wip/ha262-paint` 已于 2026-09-16 合入 main，不再作为共享工作分支；**不要**
-`reset --hard` 到别人的分支头（会丢本地未推提交）。
+---
 
-旁路树 `/workspace/amphora-dev/*` 可以并存；**不要**为了路径整洁去删。
+## 5. 开工前必读推荐顺序
 
-## 5. 必读顺序（开工前 10 分钟）
+在着手编写或修改代码前，建议按以下顺序花费 10 分钟建立全局认知：
 
-1. `AGENTS.md`（禁令 + 宿主出画要点）
-2. 本文（方法论）
-3. 进度：`docs/02` 末节「当前状态指针」 + `git log --oneline -15`；开放排查见 `docs/09`
-4. 壳层：`docs/04` → `17` → `18`（对照 X11、已知问题、下一项）
-5. 迁移阶段：`docs/12`（勾选可能略旧；以 git + 18 为准）
-6. 若碰游戏 present：`docs/05`–`14`（勿退 AHB import）
+1. **[`AGENTS.md`](../AGENTS.md)**：开发红线、架构底线与常见避坑禁令。
+2. **[`01-ARCHITECTURE.md`](01-ARCHITECTURE.md)**：As-Built 现行工程架构、数据流向与模块划分。
+3. **[`02-TRACKING.md`](02-TRACKING.md)**：进度跟踪记录与当前阶段任务真源。
+4. **[`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)**：窗口树、SurfaceView 绑定时机与输入通道。
+5. **[`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md)**：Vulkan 零拷贝呈现机制（若涉及游戏渲染或 DXVK）。
+6. **[`07-DEV-PIN-OVERLAY.md`](07-DEV-PIN-OVERLAY.md)**：本地替换 WCP 或运行时组件的开发态调试技巧。
 
-## 6. 已落地事实（别再当欠账）
+---
 
-壳层（均已在 main，示例提交）：
+## 6. 已经验证并落地的功能清单
 
-- 嵌套 `WindowGroup` + `visible_rect`：`8a494cc`
-- 推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸：`5515738`
-- SurfaceView 触摸 → wineandroid `MOTION_EVENT`（不注入 X）：`d3a7bd5`
-- 硬件 KEYBOARD → wineandroid `KEYBOARD_EVENT`（KEYCODE / `adb keyevent`）：`35c9921`
-- Soft IME commit → 同 `KEYBOARD_EVENT` 管（`WineInputConnection` + `WineAndroidImeCommit`）；CJK → `KEYEVENTF_UNICODE`（`nativeSendUnicodeChar`）；**host composing chip**（`ImeUiState` / SessionActivity TextView）；composition **不**进 guest；**无** tap/focus 自动弹出（显式 chip / letterbox 长按 / `IME_SHOW` / `showSoftKeyboard` only）
-- Debug IME unicode 自动冒烟 **PASS** on `702b165`（MainActivity 冷启 `IME_UNICODE_TEXT`）
-- Debug IME composing：**cold chip PASS** `01cf904`；**mid-session relay PASS** `fe8f5a2`
-- **Keyboard chip + IME_SHOW serve-ready PASS** on `c5ede16`（冷启 `IME_SHOW true` → `mInputShown=true`）
-- DPI 经典 **96** 已落地（`d264af1`）；hostScale 多分辨率单测已落地（`034b38e`）；guest 分辨率设置页已接线 `WineAndroidGuestResolution`；`fdda994` no-WIDTH pref + resolve debug log；**HA262 no-WIDTH pref 真机 PASS** on `26b5c98`；其它设备不宣称；**第二台/分屏用户已停**
-- WS_VISIBLE / sibling z-order：`8a494cc` + `WineAndroidWindowStack` 加固 `4d3d976`；**HA262 stack 冒烟 PASS**；重叠 z-order 人工目视确认仍可选；debug `DUMP_ZORDER` / `ZORDER_TOP_HWND` helper log PASS on `d0bdcb7`（**非**眼验 PASS）
-- **sensorLandscape** 会话锁：`a4cd0c0`；**HA262 PASS**（ROTATION_90 **3040×1904**，hostScale **2.375**）
-- **setCapture / setCursor** 壳层接线：capture HWND 路由 MOTION；PointerIcon 隐藏/系统/自定义 bits；debug `CAPTURE_HWND`；**HA262 CAPTURE_HWND inject routing PASS** on `82bf652`；可选 title-bar 真 IOCTL_SET_CAPTURE 人工目视确认仍可选
-- **BACK / VOLUME_* 故意宿主穿透 PASS**：`WineAndroidKeyPassThrough`；**HA262 PASS** on `02d04e1`；native 仍 `keycode_to_vkey==0`（勿发明 guest vkey）
-- GDI：`api=CPU`、RGBA（HA262 **禁** Surface `BGRA=5`）、host scale-to-fill
+请务必注意：以下功能已经全部合并至 `main` 主干并在真机上验证闭环，**切勿当成未完成的需求重复开发或推倒重写**：
 
-游戏轨：
+### 6.1 壳层与窗口显示
+- **WindowGroup 嵌套与局部坐标系统**：子窗口使用 `visible_rect` 相对父客户区定位，严禁退回桌面绝对坐标；
+- **延迟首帧注册机制**：在收到有效宽高前推迟 `nativeRegisterSurface`，并在尺寸变更（`surfaceChanged`）后重新触发绑定；
+- **颜色空间与格式**：保持标准 `PF_RGBA_8888`，色彩由宿主软件执行 R/B 交换修正，严禁向 Android Surface 设置 `BGRA=5` 导致系统崩溃；
+- **等比铺满（Scale-to-fill）**：外层通过 `hostScale` 等比居中缩放，内层固定为标准 96 DPI，绝不强改 guest 内部虚拟分辨率；
+- **层级与可见性重排**：隐藏窗口直接执行 `removeView`，z-order 变化时利用 `WineAndroidWindowStack` 按顺序重排；
+- **输入系统打通**：触控手势生成 `MOTION_EVENT`，实体键盘分发物理键码，系统功能按键（BACK、音量）穿透回系统，软键盘 IME 输入支持 Unicode 中文。
 
-- AHB import CreateSwapchain + Present≥50：见 `docs/05`
-- HWND ANW 零拷贝热路径：见 `docs/14`；CI Present 冒烟 **先**合 AHB 补丁并 bump WCP，再真机；不侧载非正式 Present `.so`
+### 6.2 3D 游戏渲染
+- **AHB 零拷贝交换链**：通过 `libamphora_wsi.so` 将宿主 `AHardwareBuffer` 直接导入为 Vulkan `VkImage`，DXVK 渲染直接写入显存；
+- **同步队列解耦**：将 Acquire 信号量与 Present 栅栏安全调度在 DXVK 队列线程上，彻底解决了第 2 帧死锁问题；
+- **50+ 帧稳定送显**：实测 DXVK 冒烟测试连续稳定运行超过 100 帧，回读测试图像精准呈现品红色。
 
-## 7. 硬禁（违反即停）
+---
 
-- Surface/ANW 路径 `SET_BUFFERS_FORMAT(BGRA=5)`（保持 RGBA + 宿主 R/B swizzle）
-- 删除 session 调试 `statusView`
-- 把私有 CreateSwapchain / 私有 `host.sock` 当真源（官方 amphora AHB WSI 另见 docs/05）
-- 盲切 TextureView / 整棵退回 X11 当长期内层
-- 用壳层多 Surface「假装」游戏 present；DXVK→AHB 另轨
-- 临时 / 侧载非正式 `.so` / `.local-override` 当真源（开发钉包用 `docs/07` `dev_pins.json`）
-- 为卫生删 checkout；Cursor cloud 改本轨代码
-- 把 Android `densityDpi`（如 440）直接当 Wine DPI 喂 720p
+## 7. 严苛禁令与红线原则
 
-## 8. 编译
+以下各项经真机反复验证为高危或错误设计，**违反任何一条均属严重倒退**：
 
-### 8.1 App / APK（日常迭代 — 优先 Mac）
+1. **严禁在 Surface/ANW 路径使用 `SET_BUFFERS_FORMAT(BGRA=5)`**（曾在真机引发整机黑屏崩溃）；
+2. **严禁删除底部 `statusView` 状态监控条**（这是开发期最关键的调试与诊断入口）；
+3. **严禁在 2D GDI 桌面引入 CreateSwapchain 或私有 host.sock**；
+4. **严禁倒退回 Winlator 旧式的 Java XServer/TextureView 方案**；
+5. **严禁在真机上随意覆盖临时的私有 `.so` 破坏环境**（所有本地组件替换必须走 `dev_pins.json` 覆盖层）；
+6. **严禁直接把 Android 高屏幕 DPI（如 440）喂给 720p 虚拟桌面**（会导致 UI 控件严重错位变形）。
+
+---
+
+## 8. 日常编译与真机冒烟验证
+
+### 8.1 构建 APK
 
 ```bash
-cd /Users/sky/co/src/amphora-dev/amphora   # Mac APK 真源
-git fetch origin && git switch main && git merge --ff-only origin/main   # 或所测的 wip/<topic>
+# 在联调机或本地仓库执行
 ./gradlew :app:assembleDebug
-# 产物: app/build/outputs/apk/debug/app-debug.apk
+# 编译产物位于: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Grok Bot 上可跑 Kotlin 编译做快速检查；**全量 native** 依赖 submodule（缺 `adrenotools` 会挂）。正式装机以 Mac APK 为准。
-
-### 8.2 开发换包（WCP / Box64 等）
-
-见 `docs/07` + `scripts/inject-dev-pin.sh`（写全 WCP identity）。不要复活 `.local-override`。
-
-### 8.3 正式 WCP / imagefs
-
-走 `amphora-dev/imagefs` 的 `build-proton-wine` + bump `content_manifest`。本机 CAS/recc 只加速迭代，不改发版真源。
-
-## 9. 真机冒烟（HA262）
-
-**门闩**：`adb devices` 必须看到 `HA262AAH` 为 `device`；否则停并上报，不要猜。
+### 8.2 安装并运行冒烟测试
 
 ```bash
 SERIAL=HA262AAH
+
+# 安装应用
 adb -s $SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
+
+# 清理历史日志并启动主页面
 adb -s $SERIAL logcat -c
 adb -s $SERIAL shell am start -n app.amphora/.MainActivity
-# UI：点「Open desktop」进 WineAndroidSessionActivity
-# 或从最近项 / Desktop 进会话
 ```
 
-### 9.1 壳层 Surface / defer
+**关键日志过滤口径**：
+- 观察窗口 Surface 状态：`WineAndroidDesktop|WineAndroidHostBridge|defer first register|registerSurface|setFixedSize|surfaceChanged`
+- 观察输入与键盘：`WineAndroidDesktop.*motion|keyboard hwnd=|key hwnd=|IME composing|IME unicode`
+- 观察 3D 渲染与交换链：`WineAndroidWsi|AHB_SC create images=|Present frame=`
 
-过滤：`WineAndroidDesktop|WineAndroidHostBridge|defer first register|registerSurface|setFixedSize|surfaceChanged`
+---
 
-**PASS 线索**：未知尺寸时有 `defer first register`；随后真实尺寸 register / `firstDone=true`；taskbar 不长期卡 1×1/2×2；无 FATAL/BGRA 闪退。
+## 9. 核心技术文档导航
 
-### 9.2 输入（MOTION + KEYBOARD）
-
-**已落地**：MOTION（`d3a7bd5`）+ 硬件 KEYBOARD（`35c9921`）+ soft IME **commit**（`WineInputConnection` → KEYBOARD_EVENT）+ CJK **unicode**（`KEYEVENTF_UNICODE` / `nativeSendUnicodeChar`）+ **host composing overlay**（`ImeUiState` chip）。Composition **host-local only**。
-
-过滤：`WineAndroidDesktop.*motion`；`WineAndroidDesktop.*key` / native `keyboard hwnd=` / `key hwnd=` / `keyboard unicode`；IME：`IME composing` / `IME unicode`
-
-**PASS 线索**：`motion hwnd=… ok=true`（DOWN/UP）；UI 上可见点击效果（如 winefile / Start）；**不得**走 `XServerInputSink` / `TouchpadView`。
-
-键盘（硬件 KEYCODE / `adb input keyevent`）：`key hwnd=… ok=true`；native `keyboard hwnd=… vkey=…`。Soft IME：**不**随 tap/focus 自动弹出（策略：显式 chip `content-desc=wineandroid keyboard` / letterbox 长按 / `IME_SHOW` / `showSoftKeyboard` only）。**Debug unicode / composing / IME_SHOW / BACK pass-through 均已有 HA262 PASS**（见 §6）。**仍开（可选）**：真机 CJK soft IME **人工目视确认** composing chip（`adb input text` 仅 ASCII）。
-
-### 9.3 壳层 WS_VISIBLE / sibling z-order
-
-**HA262 window-stack 冒烟 PASS** on `4d3d976`。Debug 验证钩子
-`DUMP_ZORDER` / `ZORDER_TOP_HWND` helper log PASS on `d0bdcb7`（**非**视觉重叠眼验）。
-**仍开（可选）**：人工目视确认。
-
-### 9.4 产物存放
-
-建议 Mac：`/Users/sky/co/src/amphora-dev/smoke-artifacts/`（log + screencap）。`/tmp` 可能无法 CopyToBox。
-
-### 9.5 无人值守
-
-- **单一 owner bot** 跑 install；禁止并行 install 战争。
-- 设备断开 / gradle 失败：失败即停并通知。
-- 清设备 prefix 仅当用户明确要求。
-
-## 10. 测试（仓内）
-
-```bash
-./gradlew :app:testDebugUnitTest          # 含 WineAndroidProtocolTest 等
-# 仪器测试按模块；真机以 §9 为准
-```
-
-Native 单文件可在本机用 NDK clang `-c` 做语法级检查；不能替代装机冒烟。
-
-## 11. 多 bot / skill / routine（怎么协作）
-
-### 11.1 推荐形态
-
-**一个 owner bot**（改代码 + 冒烟 + 对用户交付）  
-+ **按需 specialist**（只读对照/调研，默认不改业务代码）  
-+ **skill**（可复用步骤）  
-+ **routine**（定时/事件触发，例如工作日真机冒烟）
-
-不要默认再挂「总管 bot」叠一层；避免多人同时 `adb install`。
-
-### 11.2 本仓 skill 入口
-
-| 位置 | 用途 |
-|------|------|
-| `.cursor/skills/amphora-from-zero/SKILL.md` | **从零开工**（本文的可执行摘要） |
-| Grok Bot workflows（若已装） | `amphora-ha262-wineandroid-shell`、`ha262-device-smoke`、`imagefs-local-build-with-actions-cas` |
-
-新 bot：先读本 skill / 本文，再读轨专 skill；**不要**复制第二套互相打架的「真源路径」。
-
-### 11.3 Specialist 边界示例
-
-「出画路径对照」类 bot：只读仓与公开资料，交付对照结论；**不**擅自改粒度（顶层 Surface / TextureView / X11）除非用户点头。defer-register 门槛已过后，②仍属可选中期项。
-
-## 12. 默认下一项（文档顺序，可能随进度变）
-
-> 壳层之外的开放项：AIO Vulkan PresentModes / HA262 黑屏（2026-09-16 用户暂停），见 [`docs/09`](09-AIO-VK-PRESENTMODES-STATUS.md) §4。总状态以 [`docs/02`](02-TRACKING.md) 末节为准。
-
-**已落地（2026-09-16）摘要**：MOTION + 硬件 KEYBOARD + soft IME commit + CJK
-`KEYEVENTF_UNICODE`（debug unicode / composing / IME_SHOW / BACK pass-through /
-CAPTURE_HWND / DUMP_ZORDER / sensorLandscape / no-WIDTH pref / window-stack /
-Present v10 公共 WCP 均有 HA262 PASS，见 §6）。软键盘**无** tap/focus 自动弹出。
-第二台真机 / 分屏用户已停。
-
-**IME / soft-IME 入口轨**：已关（除可选 CJK composing/commit 人工目视确认）。
-
-**仍开（仅可选人工目视确认，非主动排期）：**
-
-1. **壳层叠窗**：WS_VISIBLE / sibling z-order 自动化冒烟已 PASS；重叠 HWND
-   **人工目视确认**仍可选（helper log ≠ 眼验）。
-2. **可选**：title-bar 真 `IOCTL_SET_CAPTURE` + cursor hide/arrow
-   （`CAPTURE_HWND` routing 已 PASS；勿再叠同类 debug inject）。
-3. **可选**：soft IME **CJK** composing chip + commit（勿发明 IMM32/TSF）。
-   docs/17 上游借项壳层面已齐；无新 Present/分屏/TextureView/BGRA/IMM32 工作。
-
-**已停 / 勿排下一项**：第二台真机 / 分屏 / hostScale 双机（用户 2026-09-16 停）。
-
-**不是**下一项：TextureView、只给顶层 Surface、X11 单合成（`docs/18` §9 可选后置）；
-勿再侧载非正式 Present `.so`；**不做分屏**；独立自定义光标 overlay View；IMM32/TSF。
-
-动手前用 `git log` + progress **核对**上表，勿盲抄过期勾选。
-
-## 13. 交付汇报模板
-
-对用户报告时带齐：
-
-- 分支 / `git rev-parse --short HEAD` / 是否已 push  
-- 改动文件与意图（一句话）  
-- 编译：哪台机器、是否成功  
-- 冒烟：serial、PASS/FAIL、log 关键字摘录、截图路径  
-- **仍开着的项**（勿把后置项标成完成）
-
-## 14. 相关索引
-
-- `AGENTS.md` — 开发态纪律与宿主禁令  
-- `docs/01-ARCHITECTURE.md` — 模块与启动链  
-- `docs/12` — wineandroid 切换阶段  
-- `docs/05`–`14` — AHB / HWND 零拷贝  
-- `docs/07` — dev pin overlay  
-- `docs/04`–`18` — 显示、借上游、X11 对照与已知问题  
+- [`AGENTS.md`](../AGENTS.md) — 开发纪律、宿主禁令与代码门禁
+- [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) — 现行工程架构与启动时序真源
+- [`02-TRACKING.md`](02-TRACKING.md) — 开发进度、历史里程碑与当前状态指针
+- [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) — 运行时资产清单、分包决策与 SHA 锁
+- [`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md) — 宿主窗口树、SurfaceView 生命周期与输入系统
+- [`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md) — Vulkan AHB 零拷贝游戏渲染机制与验收证据
+- [`06-ENVIRONMENT.md`](06-ENVIRONMENT.md) — 开发、编译环境与远程 ADB 调试搭建指南
+- [`07-DEV-PIN-OVERLAY.md`](07-DEV-PIN-OVERLAY.md) — 开发态组件覆盖层（`dev_pins.json`）配置方法
+- [`09-AIO-VK-PRESENTMODES-STATUS.md`](09-AIO-VK-PRESENTMODES-STATUS.md) — AIO Vulkan 呈现模式排查记录与假设

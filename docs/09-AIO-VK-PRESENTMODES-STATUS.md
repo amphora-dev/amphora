@@ -51,7 +51,7 @@ adb shell "am force-stop app.amphora; am start -n app.amphora/.MainActivity \
 |---|---|
 | 会话 / WCP | `WineAndroidSession` + `Proton-11.0-05ca3a658`；命令行含 `--cube vk --vsync` |
 | logcat `AHB_SC create images=… import=ok` | **无**（亦无 `AHB_SC CreateSwapchain enter`） |
-| logcat `WineAndroidWsi` knife13 / `wsi-sc-*.sock` | **有**（宿主 WSI 代理起来了） |
+| logcat `WineAndroidWsi` / `wsi-sc-*.sock` | **有**（宿主 WSI 代理通道已正常建立） |
 | `wine_stderr`（`WINEDEBUG=+err,+android` → `files/wine_stderr.log`）干净一轮 | **无** `Failed to load`（非 win32u `vulkan_init_once` 的 libvulkan dlopen 早退）；**有** `wine: could not load kernel32.dll, status c0000135` |
 | 同轮 logcat | `avc: denied { execmod }` 打在 WCP 内 `gdi32.dll`；`kernel32.dll` 文件在 WCP 路径上存在 |
 | 截屏 | 黑底 + 底部 guest 命令行覆盖层 |

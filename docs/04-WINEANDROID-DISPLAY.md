@@ -1,6 +1,6 @@
-# 16 · WineAndroid 宿主窗口与渲染（架构与显示真源）
+# 04 · WineAndroid 宿主窗口与渲染（架构与显示真源）
 
-> **唯一显示真源**：本文档整合了原 12、17 与 18，是 Amphora 宿主窗口、Surface 生命周期、布局及输入的唯一综合真源。
+> **唯一显示真源**：本文档是 Amphora 宿主窗口、Surface 生命周期、布局及输入的唯一综合真源。  
 > 进度指针见 [`docs/02-TRACKING.md`](02-TRACKING.md) 末节。
 
 Amphora 的 `:session` 宿主采用 Kotlin 实现的 `WineAndroidDesktop` / `WineAndroidHostBridge` 对齐上游 `dlls/wineandroid.drv/WineActivity.java` 的窗口树与 Surface 生命周期。我们**彻底弃用**了 Winlator 式的 Java XServer / X11 架构，直接利用 Android 原生 `SurfaceView` 与 Binder 通信实现高效的 Windows 窗口呈现。
@@ -134,7 +134,7 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 
 ## 9. 非目标与硬约束
 
-1. **GDI 壳层出画不走 CreateSwapchain，禁止引入私有 `host.sock`**；（注意：游戏 Vulkan 的 AHB import CreateSwapchain 见 [`docs/13`](05-AHB-IMPORT-PRESENT.md)，是现行不可倒退路径）。
+1. **GDI 壳层出画不走 CreateSwapchain，禁止引入私有 `host.sock`**；（注意：游戏 Vulkan 的 AHB import CreateSwapchain 见 [`docs/05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md)，是现行不可倒退路径）。
 2. **严禁删除底部 `statusView` 调试条**（此为宿主必要观测点）。
 3. **不要为了“像上游”而盲目照搬 `WineActivity.java`、切 TextureView 或抄 BGRA**。
 4. **禁止靠修改 guest `/desktop=` 分辨率来铺满屏幕**（仅通过宿主 scale-to-fill 放大）。

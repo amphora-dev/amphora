@@ -1,286 +1,137 @@
 # 01 · As-Built 架构设计
 
-> 当前实现的架构真源。决议见 [`01-RFC.md`](research/01-RFC.md)；进度手账见 [`02-TRACKING.md`](02-TRACKING.md)；资产锁见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md)。
-> 最后更新: 2026-08-30 · 状态: **v0.1 端到端已跑通**（Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐；Pulse 生产 pin 已含 winepulse）
+> **架构真源**：本文档是 Amphora 现行工程实现的唯一架构真源。  
+> 进度真源见 [`02-TRACKING.md`](02-TRACKING.md)；资产清单见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md)；立项决议见 [`research/01-RFC.md`](research/01-RFC.md)。  
+> **当前状态（2026-09-25）**：默认采用 **WineAndroid 宿主**出画（Android 原生 SurfaceView + 嵌套 WindowGroup）与 **Vulkan AHB 导入零拷贝**渲染；旧版 X11 仅保留作为对比与显式回退。
 
 ---
 
-## 1. 一句话
+## 1. 核心定位
 
-Amphora 是模块化的 Android Wine 模拟器：`:core:engine` 承载移植自 WinNative 的运行时内核；app/feature 只通过 `WineEngine` 等稳定接口启动会话；Wine、Box64 和图形组件由 `RemoteContentSource` 按 `content_manifest.json` 的 SHA pin 在设备上下载安装，PulseAudio 的 Android native 库和运行时压缩包则随 APK 交付。
+Amphora 是一款模块化、高可维护性的 Android 平台 Windows/Wine 模拟器：
+- **内核封装**：`:core:engine` 承载核心运行时逻辑，上层应用与业务功能仅通过 `WineEngine` 等标准化接口与运行时交互；
+- **原生宿主出画**：抛弃了传统模拟器繁重且损耗性能的内置 X11 服务，默认走 Android 原生 `SurfaceView` 窗口体系与 SurfaceFlinger 硬件多层合成；
+- **图形零拷贝**：游戏 3D 渲染通过 `amphora_wsi` 桥接将 Android Hardware Buffer (AHB) 零拷贝直接注入系统 Vulkan Swapchain；
+- **内容受控交付**：Wine、Box64、DXVK 等二进制运行时组件与驱动均通过 `RemoteContentSource` 按照 SHA-256 强校验在设备端按需下载安装。
 
 ---
 
-## 2. 模块图
+## 2. 模块拓扑与依赖规则
 
 ```
 :app
-├─ :feature:launcher      SAF 选 .exe + 分辨率 → 导航到会话
-├─ :feature:settings      图形/组件/Box64/容器等设置（已有实质 UI）
-└─ :core:engine           ★ 架构核心
-   ├─ api  → :core:common, :core:content, :core:container
-   └─ impl → :core:native, :core:rootfs
-        │
-        ├─ :core:content     ContentSource / manifest / SHA 校验
-        ├─ :core:container   ContainerManager 契约（瘦模型）
-        ├─ :core:rootfs      RootfsInstaller 契约
-        ├─ :core:native      libwinlator.so + libamphora-exec.so（arm64-v8a）
-        └─ :core:common      协程 dispatcher
+ ├─ :feature:launcher          SAF 选取 .exe + 快捷启动 + 启动参数配置
+ ├─ :feature:settings          容器、图形驱动、组件版本与本地覆盖层设置
+ └─ :core:engine               ★ 核心运行时（Winlator 运行时逻辑与驱动桥接）
+     ├─ api  → :core:common, :core:content, :core:container
+     └─ impl → :core:native, :core:rootfs
+          │
+          ├─ :core:content     ContentSource / 清单解析 / SHA-256 校验
+          ├─ :core:container   ContainerManager 契约（容器与 Prefix 抽象）
+          ├─ :core:rootfs      RootfsInstaller 契约（系统镜像解压与挂载）
+          ├─ :core:native      libwinlator.so + libamphora-exec.so + libamphora_wsi.so
+          ├─ :core:ui          设计系统 Tokens 与动效规范（DesignTokens、AmphoraMotion）
+          └─ :core:common      协程调度器与基础工具
 ```
 
-`core:ui` 提供通用的 UI 设计 Token 和动效规范（DesignTokens、AmphoraMotion）。
+- **依赖单向流动**：`feature/app → engine → {native, rootfs, content, container, ui, common}`，底层的 native 与通用库绝不向上反向依赖；
+- **依赖倒置 (DIP)**：标准化契约定义在底层接口模块中，依赖具体运行时的实现收拢在 `:core:engine`：
 
-`build-logic`（included build）提供 convention 插件：`amphora.android.{application,library,compose,hilt,native,feature}` + `amphora.content.staging`。
-
-**依赖单向**：`feature/app → engine → {native, rootfs, content, container}`。native 永不向上依赖。
-
-### DIP 落点（重要）
-
-契约在低层模块，依赖 Winlator 内核的实现落在 `:core:engine`：
-
-| 契约模块 | 接口 | 实现（engine） |
+| 契约模块 | 抽象接口 | engine 中的具体实现 |
 |---|---|---|
 | `:core:rootfs` | `RootfsInstaller` | `ImageFsRootfsInstaller` |
 | `:core:content` | `ContentSource` / `ContentAssetInstaller` | `RemoteContentSource` + `WinlatorContentAssetInstaller` |
 | `:core:container` | `ContainerManager` | `WinlatorContainerManager` |
-| `:core:engine` | `WineEngine` / `WineSessionPreparer` | `WineEngineImpl` / `XServerWineSessionPreparer` |
-
-Hilt 绑定集中在 `EngineModule`；三个 sibling 接口已无 stub。
+| `:core:engine` | `WineEngine` / `WineSessionPreparer` | `WineEngineImpl` / `WineAndroidSessionBootstrap` |
 
 ---
 
-## 3. 启动数据流
+## 3. 运行会话启动数据流
+
+从点击图标到 Windows 程序出画，整体启动链路如下：
 
 ```
-MainActivity → AmphoraNavHost
-  ├─ launcher → SAF .exe → filesDir/exe/
-  ├─ settings
-  └─ SessionActivity.launch(...) → 独立 Android `:session` 进程
-       └─ [测试] launcher 的 Debug: Wine smoke test / MainActivity debug intent
+UI 入口（AmphoraNavHost / DesktopActivity / MainActivity）
+  │
+  ▼
+SessionLaunch.program / explorer(...)
+  │
+  ├─ [默认] displayBackend = WINEANDROID ──► 启动独立进程 :session 的 WineAndroidSessionActivity
+  └─ [回退] displayBackend = X11         ──► 启动 SessionActivity (旧版 Java XServer)
 
-GameSessionViewModel
-  → WineEngine.launch(LaunchSpec)   // MVP 容器 id = "1"
-       1. RootfsInstaller.ensureInstalled()          // manifest-pinned imagefs.txz
-       2. WinlatorContainerManager.getOrCreate()     // WINE/BOX64/DXVK/VKD3D .wcp + prefix
-       3. XServerWineSessionPreparer                 // prefix 修复 / DXVK+VKD3D DLL / Turnip env
-       4. XServer + GameSessionSurface               // 暴露给 UI
-       5. XEnvironment + SysV / XServer / ALSA 或 PulseAudio / Net
-       6. stageExeIntoPrefix → C:\<exe>              // Z: 映 rootfs，宿主路径不可直传
-       7. GuestProgramLauncher: box64 wine explorer /desktop=shell,WxH "C:\..."
-                                            // EXPLORER target 的 trailing arg = winefile.exe (2026-09-13 起)
-       8. startEnvironmentComponents()
-
-GameSessionScreen
-  → AndroidView(XServerSurfaceView)  // TextureView + VulkanRenderer 线程
-  → AndroidView(TouchpadView)        // 触控板 / 触屏 / RTS 手势 → X inject（无 WinHandler）
+WineAndroidSessionActivity 启动时序：
+  1. WineAndroidSessionBootstrap.prepare(...)
+     - 确保 Rootfs (imagefs.txz) 与容器 Prefix 已安装就绪；
+     - 校验并安装当前 pin 钉选的 WCP 组件（Wine、Box64、DXVK 等）及 Turnip 驱动；
+     - 初始化 SEQPACKET 通信通道（\0\Device\WineAndroid）。
+  2. WineAndroidDesktop 视图树构建
+     - 根容器 FrameLayout 负责黑边 letterbox 居中；
+     - 内部 contentHost 按 hostScale 等比缩放铺满屏幕；
+     - 构建宿主与 Windows HWND 对应的 WindowGroup 树。
+  3. WineAndroidLauncher.launchGuest(...)
+     - 配置环境变量（注入 AMPHORA_WINEANDROID=1，LD_PRELOAD 预加载 libamphora_wsi.so）；
+     - 通过 /system/bin/linker64 libamphora-exec.so 启动 guest：
+       box64 wine explorer /desktop=shell,WxH "C:\<exe>"
+  4. 双轨画面呈现与交互打通：
+     - 2D GDI 窗口：wineandroid.drv 通过 ANativeWindow 直接绘制到 SurfaceView；
+     - 3D Vulkan 游戏：经 amphora_wsi 导入 AHardwareBuffer 实现零拷贝 Present 送显；
+     - 交互输入：触控 MotionEvent、物理键盘、软键盘 IME 与光标 PointerIcon 实时分发。
 ```
 
-Guest 退出 → `XServerSessionHandle.markStopped()`；UI `stop` → 反向停环境并回收 Wine 子进程。
-> **专项**：Exit 曾因 Main 上 `join` + `recvAncillaryMsg` 阻塞触发 ANR；已 IO 调度 + **先关 client FD 再 join** 根治（2s timeout 仅兜底）。见 [`03-TRACKING.md` §专项](02-TRACKING.md)。
+---
+
+## 4. 双轨出画架构与输入体系
+
+项目实现了两套完全不同层级的呈现机制，现行真源是 WineAndroid 宿主，旧版 X11 仅保留为对比基准。
+
+### 4.1 现行真源：WineAndroid 原生宿主（详见 [`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)）
+
+1. **2D 桌面与普通应用（GDI 路径）**：
+   - 每个 Windows HWND 对应宿主的一块 `SurfaceView`，包在嵌套的 `WindowGroup` 中；
+   - 子窗口坐标严格遵循 win32u 的 `visible_rect`（相对父客户区坐标）；
+   - `wineandroid_host_ipc.c` 指定 `api=NATIVE_WINDOW_API_CPU(2)`，利用 CPU buffer 绘制，最终由 Android 系统的 **SurfaceFlinger** 统一硬件多层合成；
+   - 保持标准的 **PF_RGBA_8888** 格式，颜色通过宿主软件 R/B 交换修正（严禁设 BGRA=5 导致闪退）。
+2. **3D 游戏画面（Vulkan AHB 零拷贝，详见 [`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md)）**：
+   - 宿主通过 `LD_PRELOAD` 注入 `libamphora_wsi.so`；
+   - 游戏创建 Swapchain 时，通过 Unix Socket 桥接直接将 Android 系统的 `AHardwareBuffer` 导入为 Vulkan `VkImage`；
+   - GPU 绘制直接写入共享内存，Present 流程直接送显，无任何 ImageReader 或 CPU 拷贝损耗（Present≥50 已验证通过）。
+3. **输入与交互体系**：
+   - **触控与光标**：手势直接分发为 `nativeSendMotionEvent`；光标采用 API 24+ 原生 `PointerIcon`（对齐 Windows 光标形态）；
+   - **物理键盘与按键穿透**：常规按键经桌面管道注入；系统功能键（返回键 BACK、音量键 VOLUME）故意穿透回 Android 原生处理；
+   - **软键盘与 IME**：默认点击不主动弹起键盘（避免遮挡）；通过悬浮按钮或长按外层黑边调起；支持 CJK 中文字符经 `KEYEVENTF_UNICODE` 注入。
+
+### 4.2 对照与回退：Winlator X11 方案
+
+- **架构特征**：单一 `TextureView`（XServerSurfaceView），由内置 Java XServer 遍历窗口树，统一绘制进单张纹理后由 VulkanRenderer 呈现；
+- **回退方式**：在 `SessionLaunch` 中显式指定 `displayBackend = DisplayBackend.X11` 即可切入此旧路径，供调试与对比验证。
 
 ---
 
-## 3.1 内容身份：SHA 是唯一内容真相
+## 5. 内容与组件资产管理
 
-| 层 | 字段 / 标记 | 职责 |
-|---|---|---|
-| **下载文件** | manifest `sha256` + 相邻 `<asset>.sha256` | 校验并缓存精确字节 |
-| **安装目录** | `.amphora-source.sha256` | WCP、ARCHIVE、rootfs、Turnip 是否就是当前内容 |
-| **派生副本** | `.amphora-applied/<asset>.sha256` 或 `AppliedMarks` 中含 SHA 的 fingerprint | 判断解压、复制、Prefix 应用是否需要重做 |
-| **兼容名称** | `version` / `Type-verName-verCode` | ContentsManager 查找、路径和 UI 展示；不负责判断内容是否更新 |
-| **容器选择** | `.container` 的 `wineVersion` / `box64Version` / `dxwrapper` | 记录用户/清单选择的兼容名称 |
-
-同一个 `verName-verCode` 的 SHA 改变时也必须替换安装；不要求人为增加 `versionCode`。安装先保留旧目录，成功发布新目录并写 SHA 后再删除备份。
-runtimeAsset 下载完成不代表更新完成：凡是复制或解压到 imagefs、Prefix、驱动目录的内容，都必须把来源 SHA 纳入 applied 状态。Proton SHA 改变会刷新 Prefix，Box64、WinComponents、wrapper/layers、DirectDraw 和 Turnip 同理。
-`reconcileToPin` 只负责删除其他兼容版本的 sibling；`ContentPinResolver` 仍是名称解析入口。
+- **唯一版本真源**：`amphora-dev/content_manifest` 仓库中的 `content_manifest.json`，运行时由 `RemoteContentSource` 动态拉取；
+- **开发态本地覆盖（Overlay）**：开发调试时，可通过 `filesDir/content/dev_pins.json`（详见 [`07-DEV-PIN-OVERLAY.md`](07-DEV-PIN-OVERLAY.md)）临时覆盖特定组件（如本地自编的 Box64 或 Proton），无需修改线上清单；
+- **容器与应用状态解耦**：
+  - 容器内部维护 `AppliedMarks` 指纹（包含 SHA）；
+  - 每次启动比对“目标清单 SHA”与“已应用 SHA”；不一致时才重新解压或重挂，避免重复 I/O。
 
 ---
 
-## 3.2 容器配置怎么应用
+## 6. 原生 C/C++ 模块职责 (`:core:native`)
 
-一种方式：
-
-1. **想要什么**：只在容器（唯一真相）。设置页 / 清单只负责改写容器。
-2. **装过什么**：`AppliedMarks`（`applied*`）。
-3. 想要的 ≠ 装过的 → 去做 → 成功后更新标记。
-4. 前缀重建 → `clearOwnedByPrefix`，标记全清，下次会重做。
-
-声音、服务、DLL、组件、盘符、输入、Box64/FEX 全部同一套。  
-`dxwrapper` 只认分号格式。图形启动只读容器（`getOrCreate` 已从设置写入）。
-
-## 3.3 Android 存储与 Wine 盘符
-
-- Wine `dosdevices` 需要真实文件系统路径，SAF URI 不能直接作为盘符目标；Android 11+
-  使用 `MANAGE_EXTERNAL_STORAGE` 的 per-app 设置页授权，旧
-  `READ_EXTERNAL_STORAGE` 不足以保证可遍历。
-- `GuestDriveManager` 通过 `StorageManager.storageVolumes` 枚举主存储和已挂载可读的
-  SD 卡，规范化路径并展示可用状态；UI 刷新只读，避免与独立 `:session` 进程同时改写
-  容器 JSON。
-- 每次启动由 `WineUtils.normalizePersistentDrives(..., includeRemovable=true)` 权威协调
-  持久盘符，再创建 `dosdevices` 符号链接，因此容器创建后插入的 SD 卡也能出现。
-- 运行时组件 DLL 使用另一套受限链接：`SharedDllLinker` 只允许
-  `filesDir/contents` 下的普通文件，先设只读，再用临时相对 symlink + rename 原子发布
-  到 prefix，避免容器写穿共享组件缓存。
-
----
-
-## 4. 渲染与输入
-
-| 层 | 组件 | 说明 |
-|---|---|---|
-| UI | `GameSessionScreen` / `TouchpadView` | 触控板：相对位移 + 单击左键 / 双指右键与滚轮 / 长按右键；触屏绝对模式；RTS 策略手势；外接鼠标与手写笔；可拖动 IME 浮条直接打开/隐藏 Android 键盘并预览 composition |
-| 文本输入 | `WineInputConnection` → `XServer.injectText` | 拼音/候选组合留在 Android 侧，只把已提交 UTF-16 文本映射为 X11 Unicode keysym；防 `finishComposingText`/`commitText` 重复，按可见字素转发删除，8 个保留 keycode 按 LRU 复用；浮条可把 Android 剪贴板内容作为文本注入 |
-| Surface | `XServerSurfaceView` | `TextureView`（Compose `AndroidView` 下 SurfaceView 子窗口不可靠） |
-| Java 渲染 | `VulkanRenderer` | 加载 `winlator`，direct scene buffer |
-| Native | `vk_renderer.c` + adrenotools | swapchain / AHB 导入 / Turnip 或系统 `libvulkan.so` |
-| X 协议 | `XServer` + DRI3 / Present / MIT-SHM | Mesa Android WSI → AHardwareBuffer；失败回退 SHM |
-| Guest 图形 | Wrapper ICD + DXVK + VKD3D；OpenGL→EGL/Zink；32-bit DirectDraw 在 Dd7to9 / cnc-ddraw / D7VK 中单选；x86_64 DirectDraw→Proton builtin ddraw→WineD3D/Zink | 默认 wrapper 包装系统 Adreno，host 直接用同一系统 Vulkan；显式 Turnip 才由 host/guest 共用 adrenotools driver |
-| 音频 | ALSA aserver 或 Wine PulseAudio | 默认 Pulse（`winepulse.drv → PulseAudio → module-aaudio-sink → AAudio`）；16 KB 页或驱动不完整时回退 ALSA |
-| 性能 HUD | `HostPerformanceMonitor` / `HostPerformanceOverlay` | API 无关的 compositor queue-present FPS；可拖动、可展开。HUD 可见时 native compositor 每 4 帧用 Vulkan timestamp query 报告 GPU 合成时间，驱动支持 `VK_GOOGLE_display_timing` 时每 8 帧 drain 实际 display FPS、present interval/margin；展开后按低频率读取每核 CPU/频率、GPU 负载/频率、帧时间 P95/1% low、guest RSS/进程/线程、温度/电池功耗，以及配置和实际映射中发现的 DXVK/VKD3D/WineD3D |
-
-### 4.1 RTS 策略触控
-
-运行时抽屉的 `RTS strategy` 与 `Trackpad` / `Direct touch` 互斥。它不是
-WinNative `ScreenTouchStick` 的虚拟手柄模式：Amphora 仍不恢复 WinHandler 或
-InputControls，所有动作继续写入 Java X server。
-
-```
-MotionEvent
-  → TouchpadView.handleRtsGestureEvent
-  → RtsGestureController           // 纯状态机，可做 JVM 单测
-  → RtsInputSink
-  → TouchpadXInject HandlerThread  // 与普通触控共用有序注入队列
-  → XServer.injectPointer* / injectKey*
-```
-
-| 手势 | X11 动作 |
+| 原生动态库 | 架构与职责 |
 |---|---|
-| 单指短按 | 移动到触点并单击左键 |
-| 单指移动超过阈值 | 在起点按住左键，持续绝对移动，抬手释放（框选/拖拽） |
-| 双指短按 | 右键 |
-| 双指同向平移 | 按住对应方向键；方向改变或手指数变化时先释放旧键 |
-| 双指捏合 | 按固定距离步长注入滚轮上/下 |
-| 三指短按 | 中键 |
-| 四指短按 | 打开会话控制抽屉 |
+| `libwinlator.so` | C 运行时基础库：提供底层 socket 通信、共享内存、进程树监管及 adrenotools 驱动装载 |
+| `libamphora-exec.so` | `LD_PRELOAD` 拦截器：拦截 Box64 / Wine 子进程的 `exec*` 调用，强制将应用私有 ELF 路由给 `/system/bin/linker64` 装载（绕过 targetSdk 36 的 W^X/exec 限制） |
+| `libamphora_wsi.so` | aarch64 WSI 桥接库：注入进程后启动服务端，提供 Vulkan AHB 导入与零拷贝 Swapchain 呈现调度 |
+| `libamphora-android-shim.so` | 符号垫片库：为特定兼容环境导出包装符号 |
 
-状态机在模式切换、抽屉打开、会话暂停/停止、View detach 和
-`ACTION_CANCEL` 时释放自己持有的鼠标键与方向键。触点阈值使用 View 坐标判定，
-绝对光标位置再通过当前 `XForm` 映射到 guest 分辨率；实际注入仍在
-`TouchpadXInject` 线程执行，避免 Wine 未及时读取 X socket 时阻塞 Android UI。
-
-当前限制：
-
-- 只有内置策略布局，开关通过 `rememberSaveable` 保留在当前会话；尚无跨会话 profile
-  和手势编辑器。
-- 无右摇杆 / XInput / DInput 输出；`ScreenTouchStick` 必须等待 Amphora 自有的
-  虚拟手柄或 evdev 后端，不能直接接回 WinHandler UDP。
-- JVM 测试覆盖单指点按、双指右键、框选拖拽、方向键平移和捏合缩放；真机需在
-  Wine 会话内继续验证多指事件时序、系统边缘手势冲突和不同屏幕密度。
-
-生产 Proton pin（`Proton-11.0-d12a5634a`，2026-08-11 起）已含 `winepulse.so` /
-`winepulse.drv`，`DT_NEEDED=libpulse.so`。4 KB 页设备在设置里选 Pulse 后走
-`winepulse → PulseAudio → module-aaudio-sink → AAudio`；缺驱动或 16 KB 页才回退 ALSA。
-
-HUD 的详细内核指标先使用普通 app 可读的 `/proc`/`sysfs`；展开后本地读失败时，最多每
-秒通过独立、只读、固定 allowlist 的 Shizuku metrics service 回退一次。Shizuku shell
-通常可补 `/proc/stat`，但仍可能受 OEM SELinux 限制而无法读取 KGSL；root Shizuku 才能
-补齐这类 vendor sysfs。不可读时 HUD 明确显示 restricted，折叠后立即解绑，不让特权服务
-参与 500 ms 主采样。guest 计量遍历 `:session` 的全部线程子树，再与
-`ProcessHelper.listRunningWineProcesses()` 的同 UID Wine/Box64 集合求交；这能覆盖
-subreaper 重挂后与 launcher 同级的进程，又不会误收 PulseAudio。较重的 host PSS 降至每
-5 秒一次。温度优先显示公开 `PowerManager` thermal status/headroom；Android 36+ 另按
-系统声明的最小间隔读取 CPU/GPU headroom。
-
-`vkQueuePresentKHR` 返回和 submit fence signal 都不等于“已经显示”，因此主 FPS 明确
-表示 compositor queue-present 速率；只有 `VK_GOOGLE_display_timing` 返回
-`actualPresentTime` 时才另列最终 display FPS。扩展广告存在但不返回 history 时，HUD 用
-PRESENT 标注 queue-present 回退，不用 Choreographer 或 `dumpsys SurfaceFlinger`
-伪造。GPU 合成时间来自每个 in-flight frame 的两个 timestamp query，并在对应 fence
-已完成后读取，不阻塞当前提交。HUD 隐藏时
-`nativeSetPerformanceTelemetryEnabled(false)` 停止 timestamp/reset/present-history
-命令；首次开启时才懒创建 query pool，之后关闭仅保留这个很小的 Vulkan 对象以避免
-销毁仍在途 query。
-
-兼容性按 fail-open 处理：若驱动枚举了 `VK_GOOGLE_display_timing`，但带该可选扩展的
-`vkCreateDevice` 失败，会去掉它重试，不能让 HUD 能力阻止 Vulkan 启动。运行中 GPU
-query 或 display history 连续 3 次失败/返回异常值时，只熔断对应遥测层；主 FPS 在
-queue-present 无样本时才回退到 XServer Source FPS，渲染与 Present 路径继续运行。
-
-已知裁剪：IME 浮条只预览 Android composition，候选列表仍由系统输入法展示；“CLIPBOARD”是 Unicode 文本注入，不是 Wine 剪贴板/`Ctrl+V`，不承诺绕过拒绝字符输入的游戏控件。没有独立 Windows OSK 或 IMM32/TSF 桥；无 WinHandler 相对鼠标 UDP（`relativeMouseMovement` 固定 false），RTS 手势也只输出 X11 键鼠事件；Present idle 尚未按 GPU release fence 精确门控；Shortcut / desktop `.lnk` 升级 / EffectComposer 后处理已从内核路径拆除（Vulkan scene buffer 仍保留 effect 槽位布局，count=0）。
-
-当前基线没有插帧后端；GameHub、WinNative 与开源候选仅见 [`09-FRAME-GENERATION-RESEARCH.md`](research/09-FRAME-GENERATION-RESEARCH.md)，不属于已落地架构。
+- **ABI 约束**：严格限定为 **arm64-v8a**；compileSdk 37，minSdk 30，targetSdk 36。
 
 ---
 
-## 5. 内容与资产
+## 7. 关键设计守则与红线
 
-- **真源**：`amphora-dev/content_manifest` 的 `content_manifest.json`，运行时按 `amphora.contentManifest.url`（`gradle.properties`）拉取；仓库内不留副本。校验由该仓的 `validate_manifest.py` 在 push 时执行
-- **Effective pins**：运行时 `ContentCatalog` 在每次成功 load 后叠加 `filesDir/content/dev_pins.json`（开发态 overlay，见 `15-DEV-PIN-OVERLAY.md`）。远程 manifest 仍是发版真源；overlay 不是 release 通道。
-- **组件**（`ContentComponent`）：Wine Proton / Box64 / DXVK / VKD3D / ROOTFS（后者由 `RootfsInstaller` 独占）。Mesa vulkan wrapper 不是 component，它是 `runtimeAssets[]` 条目，由 `RuntimeAssetProvisioner` 装进 `filesDir/runtime-assets/`；ALSA aserver 随 imagefs
-- **安装路径**：
-  - `WCP` → `ContentsManager.extraContentFile` + `finishInstallContent` → `filesDir/contents/...`
-  - `ARCHIVE` → `TarCompressorUtils` → `filesDir/amphora-content/<component>/<version>/`
-- **构建 staging**：`./gradlew :app:stageBundledContent`（**不**挂 preBuild；当前 Proton pin 约 66.3 MB，仍不应膨胀每次 debug APK）
-  - 每次重新读取同一份远程 manifest，遍历非 ROOTFS `components` 与全部 `runtimeAssets`；`-Pamphora.contentManifest.file=<path>` 可离线
-  - 优先使用相邻 `WinNative` checkout 中的同路径文件；缺失时用条目的 `remoteUrl` 下载（WCP 可回落 `wcpCatalogUrl`）
-  - 本地文件、下载缓存和最终生成文件都同时校验 `size` 与 SHA-256，任一不匹配即失败
-  - 先完整写临时目录，成功后精确替换 `app/build/generated/assets/bundledContent/`，不会污染 `app/src/main/assets/`；该目录已接入 main Android assets source set
-
-无资产时 `assembleDebug` 仍绿；联网运行可由 `RemoteContentSource` 首启下载。
-要求资产门禁不跳过的 instrumented 测试应使用
-`./gradlew :app:connectedAndroidTestWithContent` 先 staging。
-
----
-
-## 6. Native
-
-| 产物 | 内容 |
-|---|---|
-| `libwinlator.so` | X/Vulkan/AHB/压缩解压/socket/shmem/进程回收；adrenotools 静态链入；zstd+xz FetchContent |
-| `libamphora-exec.so` | `LD_PRELOAD` 拦截 Box64/Wine 后续 `exec*`，把 app-private AArch64 ELF 改由 `/system/bin/linker64` 装载 |
-| ABI | **仅 arm64-v8a**；minSdk 30；NDK r28 |
-
-`libfakeinput.so` 不再构建（MVP 输入走 X inject）；源码已从树内移除，手柄路径回归时从 WinNative 再引入。
-
-JNI 绑定类与 `com.winlator.cmod.runtime.*` 内核均在 `:core:engine`（包名保留，C 零改）。远程下载 JNI（`nativeDownloadFile` 等）保持 stub——下载在 Kotlin 侧由 `VerifiedAssetDownloader` 做（可续传 + SHA 校验），native 只留符号避免 `UnsatisfiedLinkError`。
-
----
-
-## 7. 关键构建约束
-
-| 项 | 值 / 原因 |
-|---|---|
-| compileSdk / minSdk | 37 / 30（对齐 Box64、Vulkan wrapper 与 wineserver 的 `LIBC_R` 依赖） |
-| **targetSdk** | **36**：Java 首启和 native 后续 `exec*` 都通过 `/system/bin/linker64`，不直接 `execve(app_data_file)` |
-| AGP / Gradle / Kotlin / KSP | 9.2.1 / 9.4.1 / 2.3.21 / 2.3.9 |
-| Hilt / Compose BOM | 2.59.2 / 2026.06.01 |
-| AGP 9 built-in Kotlin | **禁止**再 apply `org.jetbrains.kotlin.android` |
-| 包名 | `app.amphora`；`:core:native` namespace = `app.amphora.core.nativelib`（`native` 是关键字） |
-
----
-
-## 8. 与文档的关系
-
-| 文档 | 角色 |
-|---|---|
-| `00-RESEARCH.md` | WinNative 拆解依据（历史） |
-| `01-RFC.md` | 立项决议 D1–D9 与后续演进注记 |
-| `02-SCAFFOLD.md` | scaffold 时 as-built 栈与踩坑（历史；栈版本仍有效） |
-| `03-TRACKING.md` | agent handoff checklist（living） |
-| `04-ASSET-MANIFEST.md` | 资产 SHA 锁 |
-| **`05-ARCHITECTURE.md`** | **当前实现架构（本文）** |
-| `06-ENVIRONMENT.md` | Cloud/ADB/真机测试与 CI |
-| `07-TARGETSDK-SELINUX.md` | targetSdk 36 app-private ELF 执行 |
-| `08-EGGGAME-COMPARISON.md` | GameHub / WinNative / Amphora 对比 |
-| `09-FRAME-GENERATION-RESEARCH.md` | 插帧逆向、开源候选与验证门槛（研究） |
-| `RESEARCH-proton-wine-selfbuild.md` | Proton 自建依据与当前 BuildStream 结果 |
-| `WRAPPER-BUILD.md` | Vulkan wrapper 独立构建方法 |
-
----
-
-## 9. 当前缺口（v0.2+ 候选）
-
-- `:feature:settings` 续增强；键盘/手柄；Pulse 来电打断的听感回归（栈已由 `GameSessionPulseAudioTest` 覆盖）
-- Present/DRI3 完善；多容器/prefix
-- 部分 runtime 资产仍 pin 自 WinNative raw（wincomponents / ddrawrapper / meta）；`container_pattern_common` / `layers` 已从默认路径拆除；共享 `fonts.tzst` 提供真实 Microsoft YaHei、SimHei、PMingLiU、Tahoma、Microsoft Sans Serif，并保留 Source Han CN+JP 处理未打包字体；每容器通过 `Fonts/` symlink + FontLink / `FontSubstitutes` / Wine `Fonts\Replacements` 注册。Wine 会直接扫描 `C:\windows\Fonts`，不再向 imagefs `/usr/share/fonts` 重复建链或强制运行 `fc-cache`
-- Exit 真机连点 / FD 泄漏回归
+1. **GDI 壳层严禁引入 CreateSwapchain 或私有 host.sock**：桌面与 2D 窗口必须走标准 `wineandroid` SurfaceView 挂载；
+2. **游戏 3D 呈现必须保留 AHB Import CreateSwapchain**：绝不可退回软拷贝或已被清除的 HostVk 冗余路径；
+3. **主分支与代码规范**：开发推前必须执行 `./gradlew spotlessCheck :app:testDebugUnitTest` 保证持续集成 (CI) 始终为绿灯。
