@@ -139,6 +139,21 @@ without `workflow` scope cannot push `.github/workflows/**`).
 - BuildStream inline commands run under dash; put bash logic in `ci/**/*.sh`.
 - macOS bash 3.2: write `${var}` before any non-ASCII character.
 - One subagent per device and per worktree at a time.
+- Run every evidence command yourself before putting it in the spec, and
+  paste it verbatim (quoting included). An unverified grep is where a
+  subagent burns tokens: a1-audio-play spent ~40 of 96 calls re-capturing
+  `dumpsys` after its own grep quoting failed.
+- Give UI paths as exact coordinates or a deep link / debug extra, not "find
+  the setting". Hunting a Settings row cost 17 calls.
+- Every check has three outcomes: PASS, FAIL, UNVERIFIED (command failed,
+  raw output saved). Say "a check command failing twice → mark UNVERIFIED and
+  move on; never re-run a round to satisfy one check". Without this, "any
+  unmet → FAIL" pushes the model to redo work instead of reporting.
+- Put a call budget in the spec ("expect ~40 tool calls; past 60, stop and
+  report what you have") and pass a hard cap `--max-calls 1.5N`; the script
+  stops omp past it (`BUDGET` in `status`). `status.sh` shows calls and tokens
+  per run. omp's own `model.toolCallLoopGuard` only fires on
+  5 identical consecutive calls, so it does not catch varied retries.
 - First gradle build in a fresh worktree takes minutes; say so in the spec so
   the subagent does not give up.
 
