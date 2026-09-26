@@ -132,7 +132,7 @@ X11 会话链删于 `64fc57c`，删前最后状态是 tag **`x11-reference`**（
 | 退出确认 / 会话结束遮罩 | `GameSessionOverlays.kt` `ExitSessionConfirmationDialog`、`SessionEndingOverlay` | ❌ | |
 | 暂停 / 恢复 | `GameSessionCoordinator.kt`、`PendingSessionActions` | ⚠️ 只有 Activity `onPause`/`onResume` | |
 | 帧率限制 | `GameSessionRuntimeDrawer.kt` `sessionFrameLimitHint`、`FPS_LIMITS` | ❌ | |
-| 性能 HUD（FPS / 帧时间 / CPU 核频率 / GPU / 温度 / 电池 / guest 进程） | `gamesession/HostPerformanceMonitor.kt`、`HostPerformanceParser.kt`、`GameSessionPerformanceHud.kt` | ❌ | Monitor 读的是宿主 /proc 与 sysfs，基本与显示后端无关，可整体搬 |
+| 性能 HUD（FPS / 帧时间 / CPU 核频率 / GPU / 温度 / 电池 / guest 进程） | `gamesession/HostPerformanceMonitor.kt`、`HostPerformanceParser.kt`、`GameSessionPerformanceHud.kt` | ✅（FPS 缺） | 已搬到 `WineAndroidSessionActivity`（ComposeView 叠层，设置开关或 `app.amphora.debug.PERF_HUD`）；帧率 / 帧时间依赖 X11 Present 回调，wineandroid 尚无帧统计，显示 `—` |
 
 X11 专有管道（`XServerSessionHandle`、`XServerInputSink`、`GameSessionSurface`、`StubInputSink`、`DisplayBackend`）不需要对齐。
 
