@@ -77,6 +77,7 @@ adb -s HA262AAH install -r app/build/outputs/apk/debug/app-debug.apk
 
 - Prefer **one owner** bot + optional read-only specialist + skills + routines.
 - In-repo skill: this file. Companion docs: [`docs/08-AGENT-BOOTSTRAP.md`](../../../docs/08-AGENT-BOOTSTRAP.md).
+- Headless subagents (omp + glm-5.3-flash), **claude-opus-5.5 orchestrator only**: [`../subagent-dispatch/SKILL.md`](../subagent-dispatch/SKILL.md).
 - Grok Bot may also have: HA262 wineandroid shell, HA262 device smoke, imagefs CAS build — use them after this onboarding skill.
 - Specialists must not change window granularity (top-level-only / TextureView / X11) unless the user asked.
 
