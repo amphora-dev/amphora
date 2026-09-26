@@ -124,7 +124,7 @@ X11 会话链删于 `64fc57c`，删前最后状态是 tag **`x11-reference`**（
 
 | 功能 | X11 参考（`x11-reference`） | wineandroid 现状 | 备注 |
 |---|---|---|---|
-| 音频服务（Pulse / ALSA） | `core/engine/…/WineEngineImpl.kt` `buildEnvironment` / `buildEnvVars`；`XServerSinks.kt` `XServerAudioSink` | ✅ `WineAndroidLauncher` 按容器驱动起 `PulseAudioComponent` / `ALSAServerComponent` 并设 `PULSE_SERVER` / `ANDROID_ALSA_SERVER`；GPLC 在调用方带 `PULSE_SERVER` 时把 APK nativeLibraryDir 加进 `LD_LIBRARY_PATH`（否则 Box64 找不到 `libpulse.so`，mmdevapi `c0000135`） | 6T：winecfg 显示 `winepulse.drv`、`AAudioSink`、注册表 `Audio=pulse`（与 X11 回归测试同一标准）。未验证：实际播放流（winecfg Test Sound 未见 sink-input）；ALSA 分支未真机跑 |
+| 音频服务（Pulse / ALSA） | `core/engine/…/WineEngineImpl.kt` `buildEnvironment` / `buildEnvVars`；`XServerSinks.kt` `XServerAudioSink` | ✅ `WineAndroidLauncher` 按容器驱动起 `PulseAudioComponent` / `ALSAServerComponent` 并设 `PULSE_SERVER` / `ANDROID_ALSA_SERVER`；GPLC 在调用方带 `PULSE_SERVER` 时把 APK nativeLibraryDir 加进 `LD_LIBRARY_PATH`（否则 Box64 找不到 `libpulse.so`，mmdevapi `c0000135`） | 6T 实放 30 s 440 Hz（waveOut）：Pulse 下 pactl 有 `protocol-native` sink-input、`AAudioSink RUNNING`；ALSA 下 `ALSAServerComponent` 起、`AS0` 在、无 pulse 进程，宿主 AudioTrack 送出 1440480 帧（= 30 s × 48 kHz）。两轮 wine `err:` 音频相关 0、无 FATAL |
 | SysV 共享内存 / 网络信息组件 | 同上 `buildEnvironment`（`SysVSharedMemoryComponent`、`NetworkInfoUpdateComponent`） | ❌ 未启动 | SysVShm 原本服务 XServer，wineandroid 是否需要待查；NetworkInfo 影响 guest 网络状态 |
 | 音量 / 静音 | `gamesession/GameSessionViewModel.kt`、`XServerSinks.kt` | ❌ 无 UI、无 sink | 依赖音频服务 |
 | 触控模式：Trackpad / Direct / RTS | `gamesession/input/TouchpadView.kt`、`RtsGestureController.kt`、`TouchpadFingerTracker.kt` | ⚠️ 只有直接触摸（`WineAndroidDesktop`） | RTS：双指平移、长按右键等，见 `RtsGestureController` 顶部注释与测试 |

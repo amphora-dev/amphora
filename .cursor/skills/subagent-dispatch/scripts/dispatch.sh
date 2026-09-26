@@ -114,7 +114,9 @@ run() {
   AMPHORA_SUBAGENT=1 SUBAGENT_RUN_DIR="$run_dir" \
     omp -p --mode json --config "$run_dir/omp-config.yml" --thinking "$thinking" --auto-approve \
     --no-session --max-time "$max_time" --cwd "$cwd" "@$run_dir/task.md" "$prompt" \
-    < /dev/null >> "$run_dir/events.jsonl" 2>> "$run_dir/stderr.log"
+    < /dev/null >> "$run_dir/events.jsonl" 2>> "$run_dir/stderr.log" &
+  echo "$!" > "$run_dir/omp.pid"
+  wait "$!"
   rc=$?
   set -e
   jq -r 'select(.type == "message_end" and .message.role == "assistant")
