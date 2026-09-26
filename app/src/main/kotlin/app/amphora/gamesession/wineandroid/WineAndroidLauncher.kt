@@ -40,6 +40,8 @@ import kotlinx.coroutines.withContext
  *
  * Added:
  * - `AMPHORA_WINEANDROID=1` (GPLC gates + WSI preload; **not** a socket path)
+ * - `AMPHORA_WSI_DIR=<context.filesDir>/wineandroid` (absolute, no trailing
+ *   slash; where libamphora_wsi serves `wsi-%d.sock` / `wsi-sc-%d.sock`)
  * - On redroid/emulator only: `LD_LIBRARY_PATH` prefix for system Vulkan
  * - `LD_PRELOAD` prefix `libamphora_wsi.so`
  *
@@ -121,6 +123,7 @@ constructor(
             envVars.put(key, value)
         }
         envVars.put(ENV_WINEANDROID, "1")
+        envVars.put(ENV_WSI_DIR, File(context.filesDir, "wineandroid").apply { mkdirs() }.absolutePath)
         // Drop obsolete private sock path if preparer/prefs ever set it.
         envVars.remove(ENV_WINEANDROID_SOCK_OBSOLETE)
         envVars.remove("DISPLAY")
@@ -152,6 +155,10 @@ constructor(
     companion object {
         private const val TAG = "WineAndroidLauncher"
         const val ENV_WINEANDROID = "AMPHORA_WINEANDROID"
+
+        /** Absolute dir (no trailing slash) where libamphora_wsi serves wsi-%d.sock
+         * / wsi-sc-%d.sock; Wine and the preload read it via getenv. */
+        const val ENV_WSI_DIR = "AMPHORA_WSI_DIR"
 
         /** Former filesystem host.sock path — no longer set. */
         const val ENV_WINEANDROID_SOCK_OBSOLETE = "AMPHORA_WINEANDROID_SOCK"

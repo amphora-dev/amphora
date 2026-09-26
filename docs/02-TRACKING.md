@@ -365,6 +365,6 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 - **壳层（GDI 出画 / 输入 / IME / z-order）**：主动项已关，只剩可选人工目视确认 → [`08`](08-AGENT-BOOTSTRAP.md) §12；细节 [`04`](04-WINEANDROID-DISPLAY.md)。
 - **游戏 Vulkan Present**：AHB import CreateSwapchain 是现行路径，勿退（[`05`](05-AHB-IMPORT-PRESENT.md)）。GDI 壳层不走 CreateSwapchain、禁私有 host.sock。
 - **开放排查（已暂停）**：AIO PresentModes / HA262 黑屏，2026-09-16 用户叫停 → [`09`](09-AIO-VK-PRESENTMODES-STATUS.md) §4（主假设：`kernel32.dll` `c0000135` + `execmod`）。
-- **未合入的跨仓改动**：box64 设备（OnePlus 6T）上 libandroid/liblog 被 box64 包装 → amphora 专项分支 `wip/box64-libandroid`（含 `f701264`） + proton-wine `fix/real-loader-chain`（本地，未推送）。两边必须一起真机验证、一起推送；尚无 PASS。
 - **已停**：第二台真机 / 分屏 / hostScale 双机。
 - **CI**：`spotlessKotlinCheck` 自 2026-09-16 起让 main CI 变红，本次 `style: spotlessApply` 修复；ReDroid 冒烟最近 60 次无绿（最后一次实跑 `a17810b`：`guest did not stay running`），待单独排查。
+- **2026-09-26 · wineandroid NDK 符号收敛**：x86_64 Wine 在 Box64 里只经 wrappedandroid 调 NDK 符号（imagefs `240671e`），`wip/box64-libandroid` 的 `lib*-real.so` 软链 / amphora_wsi 链接 android 方案已废弃、不合入。宿主新增 `AMPHORA_WSI_DIR=<filesDir>/wineandroid`，`libamphora_wsi.so` 的 `wsi-%d.sock` / `wsi-sc-%d.sock` 路径改为运行时读取该变量（缺省不启动服务线程）；Leegao 兜底 shim（`libamphora-android-shim.so`）补 AHardwareBuffer 8 符号转发到平台 libnativewindow，`GuestLibandroidShim` 判等改 SHA-256。

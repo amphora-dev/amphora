@@ -1,7 +1,9 @@
 package app.amphora.core.engine
 
 import java.io.File
+import java.io.InputStream
 import java.nio.file.Files
+import java.security.MessageDigest
 
 /**
  * Swaps imagefs' `usr/lib/libandroid.so` between the platform symlink and the
@@ -52,7 +54,22 @@ internal object GuestLibandroidShim {
         return true
     }
 
+    /** True when [target] is a non-symlink file whose content matches [source] byte-for-byte. */
     private fun isInstalled(target: File, source: File): Boolean = !Files.isSymbolicLink(target.toPath()) &&
         target.isFile &&
-        target.length() == source.length()
+        target.length() == source.length() &&
+        sha256(target).contentEquals(sha256(source))
+
+    private fun sha256(file: File): ByteArray = file.inputStream().buffered().use { stream -> stream.digest("SHA-256") }
+
+    private fun InputStream.digest(algorithm: String): ByteArray {
+        val md = MessageDigest.getInstance(algorithm)
+        val buf = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val n = read(buf)
+            if (n < 0) break
+            md.update(buf, 0, n)
+        }
+        return md.digest()
+    }
 }

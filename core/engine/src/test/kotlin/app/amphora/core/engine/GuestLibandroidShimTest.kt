@@ -36,6 +36,19 @@ class GuestLibandroidShimTest {
     }
 
     @Test
+    fun reinstallsAnOldShimWithEqualLengthButDifferentContent() {
+        withTempDirectory { root ->
+            val rootDir = root.resolve("imagefs")
+            platformSymlink(rootDir)
+            GuestLibandroidShim.install(stageShim(root, "AAAA"), rootDir)
+
+            assertTrue(GuestLibandroidShim.install(stageShim(root, "BBBB"), rootDir))
+
+            assertEquals("BBBB", rootDir.resolve(IMAGEFS_LIBANDROID).readText())
+        }
+    }
+
+    @Test
     fun reportsFailureWhenTheApkDoesNotCarryTheStub() {
         withTempDirectory { root ->
             val rootDir = root.resolve("imagefs")
