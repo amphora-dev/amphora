@@ -113,8 +113,11 @@ without `workflow` scope cannot push `.github/workflows/**`).
         an ntfy / Bark / WeCom bot webhook `curl`, or `agent-notify send`.
      3. Harnesses without either (e.g. an IM-driven agent): poll `status.sh`
         with short sleeps (≤ 5 min per call).
-   - Intervene early: if the intents show it drifting off-spec, kill the pid,
-     fix the spec, relaunch. Cheaper than reviewing a wrong diff.
+   - Intervene early: if the intents show it drifting off-spec, or looping on
+     a detail after the evidence is already in `artifacts/`, stop it:
+     `kill $(cat <run>/omp.pid) $(cat <run>/pid)`, append
+     `END rc=killed reason=...` to `<run>/status`, then fix the spec and
+     relaunch, or conclude from the artifacts yourself.
 5. **Review before believing**:
    - code: read the full `git diff` in the worktree, rerun the self-checks and
      the gradle gate yourself;
