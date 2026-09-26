@@ -357,7 +357,7 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 ---
 
-## 当前状态指针（2026-09-25，唯一真源）
+## 当前状态指针（2026-09-26，唯一真源）
 
 > 进度只维护本节；本机 `amphora-progress.md` 是个人手记，与本节冲突时以本节为准。
 > 上面各日期条目是当时快照，里面的 “Next / 下一刀” 不代表现在。
@@ -368,3 +368,5 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 - **已停**：第二台真机 / 分屏 / hostScale 双机。
 - **CI**：`spotlessKotlinCheck` 自 2026-09-16 起让 main CI 变红，本次 `style: spotlessApply` 修复；ReDroid 冒烟最近 60 次无绿（最后一次实跑 `a17810b`：`guest did not stay running`），待单独排查。
 - **2026-09-26 · wineandroid NDK 符号收敛**：x86_64 Wine 在 Box64 里只经 wrappedandroid 调 NDK 符号（imagefs `240671e`），`wip/box64-libandroid` 的 `lib*-real.so` 软链 / amphora_wsi 链接 android 方案已废弃、不合入。宿主新增 `AMPHORA_WSI_DIR=<filesDir>/wineandroid`，`libamphora_wsi.so` 的 `wsi-%d.sock` / `wsi-sc-%d.sock` 路径改为运行时读取该变量（缺省不启动服务线程）；Leegao 兜底 shim（`libamphora-android-shim.so`）补 AHardwareBuffer 8 符号转发到平台 libnativewindow，`GuestLibandroidShim` 判等改 SHA-256。
+  - **HA262AAH 真机 PASS**：amphora `37a8729` + Box64 `0.4.5-0db8df775-p07e67ded`（sha256 `aa2ceec7…`，imagefs main `d2a8c26` 重建逐字节一致）+ Proton `11.0-0d7ffcb97`（proton-wine `wip/wineandroid-drop-jni` @ `0d7ffcb970e`），content_manifest `1b7288a`。开会话时下载安装新 pin 并删掉旧 profile；`load_android_libs: loader=plain android=libandroid.so log=FAIL host=1`，无 `can't find` / `using host IPC` / abort；GDI 桌面 + File Manager + Start 任务栏出画；WSI socket 在 `<filesDir>/wineandroid/wsi-<pid>.sock`；无 FATAL、无新 tombstone，90 s 后会话仍在。启动期 `Unable to lock surface` 3 次是 Surface 注册前 LOCK -11 的正常重试，同 hwnd 随后均成功。
+  - **未覆盖**：OnePlus 6T（Android 15，最初报障机）、3D 冒烟（AHB Present）。Box64 下 liblog 仍 dlopen 失败，Wine 日志走 stub、logcat 看不到（旧问题，与本次无关）。
