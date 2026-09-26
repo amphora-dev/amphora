@@ -1,6 +1,7 @@
 package app.amphora.gamesession.wineandroid
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -15,6 +16,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
@@ -69,9 +71,11 @@ class WineAndroidSessionActivity : ComponentActivity() {
     private var runningGuest: WineAndroidLauncher.RunningGuest? = null
     private val processExitScheduled = AtomicBoolean(false)
     private val guestPid = MutableStateFlow<Int?>(null)
+    private var exitConfirmDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, exitConfirmCallback)
         hideSystemBars()
         desktop = WineAndroidDesktop(this).apply { setBackgroundColor(Color.BLACK) }
         statusView =
@@ -386,8 +390,39 @@ class WineAndroidSessionActivity : ComponentActivity() {
         return scheduled
     }
 
+    private val exitConfirmCallback =
+        object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                showExitConfirm()
+            }
+        }
+
+    private fun showExitConfirm() {
+        val showing = exitConfirmDialog?.isShowing == true
+        if (showing) return
+        Log.i(TAG, "exit confirm shown")
+        exitConfirmDialog =
+            AlertDialog.Builder(this)
+                .setTitle("Exit Windows session?")
+                .setMessage("The Windows program and all processes in this session will be closed.")
+                .setPositiveButton("Exit Windows") { dialog, _ ->
+                    Log.i(TAG, "exit confirm accept")
+                    dialog.dismiss()
+                    finish()
+                }
+                .setNegativeButton("Cancel") { dialog, _ ->
+                    Log.i(TAG, "exit confirm cancel")
+                    dialog.dismiss()
+                }
+                .setOnCancelListener { Log.i(TAG, "exit confirm cancel") }
+                .create()
+                .also { it.show() }
+    }
+
     override fun onDestroy() {
         restoreSystemBars()
+        exitConfirmDialog?.dismiss()
+        exitConfirmDialog = null
         if (::desktop.isInitialized) {
             desktop.setImeUiStateListener(null)
         }
