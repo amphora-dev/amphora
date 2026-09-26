@@ -9,12 +9,6 @@ enum class LaunchTarget {
     EXPLORER,
 }
 
-/** Which display stack hosts this session. Wineandroid is the default; X11 is opt-in. */
-enum class DisplayBackend {
-    X11,
-    WINEANDROID,
-}
-
 /**
  * What the engine needs to start a Wine session (RFC §6 / §8). The launch
  * command itself (`box64 wine explorer /desktop=WxH exe`) is constructed by the
@@ -26,7 +20,6 @@ data class LaunchSpec(
     val containerId: ContainerId,
     val displaySize: DisplaySize,
     val target: LaunchTarget = LaunchTarget.PROGRAM,
-    val displayBackend: DisplayBackend = DisplayBackend.WINEANDROID,
     val env: Map<String, String> = emptyMap(),
     val workingDirectory: String? = null,
     /** Trailing CLI args after the Windows exe path (PROGRAM launches only). */

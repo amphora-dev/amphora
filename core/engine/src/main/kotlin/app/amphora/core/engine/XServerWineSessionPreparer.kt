@@ -121,8 +121,8 @@ internal fun resolveSessionAudioDriver(
  * launch chain (RFC §8). Self-calls `syncContents()` in [resolveState].
  *
  * @param envState the mutable wrapper/GPU env-var accumulator (XSDA `envVars`
- *   field); exposed read-only via [envVars] for `WineEngineImpl` to merge into
- *   the `box64 wine explorer` launch env (P3).
+ *   field); exposed read-only via [envVars] for the session launcher to merge
+ *   into the `box64 wine explorer` launch env (P3).
  */
 @Singleton
 class XServerWineSessionPreparer @Inject constructor(

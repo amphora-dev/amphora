@@ -3,7 +3,6 @@
   cursor.png has no compile-time reference: the ported X server resolves it with
   Resources.getIdentifier("cursor", "drawable", ...) in createRootCursorDrawable.
   Without this, resource shrinking strips it, getIdentifier returns 0, and
-  BitmapFactory.decodeResource returns null — the NPE that
-  XServerSurfaceViewInitTest exists to catch.
+  BitmapFactory.decodeResource returns null.
 -->
 <resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@drawable/cursor" />

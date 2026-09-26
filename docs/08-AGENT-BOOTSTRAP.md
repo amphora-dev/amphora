@@ -38,18 +38,16 @@ Amphora 是面向 Android 平台的模块化 Windows/Wine 模拟器。
 
 ---
 
-## 3. 开发环境与协作设备
+## 3. 开发环境与设备
 
-| 角色 | 运行环境 | 标准工作路径 | 职责说明 |
-|---|---|---|---|
-| **代码编写与审查** | 开发工作机 / Agent 容器 | 项目代码根目录 | 负责代码编辑、静态分析、单元测试及文档维护 |
-| **真机联调与构建** | 用户联调机 (Mac mini) | `/Users/sky/co/src/amphora-dev/amphora` | 执行 `./gradlew :app:assembleDebug` 生成真机 APK，直连 ADB |
-| **验证真机** | Lenovo Y700 (TB322FC) | 设备序列号 **`HA262AAH`** | 负责 APK 安装、冒烟用例运行及实际渲染表现校验 |
+代码、构建、adb 都在同一台 Mac 上：仓库 `~/co/github/amphora`，兄弟仓 `../proton-wine`、`../imagefs`、`../content_manifest`。
 
-**协作规范**：
-- 避免在不同机器之间频繁人工倒腾数十兆的 debug APK 文件，推荐在连接 ADB 的联调机上直接构建并安装；
-- 保持中文沟通，提交信息清晰反映改动意图并关联相关文档编号；
-- 每次推送代码前，必须保证本地 `./gradlew spotlessCheck :app:testDebugUnitTest` 测试完全通过。
+| 设备 | adb 序列号 | 用途 |
+|---|---|---|
+| Lenovo Y700 (TB322FC, Adreno 830, Android 16) | `HA262AAH` | 日常基准机 |
+| OnePlus 6T (Adreno 630, Android 15) | `5b1736c7` | 老 GPU / 老系统回归 |
+
+一台设备同一时间只归一个 agent 装包、跑冒烟。
 
 ---
 
@@ -91,39 +89,13 @@ bash scripts/setup-git-hooks.sh
 
 ---
 
-## 6. 已经验证并落地的功能清单
+## 6. 已落地、不要重做
 
-请务必注意：以下功能已经全部合并至 `main` 主干并在真机上验证闭环，**切勿当成未完成的需求重复开发或推倒重写**：
-
-### 6.1 壳层与窗口显示
-- **WindowGroup 嵌套与局部坐标系统**：子窗口使用 `visible_rect` 相对父客户区定位，严禁退回桌面绝对坐标；
-- **延迟首帧注册机制**：在收到有效宽高前推迟 `nativeRegisterSurface`，并在尺寸变更（`surfaceChanged`）后重新触发绑定；
-- **颜色空间与格式**：保持标准 `PF_RGBA_8888`，色彩由宿主软件执行 R/B 交换修正，严禁向 Android Surface 设置 `BGRA=5` 导致系统崩溃；
-- **等比铺满（Scale-to-fill）**：外层通过 `hostScale` 等比居中缩放，内层固定为标准 96 DPI，绝不强改 guest 内部虚拟分辨率；
-- **层级与可见性重排**：隐藏窗口直接执行 `removeView`，z-order 变化时利用 `WineAndroidWindowStack` 按顺序重排；
-- **输入系统打通**：触控手势生成 `MOTION_EVENT`，实体键盘分发物理键码，系统功能按键（BACK、音量）穿透回系统，软键盘 IME 输入支持 Unicode 中文。
-
-### 6.2 3D 游戏渲染
-- **AHB 零拷贝交换链**：通过 `libamphora_wsi.so` 将宿主 `AHardwareBuffer` 直接导入为 Vulkan `VkImage`，DXVK 渲染直接写入显存；
-- **同步队列解耦**：将 Acquire 信号量与 Present 栅栏安全调度在 DXVK 队列线程上，彻底解决了第 2 帧死锁问题；
-- **50+ 帧稳定送显**：实测 DXVK 冒烟测试连续稳定运行超过 100 帧，回读测试图像精准呈现品红色。
+壳层窗口树 / Surface 生命周期 / 输入 / IME（`docs/04`）、AHB 零拷贝 swapchain（`docs/05`）都已在真机闭环。不变量见 `AGENTS.md`「出画不变量」，细节与历史 bug 见对应文档，不在此重复。
 
 ---
 
-## 7. 严苛禁令与红线原则
-
-以下各项经真机反复验证为高危或错误设计，**违反任何一条均属严重倒退**：
-
-1. **严禁在 Surface/ANW 路径使用 `SET_BUFFERS_FORMAT(BGRA=5)`**（曾在真机引发整机黑屏崩溃）；
-2. **严禁删除底部 `statusView` 状态监控条**（这是开发期最关键的调试与诊断入口）；
-3. **严禁在 2D GDI 桌面引入 CreateSwapchain 或私有 host.sock**；
-4. **严禁倒退回 Winlator 旧式的 Java XServer/TextureView 方案**；
-5. **严禁在真机上随意覆盖临时的私有 `.so` 破坏环境**（所有本地组件替换必须走 `dev_pins.json` 覆盖层）；
-6. **严禁直接把 Android 高屏幕 DPI（如 440）喂给 720p 虚拟桌面**（会导致 UI 控件严重错位变形）。
-
----
-
-## 8. 日常编译与真机冒烟验证
+## 7. 日常编译与真机冒烟验证
 
 ### 8.1 构建 APK
 
@@ -153,7 +125,7 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 
 ---
 
-## 9. 核心技术文档导航
+## 8. 核心技术文档导航
 
 - [`AGENTS.md`](../AGENTS.md) — 开发纪律、宿主禁令与代码门禁
 - [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) — 现行工程架构与启动时序真源

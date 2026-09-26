@@ -7,7 +7,6 @@ import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.buildWineExplorerCommand
 import app.amphora.core.engine.buildWineProgramCommand
-import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.core.engine.resolveWineDosPath
 import app.amphora.core.engine.stageExecutable
@@ -27,18 +26,11 @@ import javax.inject.Singleton
 import kotlinx.coroutines.withContext
 
 /**
- * Starts `box64 wine explorer /desktop=shell,WxH …` for [DisplayBackend.WINEANDROID]
+ * Starts `box64 wine explorer /desktop=shell,WxH …` on the wineandroid host
  * **without** constructing Java XServer / XServerComponent.
  *
- * Env differs from the X11 path:
+ * Env (via GPLC when `AMPHORA_WINEANDROID=1`):
  *
- * Dropped vs X11 (via GPLC when `AMPHORA_WINEANDROID=1`):
- * - `DISPLAY=unix:…/X0`
- * - `ANDROID_SYSVSHM_SERVER`
- * - `GST_PLUGIN_FEATURE_RANK=ximagesink:…`
- * - `VK_ICD_FILENAMES=…/wrapper_icd` and `ADRENOTOOLS_*` on device path
- *
- * Added:
  * - `AMPHORA_WINEANDROID=1` (GPLC gates + WSI preload; **not** a socket path)
  * - `AMPHORA_WSI_DIR=<context.filesDir>/wineandroid` (absolute, no trailing
  *   slash; where libamphora_wsi serves `wsi-%d.sock` / `wsi-sc-%d.sock`)
@@ -68,7 +60,6 @@ constructor(
     }
 
     suspend fun start(prepared: WineAndroidSessionBootstrap.Prepared): RunningGuest = withContext(dispatchers.default) {
-        require(prepared.spec.displayBackend == DisplayBackend.WINEANDROID)
         ProcessHelper.init(context)
 
         val imageFs = ImageFs.find(context)

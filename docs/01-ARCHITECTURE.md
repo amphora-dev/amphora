@@ -2,14 +2,14 @@
 
 > **架构真源**：本文档是 Amphora 现行工程实现的唯一架构真源。  
 > 进度真源见 [`02-TRACKING.md`](02-TRACKING.md)；资产清单见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md)；立项决议见 [`research/01-RFC.md`](research/01-RFC.md)。  
-> **当前状态（2026-09-25）**：默认采用 **WineAndroid 宿主**出画（Android 原生 SurfaceView + 嵌套 WindowGroup）与 **Vulkan AHB 导入零拷贝**渲染；旧版 X11 仅保留作为对比与显式回退。
+> **当前状态（2026-09-25）**：采用 **WineAndroid 宿主**出画（Android 原生 SurfaceView + 嵌套 WindowGroup）与 **Vulkan AHB 导入零拷贝**渲染；旧版 X11 会话链已删除。
 
 ---
 
 ## 1. 核心定位
 
 Amphora 是一款模块化、高可维护性的 Android 平台 Windows/Wine 模拟器：
-- **内核封装**：`:core:engine` 承载核心运行时逻辑，上层应用与业务功能仅通过 `WineEngine` 等标准化接口与运行时交互；
+- **内核封装**：`:core:engine` 承载核心运行时逻辑，上层应用与业务功能仅通过 `ContainerManager` / `ContentSource` / `RootfsInstaller` / `WineSessionPreparer` 等标准化接口与运行时交互；会话启动经 `SessionLaunch` 直达 `WineAndroidSessionActivity`；
 - **原生宿主出画**：抛弃了传统模拟器繁重且损耗性能的内置 X11 服务，默认走 Android 原生 `SurfaceView` 窗口体系与 SurfaceFlinger 硬件多层合成；
 - **图形零拷贝**：游戏 3D 渲染通过 `amphora_wsi` 桥接将 Android Hardware Buffer (AHB) 零拷贝直接注入系统 Vulkan Swapchain；
 - **内容受控交付**：Wine、Box64、DXVK 等二进制运行时组件与驱动均通过 `RemoteContentSource` 按照 SHA-256 强校验在设备端按需下载安装。
@@ -42,7 +42,7 @@ Amphora 是一款模块化、高可维护性的 Android 平台 Windows/Wine 模�
 | `:core:rootfs` | `RootfsInstaller` | `ImageFsRootfsInstaller` |
 | `:core:content` | `ContentSource` / `ContentAssetInstaller` | `RemoteContentSource` + `WinlatorContentAssetInstaller` |
 | `:core:container` | `ContainerManager` | `WinlatorContainerManager` |
-| `:core:engine` | `WineEngine` / `WineSessionPreparer` | `WineEngineImpl` / `WineAndroidSessionBootstrap` |
+| `:core:engine` | `WineSessionPreparer` / `ContainerManager` | `XServerWineSessionPreparer` / `WinlatorContainerManager` |
 
 ---
 
@@ -56,8 +56,7 @@ UI 入口（AmphoraNavHost / DesktopActivity / MainActivity）
   ▼
 SessionLaunch.program / explorer(...)
   │
-  ├─ [默认] displayBackend = WINEANDROID ──► 启动独立进程 :session 的 WineAndroidSessionActivity
-  └─ [回退] displayBackend = X11         ──► 启动 SessionActivity (旧版 Java XServer)
+  └─► 启动独立进程 :session 的 WineAndroidSessionActivity（唯一会话宿主；旧版 X11 会话链已删除）
 
 WineAndroidSessionActivity 启动时序：
   1. WineAndroidSessionBootstrap.prepare(...)
@@ -82,7 +81,7 @@ WineAndroidSessionActivity 启动时序：
 
 ## 4. 双轨出画架构与输入体系
 
-项目实现了两套完全不同层级的呈现机制，现行真源是 WineAndroid 宿主，旧版 X11 仅保留为对比基准。
+会话呈现只有一套机制：WineAndroid 宿主。旧版 X11 会话链已删除，下文仅保留技术对照。
 
 ### 4.1 现行真源：WineAndroid 原生宿主（详见 [`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)）
 
@@ -100,10 +99,10 @@ WineAndroidSessionActivity 启动时序：
    - **物理键盘与按键穿透**：常规按键经桌面管道注入；系统功能键（返回键 BACK、音量键 VOLUME）故意穿透回 Android 原生处理；
    - **软键盘与 IME**：默认点击不主动弹起键盘（避免遮挡）；通过悬浮按钮或长按外层黑边调起；支持 CJK 中文字符经 `KEYEVENTF_UNICODE` 注入。
 
-### 4.2 对照与回退：Winlator X11 方案
+### 4.2 历史对照：Winlator X11 方案（已删除）
 
 - **架构特征**：单一 `TextureView`（XServerSurfaceView），由内置 Java XServer 遍历窗口树，统一绘制进单张纹理后由 VulkanRenderer 呈现；
-- **回退方式**：在 `SessionLaunch` 中显式指定 `displayBackend = DisplayBackend.X11` 即可切入此旧路径，供调试与对比验证。
+- **现状**：该会话链已删除，无回退路径；此处仅保留技术对照。
 
 ---
 

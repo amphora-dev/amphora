@@ -51,7 +51,7 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
             desktopHeight = height
             activity.runOnUiThread { desktop.setGuestDesktopSize(width, height) }
         }
-        // Prefer caller wineDpi (SessionActivity passes classic 96). Never invent Android densityDpi.
+        // Prefer caller wineDpi (classic 96). Never invent Android densityDpi.
         desktopDpi =
             when {
                 densityDpi > 0 -> densityDpi

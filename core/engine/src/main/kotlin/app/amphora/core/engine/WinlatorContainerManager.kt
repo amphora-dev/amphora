@@ -79,7 +79,7 @@ constructor(
     private val graphicsDriverCapabilities: GraphicsDriverCapabilities,
     private val dispatchers: DispatcherProvider,
 ) : ContainerManager {
-    // --- kernel singletons (constructed like WineEngineImpl / preparer) -------
+    // --- kernel singletons (constructed like the session preparer) -------
     private val contentsManager: ContentsManager = ContentsManager(context)
     private val wnContainerManager: WnContainerManager = WnContainerManager(context)
     private val runtimePinSynchronizer = ContainerRuntimePinSynchronizer()

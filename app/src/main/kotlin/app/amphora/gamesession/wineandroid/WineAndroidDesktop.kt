@@ -94,7 +94,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
      */
     @Volatile private var pendingDebugCaptureRequested: Int? = null
 
-    /** Host-local composing / keyboard chip (mirrors TouchpadView; not sent to guest). */
+    /** Host-local composing / keyboard chip (not sent to guest). */
     private var imeUiState = ImeUiState()
     private var imeUiStateListener: ((ImeUiState) -> Unit)? = null
 
@@ -430,8 +430,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     }
 
     /**
-     * Explicit soft-IME show (session chip / letterbox long-press /
-     * TouchpadView / GameSession drawer). Not called from touch DOWN —
+     * Explicit soft-IME show (session chip / letterbox long-press).
+     * Not called from touch DOWN —
      * see [WineAndroidImeUi.shouldAutoShowSoftKeyboardOnTouch].
      * Sets [imeWanted] so [onCheckIsTextEditor] is true while IMM binds.
      *
@@ -499,7 +499,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         softImeShowRetryRunnables.clear()
     }
 
-    /** Hide soft IME + clear host composing (TouchpadView.dismissSoftKeyboard-light). */
+    /** Hide soft IME + clear host composing. */
     fun hideSoftKeyboard() {
         imeWanted = false
         clearSoftImeShowRetries()

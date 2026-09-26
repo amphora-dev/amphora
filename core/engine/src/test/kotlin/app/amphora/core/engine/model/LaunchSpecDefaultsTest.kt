@@ -6,14 +6,13 @@ import org.junit.Test
 
 class LaunchSpecDefaultsTest {
     @Test
-    fun displayBackendDefaultsToWineAndroid() {
+    fun launchDefaultsToProgramTarget() {
         val spec =
             LaunchSpec(
                 exePath = "C:\\games\\demo.exe",
                 containerId = ContainerId("1"),
                 displaySize = DisplaySize(1280, 720),
             )
-        assertEquals(DisplayBackend.WINEANDROID, spec.displayBackend)
         assertEquals(LaunchTarget.PROGRAM, spec.target)
         assertEquals("", spec.exeArgs)
     }

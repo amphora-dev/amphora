@@ -15,10 +15,7 @@ import app.amphora.core.content.RemoteUrlResolver
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.content.VerifiedAssetDownloader
 import app.amphora.core.content.update.AppUpdater
-import app.amphora.core.engine.GameSessionSurfaceProvider
 import app.amphora.core.engine.ImageFsRootfsInstaller
-import app.amphora.core.engine.WineEngine
-import app.amphora.core.engine.WineEngineImpl
 import app.amphora.core.engine.WineSessionPreparer
 import app.amphora.core.engine.WinlatorContainerManager
 import app.amphora.core.engine.WinlatorContentAssetInstaller
@@ -32,8 +29,7 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * Engine DI bindings (RFC §6). [WineEngine] is bound to [WineEngineImpl] (the
- * ported-runtime facade).
+ * Engine DI bindings (RFC §6).
  *
  * Content pins come from [ContentCatalog] (remote-only `content_manifest.json`);
  * there is no APK-bundled manifest fallback.
@@ -41,13 +37,6 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object EngineModule {
-    @Provides
-    @Singleton
-    fun provideWineEngine(impl: WineEngineImpl): WineEngine = impl
-
-    @Provides
-    @Singleton
-    fun provideGameSessionSurfaceProvider(impl: WineEngineImpl): GameSessionSurfaceProvider = impl
 
     @Provides
     @Singleton

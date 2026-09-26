@@ -2,113 +2,142 @@
 name: Subagent dispatch
 description: >-
   use this when the orchestrating agent is claude-opus-5.5 and wants to hand a
-  well-scoped coding, release, or device-smoke task to a cheaper headless
-  subagent (omp + glm-5.3-flash): write the task spec, launch, chain steps,
-  then review the result. Do not use from any other model.
+  well-scoped coding, release, or device-smoke task to a cheaper headless omp
+  subagent: pick a model tier, write the spec, launch (optionally in its own
+  git worktree), watch it live, then review. Do not use from any other model.
 ---
 # Subagent dispatch
 
-## Who may use this
+## Division of labour
 
-Only an orchestrator running as **`claude-opus-5.5`**. Every script refuses to
-start unless `--orchestrator claude-opus-5.5` is passed (the API model id
-`claude-opus-5-5` is accepted too), and refuses when it is
-already running inside a subagent (`AMPHORA_SUBAGENT=1`), so subagents cannot
-dispatch further subagents. This is a guard against misuse, not a security
-boundary: an agent that is not opus-5.5 must not pass the flag.
+The orchestrator (claude-opus-5.5) keeps only what is expensive to get wrong:
+root-cause analysis, design decisions, writing the spec's verified facts, and
+reviewing results. Everything that can be written as explicit steps goes to a
+subagent: mechanical refactors and deletions, test fixes, doc sync, release
+commands, device smoke, log slicing. A subagent report is a claim, not
+evidence; the orchestrator re-checks before believing it.
 
-The orchestrator stays responsible for the result. A subagent report is a
-claim, not evidence.
+Only an orchestrator running as `claude-opus-5.5` may use this. Scripts refuse
+without `--orchestrator claude-opus-5.5` (API id `claude-opus-5-5` accepted)
+and refuse inside a subagent (`AMPHORA_SUBAGENT=1`), so subagents cannot fan
+out further. This is a misuse guard, not a security boundary.
 
-## Where things live (no device paths)
+## Model tiers
 
-All state goes under the repo's ignored `.tmp/` directory:
+`--tier` picks an ordered model list (override with `SUBAGENT_MODEL_FAST` /
+`_CODE` / `_DEEP`, or `--model a,b,c`). The run writes `omp-config.yml` with
+the first model as `modelRoles.default` and the rest as
+`retry.fallbackChains.default`; omp itself switches model on 429 / usage limit
+/ stalled stream inside the same session (`retry_fallback_applied` event).
+Nothing is layered on top: if a run still dies, look at `watch.sh` and
+re-dispatch with the same `--name` (the worktree is reused). Do not pass
+`--model` to omp directly: an explicit model bypasses the role chain.
+
+| tier | models, in order | use for |
+|---|---|---|
+| `fast` (default) | intranet `deepseek-v4.1-flash` → cline-free `deepseek-v4.1-flash` | step-by-step specs: device smoke, release commands, greps, doc sync |
+| `code` | ClinePass `muse-spark-1.3-contributor` → kilo `meta/muse-spark-1.3-contributor` → intranet `claude-sonnet-5` | multi-file edits that must compile and pass tests |
+| `deep` | ClinePass `muse-spark-1.3-contributor` → kilo `meta/muse-spark-1.3-contributor` → intranet `gpt-5.6-luna` | open-ended investigation the spec cannot fully script |
+
+Cost comes first: premium models are only the last fallback. claude-sonnet-5
+used ~0.9M tokens in 9 minutes of one refactor before editing a file.
+2026-09-26 bench on this repo (same read-only lookup prompt), all correct:
+deepseek-v4.1-flash 6-7 s, muse-spark-1.3-contributor 9-10 s, glm-5.3-flash
+14-16 s; gemini-3.5-flash rejected by the proxy.
+Re-bench when the provider list changes: run one small prompt against each
+candidate with `omp -p --mode json --no-session` and compare wall time and
+answers.
+
+## Where things live
 
 ```
 <repo>/.tmp/specs/                 specs and .chain files you write
+<repo>/.tmp/wt/<name>/             git worktree (only with --worktree)
 <repo>/.tmp/subagents/<UTC>-<name>/
-  task.md        copy of the spec that was run
-  run.log        full omp output
+  task.md        copy of the spec
+  cmd            exact omp invocation
+  events.jsonl   omp --mode json event stream (tool calls, text, usage)
+  result.md      final assistant text; the RESULT line is read from here
+  stderr.log     omp stderr (provider errors land here)
   status         START / END lines with the RESULT line
-  cmd            the exact omp invocation
+  worktree       worktree path (only with --worktree)
   pid            background pid (--async only)
   artifacts/     subagent outputs ($SUBAGENT_RUN_DIR/artifacts)
 ```
 
-Specs go under `.tmp/specs/` because it is ignored: an untracked `specs/` in
-the repo root makes a release step's `git status --short` check fail.
+`.tmp/` is git-ignored, so specs there do not dirty `git status`.
+Override the run root with `SUBAGENT_HOME=<dir>`. Sibling repos are
+`"$(git rev-parse --show-toplevel)/../<repo>"`, never absolute home paths.
 
-Override the run-dir root with `SUBAGENT_HOME=<dir>`. Sibling repos are addressed as
-`"$(git rev-parse --show-toplevel)/../<repo>"`, never `/Users/...`.
-Device-smoke artifacts go in `<run dir>/artifacts/` (pass it to the subagent as
-`$SUBAGENT_RUN_DIR/artifacts`).
-
-## Prerequisites
-
-- `omp` on PATH (`omp --version`), model `tencent-intranet/glm-5.3-flash-ioa`
-  visible in `omp models`. Override with `SUBAGENT_MODEL`.
-- `gh` logged in if the task pushes; note the token may lack `workflow` scope
-  (pushing `.github/workflows/**` then fails; split those changes out).
+Prerequisites: `omp`, `jq` on PATH; `gh` logged in if a step pushes (a token
+without `workflow` scope cannot push `.github/workflows/**`).
 
 ## Workflow
 
-1. **Verify the facts yourself first.** The subagent executes the spec
-   literally. Wrong premises in the spec become wrong code or wrong test flows
-   (seen: "AHB→ANWB offset is 0", "components update on the home screen").
+1. **Verify the facts yourself.** The subagent executes the spec literally;
+   wrong premises become wrong code (seen: "components update on the home
+   screen"; they only download after tapping *Prepare and open desktop*).
 2. **Write the spec** from [`templates/task.md`](templates/task.md): verified
-   background, allowed ops, forbidden ops, exact steps, self-check commands,
-   deliverables, and one final line `<KEY>_RESULT=OK|FAIL ...`.
+   background, allowed / forbidden ops, exact steps, self-check commands,
+   deliverables, final line `<KEY>_RESULT=OK|FAIL ...`.
 3. **Launch**:
    ```bash
    S=.cursor/skills/subagent-dispatch/scripts
-   $S/dispatch.sh --orchestrator claude-opus-5.5 \
-     --name proton-jni --cwd ../proton-wine --task .tmp/specs/proton-jni.md \
-     --result-key STEP1 --max-time 40m --async
+   $S/dispatch.sh --orchestrator claude-opus-5.5 --name x11-p1 --cwd . \
+     --task .tmp/specs/x11-p1.md --result-key X11P1 --tier code \
+     --worktree HEAD --max-time 60m --async
    ```
-   Independent repos can run in parallel (one subagent per repo, disjoint files).
-   Anything with ordering (push → CI → next step) goes through `chain.sh`.
-4. **Chain dependent steps**:
-   ```bash
-   $S/chain.sh --orchestrator claude-opus-5.5 --chain .tmp/specs/release.chain --async
-   ```
-   Chain file, one step per line: `name|cwd|task.md|max-time|RESULT_KEY`
-   (paths relative to the chain file; `#` comments). A step that does not end
-   with `<KEY>_RESULT=OK` stops the chain.
-5. **Watch**: `$S/status.sh` (all runs) or `$S/status.sh <run dir>`.
-   Poll in short sleeps (≤5 min per tool call); long single waits get cut off.
-   If the harness can run a command in the background and notify on exit
-   (Claude Code: Bash `run_in_background`), run `dispatch.sh`/`chain.sh`
-   without `--async` that way instead of polling.
-6. **Review before believing**:
-   - code: read the full `git diff`, re-run the self-checks, build/tests yourself;
-   - release: check the PR, CI run conclusions, published asset sha, manifest pin;
-   - device: re-read raw logs, slice to *this* run (logs are often appended),
-     look at the screenshots.
-   Write disagreements into `<run dir>/reviewer-notes.md`.
+   Any task that edits a repo you are also using, or runs next to another
+   editing subagent, gets `--worktree [BASE]`: a fresh worktree on branch
+   `sub/<name>` under `.tmp/wt/`. Review there, then cherry-pick or merge.
+   Skip it for read-only and device-only tasks (lookups, smoke, logs), and
+   for a single editing subagent when the main checkout is clean
+   (`git status --porcelain` empty) and you do not touch it until the run
+   ends: review with `git diff`, discard with `git checkout . && git clean -fd`.
+   This saves the fresh-worktree gradle build (several minutes).
+   Ordered steps (push → CI → next) go through `chain.sh`; chain lines are
+   `name|cwd|task.md|max-time|RESULT_KEY[|tier]`.
+4. **Watch live**:
+   - `$S/status.sh`: one line per run with state `RUN` / `STALL`, idle seconds
+     and the tool intent it is on now. `STALL` = no event for
+     `SUBAGENT_STALL_S` (default 300) seconds.
+   - `$S/watch.sh <name> --last 20` for a snapshot, `$S/watch.sh <name>` to
+     follow (tool calls with the model's stated intent, text, errors).
+   - Getting told when it ends, best first:
+     1. Harness wake-up: in Claude Code run `dispatch.sh` without `--async`
+        via Bash `run_in_background` (you are notified on exit), or arm the
+        Monitor tool on `tail -F <run dir>/status | grep --line-buffered END`
+        (zero tokens while quiet; watches have a deadline, re-arm them).
+     2. `--on-end CMD`: runs once with `SUBAGENT_END` / `SUBAGENT_RUN_DIR` set.
+        Use it to reach the human: `osascript -e 'display notification ...'`,
+        an ntfy / Bark / WeCom bot webhook `curl`, or `agent-notify send`.
+     3. Harnesses without either (e.g. an IM-driven agent): poll `status.sh`
+        with short sleeps (≤ 5 min per call).
+   - Intervene early: if the intents show it drifting off-spec, kill the pid,
+     fix the spec, relaunch. Cheaper than reviewing a wrong diff.
+5. **Review before believing**:
+   - code: read the full `git diff` in the worktree, rerun the self-checks and
+     the gradle gate yourself;
+   - release: PR, CI conclusions, published asset sha, manifest pin;
+   - device: re-read raw logs sliced to this run (logs are appended), look at
+     the screenshots. Write disagreements into `<run dir>/reviewer-notes.md`.
+6. **Clean up**: `git worktree remove .tmp/wt/<name>` and
+   `git branch -D sub/<name>` once merged or abandoned.
 
 ## Spec rules that paid off
 
-- Always run omp with stdin closed (the scripts do `</dev/null`); otherwise the
-  CLI can hang waiting for input with no output.
-- Forbid `commit`/`push`/`stash`/`reset` unless the step is explicitly a release
-  step; for release steps, whitelist exact commands and forbid `--force`,
-  pushing `main`, cancelling runs, and hand-editing manifests.
-- Tell it to stop and report `FAIL` on anything unexpected instead of improvising.
+- The scripts close stdin (`</dev/null`); otherwise omp can hang silently.
+- Forbid `commit`/`push`/`stash`/`reset` unless the step is a release step;
+  for release steps whitelist exact commands and forbid `--force`, pushing
+  `main`, cancelling runs, and hand-editing manifests.
+- Tell it to stop and report `FAIL` on anything unexpected.
 - Background processes inside a subagent (logcat etc.) need `nohup` and a
   "file size > 0 after 5 s" check.
 - BuildStream inline commands run under dash; put bash logic in `ci/**/*.sh`.
-- macOS ships bash 3.2: write `${var}` before any non-ASCII character, or the
-  bytes get parsed into the variable name (`$run_dir（` → unbound variable).
-- Never let two subagents own the same device or the same repo at once.
-
-## Scripts
-
-| Script | Purpose |
-|---|---|
-| `scripts/dispatch.sh` | run one spec with omp, record run dir, extract RESULT line |
-| `scripts/chain.sh` | run steps sequentially, stop at first non-OK |
-| `scripts/status.sh` | list runs and their last status line |
-| `scripts/lib.sh` | shared guard + path helpers |
+- macOS bash 3.2: write `${var}` before any non-ASCII character.
+- One subagent per device and per worktree at a time.
+- First gradle build in a fresh worktree takes minutes; say so in the spec so
+  the subagent does not give up.
 
 Worked example (three repos, parallel edits, ordered release, device smoke):
 [`examples/wineandroid-converge.md`](examples/wineandroid-converge.md).
