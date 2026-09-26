@@ -635,8 +635,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     envVars.put("TMPDIR", rootDir.getPath() + "/usr/tmp");
     envVars.put("XDG_DATA_DIRS", rootDir.getPath() + "/usr/share");
     StringBuilder libraryPath = new StringBuilder(rootDir.getPath()).append("/usr/lib");
-    if (envVars.has("PULSE_SERVER")) {
+    if (envVars.has("PULSE_SERVER") || (this.envVars != null && this.envVars.has("PULSE_SERVER"))) {
       // Box64 wraps libpulse and resolves the matching AArch64 client from the APK.
+      // Caller env (PULSE_SERVER) is merged later, so check it here too.
       libraryPath.append(':').append(context.getApplicationInfo().nativeLibraryDir);
     }
     libraryPath.append(":/system/lib64");

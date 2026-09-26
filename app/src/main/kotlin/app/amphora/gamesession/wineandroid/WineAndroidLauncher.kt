@@ -10,12 +10,16 @@ import app.amphora.core.engine.buildWineProgramCommand
 import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.core.engine.resolveWineDosPath
 import app.amphora.core.engine.stageExecutable
+import com.winlator.cmod.runtime.audio.alsaserver.ALSAClient
 import com.winlator.cmod.runtime.container.Container as WinNativeContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WinNativeContainerManager
 import com.winlator.cmod.runtime.content.ContentsManager
+import com.winlator.cmod.runtime.display.connector.UnixSocketConfig
 import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.display.environment.XEnvironment
+import com.winlator.cmod.runtime.display.environment.components.ALSAServerComponent
 import com.winlator.cmod.runtime.display.environment.components.GuestProgramLauncherComponent
+import com.winlator.cmod.runtime.display.environment.components.PulseAudioComponent
 import com.winlator.cmod.runtime.system.ProcessHelper
 import com.winlator.cmod.runtime.wine.EnvVars
 import com.winlator.cmod.runtime.wine.WineInfo
@@ -36,6 +40,9 @@ import kotlinx.coroutines.withContext
  *   slash; where libamphora_wsi serves `wsi-%d.sock` / `wsi-sc-%d.sock`)
  * - On redroid/emulator only: `LD_LIBRARY_PATH` prefix for system Vulkan
  * - `LD_PRELOAD` prefix `libamphora_wsi.so`
+ * - Audio: `PULSE_SERVER` + [PulseAudioComponent] when the container driver is
+ *   PulseAudio (resolved by the preparer), else `ANDROID_ALSA_SERVER` +
+ *   [ALSAServerComponent]. Same wiring as the removed X11 path (tag x11-reference).
  *
  * Wine connects to host via fixed abstract `\0\Device\WineAndroid` (upstream).
  * Former `AMPHORA_WINEANDROID_SOCK` / filesystem host.sock is removed.
@@ -80,6 +87,7 @@ constructor(
             }
 
         val envVars = buildWineAndroidEnv(imageFs, prepared)
+        val pulse = applyAudioEnv(imageFs, wnContainer, envVars)
         val wineProfile = contentsManager.getProfileByEntryName(wnContainer.getWineVersion())
         val launcher = GuestProgramLauncherComponent(contentsManager, wineProfile)
         launcher.setContainer(wnContainer)
@@ -90,6 +98,7 @@ constructor(
         prepared.spec.workingDirectory?.let { launcher.setWorkingDir(File(it)) }
 
         val environment = XEnvironment(context, imageFs)
+        addAudioComponent(environment, imageFs, envVars, pulse)
         environment.addComponent(launcher)
 
         Log.i(TAG, "starting wineandroid guestExecutable=$guestExecutable ipc=abstract\\\\0\\\\Device\\\\WineAndroid")
@@ -119,6 +128,42 @@ constructor(
         envVars.remove(ENV_WINEANDROID_SOCK_OBSOLETE)
         envVars.remove("DISPLAY")
         return envVars
+    }
+
+    /** Returns true when PulseAudio is the session backend. */
+    private fun applyAudioEnv(imageFs: ImageFs, container: WinNativeContainer, envVars: EnvVars): Boolean {
+        val rootPath = imageFs.getRootDir().path
+        val pulse = container.getAudioDriver() == AdvancedRuntimePreferences.AUDIO_DRIVER_PULSEAUDIO
+        if (pulse) {
+            if (!envVars.has("PULSE_LATENCY_MSEC")) {
+                envVars.put("PULSE_LATENCY_MSEC", PulseAudioComponent.Options.fromEnvVars(envVars).latencyMillis)
+            }
+            envVars.put("PULSE_SERVER", rootPath + UnixSocketConfig.PULSE_SERVER_PATH)
+        } else {
+            envVars.put("ANDROID_ALSA_SERVER", rootPath + UnixSocketConfig.ALSA_SERVER_PATH)
+            envVars.put("ANDROID_ASERVER_USE_SHM", "true")
+        }
+        return pulse
+    }
+
+    private fun addAudioComponent(environment: XEnvironment, imageFs: ImageFs, envVars: EnvVars, pulse: Boolean) {
+        val rootPath = imageFs.getRootDir().path
+        if (pulse) {
+            environment.addComponent(
+                PulseAudioComponent(
+                    UnixSocketConfig.createSocket(rootPath, UnixSocketConfig.PULSE_SERVER_PATH),
+                    PulseAudioComponent.Options.fromEnvVars(envVars),
+                ),
+            )
+        } else {
+            environment.addComponent(
+                ALSAServerComponent(
+                    UnixSocketConfig.createSocket(rootPath, UnixSocketConfig.ALSA_SERVER_PATH),
+                    ALSAClient.Options.fromEnvVars(envVars),
+                ),
+            )
+        }
+        Log.i(TAG, "audio backend=${if (pulse) "pulseaudio" else "alsa"}")
     }
 
     private fun resolveWinNativeContainer(amphora: AmphoraContainer): WinNativeContainer {
