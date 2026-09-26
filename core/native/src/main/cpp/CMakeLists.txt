@@ -242,6 +242,7 @@ add_library(amphora-android-shim SHARED
         winlator/android_shim.c
 )
 target_compile_options(amphora-android-shim PRIVATE -Wall -Wextra)
+target_link_libraries(amphora-android-shim PRIVATE dl log)
 target_link_options(amphora-android-shim PRIVATE "-Wl,-soname,libandroid.so")
 
 # aarch64 PE Win32 WSI helper. Box64 guests cannot dlopen this; host LD_PRELOAD

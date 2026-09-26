@@ -1,7 +1,5 @@
 /*
  * aarch64-native Amphora WSI bridge (APK-packaged as libamphora_wsi.so).
- *
- * Source of truth also lives in proton-wine dlls/wineandroid.drv/amphora_wsi_bridge.c.
  * Box64 guests cannot dlopen this aarch64 .so; Amphora LD_PRELOADs
  * nativeLibraryDir/libamphora_wsi.so so the ctor serves the unix present bridge.
  *
@@ -1161,15 +1159,33 @@ int32_t amphora_wsi_create_android_surface(uint64_t vk_instance, int32_t sock_fd
 #include <sys/un.h>
 #include <stdio.h>
 
-#define WSI_SOCK_FMT "/data/user/0/app.amphora/files/wineandroid/wsi-%d.sock"
+/* Socket dir comes from the host via getenv(AMPHORA_WSI_DIR); NULL when unset. */
+#define AMPHORA_WSI_DIR_ENV "AMPHORA_WSI_DIR"
+
+static const char *wsi_sock_path(char *buf, size_t bufsz, const char *fmt)
+{
+    const char *dir = getenv(AMPHORA_WSI_DIR_ENV);
+    int n;
+    if (!dir || !*dir) {
+        LOGE("%s not set — cannot place %s sockets", AMPHORA_WSI_DIR_ENV, fmt);
+        return NULL;
+    }
+    n = snprintf(buf, bufsz, fmt, dir, (int)getpid());
+    if (n < 0 || (size_t)n >= bufsz ||
+        (size_t)n >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+        LOGE("wsi socket path overflow (dir too long)");
+        return NULL;
+    }
+    return buf;
+}
 
 static void *wsi_serve(void *arg)
 {
-    char path[128];
+    char path[256];
     struct sockaddr_un addr;
     int ls, c;
     (void)arg;
-    snprintf(path, sizeof(path), WSI_SOCK_FMT, (int)getpid());
+    if (!wsi_sock_path(path, sizeof(path), "%s/wsi-%d.sock")) return NULL;
     unlink(path);
     ls = socket(AF_UNIX, SOCK_STREAM, 0);
     if (ls < 0) { LOGE("wsi socket: %s", strerror(errno)); return NULL; }
@@ -1214,8 +1230,7 @@ static void *wsi_serve(void *arg)
 
 
 /* Swapchain IPC: wineandroid CreateSwapchain (x86_64) cannot dlsym this
- * aarch64 .so; call amphora_ahb_sc_* here on wsi-sc-%pid.sock. */
-#define WSI_SC_SOCK_FMT "/data/user/0/app.amphora/files/wineandroid/wsi-sc-%d.sock"
+ * aarch64 .so; call amphora_ahb_sc_* here on wsi-sc-%pid.sock (AMPHORA_WSI_DIR). */
 enum {
     AHB_SC_OP_CREATE = 1,
     AHB_SC_OP_DESTROY = 2,
@@ -1395,11 +1410,11 @@ static void wsi_sc_handle(int c)
 
 static void *wsi_sc_serve(void *arg)
 {
-    char path[128];
+    char path[256];
     struct sockaddr_un addr;
     int ls, c;
     (void)arg;
-    snprintf(path, sizeof(path), WSI_SC_SOCK_FMT, (int)getpid());
+    if (!wsi_sock_path(path, sizeof(path), "%s/wsi-sc-%d.sock")) return NULL;
     unlink(path);
     ls = socket(AF_UNIX, SOCK_STREAM, 0);
     if (ls < 0) { LOGE("wsi-sc socket: %s", strerror(errno)); return NULL; }
