@@ -181,8 +181,8 @@ class HeadlessWineBootTest {
         // Install box64 to rootfs/usr/bin/box64 -- createContainer only extracts the Wine
         // prefix; the box64 binary is applied by the preparer's ensureLaunchRuntimeFilesReady
         // (ensureBox64RuntimeReady -> ContentsManager.applyContent). The headless runner
-        // execs box64 directly, so this must run first. (The full launch path does this in
-        // WineEngineImpl.launch step 3 via preparer.setupWineSystemFiles.)
+        // execs box64 directly, so this must run first. (The full launch path does this via
+        // preparer.setupWineSystemFiles.)
         val preparer = XServerWineSessionPreparer(
             appCtx,
             DefaultDispatcherProvider(),

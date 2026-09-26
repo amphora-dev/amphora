@@ -28,7 +28,7 @@ object GraphicsDiag {
     const val SHADER_DUMP_DIR_NAME = "dxvk-shader-dumps"
     const val WINE_STDERR_NAME = "wine_stderr.log"
 
-    /** Env merged last by [WineEngineImpl.buildLaunchEnvVars] when diag is on. */
+    /** Env merged last by the session launcher when diag is on. */
     fun launchEnv(context: Context): Map<String, String> {
         val logDir = ensureLogDir(context)
         val dumpDir = ensureShaderDumpDir(context)

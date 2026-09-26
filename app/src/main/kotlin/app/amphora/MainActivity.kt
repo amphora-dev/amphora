@@ -8,7 +8,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import app.amphora.core.engine.RuntimeSettingsStore
 import app.amphora.core.engine.WineAndroidGuestResolution
-import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.desktop.DesktopActivity
 import app.amphora.ui.AmphoraApp
 import app.amphora.ui.SessionLaunch
@@ -32,17 +31,6 @@ class MainActivity : ComponentActivity() {
             when {
                 intent.getBooleanExtra(EXTRA_DEBUG_DESKTOP, false) -> {
                     DesktopActivity.launch(this)
-                }
-                intent.getBooleanExtra(EXTRA_DEBUG_X11, false) -> {
-                    SessionLaunch.program(
-                        context = this,
-                        exePath = debugExePath(),
-                        width = intent.getIntExtra(EXTRA_DEBUG_WIDTH, 1280),
-                        height = intent.getIntExtra(EXTRA_DEBUG_HEIGHT, 720),
-                        graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
-                        displayBackend = DisplayBackend.X11,
-                        exeArgs = debugExeArgs(),
-                    )
                 }
                 intent.getBooleanExtra(EXTRA_DEBUG_WINEANDROID, false) ||
                     intent.getBooleanExtra(EXTRA_DEBUG_WINE_SMOKE, false) -> {
@@ -163,9 +151,6 @@ class MainActivity : ComponentActivity() {
 
         /** Debug-only: force hwnd to HWND_TOP then dump (`--ei … N`). */
         private const val EXTRA_DEBUG_ZORDER_TOP_HWND = "app.amphora.debug.ZORDER_TOP_HWND"
-
-        /** Debug-only: force legacy Java X11 SessionActivity. */
-        private const val EXTRA_DEBUG_X11 = "app.amphora.debug.X11"
 
         /** Debug-only: open [DesktopActivity]. Default home stays the phone/tablet launcher. */
         private const val EXTRA_DEBUG_DESKTOP = "app.amphora.debug.DESKTOP"

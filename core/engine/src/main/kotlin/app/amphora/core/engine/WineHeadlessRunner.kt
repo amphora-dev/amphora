@@ -26,9 +26,8 @@ import kotlinx.coroutines.withContext
  * no audio -- to exercise the box64 + Wine + Bionic-rootfs + prefix stack on a
  * host **without an Adreno GPU** (e.g. an Android emulator on Apple Silicon).
  *
- * ## Why this works without a GPU
- * The full launch chain ([WineEngineImpl.launch]) only touches the GPU at the
- * final Vulkan present (`vk_renderer` -> `XServerSurfaceView`). The Wine binary
+ * The full launch chain (`WineAndroidLauncher.start`) only touches the GPU at the
+ * final Vulkan present. The Wine binary
  * itself runs via box64 (x86_64 -> ARM64 dynarec) and needs only the rootfs +
  * prefix + a small env slice. `wine --version` / `wineboot --init` never create
  * a `VkInstance`, so the driver env vars the full path sets
@@ -169,7 +168,7 @@ class WineHeadlessRunner @Inject constructor(
         return env
     }
 
-    /** Bridge amphora Container -> WinNative Container by rootPath (mirror WineEngineImpl). */
+    /** Bridge amphora Container -> WinNative Container by rootPath. */
     private fun resolveWinNativeContainer(amphora: AmphoraContainer): WnContainer {
         val target = File(amphora.rootPath).absoluteFile
         wnContainerManager.loadContainers()

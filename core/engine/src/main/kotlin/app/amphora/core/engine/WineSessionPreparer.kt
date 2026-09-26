@@ -31,8 +31,8 @@ import app.amphora.core.engine.model.LaunchSpec
  *
  * [envVars] exposes the wrapper/GPU environment variables accumulated during
  * prep (`GALLIUM_DRIVER` / `VK_ICD_FILENAMES` / `WRAPPER_*` / `DXVK_*` ...);
- * `WineEngineImpl` merges them with the caller's [LaunchSpec.env] for the
- * `box64 wine explorer` launch (P3). It mirrors XSDA's mutable `envVars` field.
+ * the session launcher merges them with the caller's [LaunchSpec.env] for the
+ * `box64 wine explorer` launch. It mirrors XSDA's mutable `envVars` field.
  *
  * Status: **P2 body extracted (compile-only)** in [XServerWineSessionPreparer].
  * End-to-end verification waits on rootfs/driver assets (P2 asset acquisition).
@@ -40,9 +40,8 @@ import app.amphora.core.engine.model.LaunchSpec
 interface WineSessionPreparer {
     /**
      * The wrapper/GPU env vars computed during prep (XSDA `envVars` field).
-     * Read by `WineEngineImpl` after [setupWineSystemFiles] +
-     * [extractGraphicsDriverFiles] to build the guest-program environment.
-     * Additive output accessor (introduced with the P2 body extraction).
+     * Read after [setupWineSystemFiles] + [extractGraphicsDriverFiles] to build
+     * the guest-program environment.
      */
     fun envVars(): Map<String, String>
 

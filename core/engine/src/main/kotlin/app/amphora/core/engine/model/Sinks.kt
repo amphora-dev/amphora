@@ -5,8 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 enum class PointerButton { LEFT, RIGHT, MIDDLE }
 
 /**
- * Where the overlay TouchpadView / keyboard feeds input. Routes into the X
- * server via `xServer.injectPointerMove/Button` (RFC §8 输入衔接).
+ * Where the wineandroid IME/input overlay feeds input (RFC §8 输入衔接).
  */
 interface InputSink {
     suspend fun injectPointerMove(x: Float, y: Float)

@@ -1,53 +1,28 @@
 # Amphora
 
-Android 上的 Wine 模拟器。模块与启动链见 `docs/01-ARCHITECTURE.md`。
+Android 上的 Wine 模拟器：x86_64 Wine 跑在 Box64 里，窗口经 `wineandroid.drv` 交给 Kotlin 宿主（每 HWND 一个 SurfaceView）。模块与启动链见 `docs/01-ARCHITECTURE.md`，文档总览 `docs/README.md`，进度只看 `docs/02-TRACKING.md` 末节「当前状态指针」。新 agent 先读 `.cursor/skills/amphora-from-zero/SKILL.md`。
 
-**新 agent 从零开工**：先读 [`docs/08-AGENT-BOOTSTRAP.md`](docs/08-AGENT-BOOTSTRAP.md) 与 [`.cursor/skills/amphora-from-zero/SKILL.md`](.cursor/skills/amphora-from-zero/SKILL.md)（clone / 编译 / 冒烟 / 多 bot）。
+## 开发阶段：不做兼容
 
-**现在是开发阶段。** 当前设计是唯一真源。设备上的旧 prefix、旧 applied mark、旧 WinNative/Winlator 布局都不是兼容面。
+当前设计是唯一真源。设备上的旧 prefix / applied mark / WinNative 布局都不是兼容面：不写迁移（applied-mark bump、wipe/rebind、legacy-backup、旧路径回退等），不留「如果还是旧的就……」分支。改坏了就重建容器 / 清 imagefs。
 
-## 不要做
+要做的是当前状态同步：按当前 pin 与 AppliedMarks 幂等应用（想要 ≠ 已装才做），删掉 manifest 不再 pin 的组件。
 
-- 为上一版磁盘形态加迁移：applied-mark bump、wipe/rebind、把私有副本改成软链、legacy-backup、旧字体路径、digest-only pin 升级，等等。
-- 改落地方式时保留「如果还是旧文件就……」的分支。直接按新设计写。
+## 命令
 
-改坏了就重建容器 / 清 imagefs，不要在代码里兼容上一版。
+- 门禁（pre-push 钩子同款，CI 同款）：`./gradlew spotlessCheck :app:testDebugUnitTest :app:lintDebug`；格式问题 `./gradlew spotlessApply`。任何 gradle 任务都会激活 `.githooks/`。
+- APK：`./gradlew :app:assembleDebug`，产物 `app/build/outputs/apk/debug/app-debug.apk`。
+- 设备上临时换 WCP / runtime：`scripts/inject-dev-pin.sh`（写 `filesDir/content/dev_pins.json`，见 `docs/07`）。正式发版走 imagefs publish + bump manifest。
 
-## 仍要做
+## 提交
 
-按**当前** pin 和 AppliedMarks 做幂等应用（想要 ≠ 已装才做），并删掉 manifest 不再 pin 的组件。这是当前状态同步，不是旧版迁移。
+- 从 `origin/main` 开 `wip/<topic>`，推前 rebase；未推的试错先 squash。
+- 跨仓改动（proton-wine / imagefs）在提交信息里写对方分支和 SHA，两边一起验、一起推。
+- 真机 PASS 并进被验证的提交或该次推送的一条提交里，写进 `docs/02` 当前状态指针，不单独开 "record PASS" 提交。
 
-## 开发态换包
+## 出画不变量（真机踩过，改动前读 `docs/04`）
 
-设备上临时钉本地 WCP / runtime 资产：用 catalog overlay `filesDir/content/dev_pins.json`（见 `docs/07-DEV-PIN-OVERLAY.md`），脚本 `scripts/inject-dev-pin.sh`。
-WCP component pin 必须带 identity（`version`/`verName`/`verCode`/`contentType`/`kind`，来自 `profile.json`）；`inject-dev-pin.sh --component` 会自动写入。
-
-**不要**再用 `<file>.local-override` 旁路（已移除）。正式发版仍走 imagefs publish + bump-manifest。
-
-## 提交与推送
-
-- 以 `main` 为底开 `wip/<topic>`，推前 `git rebase origin/main`；不要把共享 wip 分支当长期主线。
-- **本地质量门禁已标准化接入 Git 钩子（`.githooks/`）**：
-  - 运行任何 Gradle 任务或 `bash scripts/setup-git-hooks.sh` 会自动激活 `core.hooksPath`；
-  - `pre-commit` 会在提交时对暂存的 Kotlin/Gradle 代码做 Spotless 格式校验；
-  - `pre-push` 会在推送前自动运行 `./gradlew spotlessCheck :app:testDebugUnitTest :app:lintDebug`，与 CI 完全同款，红了自动拦截禁止推送；
-  - 遇到格式错误时运行 `./gradlew spotlessApply` 自动修复排版。
-- 真机 PASS 记录并进被验证的那个提交，或每次推送合成一条；不要一个功能配一个 "record PASS" 提交。
-- 没推之前的试错（改了又 revert、spotless 补丁）先在本地 squash 掉再推。
-- 跨仓改动（amphora ↔ proton-wine / imagefs）在提交信息里写对方仓的分支和 SHA；两边一起验、一起推，不要只推一半。
-- 当前状态只写 `docs/02` 末节「当前状态指针」，不要在各处再抄一份。
-
-## wineandroid 宿主出画（勿旁路）
-
-详见 `docs/04-WINEANDROID-DISPLAY.md`（已全面整合上游布局清单、X11 对照与排查指南；总览见 `docs/README.md`）。
-
-- GDI 建窗：`wineandroid_host_ipc.c` `create_native_win_data` 设 `api=NATIVE_WINDOW_API_CPU(2)`，registerSurface 才会 `API_CONNECT`。勿对 OpenGL 窗强制 CPU。
-- GDI 颜色：Surface 路径保持 `PF_RGBA_8888(1)`（HA262AAH 上 BGRA=5 曾整机闪退）；勿对 BufferQueue 强推 BGRA，颜色用宿主 R/B 交换修正。
-- 桌面 hwnd：必须走与普通 GDI 窗相同的 `attachWindow` + `nativeRegisterSurface`；`createWindow` 不得因 `isDesktop` 早退跳过 SurfaceView（否则 LOCK -11）。
-- GDI 出画不走 CreateSwapchain，禁私有 host.sock。游戏 Vulkan 的 AHB import CreateSwapchain（`docs/05`）是现行 Present 路径，勿退。
-- **嵌套布局（WineActivity）**：`WineAndroidDesktop` 用 contentHost + 每 HWND `WindowGroup`；子窗挂到父 Group；定位用 **visible_rect**（父客户区相对），不要把 Start `(0,0)` 当桌面绝对坐标。布局/`setFixedSize` 最小 2×2 guest px。
-- **Surface 尺寸**：`surfaceChanged` / buffer 变化后必须再 `nativeRegisterSurface`（发 SURFACE_CHANGED）；勿让 taskbar 卡在 1×1。
-- **WS_VISIBLE / z-order**：`WineAndroidWindowStack`；隐窗从 parent **removeView**（非仅 GONE）；`!(flags & SWP_NOZORDER)` 时 reorder sibling 栈再 `bringChildToFront` 同步。
-- 桌面铺满：contentHost 等比 scale-to-fill（letterbox）；Wine `/desktop=WxH` 仍可配。用 `setFixedSize(guest)` 保 ANW 尺寸，勿靠改 guest 分辨率铺屏。
-- Wine DPI：虚拟桌面 + 宿主铺满时用经典 **96**；hostScale 实时算（**分屏/第二台已停**）。勿把 Android `densityDpi`（如 440）配 720p。
-- **已做**：推迟第一次 `nativeRegisterSurface` 到真实 guest 尺寸（非单靠 MIN 2×2）；resize 仍再 bind。勿删 statusView；TextureView / 只给顶层 HWND 建 Surface 都是以后可选（见 docs/04 §7）。
+- GDI 窗：`api=NATIVE_WINDOW_API_CPU(2)`，格式保持 `PF_RGBA_8888`，颜色由宿主 R/B 交换；Surface 上设 BGRA=5 会整机闪退。
+- 桌面 hwnd 与普通窗一样 `attachWindow` + `nativeRegisterSurface`；尺寸变化后必须重新 register。
+- GDI 不走 CreateSwapchain / 私有 socket；游戏 Vulkan 走 AHB import swapchain（`docs/05`），勿退。
+- 铺满靠宿主等比缩放 + Wine DPI 96，不改 guest `/desktop=` 分辨率，不把 Android densityDpi 喂给 Wine。

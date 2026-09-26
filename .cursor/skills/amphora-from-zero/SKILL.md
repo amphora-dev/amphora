@@ -16,18 +16,13 @@ Onboarding, handoff, or any agent that has not worked this tree before. Not a su
 
 ## Machines
 
-| Job | Where |
-|-----|--------|
-| Code / docs | Grok Bot: `/home/box/co/github/amphora` (do not delete `/workspace/amphora-dev/amphora`) |
-| APK + adb | Mac: `/Users/sky/co/src/amphora-dev/amphora` |
-| Device | Y700 serial `HA262AAH` |
-
-**This track:** edit on Grok Bot computer only — **no Cursor cloud** checkouts for amphora shell work. Do **not** CopyFromBox ~80MB APKs.
+One Mac does code, build and adb: repo `~/co/github/amphora`, siblings `../proton-wine`, `../imagefs`, `../content_manifest`.
+Devices: Y700 `HA262AAH` (baseline), OnePlus 6T `5b1736c7` (old GPU / Android 15). One owner per device at a time.
 
 ## Clone + branch
 
 ```bash
-mkdir -p /home/box/co/github && cd /home/box/co/github
+mkdir -p ~/co/github && cd ~/co/github
 git clone git@github.com:amphora-dev/amphora.git   # or gh repo clone
 cd amphora && git submodule update --init --recursive
 git fetch origin && git switch -c wip/<topic> origin/main   # base on main; rebase before push
@@ -53,7 +48,7 @@ Git author (local): `skywalker512` / `houzhenhong@outlook.com`.
 
 ## Hard bans
 
-BGRA=5 on Surface path; delete `statusView`; private CreateSwapchain / private `host.sock` as truth; blind TextureView / X11-as-default; temp `.so` as release; noisy tree deletes; Cursor cloud edits on this track.
+See `AGENTS.md` (出画不变量). Also: keep the bottom `statusView` debug strip; never ship a hand-copied `.so` (use dev pins).
 
 ## Build (APK)
 
@@ -70,7 +65,7 @@ adb -s HA262AAH install -r app/build/outputs/apk/debug/app-debug.apk
 2. Launch `app.amphora/.MainActivity` → Windows Desktop → button reads **Open desktop** when ready, or **Prepare and open desktop** when pinned components are missing/outdated (“Environment needs attention”). Component download/install only happens after tapping it, not while idling on the home screen → `WineAndroidSessionActivity`.
 3. Logcat filters: `WineAndroidDesktop|WineAndroidHostBridge|defer first register|registerSurface|motion|key hwnd|keyboard hwnd`.
 4. PASS examples: defer then real-size register; `motion … ok=true` + visible click; hardware key → `key hwnd=… ok=true` / `keyboard hwnd=…`; soft IME is explicit-only (no tap/focus auto-show); no FATAL/BGRA crash.
-5. Save log/screencap under Mac `…/smoke-artifacts/` (not only `/tmp` if you need CopyToBox).
+5. Save log/screencap under Mac `…/smoke-artifacts/`.
 6. **One owner** installs; no parallel adb install wars.
 
 ## Multi-bot / skills / routines
@@ -78,7 +73,6 @@ adb -s HA262AAH install -r app/build/outputs/apk/debug/app-debug.apk
 - Prefer **one owner** bot + optional read-only specialist + skills + routines.
 - In-repo skill: this file. Companion docs: [`docs/08-AGENT-BOOTSTRAP.md`](../../../docs/08-AGENT-BOOTSTRAP.md).
 - Headless subagents (omp + glm-5.3-flash), **claude-opus-5.5 orchestrator only**: [`../subagent-dispatch/SKILL.md`](../subagent-dispatch/SKILL.md).
-- Grok Bot may also have: HA262 wineandroid shell, HA262 device smoke, imagefs CAS build — use them after this onboarding skill.
 - Specialists must not change window granularity (top-level-only / TextureView / X11) unless the user asked.
 
 ## Report

@@ -10,7 +10,6 @@ import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.content.ProvisionProgressBus
 import app.amphora.core.content.RuntimeAssetProvisioner
 import app.amphora.core.engine.WineSessionPreparer
-import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.rootfs.RootfsInstaller
 import app.amphora.core.rootfs.model.RootfsSpec
@@ -47,9 +46,6 @@ constructor(
     data class Prepared(val spec: LaunchSpec, val container: Container, val envVars: Map<String, String>)
 
     suspend fun prepare(spec: LaunchSpec): Prepared = withContext(dispatchers.default) {
-        require(spec.displayBackend == DisplayBackend.WINEANDROID) {
-            "WineAndroidSessionBootstrap requires DisplayBackend.WINEANDROID, got ${spec.displayBackend}"
-        }
         ProcessHelper.init(context)
         try {
             progressBus.update(ProvisionProgress(stage = "manifest", detail = "Fetching content manifest…"))

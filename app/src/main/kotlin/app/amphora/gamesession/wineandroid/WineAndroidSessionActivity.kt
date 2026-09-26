@@ -21,7 +21,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import app.amphora.core.container.model.DEFAULT_CONTAINER_ID
 import app.amphora.core.engine.WineAndroidGuestResolution
-import app.amphora.core.engine.model.DisplayBackend
 import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.LaunchTarget
@@ -34,7 +33,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.launch
 
 /**
- * P1 host for [DisplayBackend.WINEANDROID] (product default).
+ * Wine session host.
  *
  * Real Activity + [WineAndroidDesktop] (SurfaceView children). Not Compose,
  * not Winlator XServerSurfaceView, not org.winehq.wine.WineActivity.
@@ -182,8 +181,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
 
         Log.i(
             TAG,
-            "onCreate backend=${DisplayBackend.WINEANDROID} target=$target " +
-                "size=${width}x$height exe=$exePath graphicsDiag=$graphicsDiag",
+            "onCreate target=$target size=${width}x$height exe=$exePath graphicsDiag=$graphicsDiag",
         )
 
         lifecycleScope.launch {
@@ -200,7 +198,6 @@ class WineAndroidSessionActivity : ComponentActivity() {
                         containerId = DEFAULT_CONTAINER_ID,
                         displaySize = DisplaySize(width, height),
                         target = target,
-                        displayBackend = DisplayBackend.WINEANDROID,
                         env = diagEnv,
                         exeArgs = exeArgs,
                     )
@@ -265,7 +262,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
         }
     }
 
-    /** Mirror TouchpadView / GameSessionImeOverlay: show composing on host only. */
+    /** Show composing on host only. */
     private fun applyComposingOverlay(state: ImeUiState) {
         val text = WineAndroidImeUi.composingOverlayText(state)
         if (text.isEmpty()) {
@@ -385,7 +382,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
         ).start()
     }
 
-    /** Match GameSessionScreen: bars stay hidden, with transient edge-swipe access. */
+    /** Bars stay hidden, with transient edge-swipe access. */
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -408,7 +405,6 @@ class WineAndroidSessionActivity : ComponentActivity() {
         private const val EXTRA_HEIGHT = "height"
         private const val EXTRA_TARGET = "target"
         private const val EXTRA_GRAPHICS_DIAG = "graphicsDiag"
-        private const val EXTRA_DISPLAY_BACKEND = "displayBackend"
         private val DEFAULT_WIDTH = WineAndroidGuestResolution.DEFAULT.width
         private val DEFAULT_HEIGHT = WineAndroidGuestResolution.DEFAULT.height
         private const val SESSION_PROCESS_EXIT_GRACE_MS = 2_000L
@@ -434,7 +430,6 @@ class WineAndroidSessionActivity : ComponentActivity() {
             putExtra(EXTRA_HEIGHT, height)
             putExtra(EXTRA_TARGET, target.name)
             putExtra(EXTRA_GRAPHICS_DIAG, graphicsDiag)
-            putExtra(EXTRA_DISPLAY_BACKEND, DisplayBackend.WINEANDROID.name)
             debugImeUnicodeText?.takeIf { it.isNotEmpty() }?.let {
                 putExtra(WineAndroidDebugImeInject.EXTRA_IME_UNICODE_TEXT, it)
             }
