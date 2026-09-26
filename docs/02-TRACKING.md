@@ -375,3 +375,5 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
   - **OnePlus 6T 真机 PASS**（本提交，同一组 pin，组件未重装）：`load_android_libs … host=1`，`can't find` / `abort` / `bridge=none` / `using host IPC` 全 0；`registerSurface` 60 行（Ipc+Bridge），LOCK 成功 32、`Unable to lock surface` 1（启动期，同 hwnd 随后成功）；桌面 + File Manager + Start 出画（非黑约 82%）；WSI socket 在 `<filesDir>/wineandroid/`；无 FATAL / Fatal signal，90 s 后会话仍在。
 - **2026-09-26 · 性能 HUD 搬到 wineandroid**：`HostPerformanceMonitor` / `HostPerformanceParser` / `GameSessionPerformanceHud` 从 `x11-reference` 恢复，去掉 XServer 帧跟踪与渲染器名，CPU / GPU / 内存 / 温度 / 电池 / 特权读数 / guest 进程保持原逻辑；FPS 与帧时间暂无来源，显示 `—`。开关：设置里原有 HUD 项，或调试 extra `app.amphora.debug.PERF_HUD`。
   - **OnePlus 6T 真机 PASS**（本提交）：`perf hud enabled=true`，HUD 在右上角键盘按钮下方显示 CPU / RAM / 宿主内存 / 电池温度；HUD 外点击 winecfg 的 Drives 标签能切页（触摸不被叠层吃掉）；无 FATAL。
+- **2026-09-26 · 返回键退出确认**：BACK 经 `onBackPressedDispatcher` 弹 AlertDialog（"Exit Windows session?"），取消不影响会话，确认走原有 `finish()` → onDestroy 清理。
+  - **OnePlus 6T 真机 PASS**（本提交，子代理 exit-confirm 实测，主代理复核任务栈）：box64 进程 启动 10 / 取消后 10 / 确认退出后 0；退出后任务栈只剩 `MainActivity`，`:session` 进程 0；logcat 有 `exit confirm shown/cancel/accept`，无 FATAL。

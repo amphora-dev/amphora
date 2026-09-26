@@ -129,7 +129,7 @@ X11 会话链删于 `64fc57c`，删前最后状态是 tag **`x11-reference`**（
 | 音量 / 静音 | `gamesession/GameSessionViewModel.kt`、`XServerSinks.kt` | ❌ 无 UI、无 sink | 依赖音频服务 |
 | 触控模式：Trackpad / Direct / RTS | `gamesession/input/TouchpadView.kt`、`RtsGestureController.kt`、`TouchpadFingerTracker.kt` | ⚠️ 只有直接触摸（`WineAndroidDesktop`） | RTS：双指平移、长按右键等，见 `RtsGestureController` 顶部注释与测试 |
 | 会话控制抽屉（隐藏控件 / 退出 Windows / 触控模式 / 帧率限制） | `gamesession/GameSessionRuntimeDrawer.kt`、`GameSessionOverlays.kt` `DrawerEdgeHandle` | ❌ | 仅有 IME chip（`WineAndroidImeUi`） |
-| 退出确认 / 会话结束遮罩 | `GameSessionOverlays.kt` `ExitSessionConfirmationDialog`、`SessionEndingOverlay` | ❌ | |
+| 退出确认 / 会话结束遮罩 | `GameSessionOverlays.kt` `ExitSessionConfirmationDialog`、`SessionEndingOverlay` | ⚠️ | 返回键弹 AlertDialog 确认（文案同旧版）已补；结束遮罩未做 |
 | 暂停 / 恢复 | `GameSessionCoordinator.kt`、`PendingSessionActions` | ⚠️ 只有 Activity `onPause`/`onResume` | |
 | 帧率限制 | `GameSessionRuntimeDrawer.kt` `sessionFrameLimitHint`、`FPS_LIMITS` | ❌ | |
 | 性能 HUD（FPS / 帧时间 / CPU 核频率 / GPU / 温度 / 电池 / guest 进程） | `gamesession/HostPerformanceMonitor.kt`、`HostPerformanceParser.kt`、`GameSessionPerformanceHud.kt` | ✅（FPS 缺） | 已搬到 `WineAndroidSessionActivity`（ComposeView 叠层，设置开关或 `app.amphora.debug.PERF_HUD`）；帧率 / 帧时间依赖 X11 Present 回调，wineandroid 尚无帧统计，显示 `—` |
