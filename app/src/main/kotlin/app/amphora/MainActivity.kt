@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
                         width = width,
                         height = height,
                         graphicsDiag = intent.getBooleanExtra(EXTRA_DEBUG_GRAPHICS_DIAG, false),
+                        perfHud = intent.getBooleanExtra(EXTRA_DEBUG_PERF_HUD, false),
                         exeArgs = debugExeArgs(),
                         debugImeUnicodeText =
                         intent.getStringExtra(EXTRA_DEBUG_IME_UNICODE_TEXT),
@@ -127,6 +128,7 @@ class MainActivity : ComponentActivity() {
         private const val EXTRA_DEBUG_WIDTH = "app.amphora.debug.WIDTH"
         private const val EXTRA_DEBUG_HEIGHT = "app.amphora.debug.HEIGHT"
         private const val EXTRA_DEBUG_GRAPHICS_DIAG = "app.amphora.debug.GRAPHICS_DIAG"
+        private const val EXTRA_DEBUG_PERF_HUD = "app.amphora.debug.PERF_HUD"
 
         /** Debug-only: force wineandroid (redundant with product default; kept for scripts). */
         private const val EXTRA_DEBUG_WINEANDROID = "app.amphora.debug.WINEANDROID"

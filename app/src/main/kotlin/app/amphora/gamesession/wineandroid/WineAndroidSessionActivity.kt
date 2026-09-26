@@ -15,6 +15,10 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -25,11 +29,13 @@ import app.amphora.core.engine.model.DisplaySize
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.gamesession.GameSessionHostEnvironment
+import app.amphora.gamesession.HostPerformanceOverlay
 import app.amphora.gamesession.input.ImeUiState
 import com.winlator.cmod.runtime.system.ProcessHelper
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -62,6 +68,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
     private var hostBridge: WineAndroidHostBridge? = null
     private var runningGuest: WineAndroidLauncher.RunningGuest? = null
     private val processExitScheduled = AtomicBoolean(false)
+    private val guestPid = MutableStateFlow<Int?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -107,6 +114,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     applyKeyboardChip(desktop.isSoftKeyboardWanted())
                 }
             }
+        val perfHud = hostEnvironment.hostPerformanceHudEnabled || intent.getBooleanExtra(EXTRA_PERF_HUD, false)
         val root =
             FrameLayout(this).apply {
                 addView(
@@ -147,6 +155,27 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     },
                 )
             }
+        if (perfHud) {
+            root.addView(
+                ComposeView(this).apply {
+                    layoutParams =
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                        ).apply {
+                            // Keep the HUD below the top-end keyboard chip.
+                            topMargin = PERF_HUD_TOP_MARGIN_PX
+                        }
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    setContent {
+                        Box(Modifier.fillMaxSize()) {
+                            HostPerformanceOverlay("wineandroid", guestPid)
+                        }
+                    }
+                },
+            )
+        }
         setContentView(root)
         applyKeyboardChip(false)
         desktop.setImeUiStateListener { state ->
@@ -183,6 +212,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             TAG,
             "onCreate target=$target size=${width}x$height exe=$exePath graphicsDiag=$graphicsDiag",
         )
+        Log.i(TAG, "perf hud enabled=$perfHud")
 
         lifecycleScope.launch {
             try {
@@ -220,6 +250,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     "IPC abstract \\0\\Device\\WineAndroid"
                 val guest = launcher.start(prepared)
                 runningGuest = guest
+                guestPid.value = guest.pid
                 statusView.text =
                     "wineandroid: guest pid=${guest.pid}\n" +
                     "${guest.guestExecutable}\n" +
@@ -405,6 +436,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
         private const val EXTRA_HEIGHT = "height"
         private const val EXTRA_TARGET = "target"
         private const val EXTRA_GRAPHICS_DIAG = "graphicsDiag"
+        private const val EXTRA_PERF_HUD = "perfHud"
+        private const val PERF_HUD_TOP_MARGIN_PX = 160
         private val DEFAULT_WIDTH = WineAndroidGuestResolution.DEFAULT.width
         private val DEFAULT_HEIGHT = WineAndroidGuestResolution.DEFAULT.height
         private const val SESSION_PROCESS_EXIT_GRACE_MS = 2_000L
@@ -416,6 +449,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             height: Int = DEFAULT_HEIGHT,
             target: LaunchTarget = LaunchTarget.PROGRAM,
             graphicsDiag: Boolean = false,
+            perfHud: Boolean = false,
             exeArgs: String = "",
             debugImeUnicodeText: String? = null,
             debugImeComposingText: String? = null,
@@ -430,6 +464,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             putExtra(EXTRA_HEIGHT, height)
             putExtra(EXTRA_TARGET, target.name)
             putExtra(EXTRA_GRAPHICS_DIAG, graphicsDiag)
+            putExtra(EXTRA_PERF_HUD, perfHud)
             debugImeUnicodeText?.takeIf { it.isNotEmpty() }?.let {
                 putExtra(WineAndroidDebugImeInject.EXTRA_IME_UNICODE_TEXT, it)
             }
@@ -459,6 +494,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             height: Int = DEFAULT_HEIGHT,
             target: LaunchTarget = LaunchTarget.PROGRAM,
             graphicsDiag: Boolean = false,
+            perfHud: Boolean = false,
             exeArgs: String = "",
             debugImeUnicodeText: String? = null,
             debugImeComposingText: String? = null,
@@ -475,6 +511,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     height = height,
                     target = target,
                     graphicsDiag = graphicsDiag,
+                    perfHud = perfHud,
                     exeArgs = exeArgs,
                     debugImeUnicodeText = debugImeUnicodeText,
                     debugImeComposingText = debugImeComposingText,
