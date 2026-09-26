@@ -21,7 +21,7 @@ AIO Graphics Test 是 WinNative/Amphora 常用的综合图形基准测试程序�
 
 | 项目 | 涉及模块与位置 | 功能说明 |
 |---|---|---|
-| **调试参数支持** | amphora: `LaunchSpec.exeArgs` → `WineEngineImpl.buildWineProgramCommand` | 支持通过 `adb shell am start --es app.amphora.debug.WINE_ARGS '...'` 传入任意启动参数 |
+| **调试参数支持** | amphora: `LaunchSpec.exeArgs` → `WineLaunchCommands.buildWineProgramCommand` | 支持通过 `adb shell am start --es app.amphora.debug.WINE_ARGS '...'` 传入任意启动参数 |
 | **官方测试程序** | `core/content/.../winnative/Graphics-Test-{32,64}bit.exe` | 预编译 AIO 2.1.0 官方基准测试可执行程序 |
 | **PresentModes 补丁** | proton-wine: `068948b16ef` + `05ca3a658db` | 在 win32u 中兼容模式汇报，并将 IMMEDIATE/MAILBOX 重定向为 FIFO |
 | **构建门禁检查** | imagefs: `ci/wine/check-present-modes-thunk.py` | 确保编译产物中的 PresentModes 调用严格走驱动函数表 |

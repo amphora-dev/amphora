@@ -118,6 +118,24 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 **多 SurfaceView 评估**：
 对于 Windows 桌面环境（explorer + 少量顶层窗口），SurfaceFlinger 完全能够高效承载。未来若有打磨需求，可考虑“仅顶层建 Surface”或局部切 TextureView，但当前方案已在真机上验证稳定。
 
+### 7.1 功能对齐表（X11 → wineandroid）
+
+X11 会话链删于 `64fc57c`，删前最后状态是 tag **`x11-reference`**（= `4e39be3`），取参考用 `git show x11-reference:<路径>`。下表是删除时 wineandroid 缺的用户可见功能与运行时组件；补一项改一行，全部 ✅ 前不要删 `core/engine/src/main/java` 里对应的 Winlator 组件。
+
+| 功能 | X11 参考（`x11-reference`） | wineandroid 现状 | 备注 |
+|---|---|---|---|
+| 音频服务（Pulse / ALSA） | `core/engine/…/WineEngineImpl.kt` `buildEnvironment` / `buildEnvVars`；`XServerSinks.kt` `XServerAudioSink` | ❌ `WineAndroidLauncher` 只加 `GuestProgramLauncherComponent`，不起 `PulseAudioComponent` / `ALSAServerComponent`，也不设 `PULSE_SERVER` / `ANDROID_ALSA_SERVER` | 删除前就缺。拆 Java 之前先补，否则组件没了无处可接 |
+| SysV 共享内存 / 网络信息组件 | 同上 `buildEnvironment`（`SysVSharedMemoryComponent`、`NetworkInfoUpdateComponent`） | ❌ 未启动 | SysVShm 原本服务 XServer，wineandroid 是否需要待查；NetworkInfo 影响 guest 网络状态 |
+| 音量 / 静音 | `gamesession/GameSessionViewModel.kt`、`XServerSinks.kt` | ❌ 无 UI、无 sink | 依赖音频服务 |
+| 触控模式：Trackpad / Direct / RTS | `gamesession/input/TouchpadView.kt`、`RtsGestureController.kt`、`TouchpadFingerTracker.kt` | ⚠️ 只有直接触摸（`WineAndroidDesktop`） | RTS：双指平移、长按右键等，见 `RtsGestureController` 顶部注释与测试 |
+| 会话控制抽屉（隐藏控件 / 退出 Windows / 触控模式 / 帧率限制） | `gamesession/GameSessionRuntimeDrawer.kt`、`GameSessionOverlays.kt` `DrawerEdgeHandle` | ❌ | 仅有 IME chip（`WineAndroidImeUi`） |
+| 退出确认 / 会话结束遮罩 | `GameSessionOverlays.kt` `ExitSessionConfirmationDialog`、`SessionEndingOverlay` | ❌ | |
+| 暂停 / 恢复 | `GameSessionCoordinator.kt`、`PendingSessionActions` | ⚠️ 只有 Activity `onPause`/`onResume` | |
+| 帧率限制 | `GameSessionRuntimeDrawer.kt` `sessionFrameLimitHint`、`FPS_LIMITS` | ❌ | |
+| 性能 HUD（FPS / 帧时间 / CPU 核频率 / GPU / 温度 / 电池 / guest 进程） | `gamesession/HostPerformanceMonitor.kt`、`HostPerformanceParser.kt`、`GameSessionPerformanceHud.kt` | ❌ | Monitor 读的是宿主 /proc 与 sysfs，基本与显示后端无关，可整体搬 |
+
+X11 专有管道（`XServerSessionHandle`、`XServerInputSink`、`GameSessionSurface`、`StubInputSink`、`DisplayBackend`）不需要对齐。
+
 ---
 
 ## 8. 排查指南与已知问题避坑
