@@ -142,9 +142,17 @@ without `workflow` scope cannot push `.github/workflows/**`).
 - Run every evidence command yourself before putting it in the spec, and
   paste it verbatim (quoting included). An unverified grep is where a
   subagent burns tokens: a1-audio-play spent ~40 of 96 calls re-capturing
-  `dumpsys` after its own grep quoting failed.
+  `dumpsys` because the spec's grep matched the package name, which that
+  line never contains (it only has `u/pid:<uid>/`).
 - Give UI paths as exact coordinates or a deep link / debug extra, not "find
-  the setting". Hunting a Settings row cost 17 calls.
+  the setting". Hunting a Settings row cost 17 calls. For host-side Android
+  views, `uiautomator dump` + grep `text="…"[^>]*bounds=` gives the tap
+  point without screenshots (exit-confirm: 34 calls, implement + device).
+- Edits cost ~2 calls each (hashline edits often miss once and re-read). A
+  spec that ports or rewrites several hundred lines needs a budget of
+  2.5×(edits) + reads; perf-hud ran out at 90 with 34 edits (14 failed).
+  Split "port files" and "wire into the Activity" into separate runs, and
+  have the next run pick up the partial tree instead of starting over.
 - Every check has three outcomes: PASS, FAIL, UNVERIFIED (command failed,
   raw output saved). Say "a check command failing twice → mark UNVERIFIED and
   move on; never re-run a round to satisfy one check". Without this, "any
