@@ -38,7 +38,11 @@ for d in "$home"/*/; do
     intent="$(jq -r 'select(.type=="tool_execution_start") | .intent // .toolName' "$d/events.jsonl" 2>/dev/null | tail -1)"
     state="RUN"
     [ "$idle" -gt "$stall" ] && state="STALL"
-    printf '%-44s %-5s idle=%ss  %s\n' "$(basename "$d")" "$state" "$idle" "${intent:0:70}"
+    calls="$(grep -c '"type":"tool_execution_start"' "$d/events.jsonl" || true)"
+    ktok="$(jq -s '[.[] | select(.type == "message_end" and .message.role == "assistant")
+      | .message.usage.totalTokens // 0] | add // 0 | . / 1000 | floor' "$d/events.jsonl" 2>/dev/null || echo 0)"
+    printf '%-44s %-5s idle=%ss calls=%s tok=%sk  %s\n' "$(basename "$d")" "$state" "$idle" \
+      "$calls" "$ktok" "${intent:0:60}"
   else
     printf '%-44s %s\n' "$(basename "$d")" "${last:20}"
   fi

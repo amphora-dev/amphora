@@ -8,20 +8,22 @@
 # Model fallback, cooldown and stream-stall recovery are omp's own
 # (retry.fallbackChains, providers.streamIdleTimeoutSeconds); this script only
 # writes the overlay and runs omp once.
+# --max-calls N (or SUBAGENT_MAX_CALLS): stop the run after N tool calls (omp has
+#             no call budget; its loop guard only catches identical repeats).
 # --on-end CMD (or SUBAGENT_ON_END): bash command run once at the end with
 #             SUBAGENT_RUN_DIR and SUBAGENT_END (the END status line) set.
 # --worktree  run in a fresh git worktree of DIR's repo on branch sub/NAME
 #             (from BASE, default DIR's HEAD); an existing one is reused (resume).
 # Output: omp --mode json events go to events.jsonl (watch.sh renders them live);
 # the final assistant text goes to result.md. Prints the run directory.
-# Exit 0 only when the last KEY_RESULT= line is OK or PASS (or, without
+# Exit 0 when the last KEY_RESULT= line is OK or PASS, 3 for PARTIAL (or, without
 # --result-key, when omp exits 0). With --async it returns at once.
 set -euo pipefail
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
 orchestrator="" name="" cwd="" task="" key="" max_time="40m" thinking="medium" async=0
-tier="fast" model="" worktree=0 wt_base="" on_end="${SUBAGENT_ON_END:-}"
+tier="fast" model="" worktree=0 wt_base="" on_end="${SUBAGENT_ON_END:-}" max_calls="${SUBAGENT_MAX_CALLS:-0}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --orchestrator) orchestrator="$2"; shift 2 ;;
@@ -37,8 +39,9 @@ while [ $# -gt 0 ]; do
       worktree=1
       if [ $# -gt 1 ] && [ "${2#--}" = "$2" ]; then wt_base="$2"; shift 2; else shift; fi ;;
     --on-end) on_end="$2"; shift 2 ;;
+    --max-calls) max_calls="$2"; shift 2 ;;
     --async) async=1; shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -115,8 +118,21 @@ run() {
     omp -p --mode json --config "$run_dir/omp-config.yml" --thinking "$thinking" --auto-approve \
     --no-session --max-time "$max_time" --cwd "$cwd" "@$run_dir/task.md" "$prompt" \
     < /dev/null >> "$run_dir/events.jsonl" 2>> "$run_dir/stderr.log" &
-  echo "$!" > "$run_dir/omp.pid"
-  wait "$!"
+  local omp_pid=$!
+  echo "$omp_pid" > "$run_dir/omp.pid"
+  if [ "$max_calls" -gt 0 ]; then
+    while kill -0 "$omp_pid" 2>/dev/null; do
+      sleep 10
+      if [ "$(grep -c '"type":"tool_execution_start"' "$run_dir/events.jsonl" || true)" -gt "$max_calls" ]; then
+        echo "call budget: more than $max_calls tool calls, stopping" >> "$run_dir/stderr.log"
+        echo "$(now) BUDGET calls>$max_calls" >> "$run_dir/status"
+        pkill -P "$omp_pid" 2>/dev/null || true
+        kill "$omp_pid" 2>/dev/null || true
+        break
+      fi
+    done
+  fi
+  wait "$omp_pid"
   rc=$?
   set -e
   jq -r 'select(.type == "message_end" and .message.role == "assistant")
@@ -133,7 +149,7 @@ run() {
       bash -c "$on_end" >> "$run_dir/stderr.log" 2>&1 || true
   fi
   if [ -n "$key" ]; then
-    case "$line" in "${key}_RESULT=OK"*|"${key}_RESULT=PASS"*) return 0 ;; *) return 1 ;; esac
+    case "$line" in "${key}_RESULT=OK"*|"${key}_RESULT=PASS"*) return 0 ;; "${key}_RESULT=PARTIAL"*) return 3 ;; *) return 1 ;; esac
   fi
   return "$rc"
 }
