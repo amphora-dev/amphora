@@ -5,6 +5,7 @@ import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.content.model.ContentComponent
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,6 +82,29 @@ class ContentCatalog internal constructor(
     /** Force a fresh HTTPS fetch (e.g. pull-to-refresh / before rootfs upgrade). */
     suspend fun refresh(): ContentManifest = mutex.withLock { refreshLocked() }
 
+    /**
+     * Run [provision] against the pins from [require] (disk cache first). If it
+     * fails with an [IOException], refresh the manifest and run it once more,
+     * but only when the pins actually moved.
+     *
+     * A release bumps a pin and prunes the old asset at once. A session that
+     * starts before anything refreshed the disk cache then downloads the stale
+     * pin and gets a 404. When the pins did not move (offline, or the current
+     * asset itself is unreachable) the original failure is rethrown.
+     */
+    suspend fun <T> provisionWithCurrentPins(provision: suspend (ContentManifest) -> T): T {
+        val cached = require()
+        return try {
+            provision(cached)
+        } catch (failure: IOException) {
+            // With a Ready status, a failed fetch returns the cached manifest.
+            val current = refresh()
+            if (samePins(cached, current)) throw failure
+            android.util.Log.w(TAG, "Provisioning failed on the cached manifest; retrying with refreshed pins", failure)
+            provision(current)
+        }
+    }
+
     fun peek(): ContentManifest? = (_status.value as? Status.Ready)?.manifest
 
     private suspend fun refreshLocked(): ContentManifest {
@@ -140,6 +164,13 @@ class ContentCatalog internal constructor(
     private fun applyOverlay(remote: ContentManifest): Pair<ContentManifest, DevPinApplication> {
         val pins = DevPinOverlay.read(contentDir)
         return DevPinOverlay.apply(remote, pins)
+    }
+
+    internal companion object {
+        private const val TAG = "ContentCatalog"
+
+        fun samePins(a: ContentManifest, b: ContentManifest): Boolean = a.all().toSet() == b.all().toSet() &&
+            a.runtimeAssets().toSet() == b.runtimeAssets().toSet()
     }
 }
 

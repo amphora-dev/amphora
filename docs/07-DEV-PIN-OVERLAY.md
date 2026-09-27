@@ -60,6 +60,21 @@ scripts/inject-dev-pin.sh --clear-runtime graphics_driver/wrapper.tzst
 
 清掉 overlay 后下一次 Catalog load 恢复远程 pin（Prepare 可能把官方包盖回来）。
 
+## 测 proton-wine 改动（不发版）
+
+imagefs 的 `build-proton-wine` 在非 main 分支上只构建、上传 artifact（保留 14 天），不发 release、不 bump manifest。远程缓存热的时候只改 win32u / wineandroid 一两个文件约 15 分钟。
+
+```bash
+# proton-wine：推 wip/<topic>，记下完整 SHA
+# imagefs：从 main 开 wip/<topic>，把 buildstream/elements/l1/proton-wine-wcp.bst 的
+#   sources ref、track、description 和 PROTON_COMMIT 都改成新 SHA（gate 会校验 ref == PROTON_COMMIT）
+gh workflow run build-proton-wine.yml -R amphora-dev/imagefs --ref wip/<topic>
+gh run download <run-id> -R amphora-dev/imagefs -n proton-wine-wcp -D /tmp/proton-dev
+ANDROID_SERIAL=<serial> scripts/inject-dev-pin.sh --component wine /tmp/proton-dev/Proton-11.0-<short>-x86_64.wcp
+```
+
+打开会话即装 dev 包（日志 `Removed unpinned Proton`）。测完 `--clear-component wine`，删掉 imagefs 的 dev 分支；正式发版另开 imagefs PR 把同一 SHA pin 到 main。
+
 ## 禁止
 
 - 不要再用 `<file>.local-override` 旁路（已删除）。

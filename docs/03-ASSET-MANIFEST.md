@@ -3,15 +3,15 @@
 > 资产研究、历史实测与当前分包决策。**生产 pin 的唯一真源是**
 > `amphora-dev/content_manifest/content_manifest.json`；本文中的旧 WinNative 表格仅保留为来源研究，
 > 不得用于决定设备实际下载版本。
-> 最后校对: 2026-08-11。
+> 最后校对: 2026-09-27（content_manifest `6f5c329`）。
 
 当前生产基线：
 
 | 组件 | 当前 pin | 压缩大小 |
 |---|---|---:|
 | rootfs | `imagefs.txz` v46（xz） | 12,203,684 B |
-| Wine | `Proton-11.0-05ca3a658-x86_64.wcp` | 66,346,658 B |
-| Box64 | `Box64-0.4.5-0db8df775.wcp` | 2,699,688 B |
+| Wine | `Proton-11.0-b1c230b99-x86_64.wcp` | 66,339,605 B |
+| Box64 | `Box64-0.4.5-0db8df775-p07e67ded.wcp` | 2,702,336 B |
 | DXVK | `Dxvk-3.0.2-gplasync-6b20f622a.wcp` | 8,048,148 B |
 | VKD3D | `Vkd3d-3.0.1-3b10bd7a7.wcp` | 3,276,904 B |
 | Vulkan wrapper | `wrapper-7eae6442f.tzst` | 670,350 B |
@@ -20,10 +20,13 @@
 PulseAudio 是例外，不属于远程 manifest：`pulseaudio.tzst`（78,340 B）与约 2.03 MB
 PA13 Android JNI 依赖随 APK 固定交付，避免 Wine 客户端、守护进程和模块跨版本漂移。
 
-> **发布联动状态（2026-09-22）**：生产 pin 现为
-> `Proton-11.0-05ca3a658-x86_64.wcp`，SHA `395cc2732961e93022e80bd538de58c5d266f2fe2bb0df8cf8b8d1be705d46ff`。
-> 包含 Vulkan PresentModes 兼容扩展与 version 48 统一驱动 ABI。
-> 4 KB 页上选择 Pulse 不再因缺失驱动回退 ALSA。
+> **发布联动状态（2026-09-27）**：生产 pin 现为
+> `Proton-11.0-b1c230b99-x86_64.wcp`，SHA `63cc47ec6b084830ec1efda286046c5d39e9f36308f60d9329795ba86e18c4ef`
+> （proton-wine `wip/ahb-present-fence`：AHB 交换链带渲染完成 fence 呈现、JNI 桥已删），
+> 需要 APK 含 wsi-sc op 7（amphora `157300d` 起）。Box64 为带 wrappedandroid 补丁的
+> `Box64-0.4.5-0db8df775-p07e67ded.wcp`，SHA `aa2ceec7…`。
+> 发版会立即删掉上一版 release 资产；磁盘缓存 manifest 过期的会话下载旧 pin 会 404，
+> 由 `ContentCatalog.provisionWithCurrentPins` 刷新后重试一次。
 
 ---
 
@@ -62,8 +65,8 @@ WinNative (amphora 移植源) 属 **Pipetto-crypto `winlator_bionic` 血脉**, r
 
 | 资产 | 压缩 | 大小 | 内容 |
 |---|---|---|---|
-| `Proton-11.0-05ca3a658-x86_64.wcp` | 以 profile 为准 | 66.3 MB | `bin/` `lib/` `share/` `prefixPack.txz` `profile.json` |
-| `Box64-0.4.5-0db8df775.wcp` | xz | 2.7 MB | `box64` + `profile.json` |
+| `Proton-11.0-b1c230b99-x86_64.wcp` | 以 profile 为准 | 66.3 MB | `bin/` `lib/` `share/` `prefixPack.txz` `profile.json` |
+| `Box64-0.4.5-0db8df775-p07e67ded.wcp` | xz | 2.7 MB | `box64` + `profile.json` |
 
 ### C. DirectX 翻译层 — WCP，但内容是 Windows DLL，落容器 `system32`/`syswow64`
 

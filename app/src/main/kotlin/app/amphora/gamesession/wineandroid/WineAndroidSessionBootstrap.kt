@@ -49,17 +49,9 @@ constructor(
         ProcessHelper.init(context)
         try {
             progressBus.update(ProvisionProgress(stage = "manifest", detail = "Fetching content manifest…"))
-            catalog.require()
-            progressBus.update(ProvisionProgress(stage = "runtime", detail = "Preparing runtime assets…"))
-            runtimeAssets.ensureAvailable()
-            progressBus.update(ProvisionProgress(stage = "rootfs", detail = "Checking imagefs…"))
-            ensureRootfs()
-            progressBus.update(ProvisionProgress(stage = "container", detail = "Preparing Wine container…"))
-            val container = containerManager.getOrCreate(spec.containerId)
-            progressBus.update(ProvisionProgress(stage = "prefix", detail = "Setting up Wine prefix…"))
-            preparer.setupWineSystemFiles(spec, container)
-            preparer.extractGraphicsDriverFiles(container)
-            pinAndroidGraphicsDriver(container)
+            // Disk-cached pins keep launches off the network; a stale pin whose
+            // asset a release already pruned is retried once with fresh pins.
+            val container = catalog.provisionWithCurrentPins { provision(spec) }
             val env = preparer.envVars() + spec.env
             Log.i(
                 TAG,
@@ -76,6 +68,21 @@ constructor(
         } finally {
             progressBus.clear()
         }
+    }
+
+    /** Idempotent: re-running after a partial failure re-applies the current pins. */
+    private suspend fun provision(spec: LaunchSpec): Container {
+        progressBus.update(ProvisionProgress(stage = "runtime", detail = "Preparing runtime assets…"))
+        runtimeAssets.ensureAvailable()
+        progressBus.update(ProvisionProgress(stage = "rootfs", detail = "Checking imagefs…"))
+        ensureRootfs()
+        progressBus.update(ProvisionProgress(stage = "container", detail = "Preparing Wine container…"))
+        val container = containerManager.getOrCreate(spec.containerId)
+        progressBus.update(ProvisionProgress(stage = "prefix", detail = "Setting up Wine prefix…"))
+        preparer.setupWineSystemFiles(spec, container)
+        preparer.extractGraphicsDriverFiles(container)
+        pinAndroidGraphicsDriver(container)
+        return container
     }
 
     private suspend fun ensureRootfs() {

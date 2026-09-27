@@ -120,7 +120,7 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 
 ### 7.1 功能对齐表（X11 → wineandroid）
 
-X11 会话链删于 `64fc57c`，删前最后状态是 tag **`x11-reference`**（= `4e39be3`），取参考用 `git show x11-reference:<路径>`。下表是删除时 wineandroid 缺的用户可见功能与运行时组件；补一项改一行，全部 ✅ 前不要删 `core/engine/src/main/java` 里对应的 Winlator 组件。
+X11 会话链删于 `5909b50`，删前最后状态是 tag **`x11-reference`**（= `4e39be3`），取参考用 `git show x11-reference:<路径>`。下表是删除时 wineandroid 缺的用户可见功能与运行时组件；补一项改一行，全部 ✅ 前不要删 `core/engine/src/main/java` 里对应的 Winlator 组件。
 
 | 功能 | X11 参考（`x11-reference`） | wineandroid 现状 | 备注 |
 |---|---|---|---|
