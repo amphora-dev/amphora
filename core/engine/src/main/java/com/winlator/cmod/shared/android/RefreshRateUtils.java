@@ -3,6 +3,7 @@ package com.winlator.cmod.shared.android;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.View;
@@ -20,6 +21,10 @@ public final class RefreshRateUtils {
   private static final String TAG = "RefreshRateUtils";
   private static final float DEFAULT_REFRESH_RATE = 60f;
   private static final float FRAME_CADENCE_EPSILON = 0.01f;
+  // Settings.System.PEAK_REFRESH_RATE (@hide, @Readable).
+  private static final String PEAK_REFRESH_RATE_KEY = "peak_refresh_rate";
+  // Modes report e.g. 60.000004 Hz against a 60.0 setting.
+  private static final float PEAK_EPSILON_HZ = 0.5f;
   private static final Map<Activity, ViewTreeObserver.OnWindowFocusChangeListener>
       WINDOW_FOCUS_LISTENERS = new WeakHashMap<>();
 
@@ -82,6 +87,45 @@ public final class RefreshRateUtils {
     }
   }
 
+  /**
+   * The user's "peak refresh rate" setting in Hz, or 0 when unset, unlimited or unreadable.
+   * DisplayModeDirector ranks it above an app's preferred mode, so asking for a faster mode
+   * gets the whole request dropped and the compositor falls back to its own choice.
+   */
+  public static float getUserPeakRefreshRate(Context context) {
+    try {
+      return normalizePeakRefreshRate(
+          Settings.System.getString(context.getContentResolver(), PEAK_REFRESH_RATE_KEY));
+    } catch (RuntimeException e) {
+      // Some builds refuse hidden Settings keys; behave as if unset.
+      return 0f;
+    }
+  }
+
+  static float normalizePeakRefreshRate(@Nullable String raw) {
+    if (raw == null) return 0f;
+    try {
+      float peak = Float.parseFloat(raw.trim());
+      return Float.isNaN(peak) || Float.isInfinite(peak) || peak <= 0f ? 0f : peak;
+    } catch (NumberFormatException e) {
+      return 0f;
+    }
+  }
+
+  static boolean isWithinPeak(float refreshRate, float peak) {
+    return peak <= 0f || refreshRate <= peak + PEAK_EPSILON_HZ;
+  }
+
+  /** The peak to filter modes by, or 0 if it is unset or would leave no usable mode. */
+  private static float usablePeak(Activity activity, Display.Mode[] modes) {
+    float peak = getUserPeakRefreshRate(activity);
+    if (peak <= 0f) return 0f;
+    for (Display.Mode mode : modes) {
+      if (mode.getRefreshRate() > 0f && isWithinPeak(mode.getRefreshRate(), peak)) return peak;
+    }
+    return 0f;
+  }
+
   public static float resolvePreferredRefreshRate(Activity activity, int requestedHz) {
     Display display = getDisplay(activity);
     if (display == null) {
@@ -89,6 +133,7 @@ public final class RefreshRateUtils {
     }
 
     Display.Mode[] modes = display.getSupportedModes();
+    float peak = usablePeak(activity, modes);
     float maxRefreshRate = DEFAULT_REFRESH_RATE;
     float exactMatch = 0f;
     float closestMatch = 0f;
@@ -96,7 +141,7 @@ public final class RefreshRateUtils {
 
     for (Display.Mode mode : modes) {
       float refreshRate = mode.getRefreshRate();
-      if (refreshRate <= 0f) continue;
+      if (refreshRate <= 0f || !isWithinPeak(refreshRate, peak)) continue;
 
       if (refreshRate > maxRefreshRate) {
         maxRefreshRate = refreshRate;
@@ -135,6 +180,7 @@ public final class RefreshRateUtils {
 
     Display.Mode currentMode = display.getMode();
     Display.Mode[] modes = display.getSupportedModes();
+    float peak = usablePeak(activity, modes);
 
     Display.Mode bestMode = null;
     float bestModeRate = 0f;
@@ -145,7 +191,7 @@ public final class RefreshRateUtils {
       if (!isSameModeGroup(currentMode, mode)) continue;
 
       float refreshRate = mode.getRefreshRate();
-      if (refreshRate <= 0f) continue;
+      if (refreshRate <= 0f || !isWithinPeak(refreshRate, peak)) continue;
 
       if (requestedHz <= 0) {
         if (bestMode == null || refreshRate > bestModeRate) {
@@ -200,14 +246,16 @@ public final class RefreshRateUtils {
     }
 
     Display.Mode currentMode = display.getMode();
+    Display.Mode[] modes = display.getSupportedModes();
+    float peak = usablePeak(activity, modes);
     Display.Mode bestMode = null;
     float bestModeRate = 0f;
 
-    for (Display.Mode mode : display.getSupportedModes()) {
+    for (Display.Mode mode : modes) {
       if (!isSameModeGroup(currentMode, mode)) continue;
 
       float refreshRate = mode.getRefreshRate();
-      if (refreshRate <= 0f || refreshRate < fpsLimit) continue;
+      if (refreshRate <= 0f || refreshRate < fpsLimit || !isWithinPeak(refreshRate, peak)) continue;
       if (!isFrameCadenceCompatible(refreshRate, fpsLimit)) continue;
 
       if (bestMode == null
@@ -321,7 +369,9 @@ public final class RefreshRateUtils {
             + " modeId="
             + modeId
             + " refreshRate="
-            + refreshRate);
+            + refreshRate
+            + " userPeak="
+            + getUserPeakRefreshRate(activity));
     return refreshRate;
   }
 

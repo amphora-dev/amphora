@@ -30,6 +30,23 @@ public class RefreshRateUtilsTest {
   }
 
   @Test
+  public void peakRefreshRateSettingParsesToHzOrUnset() {
+    assertEquals(144f, RefreshRateUtils.normalizePeakRefreshRate("144.0"), 0f);
+    assertEquals(0f, RefreshRateUtils.normalizePeakRefreshRate(null), 0f);
+    assertEquals(0f, RefreshRateUtils.normalizePeakRefreshRate("Infinity"), 0f);
+    assertEquals(0f, RefreshRateUtils.normalizePeakRefreshRate("0"), 0f);
+    assertEquals(0f, RefreshRateUtils.normalizePeakRefreshRate("fast"), 0f);
+  }
+
+  @Test
+  public void modesAboveTheUserPeakAreExcluded() {
+    assertTrue(RefreshRateUtils.isWithinPeak(144f, 144f));
+    assertTrue(RefreshRateUtils.isWithinPeak(60.000004f, 60f));
+    assertFalse(RefreshRateUtils.isWithinPeak(165f, 144f));
+    assertTrue(RefreshRateUtils.isWithinPeak(165f, 0f));
+  }
+
+  @Test
   public void explicitRefreshRateIsNotRedirectedByTheFpsLimit() {
     assertEquals(90, RefreshRateUtils.resolveFramePacedRefreshRate(null, 90, 60));
   }
