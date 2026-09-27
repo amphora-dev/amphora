@@ -292,6 +292,13 @@ class WineAndroidSessionActivity : ComponentActivity() {
         if (hasFocus) applyFramePacedRefreshRate()
     }
 
+    /**
+     * Pick a display mode whose cadence matches the DXVK frame limit (30 → 30 Hz,
+     * 60 → 60 Hz, off → fastest), as the X11 session did. This uses
+     * preferredDisplayModeId rather than Surface.setFrameRate: DXVK's limiter sets
+     * no presentation timestamps, and Android's frame-rate guide says such apps
+     * should pin the mode instead of letting the platform run at a multiple.
+     */
     private fun applyFramePacedRefreshRate() {
         val hz =
             RefreshRateUtils.applyPreferredRefreshRate(

@@ -81,7 +81,14 @@ typedef VkResult (*PFN_vkAcquireNextImage2KHR_ahb)(VkDevice, const VkAcquireNext
 #define AHB_SC_MAGIC        0x41484253u
 #define AHB_SC_MAX_DEVICES  8
 
-enum { AHB_SC_FREE = 0, AHB_SC_ACQUIRED = 1, AHB_SC_PRESENTED = 2 };
+/* Image ownership, as in AOSP libvulkan swapchain.cpp: an image is either in the
+ * host BufferQueue (cancelled at create, or queued by Present) or dequeued and
+ * handed to the app by Acquire. */
+enum { AHB_SC_IN_QUEUE = 0, AHB_SC_ACQUIRED = 1 };
+
+#ifndef NATIVE_WINDOW_API_EGL
+#define NATIVE_WINDOW_API_EGL 1
+#endif
 
 struct ahb_sc_surface {
     VkSurfaceKHR surface;
@@ -98,12 +105,9 @@ struct ahb_sc {
     VkExtent2D extent;
     VkImage images[AHB_SC_MAX_IMAGES];
     VkDeviceMemory memories[AHB_SC_MAX_IMAGES];
-    struct amphora_buf *bufs[AHB_SC_MAX_IMAGES];
+    struct amphora_buf *bufs[AHB_SC_MAX_IMAGES]; /* one ref held per image */
     uint8_t state[AHB_SC_MAX_IMAGES];
-    uint8_t queued_to_host[AHB_SC_MAX_IMAGES];
-    uint32_t next_acquire;
-    VkQueue signal_queue;
-    int signal_queue_ok;
+    unsigned presents; /* frames queued to the host; logged at destroy */
 };
 
 static struct ahb_sc_surface g_ahb_surfaces[AHB_SC_MAX_SURFACES];
@@ -421,14 +425,17 @@ static void ahb_sc_destroy_obj(struct ahb_sc *sc)
             destroy_image(sc->device, sc->images[i], NULL);
         if (sc->memories[i] && free_mem)
             free_mem(sc->device, sc->memories[i], NULL);
-        if (sc->bufs[i] && sc->win) {
-            if (sc->state[i] != AHB_SC_PRESENTED)
+        if (sc->bufs[i]) {
+            /* Images the app still holds go back to the queue; queued ones are
+             * already the queue's. */
+            if (sc->win && sc->state[i] == AHB_SC_ACQUIRED)
                 win_cancel(&sc->win->win, &sc->bufs[i]->buffer, -1);
+            amphora_buf_release(sc->bufs[i]);
             sc->bufs[i] = NULL;
         }
         sc->images[i] = VK_NULL_HANDLE;
         sc->memories[i] = VK_NULL_HANDLE;
-        sc->state[i] = AHB_SC_FREE;
+        sc->state[i] = AHB_SC_IN_QUEUE;
     }
     sc->magic = 0;
     free(sc);
@@ -443,6 +450,7 @@ static VkResult amphora_vkCreateSwapchainKHR(
     uint32_t want, i;
     VkResult r;
     int fence = -1;
+    int swap_interval;
 
     ahb_sc_ensure_device_procs(device);
     if (!pCreateInfo || !pSwapchain)
@@ -460,21 +468,49 @@ static VkResult amphora_vkCreateSwapchainKHR(
         return g_real_CreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
     }
 
+    /* Same model as AOSP libvulkan swapchain.cpp: every BufferQueue slot is one
+     * swapchain image. Create dequeues them all once to import, then cancels
+     * them back; Acquire dequeues, Present queues. */
+    if (win->sc_used) {
+        /* The queue only lets a producer dequeue every slot before its first
+         * queue; reconnecting orphans the previous swapchain's buffers so all
+         * slots can be dequeued again. The host bumps its buffer generation. */
+        int dret = win_perform(&win->win, NATIVE_WINDOW_API_DISCONNECT, NATIVE_WINDOW_API_EGL);
+        int cret = win_perform(&win->win, NATIVE_WINDOW_API_CONNECT, NATIVE_WINDOW_API_EGL);
+        LOGI("AHB_SC reconnect window disconnect=%d connect=%d", dret, cret);
+    }
+    win->sc_used = 1;
+
+    /* FIFO blocks on the queue (vsync); MAILBOX/IMMEDIATE replace the pending
+     * buffer. Set before querying MIN_UNDEQUEUED: async mode needs one more. */
+    swap_interval = (pCreateInfo->presentMode == VK_PRESENT_MODE_FIFO_KHR ||
+                     pCreateInfo->presentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR) ? 1 : 0;
+    {
+        int sret = win_set_swap(&win->win, swap_interval);
+        if (sret != 0)
+            LOGW("AHB_SC setSwapInterval(%d) ret=%d", swap_interval, sret);
+    }
+
     int min_undequeued = 1;
     if (win_query(&win->win, NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS, &min_undequeued) != 0 || min_undequeued < 1)
         min_undequeued = 1;
 
+    /* Surface caps report minImageCount = MIN_UNDEQUEUED + 2 (AOSP); honour a
+     * larger app request. With every slot imported, a dequeue can only return
+     * one of our images. */
     want = pCreateInfo->minImageCount;
-    if (want < 2) want = 2;
-    if (want > 3) want = 3;
-
-    int total_buffers = (int)want + min_undequeued;
-    if (total_buffers > AHB_SC_MAX_IMAGES) total_buffers = AHB_SC_MAX_IMAGES;
+    if (want < (uint32_t)min_undequeued + 2u) want = (uint32_t)min_undequeued + 2u;
+    if (want > AHB_SC_MAX_IMAGES) {
+        LOGW("AHB_SC minImageCount=%u exceeds %d images — clamped",
+             pCreateInfo->minImageCount, AHB_SC_MAX_IMAGES);
+        want = AHB_SC_MAX_IMAGES;
+    }
 
     {
-        int set_ret = win_perform(&win->win, NATIVE_WINDOW_SET_BUFFER_COUNT, total_buffers);
-        LOGI("AHB_SC SET_BUFFER_COUNT want=%u min_undeq=%d total=%d ret=%d",
-             want, min_undequeued, total_buffers, set_ret);
+        int set_ret = win_perform(&win->win, NATIVE_WINDOW_SET_BUFFER_COUNT, (int)want);
+        LOGI("AHB_SC SET_BUFFER_COUNT images=%u (app min=%u min_undeq=%d present_mode=%d swap=%d) ret=%d",
+             want, pCreateInfo->minImageCount, min_undequeued, (int)pCreateInfo->presentMode,
+             swap_interval, set_ret);
     }
 
     sc = calloc(1, sizeof(*sc));
@@ -500,6 +536,7 @@ static VkResult amphora_vkCreateSwapchainKHR(
         buf = (struct amphora_buf *)anwb;
         if (!buf->ahb) {
             LOGW("AHB_SC dequeue[%u] id=%d has no AHB — cannot import", i, buf->buffer_id);
+            win_cancel(&win->win, anwb, -1);
             r = VK_ERROR_INITIALIZATION_FAILED;
             goto fail;
         }
@@ -514,27 +551,17 @@ static VkResult amphora_vkCreateSwapchainKHR(
             win_cancel(&win->win, anwb, -1);
             goto fallback;
         }
+        buf_inc(&buf->buffer.common);
         sc->bufs[i] = buf;
-        sc->state[i] = AHB_SC_FREE;
-        sc->queued_to_host[i] = 0;
+        sc->state[i] = AHB_SC_ACQUIRED; /* dequeued; cancelled below */
         sc->count++;
     }
 
-    /* Queue every imported buffer to the host once at create. Present must not
-     * block on ANW dequeue/recycle; host already holds the AHB surfaces. */
+    /* Return every image to the queue; Acquire dequeues them one by one. */
     for (i = 0; i < sc->count; i++) {
-        int qret = win_queue(&win->win, &sc->bufs[i]->buffer, -1);
-        sc->queued_to_host[i] = 1;
-        LOGI("AHB_SC create win_queue idx=%u id=%d ret=%d", i, sc->bufs[i]->buffer_id, qret);
-    }
-
-    {
-        PFN_vkGetDeviceQueue getq = g_real_gdpa
-            ? (PFN_vkGetDeviceQueue)g_real_gdpa(device, "vkGetDeviceQueue") : NULL;
-        if (getq) {
-            getq(device, 0, 0, &sc->signal_queue);
-            sc->signal_queue_ok = sc->signal_queue != VK_NULL_HANDLE;
-        }
+        int cret = win_cancel(&win->win, &sc->bufs[i]->buffer, -1);
+        sc->state[i] = AHB_SC_IN_QUEUE;
+        LOGI("AHB_SC create cancel idx=%u id=%d ret=%d", i, sc->bufs[i]->buffer_id, cret);
     }
 
     *pSwapchain = (VkSwapchainKHR)(uintptr_t)sc;
@@ -568,7 +595,7 @@ static void amphora_vkDestroySwapchainKHR(
             g_real_DestroySwapchainKHR(device, swapchain, pAllocator);
         return;
     }
-    LOGI("AHB_SC destroy sc=%p images=%u", (void *)sc, sc->count);
+    LOGI("AHB_SC destroy sc=%p images=%u presents=%u", (void *)sc, sc->count, sc->presents);
     ahb_sc_destroy_obj(sc);
 }
 
@@ -602,10 +629,11 @@ static VkResult amphora_vkGetSwapchainImagesKHR(
  * Never QueueSubmit from this IPC thread — it races VkQueue and drops fences. */
 static VkResult ahb_sc_signal_acquire(struct ahb_sc *sc, VkSemaphore semaphore, VkFence fence)
 {
+    static unsigned acquire_n;
     (void)sc;
-    if (semaphore || fence)
-        LOGI("AHB_SC acquire signal deferred-to-win32u sem=%p fence=%p",
-             (void *)(uintptr_t)semaphore, (void *)(uintptr_t)fence);
+    if ((semaphore || fence) && amphora_log_sample(&acquire_n))
+        LOGI("AHB_SC acquire signal deferred-to-win32u sem=%p fence=%p n=%u",
+             (void *)(uintptr_t)semaphore, (void *)(uintptr_t)fence, acquire_n);
     return VK_SUCCESS;
 }
 
@@ -614,8 +642,10 @@ static VkResult amphora_vkAcquireNextImageKHR(
     VkSemaphore semaphore, VkFence fence, uint32_t *pImageIndex)
 {
     struct ahb_sc *sc = ahb_sc_from_handle(swapchain);
+    struct ANativeWindowBuffer *anwb = NULL;
     uint32_t idx;
-    (void)timeout;
+    int dret, dfence = -1;
+    VkResult sr;
     if (!sc) {
         ahb_sc_ensure_device_procs(device);
         if (!g_real_AcquireNextImageKHR) return VK_ERROR_INITIALIZATION_FAILED;
@@ -623,28 +653,34 @@ static VkResult amphora_vkAcquireNextImageKHR(
     }
     if (!pImageIndex) return VK_ERROR_INITIALIZATION_FAILED;
 
-    {
-        uint32_t i, match = sc->count;
-        VkResult sr;
-        for (i = 0; i < sc->count; i++) {
-            idx = (sc->next_acquire + i) % sc->count;
-            if (sc->state[idx] == AHB_SC_FREE) { match = idx; break; }
-        }
-        if (match == sc->count) {
-            LOGW("AHB_SC acquire no FREE slot count=%u timeout=%llu",
-                 sc->count, (unsigned long long)timeout);
-            if (timeout == 0) return VK_NOT_READY;
-            /* UINT64_MAX would hang the IPC server forever — return TIMEOUT. */
-            return VK_TIMEOUT;
-        }
-        sc->state[match] = AHB_SC_ACQUIRED;
-        sc->next_acquire = (match + 1) % sc->count;
-        *pImageIndex = match;
-        sr = ahb_sc_signal_acquire(sc, semaphore, fence);
-        if (sr != VK_SUCCESS)
-            LOGW("AHB_SC acquire signal idx=%u res=%d", match, (int)sr);
-        return VK_SUCCESS;
+    /* Blocks in the host until SurfaceFlinger releases a buffer. The app never
+     * holds more than images - minImageCount + 1, so this only waits on the
+     * compositor, never on our own Present. The host waits the dequeue fence. */
+    dret = win_dequeue(&sc->win->win, &anwb, &dfence);
+    if (dfence >= 0) close(dfence);
+    if (dret != 0 || !anwb) {
+        LOGW("AHB_SC acquire dequeue ret=%d timeout=%llu", dret, (unsigned long long)timeout);
+        if (dret == -ETIMEDOUT || dret == -EAGAIN || dret == -EBUSY)
+            return timeout ? VK_TIMEOUT : VK_NOT_READY;
+        return VK_ERROR_OUT_OF_DATE_KHR;
     }
+    for (idx = 0; idx < sc->count; idx++)
+        if (sc->bufs[idx] && &sc->bufs[idx]->buffer == anwb) break;
+    if (idx == sc->count) {
+        /* Host generation changed (surface resized/recreated): not ours. */
+        LOGW("AHB_SC acquire dequeued unknown buffer id=%d — OUT_OF_DATE",
+             ((struct amphora_buf *)anwb)->buffer_id);
+        win_cancel(&sc->win->win, anwb, -1);
+        return VK_ERROR_OUT_OF_DATE_KHR;
+    }
+    if (sc->state[idx] == AHB_SC_ACQUIRED)
+        LOGW("AHB_SC acquire idx=%u was already acquired", idx);
+    sc->state[idx] = AHB_SC_ACQUIRED;
+    *pImageIndex = idx;
+    sr = ahb_sc_signal_acquire(sc, semaphore, fence);
+    if (sr != VK_SUCCESS)
+        LOGW("AHB_SC acquire signal idx=%u res=%d", idx, (int)sr);
+    return VK_SUCCESS;
 }
 
 static VkResult amphora_vkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR_ahb *info,
@@ -713,14 +749,23 @@ static VkResult amphora_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR 
             last = VK_ERROR_OUT_OF_DATE_KHR;
             continue;
         }
-        /* Already on host from create — only notify + recycle slot. */
-        amphora_guest_queue_sync(sc->bufs[idx]);
-        qret = 0;
-        sc->state[idx] = AHB_SC_FREE;
+        if (sc->state[idx] != AHB_SC_ACQUIRED) {
+            LOGW("AHB_SC QueuePresent idx=%u not acquired", idx);
+            if (pPresentInfo->pResults) pPresentInfo->pResults[i] = VK_ERROR_OUT_OF_DATE_KHR;
+            last = VK_ERROR_OUT_OF_DATE_KHR;
+            continue;
+        }
+        /* win32u already waited the present semaphores and QueueWaitIdle'd, so
+         * rendering is done: queue without a fence. win_queue also runs the
+         * q50/q100 readback sampler. */
+        qret = win_queue(&sc->win->win, &sc->bufs[idx]->buffer, -1);
+        sc->state[idx] = AHB_SC_IN_QUEUE;
         if (qret != 0) {
-            if (pPresentInfo->pResults) pPresentInfo->pResults[i] = VK_ERROR_SURFACE_LOST_KHR;
-            last = VK_ERROR_SURFACE_LOST_KHR;
+            LOGW("AHB_SC QueuePresent queue idx=%u ret=%d", idx, qret);
+            if (pPresentInfo->pResults) pPresentInfo->pResults[i] = VK_ERROR_OUT_OF_DATE_KHR;
+            last = VK_ERROR_OUT_OF_DATE_KHR;
         } else {
+            sc->presents++;
             if (pPresentInfo->pResults) pPresentInfo->pResults[i] = VK_SUCCESS;
         }
     }
