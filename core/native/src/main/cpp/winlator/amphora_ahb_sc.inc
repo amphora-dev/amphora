@@ -115,6 +115,9 @@ struct ahb_sc {
     uint8_t state[AHB_SC_MAX_IMAGES];
     unsigned presents;        /* frames queued to the host; logged at destroy */
     unsigned fenced_presents; /* of those, queued with a render-done fence */
+    unsigned acquires;        /* successful acquires */
+    unsigned release_fences;  /* of those, with a real compositor release fence */
+    unsigned imported_sems;   /* acquire semaphores signalled by SYNC_FD import */
 };
 
 static struct ahb_sc_surface g_ahb_surfaces[AHB_SC_MAX_SURFACES];
@@ -456,7 +459,6 @@ static VkResult amphora_vkCreateSwapchainKHR(
     struct ahb_sc *sc = NULL;
     uint32_t want, i;
     VkResult r;
-    int fence = -1;
     int swap_interval;
 
     ahb_sc_ensure_device_procs(device);
@@ -549,13 +551,12 @@ static VkResult amphora_vkCreateSwapchainKHR(
     for (i = 0; i < want; i++) {
         struct ANativeWindowBuffer *anwb = NULL;
         struct amphora_buf *buf;
-        fence = -1;
-        if (win_dequeue(&win->win, &anwb, &fence) != 0 || !anwb) {
+        /* Import-only dequeue: no fence out-param, the host waits on it. */
+        if (win_dequeue(&win->win, &anwb, NULL) != 0 || !anwb) {
             LOGW("AHB_SC dequeue[%u] failed", i);
             r = VK_ERROR_INITIALIZATION_FAILED;
             goto fail;
         }
-        if (fence >= 0) close(fence);
         buf = (struct amphora_buf *)anwb;
         if (!buf->ahb) {
             LOGW("AHB_SC dequeue[%u] id=%d has no AHB — cannot import", i, buf->buffer_id);
@@ -618,8 +619,9 @@ static void amphora_vkDestroySwapchainKHR(
             g_real_DestroySwapchainKHR(device, swapchain, pAllocator);
         return;
     }
-    LOGI("AHB_SC destroy sc=%p images=%u presents=%u fenced=%u", (void *)sc, sc->count,
-         sc->presents, sc->fenced_presents);
+    LOGI("AHB_SC destroy sc=%p images=%u presents=%u fenced=%u acquires=%u release_fences=%u imported=%u",
+         (void *)sc, sc->count, sc->presents, sc->fenced_presents, sc->acquires, sc->release_fences,
+         sc->imported_sems);
     ahb_sc_destroy_obj(sc);
 }
 
@@ -649,27 +651,78 @@ static VkResult amphora_vkGetSwapchainImagesKHR(
     return VK_SUCCESS;
 }
 
-/* GPU signal is done on the DXVK queue thread (win32u QueueSubmit flush).
- * Never QueueSubmit from this IPC thread — it races VkQueue and drops fences. */
-static VkResult ahb_sc_signal_acquire(struct ahb_sc *sc, VkSemaphore semaphore, VkFence fence)
+/* Make the app's acquire semaphore / fence wait on the compositor's release
+ * fence by importing it as a temporary SYNC_FD payload (fd -1 = already
+ * released), as AOSP libvulkan / Mesa WSI do. No queue submit, so this is safe
+ * on the IPC thread. Returns AHB_SC_ACQ_SEM / AHB_SC_ACQ_FENCE for what it
+ * signalled; release_fd is not consumed. */
+enum { AHB_SC_ACQ_SEM = 1, AHB_SC_ACQ_FENCE = 2 };
+
+static uint32_t ahb_sc_import_release(VkDevice device, VkSemaphore semaphore, VkFence fence, int release_fd)
 {
-    static unsigned acquire_n;
-    (void)sc;
-    if ((semaphore || fence) && amphora_log_sample(&acquire_n))
-        LOGI("AHB_SC acquire signal deferred-to-win32u sem=%p fence=%p n=%u",
-             (void *)(uintptr_t)semaphore, (void *)(uintptr_t)fence, acquire_n);
-    return VK_SUCCESS;
+    static int warned_sem, warned_fence;
+    PFN_vkImportSemaphoreFdKHR import_sem = NULL;
+    PFN_vkImportFenceFdKHR import_fence = NULL;
+    uint32_t handled = 0;
+    VkResult r;
+
+    ahb_resolve_real_vulkan();
+    if (g_real_gdpa) {
+        import_sem = (PFN_vkImportSemaphoreFdKHR)g_real_gdpa(device, "vkImportSemaphoreFdKHR");
+        import_fence = (PFN_vkImportFenceFdKHR)g_real_gdpa(device, "vkImportFenceFdKHR");
+    }
+    if (semaphore) {
+        VkImportSemaphoreFdInfoKHR info;
+        memset(&info, 0, sizeof(info));
+        info.sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHR;
+        info.semaphore = semaphore;
+        info.flags = VK_SEMAPHORE_IMPORT_TEMPORARY_BIT;
+        info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
+        info.fd = release_fd >= 0 ? dup(release_fd) : -1;
+        r = import_sem ? import_sem(device, &info) : VK_ERROR_EXTENSION_NOT_PRESENT;
+        if (r == VK_SUCCESS) {
+            handled |= AHB_SC_ACQ_SEM; /* the driver owns info.fd now */
+        } else {
+            if (info.fd >= 0) close(info.fd);
+            if (!warned_sem++)
+                LOGW("AHB_SC acquire: semaphore SYNC_FD import res=%d fn=%p — deferred signal",
+                     (int)r, (void *)import_sem);
+        }
+    }
+    if (fence) {
+        VkImportFenceFdInfoKHR info;
+        memset(&info, 0, sizeof(info));
+        info.sType = VK_STRUCTURE_TYPE_IMPORT_FENCE_FD_INFO_KHR;
+        info.fence = fence;
+        info.flags = VK_FENCE_IMPORT_TEMPORARY_BIT;
+        info.handleType = VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT;
+        info.fd = release_fd >= 0 ? dup(release_fd) : -1;
+        r = import_fence ? import_fence(device, &info) : VK_ERROR_EXTENSION_NOT_PRESENT;
+        if (r == VK_SUCCESS) {
+            handled |= AHB_SC_ACQ_FENCE;
+        } else {
+            if (info.fd >= 0) close(info.fd);
+            if (!warned_fence++)
+                LOGW("AHB_SC acquire: fence SYNC_FD import res=%d fn=%p — deferred signal",
+                     (int)r, (void *)import_fence);
+        }
+    }
+    return handled;
 }
 
-static VkResult amphora_vkAcquireNextImageKHR(
+/* import: the caller (wsi-sc op 8) signals nothing itself for what we report
+ * handled. Anything left unhandled is signalled later by win32u's deferred
+ * empty submit, which does not wait on the release, so wait for it here. */
+static VkResult ahb_sc_acquire(
     VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout,
-    VkSemaphore semaphore, VkFence fence, uint32_t *pImageIndex)
+    VkSemaphore semaphore, VkFence fence, uint32_t *pImageIndex, int import, uint32_t *out_handled)
 {
     struct ahb_sc *sc = ahb_sc_from_handle(swapchain);
     struct ANativeWindowBuffer *anwb = NULL;
-    uint32_t idx;
+    uint32_t idx, handled = 0;
     int dret, dfence = -1;
-    VkResult sr;
+    static unsigned acquire_n;
+    if (out_handled) *out_handled = 0;
     if (!sc) {
         ahb_sc_ensure_device_procs(device);
         if (!g_real_AcquireNextImageKHR) return VK_ERROR_INITIALIZATION_FAILED;
@@ -677,11 +730,10 @@ static VkResult amphora_vkAcquireNextImageKHR(
     }
     if (!pImageIndex) return VK_ERROR_INITIALIZATION_FAILED;
 
-    /* Blocks in the host until SurfaceFlinger releases a buffer. The app never
+    /* Blocks in the host until SurfaceFlinger hands a buffer back. The app never
      * holds more than images - minImageCount + 1, so this only waits on the
-     * compositor, never on our own Present. The host waits the dequeue fence. */
+     * compositor, never on our own Present. The release fence comes back too. */
     dret = win_dequeue(&sc->win->win, &anwb, &dfence);
-    if (dfence >= 0) close(dfence);
     if (dret != 0 || !anwb) {
         LOGW("AHB_SC acquire dequeue ret=%d timeout=%llu", dret, (unsigned long long)timeout);
         if (dret == -ETIMEDOUT || dret == -EAGAIN || dret == -EBUSY)
@@ -694,17 +746,35 @@ static VkResult amphora_vkAcquireNextImageKHR(
         /* Host generation changed (surface resized/recreated): not ours. */
         LOGW("AHB_SC acquire dequeued unknown buffer id=%d — OUT_OF_DATE",
              ((struct amphora_buf *)anwb)->buffer_id);
-        win_cancel(&sc->win->win, anwb, -1);
+        win_cancel(&sc->win->win, anwb, dfence);
         return VK_ERROR_OUT_OF_DATE_KHR;
     }
     if (sc->state[idx] == AHB_SC_ACQUIRED)
         LOGW("AHB_SC acquire idx=%u was already acquired", idx);
     sc->state[idx] = AHB_SC_ACQUIRED;
     *pImageIndex = idx;
-    sr = ahb_sc_signal_acquire(sc, semaphore, fence);
-    if (sr != VK_SUCCESS)
-        LOGW("AHB_SC acquire signal idx=%u res=%d", idx, (int)sr);
+
+    if (import)
+        handled = ahb_sc_import_release(device, semaphore, fence, dfence);
+    if (((semaphore && !(handled & AHB_SC_ACQ_SEM)) || (fence && !(handled & AHB_SC_ACQ_FENCE))) && dfence >= 0)
+        amphora_poll_fence(dfence);
+    sc->acquires++;
+    if (dfence >= 0) sc->release_fences++;
+    if (handled & AHB_SC_ACQ_SEM) sc->imported_sems++;
+    if (amphora_log_sample(&acquire_n))
+        LOGI("AHB_SC acquire idx=%u release_fd=%d sem=%p fence=%p handled=0x%x import=%d n=%u",
+             idx, dfence, (void *)(uintptr_t)semaphore, (void *)(uintptr_t)fence, handled, import,
+             acquire_n);
+    if (dfence >= 0) close(dfence);
+    if (out_handled) *out_handled = handled;
     return VK_SUCCESS;
+}
+
+static VkResult amphora_vkAcquireNextImageKHR(
+    VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout,
+    VkSemaphore semaphore, VkFence fence, uint32_t *pImageIndex)
+{
+    return ahb_sc_acquire(device, swapchain, timeout, semaphore, fence, pImageIndex, 0, NULL);
 }
 
 static VkResult amphora_vkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR_ahb *info,
@@ -833,6 +903,11 @@ VkResult amphora_ahb_sc_acquire(VkDevice device, VkSwapchainKHR sc, uint64_t tim
                                 VkSemaphore sem, VkFence fence, uint32_t *idx)
 {
     return amphora_vkAcquireNextImageKHR(device, sc, timeout, sem, fence, idx);
+}
+VkResult amphora_ahb_sc_acquire_import(VkDevice device, VkSwapchainKHR sc, uint64_t timeout,
+                                       VkSemaphore sem, VkFence fence, uint32_t *idx, uint32_t *handled)
+{
+    return ahb_sc_acquire(device, sc, timeout, sem, fence, idx, 1, handled);
 }
 VkResult amphora_ahb_sc_present(VkQueue queue, const VkPresentInfoKHR *info)
 {

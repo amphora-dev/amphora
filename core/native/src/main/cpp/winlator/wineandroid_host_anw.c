@@ -87,6 +87,7 @@ enum {
     CMD_SET_SWAP = 6,
     CMD_VK_PRESENT = 7,
     CMD_QUEUE_FENCE = 8, /* QUEUE with a sync fd (SCM_RIGHTS on the id/generation) */
+    CMD_DEQUEUE_FENCE = 9, /* DEQUEUE; an int32 + optional release-fence fd precede the reply */
     CMD_STOP = 99,
 };
 
@@ -98,6 +99,7 @@ struct serve_ctx {
     int hwnd;
     int generation;
     unsigned dequeue_n, queue_n; /* per-frame log sampling */
+    unsigned release_fences;     /* real release fences handed to the guest */
     struct wine_native_buffer *buffers[NB_BUFFERS];
     int buffer_lru[NB_BUFFERS];
 };
@@ -165,6 +167,37 @@ static int recv_full_with_fd(int fd, void *buf, size_t len, int *out_fd)
         *out_fd = -1;
         return -1;
     }
+    return 0;
+}
+
+/* int32 has_fence, with the fence attached (SCM_RIGHTS) when fd >= 0. */
+static int send_fence_msg(int sock, int fd)
+{
+    char cbuf[CMSG_SPACE(sizeof(int))];
+    int32_t has = fd >= 0;
+    struct iovec iov = { &has, sizeof(has) };
+    struct msghdr msg;
+    struct cmsghdr *cmsg;
+    ssize_t n;
+
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    if (fd >= 0) {
+        memset(cbuf, 0, sizeof(cbuf));
+        msg.msg_control = cbuf;
+        msg.msg_controllen = sizeof(cbuf);
+        cmsg = CMSG_FIRSTHDR(&msg);
+        cmsg->cmsg_level = SOL_SOCKET;
+        cmsg->cmsg_type = SCM_RIGHTS;
+        cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+        memcpy(CMSG_DATA(cmsg), &fd, sizeof(int));
+    }
+    do {
+        n = sendmsg(sock, &msg, MSG_NOSIGNAL);
+    } while (n < 0 && errno == EINTR);
+    if (n < 0) return -1;
+    if ((size_t)n < sizeof(has)) return write_full(sock, (char *)&has + n, sizeof(has) - (size_t)n);
     return 0;
 }
 
@@ -672,25 +705,40 @@ static void *serve_thread(void *arg)
             break;
         }
 
-        if (cmd == CMD_DEQUEUE) {
+        if (cmd == CMD_DEQUEUE || cmd == CMD_DEQUEUE_FENCE) {
             struct wine_native_buffer *buffer = NULL;
             int fence = -1;
             int ret = ctx->win->dequeueBuffer(ctx->win, &buffer, &fence);
             int id = -1;
             last_op_ret = ret;
-            /* The guest renders straight into the buffer with no fence of its
-             * own, so wait until the compositor has finished reading it. */
-            if (fence >= 0) {
+            if (cmd == CMD_DEQUEUE_FENCE) {
+                /* Hand the release fence to the guest ahead of the reply; it
+                 * imports it into the acquire semaphore/fence so the GPU waits,
+                 * not this thread. -1 = the buffer is already free. */
+                int rc = send_fence_msg(ctx->sock, ret ? -1 : fence);
+                if (fence >= 0) {
+                    close(fence);
+                    ctx->release_fences++;
+                }
+                if (rc) {
+                    exit_errno = errno;
+                    exit_why = (exit_errno == 0) ? "dequeue-fence-EOF" : "dequeue-fence-err";
+                    break;
+                }
+            } else if (fence >= 0) {
+                /* The guest renders straight into the buffer with no fence of
+                 * its own, so wait until the compositor has finished reading it. */
                 wait_release_fence(fence, ctx->hwnd);
                 close(fence);
             }
             if (!ret && buffer) id = register_buf(ctx, buffer);
             ctx->dequeue_n++;
             if (ret || ctx->dequeue_n <= 8 || ctx->dequeue_n % 600 == 0)
-                LOGI("serve DEQUEUE hwnd=%08x ret=%d id=%d gen=%d %dx%d fmt=%d n=%u",
+                LOGI("serve DEQUEUE hwnd=%08x ret=%d id=%d gen=%d %dx%d fmt=%d n=%u fenced=%d release_fences=%u",
                      ctx->hwnd, ret, id, ctx->generation,
                      buffer ? buffer->width : -1, buffer ? buffer->height : -1,
-                     buffer ? buffer->format : -1, ctx->dequeue_n);
+                     buffer ? buffer->format : -1, ctx->dequeue_n, cmd == CMD_DEQUEUE_FENCE,
+                     ctx->release_fences);
             if (send_handle_reply(ctx->sock, ret, buffer, id, ctx->generation)) {
                 exit_errno = errno;
                 exit_why = (exit_errno == 0) ? "dequeue-reply-EOF" : "dequeue-reply-err";
