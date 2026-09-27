@@ -156,6 +156,8 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 
 冒烟程序源码在 [`scripts/dxvk-smoke/amphora-dxvk-smoke.c`](../scripts/dxvk-smoke/amphora-dxvk-smoke.c)，文件头有 mingw 构建和推送命令。
 
+[`scripts/dxvk-smoke/present-check.sh`](../scripts/dxvk-smoke/present-check.sh) `<serial> [30|45|60|90|120|off]` 跑完下面这些步骤，打印下列判据要看的计数，一轮 10–25 秒。限帧写进 `advanced_frame_rate`，退出时还原原来的 prefs。手动步骤：
+
 ```bash
 # 屏幕须亮着、已解锁，否则 Activity 没有 Surface（no client ANW after wait）
 adb shell svc power stayon usb; adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard
@@ -163,7 +165,9 @@ adb shell dumpsys SurfaceFlinger --timestats -enable -clear
 adb shell am start -n app.amphora/.MainActivity \
   --ez app.amphora.debug.WINEANDROID true \
   --es app.amphora.debug.WINE_EXE /data/user/0/app.amphora/files/exe/amphora-dxvk-smoke.exe
-# 等 logcat 出现第二次 AHB_SC destroy（程序会先建再重建一次交换链）
+# 等 presents>0 的那条 AHB_SC destroy。DXVK 可能先建一个空交换链再重建，也可能只建一个，
+# 所以别数 destroy 次数（只建一个时"等第二次 destroy"会一直等到超时）
+adb logcat -e 'AHB_SC destroy .*presents=[1-9]' -m 1
 adb shell dumpsys SurfaceFlinger --timestats -dump    # 看 SurfaceView[app.amphora/…](BLAST) 的 totalFrames
 adb shell dumpsys SurfaceFlinger --timestats -disable
 ```
