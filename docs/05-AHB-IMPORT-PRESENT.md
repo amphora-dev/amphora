@@ -151,11 +151,18 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 
 在修改底层渲染代码或更新 Proton/DXVK 组件后，必须在真机上执行完整验证：
 
+冒烟程序源码在 [`scripts/dxvk-smoke/amphora-dxvk-smoke.c`](../scripts/dxvk-smoke/amphora-dxvk-smoke.c)，文件头有 mingw 构建和推送命令。
+
 ```bash
-# 启动 DXVK 3D 渲染冒烟测试
+# 屏幕须亮着、已解锁，否则 Activity 没有 Surface（no client ANW after wait）
+adb shell svc power stayon usb; adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard
+adb shell dumpsys SurfaceFlinger --timestats -enable -clear
 adb shell am start -n app.amphora/.MainActivity \
-  --ez app.amphora.debug.WINE_SMOKE true \
-  --es app.amphora.debug.WINE_EXE 'C:/amphora-dxvk-smoke.exe'
+  --ez app.amphora.debug.WINEANDROID true \
+  --es app.amphora.debug.WINE_EXE /data/user/0/app.amphora/files/exe/amphora-dxvk-smoke.exe
+# 等 logcat 出现第二次 AHB_SC destroy（程序会先建再重建一次交换链）
+adb shell dumpsys SurfaceFlinger --timestats -dump    # 看 SurfaceView[app.amphora/…](BLAST) 的 totalFrames
+adb shell dumpsys SurfaceFlinger --timestats -disable
 ```
 
 **合格判据**：
