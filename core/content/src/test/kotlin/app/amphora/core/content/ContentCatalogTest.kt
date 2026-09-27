@@ -175,6 +175,71 @@ class ContentCatalogTest {
         assertTrue(cacheFile.readText().contains(remoteSha))
     }
 
+    @Test
+    fun provisionRetriesWithRefreshedPinsWhenTheCachedPinIsGone() = runBlocking {
+        val cacheFile = cacheFile().apply { writeText(ContentManifestTest.SAMPLE) }
+        val bumped = ContentManifestTest.SAMPLE.replace("a".repeat(64), "e".repeat(64))
+        val catalog = catalog(cacheFile) { bumped }
+        val seen = mutableListOf<String?>()
+
+        val result =
+            catalog.provisionWithCurrentPins { manifest ->
+                val sha = manifest.entry(ContentComponent.WINE)!!.sha256
+                seen.add(sha)
+                if (sha == "a".repeat(64)) throw IOException("HTTP 404 Not Found")
+                "installed $sha"
+            }
+
+        assertEquals(listOf("a".repeat(64), "e".repeat(64)), seen)
+        assertEquals("installed ${"e".repeat(64)}", result)
+        assertEquals(bumped, cacheFile.readText())
+    }
+
+    @Test
+    fun provisionRethrowsWhenRefreshedPinsDidNotMove() = runBlocking {
+        val cacheFile = cacheFile().apply { writeText(ContentManifestTest.SAMPLE) }
+        val catalog = catalog(cacheFile) { ContentManifestTest.SAMPLE }
+        val expected = IOException("HTTP 404 Not Found")
+        val calls = AtomicInteger()
+
+        val thrown =
+            try {
+                catalog.provisionWithCurrentPins<Unit> {
+                    calls.incrementAndGet()
+                    throw expected
+                }
+                null
+            } catch (failure: IOException) {
+                failure
+            }
+
+        assertSame(expected, thrown)
+        assertEquals(1, calls.get())
+    }
+
+    @Test
+    fun provisionRethrowsWhenOfflineAfterAFailure() = runBlocking {
+        val cacheFile = cacheFile().apply { writeText(ContentManifestTest.SAMPLE) }
+        val catalog = catalog(cacheFile) { throw IOException("offline") }
+        val expected = IOException("HTTP 404 Not Found")
+        val calls = AtomicInteger()
+
+        val thrown =
+            try {
+                catalog.provisionWithCurrentPins<Unit> {
+                    calls.incrementAndGet()
+                    throw expected
+                }
+                null
+            } catch (failure: IOException) {
+                failure
+            }
+
+        assertSame(expected, thrown)
+        assertEquals(1, calls.get())
+        assertEquals(ContentManifestTest.SAMPLE, cacheFile.readText())
+    }
+
     private fun cacheFile(): File = File(temporaryFolder.root, "content/content_manifest.json").also {
         requireNotNull(it.parentFile).mkdirs()
     }
