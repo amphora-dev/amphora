@@ -83,8 +83,10 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 | 重建 | 同一窗口再次 CreateSwapchain 前 `API_DISCONNECT` + `API_CONNECT`（EGL），宿主清空 buffer id 并 generation+1 | 队列只在第一次 queue 之前允许把所有槽位 dequeue 出来；重连后旧 buffer 作废，guest 按新 generation 重新导入 |
 | 呈现模式 | FIFO / FIFO_RELAXED → swap interval 1，其余 → 0 | FIFO 由 dequeue 按 vsync 节流；MAILBOX 替换未锁存的帧 |
 | 并发 | `wsi-sc` 每个请求一个线程 | Acquire 可能阻塞在宿主 dequeue，不能卡住其他交换链的 Present / Destroy |
+| 队列配置 | 重连后 `SET_USAGE 0xB00`（TEXTURE / RENDER / COMPOSER）、`SET_BUFFERS_DIMENSIONS` = 交换链 extent、`SCALE_TO_WINDOW` | 断开重连会清掉这些；AHB 导入要求图像与 buffer 尺寸一致，Surface 尺寸暂时不同（resize 途中）时由合成器缩放 |
+| 宿主视图 | client（Vulkan）SurfaceView 按 `clientRect` 布局、`setFixedSize` 成客户区尺寸 | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图 |
 
-已知遗留：win32u 在 Present 前 `vkQueueWaitIdle`（每帧 CPU 等 GPU 空闲，AOSP 是把 release fence 传给 queueBuffer）；待定的 acquire 信号量是全局单份（多交换链会互相覆盖）；交换链图像尺寸取 Win32 客户区，宿主 client Surface 却是整窗尺寸（冒烟窗 648x485 对 656x519）。
+已知遗留：win32u 在 Present 前 `vkQueueWaitIdle`（每帧 CPU 等 GPU 空闲，AOSP 是把 release fence 传给 queueBuffer）；待定的 acquire 信号量是全局单份（多交换链会互相覆盖）。
 
 ### 2.1 涉及的关键源码与职责
 
