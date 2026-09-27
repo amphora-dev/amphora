@@ -1,6 +1,6 @@
 # 05 · Vulkan AHB 零拷贝游戏渲染 (AHB Import Present)
 
-> 状态：**关键门禁已通过**（2026-09-14 在 Lenovo Y700 HA262AAH 真机验证）。  
+> 状态：**关键门禁已通过**（2026-09-14 在 Lenovo Y700 HA262AAH 真机验证）。2026-09-27 修正：此前 Present 从不把 buffer 送回 BufferQueue，SurfaceFlinger 只拿到创建时的几帧；现按 AOSP libvulkan 的逐帧 dequeue/queue 模型送显（§2.3），判据加上 SurfaceFlinger 帧数（§5）。  
 > 适用：Amphora 架构与渲染通道维护人员，以及后续审查零拷贝呈现机制的开发者。  
 > 关联文档：[`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)（宿主窗口系统）、[`research/11-ANDROID-NATIVE-VULKAN-PLAN.md`](research/11-ANDROID-NATIVE-VULKAN-PLAN.md)（前期技术预研）。  
 > **核心铁律**：AHB 零拷贝导入是游戏渲染的现行正轨，后续任何优化**严禁倒退或破坏已通的 AHB Import CreateSwapchain 路径**。
@@ -61,18 +61,30 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
   │     └─ win32u 执行 amphora_bind_device_wsi
   │     └─ 通过 Unix Domain Socket (wsi-sc-<pid>.sock) 向 libamphora_wsi 发送创建请求
   │
-  ├─ 4. libamphora_wsi 核心调度：
-  │     └─ 从宿主 ANativeWindow 队列取出物理 Buffer (ANativeWindowBuffer + AHB)
+  ├─ 4. libamphora_wsi 核心调度（CreateSwapchain）：
+  │     └─ 把宿主 BufferQueue 的每个槽位都 dequeue 一次（ANativeWindowBuffer + AHB）
   │     └─ 利用 VK_ANDROID_external_memory_android_hardware_buffer 扩展
-  │        调用 vkCreateImage + vkBindImageMemory2 将其绑定为 VkImage
-  │     └─ 初始化阶段一次性将窗口队列 buffer 全部交给宿主
+  │        调用 vkCreateImage + vkBindImageMemory 将其绑定为 VkImage
+  │     └─ 导入完成后全部 cancel 回队列
   │
   └─ 5. 渲染循环（Acquire / Render / Present）：
-        ├─ 【Acquire 获取缓冲】：仅在内存槽位中标记 FREE，将 GPU 信号量等待推迟到 win32u
+        ├─ 【Acquire 获取缓冲】：dequeueBuffer 拿回一张（宿主先等合成器的 release fence），
+        │   GPU 信号量信号推迟到 win32u 的下一次 vkQueueSubmit
         ├─ 【Render 绘制】：在 win32u 真正执行 vkQueueSubmit 前，与 DXVK 处于同一队列刷新信号
-        └─ 【Present 送显】：win32u 等待渲染信号量与呈现栅栏（SWAPCHAIN_PRESENT_FENCE）就绪后，
-           通过 IPC 发送呈现指令并释放槽位，屏幕硬件自动刷新显示
+        └─ 【Present 送显】：win32u 等待渲染信号量、呈现栅栏（SWAPCHAIN_PRESENT_FENCE）并 QueueWaitIdle 后，
+           经 IPC 让 libamphora_wsi queueBuffer，SurfaceFlinger 下一个 vsync 锁存这一帧
 ```
+
+### 2.3 交换链与 BufferQueue 的对应（对齐 AOSP `libvulkan/swapchain.cpp`）
+
+| 环节 | 做法 | 原因 |
+|---|---|---|
+| 图像数 | `max(minImageCount, MIN_UNDEQUEUED + 2)`，上限 8；`SET_BUFFER_COUNT` 设成同一个数 | 每个队列槽位都是一张已导入的图像，dequeue 不会拿到陌生 buffer；app 最多持有 `图像数 - minImageCount + 1` 张，Acquire 只会等合成器，不会等自己的 Present |
+| 重建 | 同一窗口再次 CreateSwapchain 前 `API_DISCONNECT` + `API_CONNECT`（EGL），宿主清空 buffer id 并 generation+1 | 队列只在第一次 queue 之前允许把所有槽位 dequeue 出来；重连后旧 buffer 作废，guest 按新 generation 重新导入 |
+| 呈现模式 | FIFO / FIFO_RELAXED → swap interval 1，其余 → 0 | FIFO 由 dequeue 按 vsync 节流；MAILBOX 替换未锁存的帧 |
+| 并发 | `wsi-sc` 每个请求一个线程 | Acquire 可能阻塞在宿主 dequeue，不能卡住其他交换链的 Present / Destroy |
+
+已知遗留：win32u 在 Present 前 `vkQueueWaitIdle`（每帧 CPU 等 GPU 空闲，AOSP 是把 release fence 传给 queueBuffer）；待定的 acquire 信号量是全局单份（多交换链会互相覆盖）；交换链图像尺寸取 Win32 客户区，宿主 client Surface 却是整窗尺寸（冒烟窗 648x485 对 656x519）。
 
 ### 2.1 涉及的关键源码与职责
 
@@ -140,7 +152,8 @@ adb shell am start -n app.amphora/.MainActivity \
 ```
 
 **合格判据**：
-- [x] 日志中必须输出 `AHB_SC create images=3 import=ok`；
+- [x] 日志中必须输出 `AHB_SC create images=<N> import=ok`（N 见 §2.3，6T 为 3，Y700 为 6）；
 - [x] 日志必须连续输出 `Present frame=... hr=0x00000000` 且帧数稳定超过 **50** 帧；
 - [x] 显存回读采样（guest readback）必须持续为纯正品红色（`CLASS=MAGENTA`）；
+- [x] **帧真的送到屏幕**：跑前 `dumpsys SurfaceFlinger --timestats -enable -clear`，跑完 `--timestats -dump`，游戏窗口那层 `SurfaceView[app.amphora/…](BLAST)` 的 `totalFrames` 应接近 `AHB_SC destroy … presents=<n>`（修复前是 4 / 175，修复后 173 / 175）。只看回读和静态品红画面发现不了帧没上屏；
 - [x] 手机屏幕左上角窗口必须肉眼可见品红色矩形，画面无闪烁、无撕裂、无无响应崩溃（ANR）。

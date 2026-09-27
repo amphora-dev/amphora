@@ -149,7 +149,16 @@ struct amphora_win {
     pthread_mutex_t lock;
     struct amphora_buf *bufs[NB_CACHED_BUFFERS];
     int req_w, req_h; /* 0 = unset; from SET_BUFFERS_* dimensions */
+    int sc_used;      /* an AHB swapchain already ran on this window (reconnect before the next) */
 };
+
+/* Per-frame paths log the first few events, then every Nth, so a 60+ fps
+ * swapchain does not flood logcat. */
+static int amphora_log_sample(unsigned *counter)
+{
+    unsigned n = __sync_add_and_fetch(counter, 1);
+    return n <= 8 || n % 600 == 0;
+}
 
 static int write_full(int fd, const void *buf, size_t len)
 {
@@ -271,10 +280,7 @@ static void amphora_resolve_sync(void)
 static void amphora_wait_present_fence(int fence)
 {
     int rc;
-    if (fence < 0) {
-        LOGI("guest-fence none");
-        return;
-    }
+    if (fence < 0) return; /* AHB swapchain presents after win32u QueueWaitIdle */
     LOGI("guest-fence wait fd=%d", fence);
     amphora_resolve_sync();
     if (g_sync_wait) {
@@ -686,9 +692,13 @@ static int win_dequeue(struct ANativeWindow *window, struct ANativeWindowBuffer 
                               buf->buffer.handle);
         *out = &buf->buffer;
         pthread_mutex_unlock(&win->lock);
-        LOGI("dequeue id=%d REUSE %dx%d fmt=%d usage=0x%x anwb=%p ahb=%p",
-             hdr.buffer_id, hdr.width, hdr.height, hdr.format, hdr.usage,
-             (void *)&buf->buffer, buf->ahb);
+        {
+            static unsigned reuse_n;
+            if (amphora_log_sample(&reuse_n))
+                LOGI("dequeue id=%d REUSE %dx%d fmt=%d usage=0x%x anwb=%p ahb=%p n=%u",
+                     hdr.buffer_id, hdr.width, hdr.height, hdr.format, hdr.usage,
+                     (void *)&buf->buffer, buf->ahb, reuse_n);
+        }
         return 0;
     }
     if (hdr.numFds == AMPHORA_AHB_NUMFDS) {
@@ -839,7 +849,11 @@ static int win_queue(struct ANativeWindow *window, struct ANativeWindowBuffer *b
         pthread_mutex_unlock(&win->lock); return -EIO;
     }
     pthread_mutex_unlock(&win->lock);
-    LOGI("queue id=%d ret=%d", buf->buffer_id, ret);
+    {
+        static unsigned queue_n;
+        if (ret != 0 || amphora_log_sample(&queue_n))
+            LOGI("queue id=%d ret=%d n=%u", buf->buffer_id, ret, queue_n);
+    }
     return ret;
 }
 
@@ -1408,6 +1422,18 @@ static void wsi_sc_handle(int c)
     LOGW("wsi-sc unknown op=%d", op);
 }
 
+/* One thread per request: Acquire may block in the host dequeue until
+ * SurfaceFlinger releases a buffer, and that must not stall Present/Destroy of
+ * other swapchains queued behind it. Per-swapchain calls stay serialized by the
+ * app (Vulkan requires external sync on the swapchain). */
+static void *wsi_sc_conn(void *arg)
+{
+    int c = (int)(intptr_t)arg;
+    wsi_sc_handle(c);
+    close(c);
+    return NULL;
+}
+
 static void *wsi_sc_serve(void *arg)
 {
     char path[256];
@@ -1435,8 +1461,16 @@ static void *wsi_sc_serve(void *arg)
             LOGE("wsi-sc accept: %s", strerror(errno));
             break;
         }
-        wsi_sc_handle(c);
-        close(c);
+        {
+            pthread_t th;
+            if (pthread_create(&th, NULL, wsi_sc_conn, (void *)(intptr_t)c) == 0) {
+                pthread_detach(th);
+            } else {
+                LOGW("wsi-sc pthread_create: %s — serving inline", strerror(errno));
+                wsi_sc_handle(c);
+                close(c);
+            }
+        }
     }
     close(ls);
     unlink(path);

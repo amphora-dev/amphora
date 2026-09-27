@@ -96,6 +96,7 @@ struct serve_ctx {
     int sock;
     int hwnd;
     int generation;
+    unsigned dequeue_n, queue_n; /* per-frame log sampling */
     struct wine_native_buffer *buffers[NB_BUFFERS];
     int buffer_lru[NB_BUFFERS];
 };
@@ -594,6 +595,24 @@ static int register_buf(struct serve_ctx *ctx, struct wine_native_buffer *buffer
     return free_idx;
 }
 
+/* A sync fence fd polls readable once signalled. Bounded so a wedged
+ * compositor cannot hang the serve thread forever. */
+static void wait_release_fence(int fence, int hwnd)
+{
+    struct pollfd p;
+    int rc;
+    p.fd = fence;
+    p.events = POLLIN;
+    p.revents = 0;
+    do {
+        rc = poll(&p, 1, 1000);
+    } while (rc < 0 && errno == EINTR);
+    if (rc == 0)
+        LOGW("serve DEQUEUE hwnd=%08x release fence %d not signalled after 1000ms", hwnd, fence);
+    else if (rc < 0)
+        LOGW("serve DEQUEUE hwnd=%08x poll fence %d: %s", hwnd, fence, strerror(errno));
+}
+
 static void *serve_thread(void *arg)
 {
     struct serve_ctx *ctx = arg;
@@ -626,12 +645,19 @@ static void *serve_thread(void *arg)
             int ret = ctx->win->dequeueBuffer(ctx->win, &buffer, &fence);
             int id = -1;
             last_op_ret = ret;
-            if (fence >= 0) close(fence);
+            /* The guest renders straight into the buffer with no fence of its
+             * own, so wait until the compositor has finished reading it. */
+            if (fence >= 0) {
+                wait_release_fence(fence, ctx->hwnd);
+                close(fence);
+            }
             if (!ret && buffer) id = register_buf(ctx, buffer);
-            LOGI("serve DEQUEUE hwnd=%08x ret=%d id=%d gen=%d %dx%d fmt=%d",
-                 ctx->hwnd, ret, id, ctx->generation,
-                 buffer ? buffer->width : -1, buffer ? buffer->height : -1,
-                 buffer ? buffer->format : -1);
+            ctx->dequeue_n++;
+            if (ret || ctx->dequeue_n <= 8 || ctx->dequeue_n % 600 == 0)
+                LOGI("serve DEQUEUE hwnd=%08x ret=%d id=%d gen=%d %dx%d fmt=%d n=%u",
+                     ctx->hwnd, ret, id, ctx->generation,
+                     buffer ? buffer->width : -1, buffer ? buffer->height : -1,
+                     buffer ? buffer->format : -1, ctx->dequeue_n);
             if (send_handle_reply(ctx->sock, ret, buffer, id, ctx->generation)) {
                 exit_errno = errno;
                 exit_why = (exit_errno == 0) ? "dequeue-reply-EOF" : "dequeue-reply-err";
@@ -669,9 +695,11 @@ static void *serve_thread(void *arg)
                 saw_queue = 1;
                 queue_ret = ret;
             }
-            LOGI("serve %s hwnd=%08x id=%d gen=%d/%d ret=%d",
-                 cmd == CMD_QUEUE ? "QUEUE" : "CANCEL",
-                 ctx->hwnd, buffer_id, generation, ctx->generation, ret);
+            if (cmd == CMD_QUEUE) ctx->queue_n++;
+            if (ret || cmd == CMD_CANCEL || ctx->queue_n <= 8 || ctx->queue_n % 600 == 0)
+                LOGI("serve %s hwnd=%08x id=%d gen=%d/%d ret=%d queued=%u",
+                     cmd == CMD_QUEUE ? "QUEUE" : "CANCEL",
+                     ctx->hwnd, buffer_id, generation, ctx->generation, ret, ctx->queue_n);
             if (write_full(ctx->sock, &ret, sizeof(ret))) {
                 exit_errno = errno;
                 exit_why = (exit_errno == 0) ? "queue-write-ret-EOF" : "queue-write-ret-err";
@@ -730,8 +758,21 @@ static void *serve_thread(void *arg)
             case 9: /* SET_BUFFERS_FORMAT */
             case 10: /* SET_SCALING_MODE */
             case 13: /* API_CONNECT */
+                if (nargs >= 1) ret = ctx->win->perform(ctx->win, op, args[0]);
+                break;
             case 14: /* API_DISCONNECT */
                 if (nargs >= 1) ret = ctx->win->perform(ctx->win, op, args[0]);
+                /* Disconnect frees every queue slot. Forget the ids and bump
+                 * the generation so the guest re-imports instead of reusing a
+                 * stale AHB under a recycled id. */
+                {
+                    int k;
+                    memset(ctx->buffers, 0, sizeof(ctx->buffers));
+                    for (k = 0; k < NB_BUFFERS; k++) ctx->buffer_lru[k] = -1;
+                }
+                ctx->generation++;
+                LOGI("serve API_DISCONNECT hwnd=%08x ret=%d -> gen=%d", ctx->hwnd, ret,
+                     ctx->generation);
                 break;
             case 4: /* SET_BUFFER_COUNT */
                 if (nargs >= 1) ret = ctx->win->perform(ctx->win, op, (size_t)args[0]);
