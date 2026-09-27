@@ -113,7 +113,8 @@ struct ahb_sc {
     VkDeviceMemory memories[AHB_SC_MAX_IMAGES];
     struct amphora_buf *bufs[AHB_SC_MAX_IMAGES]; /* one ref held per image */
     uint8_t state[AHB_SC_MAX_IMAGES];
-    unsigned presents; /* frames queued to the host; logged at destroy */
+    unsigned presents;        /* frames queued to the host; logged at destroy */
+    unsigned fenced_presents; /* of those, queued with a render-done fence */
 };
 
 static struct ahb_sc_surface g_ahb_surfaces[AHB_SC_MAX_SURFACES];
@@ -617,7 +618,8 @@ static void amphora_vkDestroySwapchainKHR(
             g_real_DestroySwapchainKHR(device, swapchain, pAllocator);
         return;
     }
-    LOGI("AHB_SC destroy sc=%p images=%u presents=%u", (void *)sc, sc->count, sc->presents);
+    LOGI("AHB_SC destroy sc=%p images=%u presents=%u fenced=%u", (void *)sc, sc->count,
+         sc->presents, sc->fenced_presents);
     ahb_sc_destroy_obj(sc);
 }
 
@@ -728,13 +730,19 @@ static VkResult ahb_sc_wait_present_semaphores(VkQueue queue, const VkPresentInf
     return VK_SUCCESS;
 }
 
-static VkResult amphora_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *pPresentInfo)
+/* fence: sync fd that signals when the frame is rendered (-1 = already done,
+ * because win32u QueueWaitIdle'd or the export reported it signalled). Always
+ * consumed. */
+static VkResult ahb_sc_queue_present(VkQueue queue, const VkPresentInfoKHR *pPresentInfo, int fence)
 {
     uint32_t i;
     int any_ours = 0, any_theirs = 0;
     VkResult last = VK_SUCCESS;
 
-    if (!pPresentInfo) return VK_ERROR_INITIALIZATION_FAILED;
+    if (!pPresentInfo) {
+        if (fence >= 0) close(fence);
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
 
     for (i = 0; i < pPresentInfo->swapchainCount; i++) {
         if (ahb_sc_from_handle(pPresentInfo->pSwapchains[i])) any_ours = 1;
@@ -745,6 +753,8 @@ static VkResult amphora_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR 
         ahb_sc_wait_present_semaphores(queue, pPresentInfo);
 
     if (any_theirs && !any_ours) {
+        /* win32u dropped the wait semaphores; the ICD swapchain only sees the fence. */
+        amphora_wait_present_fence(fence);
         ahb_resolve_real_vulkan();
         if (!g_real_QueuePresentKHR && g_real_gdpa && g_ahb_dev_n > 0)
             g_real_QueuePresentKHR = (PFN_vkQueuePresentKHR)
@@ -777,10 +787,9 @@ static VkResult amphora_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR 
             last = VK_ERROR_OUT_OF_DATE_KHR;
             continue;
         }
-        /* win32u already waited the present semaphores and QueueWaitIdle'd, so
-         * rendering is done: queue without a fence. win_queue also runs the
-         * q50/q100 readback sampler. */
-        qret = win_queue(&sc->win->win, &sc->bufs[idx]->buffer, -1);
+        /* win_queue takes its own copy of the fence to the host (queueBuffer
+         * waits on it) and runs the q50/q100 readback sampler. */
+        qret = win_queue(&sc->win->win, &sc->bufs[idx]->buffer, fence >= 0 ? dup(fence) : -1);
         sc->state[idx] = AHB_SC_IN_QUEUE;
         if (qret != 0) {
             LOGW("AHB_SC QueuePresent queue idx=%u ret=%d", idx, qret);
@@ -788,10 +797,17 @@ static VkResult amphora_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR 
             last = VK_ERROR_OUT_OF_DATE_KHR;
         } else {
             sc->presents++;
+            if (fence >= 0) sc->fenced_presents++;
             if (pPresentInfo->pResults) pPresentInfo->pResults[i] = VK_SUCCESS;
         }
     }
+    if (fence >= 0) close(fence);
     return last;
+}
+
+static VkResult amphora_vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *pPresentInfo)
+{
+    return ahb_sc_queue_present(queue, pPresentInfo, -1);
 }
 
 /* Exported so wineandroid / same-SO callers can invoke without a layer. */
@@ -821,6 +837,10 @@ VkResult amphora_ahb_sc_acquire(VkDevice device, VkSwapchainKHR sc, uint64_t tim
 VkResult amphora_ahb_sc_present(VkQueue queue, const VkPresentInfoKHR *info)
 {
     return amphora_vkQueuePresentKHR(queue, info);
+}
+VkResult amphora_ahb_sc_present_fence(VkQueue queue, const VkPresentInfoKHR *info, int fence)
+{
+    return ahb_sc_queue_present(queue, info, fence);
 }
 void amphora_ahb_sc_register(uint64_t surface, void *win)
 {

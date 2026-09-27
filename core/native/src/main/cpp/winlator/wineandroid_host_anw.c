@@ -86,6 +86,7 @@ enum {
     CMD_PERFORM = 5,
     CMD_SET_SWAP = 6,
     CMD_VK_PRESENT = 7,
+    CMD_QUEUE_FENCE = 8, /* QUEUE with a sync fd (SCM_RIGHTS on the id/generation) */
     CMD_STOP = 99,
 };
 
@@ -133,6 +134,39 @@ static int read_full(int fd, void *buf, size_t len)
     return 0;
 }
 
+/* Read len bytes whose first segment carries at most one SCM_RIGHTS fd
+ * (-1 if none). The fd must be taken with recvmsg: a plain read() of that
+ * segment would drop it. */
+static int recv_full_with_fd(int fd, void *buf, size_t len, int *out_fd)
+{
+    char cbuf[CMSG_SPACE(sizeof(int))];
+    struct iovec iov = { buf, len };
+    struct msghdr msg;
+    struct cmsghdr *cmsg;
+    ssize_t n;
+
+    *out_fd = -1;
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = cbuf;
+    msg.msg_controllen = sizeof(cbuf);
+    do {
+        n = recvmsg(fd, &msg, MSG_CMSG_CLOEXEC);
+    } while (n < 0 && errno == EINTR);
+    if (n <= 0) return -1;
+    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS &&
+            cmsg->cmsg_len >= CMSG_LEN(sizeof(int)))
+            memcpy(out_fd, CMSG_DATA(cmsg), sizeof(int));
+    }
+    if ((size_t)n < len && read_full(fd, (char *)buf + n, len - (size_t)n)) {
+        if (*out_fd >= 0) close(*out_fd);
+        *out_fd = -1;
+        return -1;
+    }
+    return 0;
+}
 
 /* Post-Present diag: mmap/AHB-lock client GraphicBuffer on QUEUE N=50/100. */
 static int g_anw_client_queue_n;       /* hwnd-sized client QUEUE count */
@@ -305,9 +339,8 @@ static void anw_fence_wait_brief(int fenceFd)
     pfd.fd = fenceFd;
     pfd.events = POLLIN;
     pfd.revents = 0;
-    pr = poll(&pfd, 1, 100); /* 100ms brief wait */
+    pr = poll(&pfd, 1, 100); /* 100ms brief wait; the caller keeps the fd */
     LOGI("mmap-dump fenceFd=%d poll=%d revents=0x%x errno=%d", fenceFd, pr, pfd.revents, errno);
-    close(fenceFd);
 }
 
 /* Prefer AHardwareBuffer_lock (CPU cache sync); fall back to raw mmap. */
@@ -666,40 +699,50 @@ static void *serve_thread(void *arg)
             continue;
         }
 
-        if (cmd == CMD_QUEUE || cmd == CMD_CANCEL) {
+        if (cmd == CMD_QUEUE || cmd == CMD_QUEUE_FENCE || cmd == CMD_CANCEL) {
             int32_t buffer_id = -1, generation = 0;
-            int ret = -EINVAL;
-            if (read_full(ctx->sock, &buffer_id, sizeof(buffer_id))) {
+            int ret = -EINVAL, fence = -1;
+            int queue = cmd != CMD_CANCEL;
+            if (cmd == CMD_QUEUE_FENCE) {
+                /* id + generation, with the render-done sync fd attached. */
+                int32_t ids[2];
+                if (recv_full_with_fd(ctx->sock, ids, sizeof(ids), &fence)) {
+                    exit_errno = errno;
+                    exit_why = (exit_errno == 0) ? "queue-fence-read-EOF" : "queue-fence-read-err";
+                    break;
+                }
+                buffer_id = ids[0];
+                generation = ids[1];
+            } else if (read_full(ctx->sock, &buffer_id, sizeof(buffer_id)) ||
+                       read_full(ctx->sock, &generation, sizeof(generation))) {
                 exit_errno = errno;
                 exit_why = (exit_errno == 0) ? "queue-read-id-EOF" : "queue-read-id-err";
                 break;
             }
-            if (read_full(ctx->sock, &generation, sizeof(generation))) {
-                exit_errno = errno;
-                exit_why = (exit_errno == 0) ? "queue-read-gen-EOF" : "queue-read-gen-err";
-                break;
-            }
             if (generation == ctx->generation && buffer_id >= 0 && buffer_id < NB_BUFFERS &&
                 ctx->buffers[buffer_id]) {
-                if (cmd == CMD_QUEUE) {
-                    /* Sample after Present wrote pixels (QUEUE n=50/100); fence always -1 here. */
-                    anw_dump_client_queue_pixels(ctx->buffers[buffer_id], ctx->hwnd, buffer_id, -1);
-                    ret = ctx->win->queueBuffer(ctx->win, ctx->buffers[buffer_id], -1);
+                if (queue) {
+                    /* Sample after Present wrote pixels (QUEUE n=50/100); polls the fence. */
+                    anw_dump_client_queue_pixels(ctx->buffers[buffer_id], ctx->hwnd, buffer_id, fence);
+                    /* queueBuffer owns the fence: the compositor latches only once
+                     * rendering is done, and nothing on the CPU waits for the GPU. */
+                    ret = ctx->win->queueBuffer(ctx->win, ctx->buffers[buffer_id], fence);
                 } else
                     ret = ctx->win->cancelBuffer(ctx->win, ctx->buffers[buffer_id], -1);
             } else {
+                if (fence >= 0) close(fence);
                 ret = 0; /* obsolete */
             }
             last_op_ret = ret;
-            if (cmd == CMD_QUEUE) {
+            if (queue) {
                 saw_queue = 1;
                 queue_ret = ret;
+                ctx->queue_n++;
             }
-            if (cmd == CMD_QUEUE) ctx->queue_n++;
-            if (ret || cmd == CMD_CANCEL || ctx->queue_n <= 8 || ctx->queue_n % 600 == 0)
-                LOGI("serve %s hwnd=%08x id=%d gen=%d/%d ret=%d queued=%u",
-                     cmd == CMD_QUEUE ? "QUEUE" : "CANCEL",
-                     ctx->hwnd, buffer_id, generation, ctx->generation, ret, ctx->queue_n);
+            if (ret || !queue || ctx->queue_n <= 8 || ctx->queue_n % 600 == 0)
+                LOGI("serve %s hwnd=%08x id=%d gen=%d/%d fence=%d ret=%d queued=%u",
+                     queue ? "QUEUE" : "CANCEL",
+                     ctx->hwnd, buffer_id, generation, ctx->generation, fence, ret, ctx->queue_n);
             if (write_full(ctx->sock, &ret, sizeof(ret))) {
                 exit_errno = errno;
                 exit_why = (exit_errno == 0) ? "queue-write-ret-EOF" : "queue-write-ret-err";

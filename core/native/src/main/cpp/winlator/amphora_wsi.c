@@ -60,6 +60,7 @@ typedef VkResult (*PFN_bridge_vkCreateAndroidSurfaceKHR)(VkInstance, const VkAnd
 #define AMPHORA_BUF_QUERY   4
 #define AMPHORA_BUF_PERFORM 5
 #define AMPHORA_BUF_SET_SWAP 6
+#define AMPHORA_BUF_QUEUE_FENCE 8 /* QUEUE + sync fd (host CMD_QUEUE_FENCE) */
 #define NB_CACHED_BUFFERS 8
 
 enum {
@@ -220,6 +221,35 @@ static int recv_with_fds(int fd, void *buf, size_t len, int *out_fds, int max_fd
     return 0;
 }
 
+/* Write len bytes with one fd attached (SCM_RIGHTS) to the first segment. */
+static int send_with_fd(int sock, const void *buf, size_t len, int fd)
+{
+    char control[CMSG_SPACE(sizeof(int))];
+    struct iovec iov;
+    struct msghdr msg;
+    struct cmsghdr *cmsg;
+    ssize_t n;
+    memset(&msg, 0, sizeof(msg));
+    memset(control, 0, sizeof(control));
+    iov.iov_base = (void *)buf;
+    iov.iov_len = len;
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = control;
+    msg.msg_controllen = sizeof(control);
+    cmsg = CMSG_FIRSTHDR(&msg);
+    cmsg->cmsg_level = SOL_SOCKET;
+    cmsg->cmsg_type = SCM_RIGHTS;
+    cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+    memcpy(CMSG_DATA(cmsg), &fd, sizeof(int));
+    do {
+        n = sendmsg(sock, &msg, MSG_NOSIGNAL);
+    } while (n < 0 && errno == EINTR);
+    if (n < 0) return -1;
+    if ((size_t)n < len) return write_full(sock, (const char *)buf + n, len - (size_t)n);
+    return 0;
+}
+
 static void close_nh(native_handle_t *nh)
 {
     int i;
@@ -276,12 +306,21 @@ static void amphora_resolve_sync(void)
     LOGI("sync_wait symbol=%p", (void *)g_sync_wait);
 }
 
+static void amphora_poll_fence(int fence);
+
 /* Wait present fence then close. fence ownership transferred here. */
 static void amphora_wait_present_fence(int fence)
 {
+    if (fence < 0) return;
+    amphora_poll_fence(fence);
+    close(fence);
+}
+
+/* Block until a sync fd signals (bounded); the caller keeps the fd. */
+static void amphora_poll_fence(int fence)
+{
     int rc;
-    if (fence < 0) return; /* AHB swapchain presents after win32u QueueWaitIdle */
-    LOGI("guest-fence wait fd=%d", fence);
+    if (fence < 0) return;
     amphora_resolve_sync();
     if (g_sync_wait) {
         rc = g_sync_wait(fence, 3000);
@@ -300,7 +339,6 @@ static void amphora_wait_present_fence(int fence)
         else if (rc == 0)
             LOGW("guest-fence poll fd=%d timeout 3000ms", fence);
     }
-    close(fence);
 }
 
 enum { AMPHORA_AHB_NUMFDS = -1 };
@@ -383,6 +421,17 @@ static const char *amphora_class_rgba(int r, int g, int b)
     if (r <= 15 && g <= 15 && b <= 15)
         return "BLACK";
     return "OTHER";
+}
+
+/* True when the next amphora_guest_queue_sync(buf) will read pixels back. */
+static int amphora_guest_queue_due(const struct amphora_buf *buf)
+{
+    int n;
+    if (!buf) return 0;
+    if (buf->width < 200 || buf->height < 200) return 0;
+    if (buf->width > 900 || buf->height > 700) return 0;
+    n = g_guest_client_queue_n + 1;
+    return n == 50 || n == 100;
 }
 
 static void amphora_guest_queue_sync(struct amphora_buf *buf)
@@ -836,17 +885,29 @@ static int win_queue(struct ANativeWindow *window, struct ANativeWindowBuffer *b
              (void *)buf->buffer.handle);
     }
 
-    /* Wait present fence BEFORE QUEUE sock and guest-readback. */
-    amphora_wait_present_fence(fence);
-
-    /* Sample (and maybe CPU-fill) after GPU fence signaled. */
+    /* The fence rides to the host and queueBuffer waits on it, so nothing here
+     * blocks on the GPU. Only the q50/q100 readback needs finished pixels. */
+    if (fence >= 0 && amphora_guest_queue_due(buf))
+        amphora_poll_fence(fence);
     amphora_guest_queue_sync(buf);
     pthread_mutex_lock(&win->lock);
-    if (write_full(win->sock, &cmd, sizeof(cmd)) ||
-        write_full(win->sock, &buf->buffer_id, sizeof(buf->buffer_id)) ||
-        write_full(win->sock, &buf->generation, sizeof(buf->generation)) ||
-        read_full(win->sock, &ret, sizeof(ret))) {
-        pthread_mutex_unlock(&win->lock); return -EIO;
+    if (fence < 0) {
+        if (write_full(win->sock, &cmd, sizeof(cmd)) ||
+            write_full(win->sock, &buf->buffer_id, sizeof(buf->buffer_id)) ||
+            write_full(win->sock, &buf->generation, sizeof(buf->generation)) ||
+            read_full(win->sock, &ret, sizeof(ret))) {
+            pthread_mutex_unlock(&win->lock); return -EIO;
+        }
+    } else {
+        int32_t cmdf = AMPHORA_BUF_QUEUE_FENCE, ids[2];
+        int rc;
+        ids[0] = buf->buffer_id;
+        ids[1] = buf->generation;
+        rc = write_full(win->sock, &cmdf, sizeof(cmdf)) ||
+             send_with_fd(win->sock, ids, sizeof(ids), fence) ||
+             read_full(win->sock, &ret, sizeof(ret));
+        close(fence); /* the host holds its own copy */
+        if (rc) { pthread_mutex_unlock(&win->lock); return -EIO; }
     }
     pthread_mutex_unlock(&win->lock);
     {
@@ -1252,6 +1313,9 @@ enum {
     AHB_SC_OP_ACQUIRE = 4,
     AHB_SC_OP_PRESENT = 5,
     AHB_SC_OP_STASH = 6,
+    /* PRESENT + int32 render-done sync fd (-1 = already done); this process's fd,
+     * ownership passes here. win32u sends it instead of QueueWaitIdle. */
+    AHB_SC_OP_PRESENT_FENCE = 7,
 };
 
 static void wsi_sc_handle(int c)
@@ -1375,8 +1439,9 @@ static void wsi_sc_handle(int c)
         (void)write_full(c, &idx, sizeof(idx));
         return;
     }
-    if (op == AHB_SC_OP_PRESENT) {
+    if (op == AHB_SC_OP_PRESENT || op == AHB_SC_OP_PRESENT_FENCE) {
         uint64_t queue = 0;
+        int32_t fence = -1;
         uint32_t wait_n = 0, sc_n = 0, i;
         uint64_t wait_sems[8], swapchains[4];
         uint32_t indices[4];
@@ -1400,6 +1465,7 @@ static void wsi_sc_handle(int c)
             if (read_full(c, &swapchains[i], sizeof(swapchains[i]))) return;
             if (read_full(c, &indices[i], sizeof(indices[i]))) return;
         }
+        if (op == AHB_SC_OP_PRESENT_FENCE && read_full(c, &fence, sizeof(fence))) return;
         for (i = 0; i < wait_n; i++) wait_h[i] = (VkSemaphore)(uintptr_t)wait_sems[i];
         for (i = 0; i < sc_n; i++) sc_h[i] = (VkSwapchainKHR)(uintptr_t)swapchains[i];
         memset(&pi, 0, sizeof(pi));
@@ -1410,7 +1476,7 @@ static void wsi_sc_handle(int c)
         pi.pSwapchains = sc_h;
         pi.pImageIndices = indices;
         pi.pResults = results;
-        r = amphora_ahb_sc_present((VkQueue)(uintptr_t)queue, &pi);
+        r = amphora_ahb_sc_present_fence((VkQueue)(uintptr_t)queue, &pi, fence);
         ret = (int32_t)r;
         (void)write_full(c, &ret, sizeof(ret));
         for (i = 0; i < sc_n; i++) {

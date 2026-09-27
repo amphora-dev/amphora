@@ -39,7 +39,7 @@
 AHB_SC create images=3 import=ok
 AHB_SC acquire signal deferred-to-win32u
 amphora flush acquire signal res=0
-amphora present wait+fence res=0 waits=1 fence=...
+amphora present wait+fence res=0 waits=1 fence=... sync_fd=<n> fenced=1   (前 8 帧后每 600 帧一行)
 d3d-readback ... CLASS=MAGENTA
 Present frame=50 hr=0x00000000
 ```
@@ -71,8 +71,10 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
         ├─ 【Acquire 获取缓冲】：dequeueBuffer 拿回一张（宿主先等合成器的 release fence），
         │   GPU 信号量信号推迟到 win32u 的下一次 vkQueueSubmit
         ├─ 【Render 绘制】：在 win32u 真正执行 vkQueueSubmit 前，与 DXVK 处于同一队列刷新信号
-        └─ 【Present 送显】：win32u 等待渲染信号量、呈现栅栏（SWAPCHAIN_PRESENT_FENCE）并 QueueWaitIdle 后，
-           经 IPC 让 libamphora_wsi queueBuffer，SurfaceFlinger 下一个 vsync 锁存这一帧
+        └─ 【Present 送显】：win32u 提交呈现等待（含 SWAPCHAIN_PRESENT_FENCE），同一次提交再 signal 一个
+           可导出 SYNC_FD 的信号量，导出的 fd 经 wsi-sc op 7 交给 libamphora_wsi，再经 SCM_RIGHTS
+           （宿主 CMD_QUEUE_FENCE）交给 queueBuffer；SurfaceFlinger 等 fence 到了才锁存。CPU 不等 GPU。
+           扩展 / 导出不可用时退回 QueueWaitIdle + 无 fence 的 op 5
 ```
 
 ### 2.3 交换链与 BufferQueue 的对应（对齐 AOSP `libvulkan/swapchain.cpp`）
@@ -85,8 +87,11 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 | 并发 | `wsi-sc` 每个请求一个线程 | Acquire 可能阻塞在宿主 dequeue，不能卡住其他交换链的 Present / Destroy |
 | 队列配置 | 重连后 `SET_USAGE 0xB00`（TEXTURE / RENDER / COMPOSER）、`SET_BUFFERS_DIMENSIONS` = 交换链 extent、`SCALE_TO_WINDOW` | 断开重连会清掉这些；AHB 导入要求图像与 buffer 尺寸一致，Surface 尺寸暂时不同（resize 途中）时由合成器缩放 |
 | 宿主视图 | client（Vulkan）SurfaceView 按 `clientRect` 布局、`setFixedSize` 成客户区尺寸 | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图 |
+| 呈现 fence | 每个宿主 device 一个 `VkExportSemaphoreCreateInfo(SYNC_FD)` 信号量，present 提交时 signal、`vkGetSemaphoreFdKHR` 导出（导出即复位）；fd 在 box64 同进程里按整数传给 libamphora_wsi，再 SCM_RIGHTS 给宿主 `queueBuffer(fence)` | 替掉每帧 `vkQueueWaitIdle`，和 AOSP 把 release fence 交给 queueBuffer 一致；只有 q50/q100 回读帧在 guest 侧等 fence |
 
-已知遗留：win32u 在 Present 前 `vkQueueWaitIdle`（每帧 CPU 等 GPU 空闲，AOSP 是把 release fence 传给 queueBuffer）；待定的 acquire 信号量是全局单份（多交换链会互相覆盖）。
+已知遗留：待定的 acquire 信号量是全局单份（多交换链会互相覆盖）；宿主 dequeue 在 CPU 上等 release fence（AOSP 是把它导入 acquire 信号量让 GPU 等）。
+
+上线顺序：libamphora_wsi 的 op 7 和宿主 `CMD_QUEUE_FENCE` 在 APK 里，新 Proton 会发 op 7，所以 **APK 先于这版 Proton**；旧 Proton 配新 APK 仍走 op 5。
 
 ### 2.1 涉及的关键源码与职责
 
@@ -157,5 +162,5 @@ adb shell am start -n app.amphora/.MainActivity \
 - [x] 日志中必须输出 `AHB_SC create images=<N> import=ok`（N 见 §2.3，6T 为 3，Y700 为 6）；
 - [x] 日志必须连续输出 `Present frame=... hr=0x00000000` 且帧数稳定超过 **50** 帧；
 - [x] 显存回读采样（guest readback）必须持续为纯正品红色（`CLASS=MAGENTA`）；
-- [x] **帧真的送到屏幕**：跑前 `dumpsys SurfaceFlinger --timestats -enable -clear`，跑完 `--timestats -dump`，游戏窗口那层 `SurfaceView[app.amphora/…](BLAST)` 的 `totalFrames` 应接近 `AHB_SC destroy … presents=<n>`（修复前是 4 / 175，修复后 173 / 175）。只看回读和静态品红画面发现不了帧没上屏；
+- [x] **帧真的送到屏幕**：跑前 `dumpsys SurfaceFlinger --timestats -enable -clear`，跑完 `--timestats -dump`，游戏窗口那层 `SurfaceView[app.amphora/…](BLAST)` 的 `totalFrames` 应接近 `AHB_SC destroy … presents=<n>`（修复前是 4 / 175，修复后 173 / 175）。只看回读和静态品红画面发现不了帧没上屏。同一行的 `fenced=<m>` 在支持 op 7 的 Proton 上应等于 `presents`，为 0 说明退回了 QueueWaitIdle；
 - [x] 手机屏幕左上角窗口必须肉眼可见品红色矩形，画面无闪烁、无撕裂、无无响应崩溃（ANR）。
