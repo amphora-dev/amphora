@@ -61,6 +61,7 @@ typedef VkResult (*PFN_bridge_vkCreateAndroidSurfaceKHR)(VkInstance, const VkAnd
 #define AMPHORA_BUF_PERFORM 5
 #define AMPHORA_BUF_SET_SWAP 6
 #define AMPHORA_BUF_QUEUE_FENCE 8 /* QUEUE + sync fd (host CMD_QUEUE_FENCE) */
+#define AMPHORA_BUF_DEQUEUE_FENCE 9 /* DEQUEUE; release fence returned first (host CMD_DEQUEUE_FENCE) */
 #define NB_CACHED_BUFFERS 8
 
 enum {
@@ -679,7 +680,21 @@ static void win_dec(struct android_native_base_t *base)
     free(win);
 }
 
+static int win_dequeue_impl(struct ANativeWindow *window, struct ANativeWindowBuffer **out, int *fence);
+
+/* ANativeWindow dequeueBuffer. With a fence pointer the release fence comes
+ * back to the caller (who owns it) instead of the host waiting on it. */
 static int win_dequeue(struct ANativeWindow *window, struct ANativeWindowBuffer **out, int *fence)
+{
+    int ret = win_dequeue_impl(window, out, fence);
+    if (ret != 0 && fence && *fence >= 0) {
+        close(*fence);
+        *fence = -1;
+    }
+    return ret;
+}
+
+static int win_dequeue_impl(struct ANativeWindow *window, struct ANativeWindowBuffer **out, int *fence)
 {
     struct amphora_win *win = (struct amphora_win *)window;
     int32_t cmd = AMPHORA_BUF_DEQUEUE;
@@ -693,9 +708,23 @@ static int win_dequeue(struct ANativeWindow *window, struct ANativeWindowBuffer 
     size_t nh_size;
     const native_handle_t *ahb_nh;
 
-    if (fence) *fence = -1;
+    if (fence) {
+        /* Ask for the release fence instead of letting the host wait on it;
+         * the caller owns it (AHB_SC acquire imports it for the GPU). */
+        *fence = -1;
+        cmd = AMPHORA_BUF_DEQUEUE_FENCE;
+    }
     pthread_mutex_lock(&win->lock);
     if (write_full(win->sock, &cmd, sizeof(cmd))) { pthread_mutex_unlock(&win->lock); return -EIO; }
+    if (fence) {
+        int32_t has = 0;
+        int ffd[2], n_ffd = 0, i;
+        if (recv_with_fds(win->sock, &has, sizeof(has), ffd, 2, &n_ffd)) {
+            pthread_mutex_unlock(&win->lock); return -EIO;
+        }
+        if (has && n_ffd >= 1) *fence = ffd[0];
+        for (i = (has && n_ffd >= 1) ? 1 : 0; i < n_ffd; i++) close(ffd[i]);
+    }
     if (recv_with_fds(win->sock, &hdr, sizeof(hdr), fds, 64, &n_fds)) {
         pthread_mutex_unlock(&win->lock); return -EIO;
     }
@@ -946,9 +975,8 @@ static int win_cancel(struct ANativeWindow *window, struct ANativeWindowBuffer *
 
 static int win_dequeue_dep(struct ANativeWindow *window, struct ANativeWindowBuffer **buffer)
 {
-    int fence = -1, ret = win_dequeue(window, buffer, &fence);
-    if (fence >= 0) close(fence);
-    return ret;
+    /* No fence out-param: the host waits on the release fence. */
+    return win_dequeue(window, buffer, NULL);
 }
 static int win_queue_dep(struct ANativeWindow *window, struct ANativeWindowBuffer *buffer)
 { return win_queue(window, buffer, -1); }
@@ -1316,6 +1344,10 @@ enum {
     /* PRESENT + int32 render-done sync fd (-1 = already done); this process's fd,
      * ownership passes here. win32u sends it instead of QueueWaitIdle. */
     AHB_SC_OP_PRESENT_FENCE = 7,
+    /* ACQUIRE that imports the compositor release fence into the semaphore /
+     * fence; reply adds uint32 handled (1 = semaphore, 2 = fence) so the Wine
+     * side only defers the signal for what is left. */
+    AHB_SC_OP_ACQUIRE_IMPORT = 8,
 };
 
 static void wsi_sc_handle(int c)
@@ -1423,20 +1455,26 @@ static void wsi_sc_handle(int c)
         }
         return;
     }
-    if (op == AHB_SC_OP_ACQUIRE) {
+    if (op == AHB_SC_OP_ACQUIRE || op == AHB_SC_OP_ACQUIRE_IMPORT) {
         uint64_t device = 0, sc = 0, timeout = 0, sem = 0, fence = 0;
-        uint32_t idx = 0;
+        uint32_t idx = 0, handled = 0;
         VkResult r;
         int32_t ret;
         if (read_full(c, &device, sizeof(device)) || read_full(c, &sc, sizeof(sc)) ||
             read_full(c, &timeout, sizeof(timeout)) || read_full(c, &sem, sizeof(sem)) ||
             read_full(c, &fence, sizeof(fence))) return;
-        r = amphora_ahb_sc_acquire((VkDevice)(uintptr_t)device, (VkSwapchainKHR)(uintptr_t)sc,
-                                   timeout, (VkSemaphore)(uintptr_t)sem,
-                                   (VkFence)(uintptr_t)fence, &idx);
+        if (op == AHB_SC_OP_ACQUIRE_IMPORT)
+            r = amphora_ahb_sc_acquire_import((VkDevice)(uintptr_t)device, (VkSwapchainKHR)(uintptr_t)sc,
+                                              timeout, (VkSemaphore)(uintptr_t)sem,
+                                              (VkFence)(uintptr_t)fence, &idx, &handled);
+        else
+            r = amphora_ahb_sc_acquire((VkDevice)(uintptr_t)device, (VkSwapchainKHR)(uintptr_t)sc,
+                                       timeout, (VkSemaphore)(uintptr_t)sem,
+                                       (VkFence)(uintptr_t)fence, &idx);
         ret = (int32_t)r;
         (void)write_full(c, &ret, sizeof(ret));
         (void)write_full(c, &idx, sizeof(idx));
+        if (op == AHB_SC_OP_ACQUIRE_IMPORT) (void)write_full(c, &handled, sizeof(handled));
         return;
     }
     if (op == AHB_SC_OP_PRESENT || op == AHB_SC_OP_PRESENT_FENCE) {

@@ -68,8 +68,9 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
   │     └─ 导入完成后全部 cancel 回队列
   │
   └─ 5. 渲染循环（Acquire / Render / Present）：
-        ├─ 【Acquire 获取缓冲】：dequeueBuffer 拿回一张（宿主先等合成器的 release fence），
-        │   GPU 信号量信号推迟到 win32u 的下一次 vkQueueSubmit
+        ├─ 【Acquire 获取缓冲】：dequeueBuffer 拿回一张，宿主把合成器的 release fence 一起交回
+        │   （`CMD_DEQUEUE_FENCE`），libamphora_wsi 以 SYNC_FD 临时导入到 app 的 acquire 信号量 / fence，
+        │   GPU 等它；导入不了的部分才走 win32u 的延迟空提交（wsi-sc op 8 回复里的 handled 位）
         ├─ 【Render 绘制】：在 win32u 真正执行 vkQueueSubmit 前，与 DXVK 处于同一队列刷新信号
         └─ 【Present 送显】：win32u 提交呈现等待（含 SWAPCHAIN_PRESENT_FENCE），同一次提交再 signal 一个
            可导出 SYNC_FD 的信号量，导出的 fd 经 wsi-sc op 7 交给 libamphora_wsi，再经 SCM_RIGHTS
@@ -89,9 +90,11 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 | 宿主视图 | client（Vulkan）SurfaceView 按 `clientRect` 布局、`setFixedSize` 成客户区尺寸 | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图 |
 | 呈现 fence | 每个宿主 device 一个 `VkExportSemaphoreCreateInfo(SYNC_FD)` 信号量，present 提交时 signal、`vkGetSemaphoreFdKHR` 导出（导出即复位）；fd 在 box64 同进程里按整数传给 libamphora_wsi，再 SCM_RIGHTS 给宿主 `queueBuffer(fence)` | 替掉每帧 `vkQueueWaitIdle`，和 AOSP 把 release fence 交给 queueBuffer 一致；只有 q50/q100 回读帧在 guest 侧等 fence |
 
-已知遗留：待定的 acquire 信号量是全局单份（多交换链会互相覆盖）；宿主 dequeue 在 CPU 上等 release fence（AOSP 是把它导入 acquire 信号量让 GPU 等）。
+| Acquire fence | 宿主 `CMD_DEQUEUE_FENCE` 在回复前先发 int32 + release fence（SCM_RIGHTS）；libamphora_wsi 对 app 的信号量 / fence 做 `vkImportSemaphoreFdKHR` / `vkImportFenceFdKHR`（SYNC_FD、TEMPORARY，fd -1 = 已释放），不提交；win32u 开 `VK_KHR_external_fence(_fd)` | 同 AOSP / Mesa。取代原来"记在 win32u 一个全局槽、下次提交补空提交"：那个会被多交换链互相覆盖、可能提交到别的 device 的队列、提交前等 acquire fence 会一直等 |
 
-上线顺序：libamphora_wsi 的 op 7 和宿主 `CMD_QUEUE_FENCE` 在 APK 里，新 Proton 会发 op 7，所以 **APK 先于这版 Proton**；旧 Proton 配新 APK 仍走 op 5。
+回退：wsi-sc op 8 回复 `handled` 位，导入失败的那一项仍记进 win32u 的全局槽、由下次提交补 signal，这时 libamphora_wsi 先在 CPU 上等 release fence。旧 Proton（op 4）整条走这个回退。
+
+上线顺序：wsi-sc op 7 / op 8 和宿主 `CMD_QUEUE_FENCE` / `CMD_DEQUEUE_FENCE` 在 APK 里，新 Proton 会发它们，所以 **APK 先于 Proton**；旧 Proton 配新 APK 走 op 4 / op 5。
 
 ### 2.1 涉及的关键源码与职责
 
@@ -169,5 +172,5 @@ adb shell dumpsys SurfaceFlinger --timestats -disable
 - [x] 日志中必须输出 `AHB_SC create images=<N> import=ok`（N 见 §2.3，6T 为 3，Y700 为 6）；
 - [x] 日志必须连续输出 `Present frame=... hr=0x00000000` 且帧数稳定超过 **50** 帧；
 - [x] 显存回读采样（guest readback）必须持续为纯正品红色（`CLASS=MAGENTA`）；
-- [x] **帧真的送到屏幕**：跑前 `dumpsys SurfaceFlinger --timestats -enable -clear`，跑完 `--timestats -dump`，游戏窗口那层 `SurfaceView[app.amphora/…](BLAST)` 的 `totalFrames` 应接近 `AHB_SC destroy … presents=<n>`（修复前是 4 / 175，修复后 173 / 175）。只看回读和静态品红画面发现不了帧没上屏。同一行的 `fenced=<m>` 在支持 op 7 的 Proton 上应等于 `presents`，为 0 说明退回了 QueueWaitIdle；
+- [x] **帧真的送到屏幕**：跑前 `dumpsys SurfaceFlinger --timestats -enable -clear`，跑完 `--timestats -dump`，游戏窗口那层 `SurfaceView[app.amphora/…](BLAST)` 的 `totalFrames` 应接近 `AHB_SC destroy … presents=<n>`（修复前是 4 / 175，修复后 173 / 175）。只看回读和静态品红画面发现不了帧没上屏。同一行的 `fenced=<m>` 在支持 op 7 的 Proton 上应等于 `presents`，为 0 说明退回了 QueueWaitIdle；`imported=` 在支持 op 8 的 Proton 上应等于 `acquires`，为 0 说明 acquire 走了延迟空提交；
 - [x] 手机屏幕左上角窗口必须肉眼可见品红色矩形，画面无闪烁、无撕裂、无无响应崩溃（ANR）。
