@@ -89,6 +89,12 @@ enum { AHB_SC_IN_QUEUE = 0, AHB_SC_ACQUIRED = 1 };
 #ifndef NATIVE_WINDOW_API_EGL
 #define NATIVE_WINDOW_API_EGL 1
 #endif
+#ifndef NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW
+#define NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW 1
+#endif
+/* GRALLOC_USAGE_HW_TEXTURE | HW_RENDER | HW_COMPOSER: what a Vulkan
+ * swapchain on Android asks for (colour attachment + sampled + overlay). */
+#define AHB_SC_BUFFER_USAGE 0xB00
 
 struct ahb_sc_surface {
     VkSurfaceKHR surface;
@@ -489,6 +495,22 @@ static VkResult amphora_vkCreateSwapchainKHR(
         int sret = win_set_swap(&win->win, swap_interval);
         if (sret != 0)
             LOGW("AHB_SC setSwapInterval(%d) ret=%d", swap_interval, sret);
+    }
+
+    /* Configure the queue as AOSP does (connect resets these): buffers exactly
+     * the swapchain extent, since an AHB import needs the image and buffer to
+     * match; scaled to the Surface when the view is a different size (resize in
+     * flight); render-target usage so the gralloc layout suits the GPU. */
+    {
+        int uret = win_perform(&win->win, NATIVE_WINDOW_SET_USAGE, AHB_SC_BUFFER_USAGE);
+        int dret = win_perform(&win->win, NATIVE_WINDOW_SET_BUFFERS_DIMENSIONS,
+                               (int)pCreateInfo->imageExtent.width,
+                               (int)pCreateInfo->imageExtent.height);
+        int sret = win_perform(&win->win, NATIVE_WINDOW_SET_SCALING_MODE,
+                               NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
+        LOGI("AHB_SC configure usage=0x%x ret=%d dims=%ux%u ret=%d scale-to-window ret=%d",
+             AHB_SC_BUFFER_USAGE, uret, pCreateInfo->imageExtent.width,
+             pCreateInfo->imageExtent.height, dret, sret);
     }
 
     int min_undequeued = 1;

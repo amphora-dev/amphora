@@ -30,7 +30,8 @@ import kotlin.math.roundToInt
  * - Root [FrameLayout] letterboxes an inner [contentHost] sized guest×hostScale.
  * - Each HWND is a [WindowGroup] (FrameLayout) with a match_parent GDI/OpenGL
  *   [SurfaceView] plus nested child WindowGroups.
- * - Layout uses **visibleRect** (parent-relative), not windowRect alone.
+ * - Layout uses **visibleRect** (parent-relative), not windowRect alone; the
+ *   client (Vulkan/GL) group of an hwnd uses **clientRect** in the same space.
  * - [SurfaceHolder.setFixedSize] keeps the buffer at guest px (min 2×2); on
  *   [surfaceChanged] we re-invoke onSurface so native re-registers and sends
  *   SURFACE_CHANGED with the new w/h (upstream TextureView size-changed path).
@@ -772,10 +773,11 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private fun layoutGroup(group: WindowGroup) {
         val window = group.window
         val isDesktop = window.hwnd == desktopHwnd && desktopHwnd != 0
+        val coverRect = clientAreaRect(window) ?: window.visibleRect
         if (isDesktop || (
                 isTopLevel(window.parentHwnd) && guestDesktopWidth > 0 &&
-                    window.visibleRect.width() >= guestDesktopWidth &&
-                    window.visibleRect.height() >= guestDesktopHeight
+                    coverRect.width() >= guestDesktopWidth &&
+                    coverRect.height() >= guestDesktopHeight
                 )
         ) {
             // Desktop hwnd fills contentHost.
@@ -804,14 +806,22 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     }
 
     private fun layoutRect(window: WineAndroidWindow): Rect {
+        clientAreaRect(window)?.let { return it }
         val v = window.visibleRect
         if (v.width() > 0 || v.height() > 0) return v
-        return if (window.isClient && window.clientRect.width() > 0 && window.clientRect.height() > 0) {
-            window.clientRect
-        } else {
-            window.windowRect
-        }
+        return window.windowRect
     }
+
+    /**
+     * A client (Vulkan/GL) view covers only the client area, like upstream's
+     * client_group inside window_group; the frame and caption stay on the GDI
+     * view below it. clientRect is in the same parent-client space as
+     * visibleRect, so the client group can sit next to the GDI group. Sizing it
+     * to the window rect made the swapchain image (client size) smaller than
+     * the Surface buffers and drew it over the caption.
+     */
+    private fun clientAreaRect(window: WineAndroidWindow): Rect? =
+        window.clientRect.takeIf { window.isClient && it.width() > 0 && it.height() > 0 }
 
     /**
      * Upstream WineWindow.set_zorder + sync_views_zorder: update sibling stack,
@@ -1099,13 +1109,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         }
 
         private fun bufferRect(window: WineAndroidWindow): Rect {
+            clientAreaRect(window)?.let { return it }
             val v = window.visibleRect
             if (v.width() > 0 && v.height() > 0) return v
-            return if (window.isClient && window.clientRect.width() > 0 && window.clientRect.height() > 0) {
-                window.clientRect
-            } else {
-                window.windowRect
-            }
+            return window.windowRect
         }
     }
 
