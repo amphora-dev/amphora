@@ -7,7 +7,10 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.graphics.Typeface
+import android.hardware.display.DisplayManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.util.Log
 import android.view.Gravity
@@ -34,6 +37,7 @@ import app.amphora.gamesession.GameSessionHostEnvironment
 import app.amphora.gamesession.HostPerformanceOverlay
 import app.amphora.gamesession.input.ImeUiState
 import com.winlator.cmod.runtime.system.ProcessHelper
+import com.winlator.cmod.shared.android.RefreshRateUtils
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -72,9 +76,19 @@ class WineAndroidSessionActivity : ComponentActivity() {
     private val processExitScheduled = AtomicBoolean(false)
     private val guestPid = MutableStateFlow<Int?>(null)
     private var exitConfirmDialog: AlertDialog? = null
+    private val displayListener =
+        object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = applyFramePacedRefreshRate()
+
+            override fun onDisplayRemoved(displayId: Int) = applyFramePacedRefreshRate()
+
+            override fun onDisplayChanged(displayId: Int) = applyFramePacedRefreshRate()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        getSystemService(DisplayManager::class.java)
+            .registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
         onBackPressedDispatcher.addCallback(this, exitConfirmCallback)
         hideSystemBars()
         desktop = WineAndroidDesktop(this).apply { setBackgroundColor(Color.BLACK) }
@@ -270,6 +284,22 @@ class WineAndroidSessionActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         hideSystemBars()
+        applyFramePacedRefreshRate()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyFramePacedRefreshRate()
+    }
+
+    private fun applyFramePacedRefreshRate() {
+        val hz =
+            RefreshRateUtils.applyPreferredRefreshRate(
+                this,
+                RefreshRateUtils.getSavedGlobalRefreshRateOverride(this),
+                hostEnvironment.frameRateLimit,
+            )
+        Log.i(TAG, "refresh align fpsLimit=${hostEnvironment.frameRateLimit} hz=$hz")
     }
 
     override fun onPause() {
@@ -420,6 +450,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener)
         restoreSystemBars()
         exitConfirmDialog?.dismiss()
         exitConfirmDialog = null
