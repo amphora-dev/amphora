@@ -12,6 +12,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.Surface
+import android.view.SurfaceControl
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -28,17 +29,19 @@ import kotlin.math.roundToInt
  * Kotlin desktop shaped like upstream [WineActivity] window groups:
  *
  * - Root [FrameLayout] letterboxes an inner [contentHost] sized guest×hostScale.
- * - Each HWND is a [WindowGroup] (FrameLayout) with a match_parent GDI/OpenGL
- *   [SurfaceView] plus nested child WindowGroups.
+ * - Each HWND is a [WindowGroup] (FrameLayout, draws nothing) plus nested child
+ *   WindowGroups. Its buffer is a [SurfaceControl] layer under one container
+ *   SurfaceView ([layerHost]); [syncLayers] gives every layer its z (the view
+ *   tree's drawing order, i.e. the Win32 stack), frame and ancestor clip.
  * - Layout uses **visibleRect** (parent-relative), not windowRect alone; the
  *   client (Vulkan/GL) group of an hwnd uses **clientRect** in the same space.
- * - [SurfaceHolder.setFixedSize] keeps the buffer at guest px (min 2×2); on
- *   [surfaceChanged] we re-invoke onSurface so native re-registers and sends
- *   SURFACE_CHANGED with the new w/h (upstream TextureView size-changed path).
+ * - The layer buffer stays at guest px (min 2×2); after a size change we
+ *   re-invoke onSurface so native re-registers and sends SURFACE_CHANGED with
+ *   the new w/h (upstream TextureView size-changed path).
  * - **Defer first** nativeRegisterSurface until guest rects have a real
  *   positive w×h from WINDOW_POS / create (not the artificial MIN 2×2 alone).
  *   After the first successful register, keep re-binding on size changes.
- * - Touch: [WindowGroup] / [SurfaceView] → [WineAndroidNative.nativeSendMotionEvent]
+ * - Touch: [WindowGroup] → [WineAndroidNative.nativeSendMotionEvent]
  *   (MOTION_EVENT on the desktop event pipe). Coords = contentHost-local host px /
  *   [hostScale] → guest desktop px. Not X inject.
  * - Keys: focusable GDI [WindowGroup] (upstream WineView) + Activity
@@ -78,6 +81,37 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         FrameLayout(context).also {
             addView(it, LayoutParams(0, 0))
         }
+
+    /**
+     * Never draws; its SurfaceControl parents every window layer so the
+     * stacking between HWND buffers can be set explicitly ([syncLayers]).
+     * Sibling SurfaceViews would be ordered by SurfaceFlinger sub-layer and
+     * creation order instead of the Win32 stack.
+     */
+    private val layerHost =
+        SurfaceView(context).also { view ->
+            view.holder.setFormat(PixelFormat.TRANSLUCENT)
+            view.holder.addCallback(
+                object : SurfaceHolder.Callback {
+                    override fun surfaceCreated(holder: SurfaceHolder) {
+                        onLayerRootCreated(view.surfaceControl)
+                    }
+
+                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+
+                    override fun surfaceDestroyed(holder: SurfaceHolder) {
+                        onLayerRootDestroyed()
+                    }
+                },
+            )
+            contentHost.addView(view, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+
+    /** [layerHost]'s SurfaceControl while its surface exists. */
+    private var layerRoot: SurfaceControl? = null
+
+    /** Last logged stacking, so [syncLayers] only logs when it changes. */
+    private var lastLayerOrder: List<String> = emptyList()
 
     /**
      * HWND that should own the next KEYBOARD_EVENT (last GDI group that took
@@ -298,10 +332,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private fun applyPointerIcon(icon: PointerIcon) {
         pointerIcon = icon
         contentHost.pointerIcon = icon
-        groups.values.forEach { group ->
-            group.pointerIcon = icon
-            group.surfaceView.pointerIcon = icon
-        }
+        groups.values.forEach { group -> group.pointerIcon = icon }
     }
 
     fun sendKeyboardEvent(event: KeyEvent): Boolean {
@@ -548,25 +579,26 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
     fun attachWindow(window: WineAndroidWindow, onSurface: (hwnd: Int, surface: Surface?) -> Unit) {
         val key = Key(window.hwnd, window.isClient)
-        groups.remove(key)?.let { detachGroupView(it) }
+        groups.remove(key)?.let {
+            detachGroupView(it)
+            it.releaseLayer()
+        }
 
         if (window.visibleRect.width() <= 0 && window.windowRect.width() > 0) {
             window.visibleRect = Rect(window.windowRect)
         }
-        // Non-desktop windows may start at 0×0 until WINDOW_POS; setFixedSize uses min 2×2
+        // Non-desktop windows may start at 0×0 until WINDOW_POS; buffers use min 2×2
         // but first nativeRegisterSurface is deferred until rects have real w×h.
 
         val group = WindowGroup(context, window, onSurface)
         groups[key] = group
         trackSibling(window)
         layoutGroup(group)
-        group.applyFixedBufferSize(forceReregister = false)
+        group.applyFixedBufferSize()
+        layerRoot?.let { group.attachLayer(it) }
         applyVisibility(group)
         if (window.visible) syncZOrder(stackKeyFor(window.parentHwnd))
-        currentPointerIcon?.let { icon ->
-            group.pointerIcon = icon
-            group.surfaceView.pointerIcon = icon
-        }
+        currentPointerIcon?.let { icon -> group.pointerIcon = icon }
     }
 
     fun detachWindow(hwnd: Int) {
@@ -576,7 +608,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         }
         val parentHwnd = groups.values.firstOrNull { it.window.hwnd == hwnd }?.window?.parentHwnd
         listOf(false, true).forEach { client ->
-            groups.remove(Key(hwnd, client))?.let { detachGroupView(it) }
+            groups.remove(Key(hwnd, client))?.let {
+                detachGroupView(it)
+                it.releaseLayer()
+            }
         }
         if (parentHwnd != null) {
             untrackSibling(hwnd, parentHwnd)
@@ -585,13 +620,71 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         }
     }
 
+    private fun onLayerRootCreated(root: SurfaceControl) {
+        layerRoot = root
+        Log.i(TAG, "layer root created; attaching ${groups.size} window layers")
+        groups.values.forEach { it.attachLayer(root) }
+        syncLayers()
+    }
+
+    private fun onLayerRootDestroyed() {
+        layerRoot = null
+        Log.i(TAG, "layer root destroyed; ${groups.size} window layers offscreen")
+        // Same contract as a destroyed SurfaceView: Wine sees the surface go
+        // away until the root returns and the layers are reattached.
+        groups.values.forEach { it.onLayerRootLost() }
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        // Children (and z-order via bringChildToFront) have their final frames now.
+        syncLayers()
+    }
+
+    /**
+     * Push every window layer's stacking, placement and visibility in one
+     * transaction. The view tree is the source of truth: z follows its drawing
+     * order (WineAndroidWindowStack via bringChildToFront), a window's frame is
+     * its view frame, and hidden windows (detached views) get no placement.
+     */
+    private fun syncLayers() {
+        if (layerRoot == null) return
+        val roots =
+            (0 until contentHost.childCount)
+                .map { contentHost.getChildAt(it) }
+                .filterIsInstance<WindowGroup>()
+                .map { it.layerNode() }
+        val placements = WineAndroidLayerGeometry.place(roots)
+        val placed = HashSet<WindowGroup>()
+        SurfaceControl.Transaction().use { t ->
+            for (p in placements) {
+                val layer = p.key.layer ?: continue
+                placed += p.key
+                t.setGeometry(layer, p.source.toRect(), p.destination.toRect(), Surface.ROTATION_0)
+                t.setLayer(layer, p.z)
+                t.setVisibility(layer, true)
+            }
+            groups.values.forEach { group ->
+                if (group !in placed) group.layer?.let { t.setVisibility(it, false) }
+            }
+            t.apply()
+        }
+        val order = placements.map { it.key.layerName }
+        if (order != lastLayerOrder) {
+            lastLayerOrder = order
+            Log.i(TAG, "layers bottom→top ${order.joinToString(",")}")
+        }
+    }
+
+    private fun WineAndroidLayerGeometry.Box.toRect() = Rect(left, top, right, bottom)
+
     fun updateWindow(window: WineAndroidWindow) {
         val held = groups[Key(window.hwnd, window.isClient)] ?: return
         held.window = window
         // Parent may have changed via copy — reparent if needed.
         ensureParent(held)
         layoutGroup(held)
-        held.applyFixedBufferSize(forceReregister = true)
+        held.applyFixedBufferSize()
         applyVisibility(held)
         held.requestLayout()
     }
@@ -616,7 +709,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             held.window.style = style
             held.window.visible = nowVisible
             layoutGroup(held)
-            held.applyFixedBufferSize(forceReregister = true)
+            held.applyFixedBufferSize()
             applyVisibility(held)
             held.requestLayout()
         }
@@ -635,7 +728,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         matched.forEach { (_, held) ->
             held.window.parentHwnd = newParentHwnd
             layoutGroup(held)
-            held.applyFixedBufferSize(forceReregister = false)
+            held.applyFixedBufferSize()
             applyVisibility(held)
             held.requestLayout()
         }
@@ -686,7 +779,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         ordered.forEach { held ->
             ensureParent(held)
             layoutGroup(held)
-            held.applyFixedBufferSize(forceReregister = false)
+            held.applyFixedBufferSize()
             applyVisibility(held)
             held.requestLayout()
         }
@@ -706,6 +799,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     }
 
     private fun isTopLevel(parentHwnd: Int): Boolean = parentHwnd == 0 || parentHwnd == desktopHwnd
+
+    private fun isDesktopGroup(group: WindowGroup): Boolean = desktopHwnd != 0 && group.window.hwnd == desktopHwnd
 
     private fun findParentGroup(parentHwnd: Int): WindowGroup? =
         groups[Key(parentHwnd, false)] ?: groups[Key(parentHwnd, true)]
@@ -754,7 +849,12 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         val host: FrameLayout = parentGroup ?: contentHost
         if (group.parent !== host) {
             (group.parent as? FrameLayout)?.removeView(group)
-            host.addView(group)
+            if (isDesktopGroup(group) && host === contentHost) {
+                // The desktop is the bottom of the stack: right above [layerHost].
+                host.addView(group, 1)
+            } else {
+                host.addView(group)
+            }
         }
     }
 
@@ -858,9 +958,13 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         }
         var touchedParent: FrameLayout? = null
         for (hwnd in bringOrder) {
-            // GDI first, then OpenGL client so media-overlay client ends above pair.
+            // GDI first, then the client view so the swapchain layer sits above
+            // its own frame (the GDI buffer covers the whole window rect).
             listOf(false, true).forEach { client ->
                 val group = groups[Key(hwnd, client)] ?: return@forEach
+                // The desktop is not in the top-level stack; bringing it to the
+                // front (its own parent key syncs too) would cover every window.
+                if (isDesktopGroup(group)) return@forEach
                 val parent = group.parent as? FrameLayout ?: return@forEach
                 parent.bringChildToFront(group)
                 touchedParent = parent
@@ -871,7 +975,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
     /**
      * Upstream add_view_to_parent / remove_view_from_parent driven by WS_VISIBLE.
-     * Invisible groups leave the parent entirely (not merely GONE) so SurfaceView
+     * Invisible groups leave the parent entirely (not merely GONE) so layer
      * stacking and hit-testing match sibling order.
      */
     private fun applyVisibility(group: WindowGroup) {
@@ -890,82 +994,97 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     ) : FrameLayout(context) {
         private var lastBufferW: Int = -1
         private var lastBufferH: Int = -1
-        private var surfaceValid: Boolean = false
 
         /** True after the first non-deferred nativeRegisterSurface for this surface. */
         private var firstRegisterDone: Boolean = false
 
-        val surfaceView =
-            SurfaceView(context).apply {
-                // Client views carry Vulkan/GL swapchain images. Windows ignores
-                // their alpha, so the layer is opaque; the buffer format still
-                // comes from the swapchain (SET_BUFFERS_FORMAT). GDI views stay
-                // RGBA_8888 (docs/04).
-                holder.setFormat(if (window.isClient) PixelFormat.OPAQUE else PixelFormat.RGBA_8888)
-                if (window.isClient) {
-                    setZOrderMediaOverlay(true)
-                }
-                holder.addCallback(
-                    object : SurfaceHolder.Callback {
-                        override fun surfaceCreated(holder: SurfaceHolder) {
-                            val surface = holder.surface
-                            window.surface = surface
-                            surfaceValid = true
-                            // Defer first register if guest size is still placeholder.
-                            tryEmitSurface(surface, "surfaceCreated")
-                        }
+        /**
+         * This HWND's buffer layer, a child of [layerRoot]. The view itself only
+         * lays out, hit-tests and parents child windows; it never draws.
+         */
+        var layer: SurfaceControl? = null
+            private set
+        private var layerSurface: Surface? = null
 
-                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                            // Upstream WineView.onSurfaceTextureSizeChanged re-binds;
-                            // Amphora must re-nativeRegisterSurface so native sends
-                            // SURFACE_CHANGED with the new buffer size.
-                            val surface = holder.surface
-                            if (surface == null || !surface.isValid) return
-                            window.surface = surface
-                            surfaceValid = true
-                            Log.i(
-                                TAG,
-                                "surfaceChanged hwnd=${window.hwnd} buffer=${width}x$height " +
-                                    "client=${window.isClient} firstDone=$firstRegisterDone",
-                            )
-                            tryEmitSurface(surface, "surfaceChanged")
-                        }
-
-                        override fun surfaceDestroyed(holder: SurfaceHolder) {
-                            surfaceValid = false
-                            firstRegisterDone = false
-                            window.surface = null
-                            onSurface(window.hwnd, null)
-                        }
-                    },
-                )
-            }
+        /** "gdi-10054" / "client-10054": SurfaceFlinger name suffix and log label. */
+        val layerName: String get() = (if (window.isClient) "client-" else "gdi-") + window.hwnd.toString(16)
 
         init {
-            // Receive taps even though SurfaceView is not clickable by default.
             isClickable = true
             // Upstream WineView.setFocusable(!client): GDI group takes keys.
             isFocusable = !window.isClient
             isFocusableInTouchMode = !window.isClient
             // GDI groups take focus on tap for hardware keys; not a text editor
             // (default onCheckIsTextEditor=false) so focus alone does not open IME.
-            addView(
-                surfaceView,
-                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
-            )
-            @SuppressLint("ClickableViewAccessibility")
-            surfaceView.setOnTouchListener { _, event -> handleTouch(event) }
-            surfaceView.setOnGenericMotionListener { _, event -> handleGenericMotion(event) }
+            setWillNotDraw(true)
         }
 
         /**
-         * Map a SurfaceView-local event to guest desktop px (Wine ABSOLUTE coords).
+         * Create the layer under [root], or move the existing one there when the
+         * root SurfaceView came back. Either way Wine gets the surface again.
+         */
+        fun attachLayer(root: SurfaceControl) {
+            val existing = layer
+            if (existing == null) {
+                // Client views carry Vulkan/GL swapchain images. Windows ignores their
+                // alpha, so the layer is opaque; the buffer format still comes from the
+                // swapchain (SET_BUFFERS_FORMAT). GDI layers stay RGBA_8888 (docs/04).
+                val created =
+                    SurfaceControl.Builder()
+                        .setName("amphora-$layerName")
+                        .setParent(root)
+                        .setBufferSize(max(MIN_GUEST_PX, lastBufferW), max(MIN_GUEST_PX, lastBufferH))
+                        .setFormat(PixelFormat.RGBA_8888)
+                        .setOpaque(window.isClient)
+                        .build()
+                layer = created
+                layerSurface = Surface(created)
+            } else {
+                SurfaceControl.Transaction().use { it.reparent(existing, root).apply() }
+            }
+            val surface = layerSurface ?: return
+            window.surface = surface
+            tryEmitSurface(surface, if (existing == null) "layerCreated" else "layerReattached")
+        }
+
+        /** The root SurfaceView is gone: Wine loses the surface, the layer is kept for reattach. */
+        fun onLayerRootLost() {
+            firstRegisterDone = false
+            window.surface = null
+            onSurface(window.hwnd, null)
+        }
+
+        fun releaseLayer() {
+            val held = layer ?: return
+            layer = null
+            window.surface = null
+            SurfaceControl.Transaction().use { it.reparent(held, null).apply() }
+            layerSurface?.release()
+            layerSurface = null
+            held.release()
+        }
+
+        /** This view's subtree for [WineAndroidLayerGeometry]; frames are parent-relative. */
+        fun layerNode(): WineAndroidLayerGeometry.Node<WindowGroup> = WineAndroidLayerGeometry.Node(
+            key = this,
+            frame = WineAndroidLayerGeometry.Box(left, top, right, bottom),
+            bufferWidth = if (layer != null && firstRegisterDone) lastBufferW else 0,
+            bufferHeight = if (layer != null && firstRegisterDone) lastBufferH else 0,
+            children =
+            (0 until childCount)
+                .map { getChildAt(it) }
+                .filterIsInstance<WindowGroup>()
+                .map { it.layerNode() },
+        )
+
+        /**
+         * Map a view-local event to guest desktop px (Wine ABSOLUTE coords).
          * Walk view offsets up to [contentHost], then divide by [hostScale].
          */
         private fun guestDesktopPos(event: MotionEvent): Pair<Int, Int> {
             var x = event.x
             var y = event.y
-            var v: View = surfaceView
+            var v: View = this
             while (v !== contentHost) {
                 x += v.left
                 y += v.top
@@ -977,7 +1096,9 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             return (x / scale).roundToInt() to (y / scale).roundToInt()
         }
 
-        private fun handleTouch(event: MotionEvent): Boolean {
+        // Every touch goes to Wine as MOTION_EVENT; there is no host click action.
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouchEvent(event: MotionEvent): Boolean {
             val targetHwnd =
                 WineAndroidCaptureTarget.resolve(captureHwnd, window.hwnd)
             if (event.actionMasked == MotionEvent.ACTION_DOWN && !window.isClient) {
@@ -1012,14 +1133,14 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             return true
         }
 
-        private fun handleGenericMotion(event: MotionEvent): Boolean {
+        override fun onGenericMotionEvent(event: MotionEvent): Boolean {
             // Mouse hover / wheel (upstream WineView.onGenericMotionEvent).
             if (event.actionMasked != MotionEvent.ACTION_SCROLL &&
                 event.actionMasked != MotionEvent.ACTION_HOVER_MOVE &&
                 event.actionMasked != MotionEvent.ACTION_BUTTON_PRESS &&
                 event.actionMasked != MotionEvent.ACTION_BUTTON_RELEASE
             ) {
-                return false
+                return super.onGenericMotionEvent(event)
             }
             val targetHwnd =
                 WineAndroidCaptureTarget.resolve(captureHwnd, window.hwnd)
@@ -1038,7 +1159,11 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? =
             currentPointerIcon ?: super.onResolvePointerIcon(event, pointerIndex)
 
-        fun applyFixedBufferSize(forceReregister: Boolean) {
+        /**
+         * Keep the layer's buffer at guest px (view layout is host-scaled), and
+         * re-register after a size change so native sends SURFACE_CHANGED.
+         */
+        fun applyFixedBufferSize() {
             val r = bufferRect(window)
             val realW = r.width()
             val realH = r.height()
@@ -1046,29 +1171,24 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             val bh = max(MIN_GUEST_PX, if (realH > 0) realH else MIN_GUEST_PX)
             val changed = bw != lastBufferW || bh != lastBufferH
             if (changed || lastBufferW < 0) {
-                // Keep ANativeWindow / Wine buffer at guest px; view layout is host-scaled.
-                surfaceView.holder.setFixedSize(bw, bh)
+                layer?.let { held -> SurfaceControl.Transaction().use { it.setBufferSize(held, bw, bh).apply() } }
                 Log.i(
                     TAG,
-                    "setFixedSize hwnd=${window.hwnd} ${bw}x$bh " +
+                    "buffer size hwnd=${window.hwnd} ${bw}x$bh " +
                         "(was ${lastBufferW}x$lastBufferH) real=${realW}x$realH " +
                         "visible=${window.visibleRect} window=${window.windowRect}",
                 )
                 lastBufferW = bw
                 lastBufferH = bh
             }
-            if (!surfaceValid) return
-            val surface = window.surface
-            if (surface == null || !surface.isValid) return
+            val surface = layerSurface ?: return
+            if (!surface.isValid) return
             // First register once real guest dims are known (even if forceReregister
             // is false — e.g. attach after sibling copy / desktop create size).
-            // After that, keep the existing re-bind on setFixedSize changes.
+            // After that, re-bind whenever the buffer size moved.
             if (!firstRegisterDone) {
                 tryEmitSurface(surface, "applyFixedBufferSize")
-            } else if (changed && forceReregister) {
-                // setFixedSize may not always deliver surfaceChanged immediately;
-                // ensure native gets SURFACE_CHANGED with the new size.
-                surfaceView.requestLayout()
+            } else if (changed) {
                 tryEmitSurface(surface, "applyFixedBufferSize-reregister")
             }
         }
@@ -1085,10 +1205,10 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         /**
          * Gate [onSurface] → nativeRegisterSurface:
          * - first call waits for [hasRealGuestSize]; artificial MIN 2×2 alone is not enough.
-         * - after first success, always re-bind (surfaceChanged / setFixedSize).
+         * - after first success, always re-bind (buffer size change / reattach).
          */
         private fun tryEmitSurface(surface: Surface, reason: String) {
-            if (!surface.isValid) return
+            if (!surface.isValid || layerRoot == null) return
             if (!firstRegisterDone) {
                 if (!hasRealGuestSize()) {
                     val r = bufferRect(window)
@@ -1107,6 +1227,8 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
                         "guest=${r.width()}x${r.height()}",
                 )
                 onSurface(window.hwnd, surface)
+                // Now that it has a buffer size worth showing, give it a placement.
+                syncLayers()
                 return
             }
             onSurface(window.hwnd, surface)

@@ -1,6 +1,6 @@
 # Amphora
 
-Android 上的 Wine 模拟器：x86_64 Wine 跑在 Box64 里，窗口经 `wineandroid.drv` 交给 Kotlin 宿主（每 HWND 一个 SurfaceView）。模块与启动链见 `docs/01-ARCHITECTURE.md`，文档总览 `docs/README.md`，进度只看 `docs/02-TRACKING.md` 末节「当前状态指针」。新 agent 先读 `.cursor/skills/amphora-from-zero/SKILL.md`。
+Android 上的 Wine 模拟器：x86_64 Wine 跑在 Box64 里，窗口经 `wineandroid.drv` 交给 Kotlin 宿主（每 HWND 一个 SurfaceControl 层，挂在同一个容器 SurfaceView 下，层序由宿主显式设置）。模块与启动链见 `docs/01-ARCHITECTURE.md`，文档总览 `docs/README.md`，进度只看 `docs/02-TRACKING.md` 末节「当前状态指针」。新 agent 先读 `.cursor/skills/amphora-from-zero/SKILL.md`。
 
 ## 开发阶段：不做兼容
 

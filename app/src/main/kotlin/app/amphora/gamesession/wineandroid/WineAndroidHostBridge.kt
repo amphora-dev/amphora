@@ -133,9 +133,10 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
         activity.runOnUiThread {
             val gdi = windows.remove(hwnd to false)
             val client = windows.remove(hwnd to true)
-            desktop.detachWindow(hwnd)
+            // Native lets go of the ANativeWindow before the layer behind it is released.
             if (gdi != null) WineAndroidNative.nativeUnregisterSurface(hwnd, false)
             if (client != null) WineAndroidNative.nativeUnregisterSurface(hwnd, true)
+            desktop.detachWindow(hwnd)
         }
     }
 

@@ -9,7 +9,7 @@
 ## 0. 一句话定位
 
 Amphora 是面向 Android 平台的模块化 Windows/Wine 模拟器。
-- **现行显示真源**：采用纯 Kotlin 实现的 **wineandroid** 宿主体系（每个 Windows HWND 对应独立的 SurfaceView，通过 SurfaceFlinger 硬件合成），**彻底弃用**了 Winlator 遗留的 Java XServer/X11 架构。
+- **现行显示真源**：采用纯 Kotlin 实现的 **wineandroid** 宿主体系（每个 Windows HWND 对应一个 SurfaceControl 层，挂在同一个容器 SurfaceView 下，通过 SurfaceFlinger 硬件合成），**彻底弃用**了 Winlator 遗留的 Java XServer/X11 架构。
 - **真机基准环境**：官方日常验证设备为 Lenovo Y700 (TB322FC，Adreno 830，ADB 设备序列号 `HA262AAH`)。
 
 ---
@@ -20,7 +20,7 @@ Amphora 是面向 Android 平台的模块化 Windows/Wine 模拟器。
 
 1. **外层（桌面启动器）**：Amphora Desktop（负责壁纸、游戏图标网格、系统底栏以及参数配置；首发版本不接管 Android 系统的 `SECONDARY_HOME`）。
 2. **中层（会话容器）**：每个运行的 Windows 程序运行在独立的 freeform 会话 Activity 中（默认即为 `WineAndroidSessionActivity`）。
-3. **内层（窗口体系）**：通过 `wineandroid.drv` 驱动管理会话内的具体 Windows 窗口（HWND），通过原生 SurfaceView 挂载，不将每个内部子窗口做成 Android 系统任务。
+3. **内层（窗口体系）**：通过 `wineandroid.drv` 驱动管理会话内的具体 Windows 窗口（HWND），通过 SurfaceControl 层挂载，不将每个内部子窗口做成 Android 系统任务。
 
 ---
 
@@ -83,7 +83,7 @@ bash scripts/setup-git-hooks.sh
 1. **[`AGENTS.md`](../AGENTS.md)**：开发红线、架构底线与常见避坑禁令。
 2. **[`01-ARCHITECTURE.md`](01-ARCHITECTURE.md)**：As-Built 现行工程架构、数据流向与模块划分。
 3. **[`02-TRACKING.md`](02-TRACKING.md)**：进度跟踪记录与当前阶段任务真源。
-4. **[`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)**：窗口树、SurfaceView 绑定时机与输入通道。
+4. **[`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)**：窗口树、SurfaceControl 层的绑定时机、层序与输入通道。
 5. **[`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md)**：Vulkan 零拷贝呈现机制（若涉及游戏渲染或 DXVK）。
 6. **[`07-DEV-PIN-OVERLAY.md`](07-DEV-PIN-OVERLAY.md)**：本地替换 WCP 或运行时组件的开发态调试技巧。
 
@@ -119,7 +119,7 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 ```
 
 **关键日志过滤口径**：
-- 观察窗口 Surface 状态：`WineAndroidDesktop|WineAndroidHostBridge|defer first register|registerSurface|setFixedSize|surfaceChanged`
+- 观察窗口 Surface 状态：`WineAndroidDesktop|WineAndroidHostBridge|defer first register|registerSurface|buffer size|layers bottom|layer root`
 - 观察输入与键盘：`WineAndroidDesktop.*motion|keyboard hwnd=|key hwnd=|IME composing|IME unicode`
 - 观察 3D 渲染与交换链：`WineAndroidWsi|AHB_SC create images=|Present frame=`
 
@@ -131,7 +131,7 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 - [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) — 现行工程架构与启动时序真源
 - [`02-TRACKING.md`](02-TRACKING.md) — 开发进度、历史里程碑与当前状态指针
 - [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) — 运行时资产清单、分包决策与 SHA 锁
-- [`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md) — 宿主窗口树、SurfaceView 生命周期与输入系统
+- [`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md) — 宿主窗口树、SurfaceControl 层生命周期与输入系统
 - [`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md) — Vulkan AHB 零拷贝游戏渲染机制与验收证据
 - [`06-ENVIRONMENT.md`](06-ENVIRONMENT.md) — 开发、编译环境与远程 ADB 调试搭建指南
 - [`07-DEV-PIN-OVERLAY.md`](07-DEV-PIN-OVERLAY.md) — 开发态组件覆盖层（`dev_pins.json`）配置方法

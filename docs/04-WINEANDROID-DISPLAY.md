@@ -3,7 +3,7 @@
 > **唯一显示真源**：本文档是 Amphora 宿主窗口、Surface 生命周期、布局及输入的唯一综合真源。  
 > 进度指针见 [`docs/02-TRACKING.md`](02-TRACKING.md) 末节。
 
-Amphora 的 `:session` 宿主采用 Kotlin 实现的 `WineAndroidDesktop` / `WineAndroidHostBridge` 对齐上游 `dlls/wineandroid.drv/WineActivity.java` 的窗口树与 Surface 生命周期。我们**彻底弃用**了 Winlator 式的 Java XServer / X11 架构，直接利用 Android 原生 `SurfaceView` 与 Binder 通信实现高效的 Windows 窗口呈现。
+Amphora 的 `:session` 宿主采用 Kotlin 实现的 `WineAndroidDesktop` / `WineAndroidHostBridge` 对齐上游 `dlls/wineandroid.drv/WineActivity.java` 的窗口树与 Surface 生命周期。我们**彻底弃用**了 Winlator 式的 Java XServer / X11 架构，每个 HWND 的 buffer 是一个 `SurfaceControl` 层，由 SurfaceFlinger 直接合成。
 
 ---
 
@@ -12,7 +12,7 @@ Amphora 的 `:session` 宿主采用 Kotlin 实现的 `WineAndroidDesktop` / `Win
 - **纯 Kotlin 宿主**：宿主窗口管理由 Kotlin 编写，不移植庞杂的 `WineActivity.java`，也不对齐 Winlator 的 Java XServer / TextureView 合成器。
 - **IPC 桥梁**：Wine 运行在独立的 `:session` 进程中（通过 Box64 运行 x86_64 Wine）。Guest 侧的 `wineandroid.drv` 驱动通过 SEQPACKET `\0\Device\WineAndroid` 与宿主通信（`a17810b`），不再依赖传统 JNI 启动。
 - **双轨渲染分工**：
-  1. **2D 桌面与普通应用（GDI）**：走 `wineandroid.drv` 原生窗口，通过 `ANativeWindow` 将 CPU buffer 绘制到 Android SurfaceView（`api=NATIVE_WINDOW_API_CPU`）。
+  1. **2D 桌面与普通应用（GDI）**：走 `wineandroid.drv` 原生窗口，通过 `ANativeWindow` 将 CPU buffer 绘制到该 HWND 的 SurfaceControl 层（`api=NATIVE_WINDOW_API_CPU`）。
   2. **3D 游戏（Vulkan / DXVK）**：走 Android Hardware Buffer (AHB) 零拷贝直接送显（见 [`docs/05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md)）。
 
 ---
@@ -23,10 +23,12 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 
 1. **根容器**：`WineAndroidDesktop`（FrameLayout），负责外层 letterbox 居中。
 2. **内容宿主（contentHost）**：内层 FrameLayout，像素尺寸为 `guestW×guestH × hostScale`，偏移 `(offsetX, offsetY)`，等比铺满宿主可视区域（scale-to-fill）。
-3. **每 HWND 独立 WindowGroup**：每个 HWND 对应一个 `WindowGroup`（FrameLayout）：
-   - 内部包含一个 `SurfaceView`（`match_parent` 铺满该组）；
+3. **每 HWND 独立 WindowGroup + SurfaceControl 层**：每个 HWND 对应一个 `WindowGroup`（FrameLayout，本身不绘制，只负责布局、命中测试和嵌套子窗口）：
+   - buffer 是一个 `SurfaceControl` 层（`amphora-gdi-<hwnd>` / `amphora-client-<hwnd>`），`Surface(SurfaceControl)` 交给 native 注册；
+   - 所有层都挂在同一个容器 `SurfaceView`（`layerHost`，contentHost 的第一个子 View）的 SurfaceControl 下；
    - 该 HWND 的子 HWND 嵌套在其 WindowGroup 内部；
-   - 最终由系统的 **SurfaceFlinger** 统一负责这些 Surface 的硬件合成。
+   - `syncLayers()`（在布局完成后）按 View 树的绘制顺序先序遍历，给每层设 z（父在子下、兄弟按 Win32 栈）、位置缩放（`setGeometry`）和祖先裁剪，一次 Transaction 提交（`WineAndroidLayerGeometry`）。
+   - 不再用每 HWND 一个 SurfaceView：SurfaceFlinger 对同一窗口里的多个 SurfaceView 按子层（media overlay 高于普通）再按创建顺序排，跟 View 顺序无关；原来给 Vulkan 视图设的 `setZOrderMediaOverlay` 让 3D 画面盖住所有 GDI 弹窗。
 4. **坐标定位必须使用 visible_rect**：
    - Win32 API 传出的 `visible_*` 坐标是相对**父窗口客户区**的坐标；
    - 例如 Start 按钮 `(0, 0)-(126, 46)` 是相对任务栏（taskbar）的，绝不能当成桌面绝对坐标贴到 contentHost 原点。
@@ -35,7 +37,7 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
    - 否则挂载到对应的父 `WindowGroup` 中；
    - 父子关系变化时触发 `reparent`。
 6. **防空视图保护**：
-   - 布局边长与 `setFixedSize` 的 guest 边长下限均为 **2**（`MIN_GUEST_PX = 2`），防止 0×0 或 1×1 导致底层 ANW/GDI 卡死。
+   - 布局边长与层 buffer 的 guest 边长下限均为 **2**（`MIN_GUEST_PX = 2`），防止 0×0 或 1×1 导致底层 ANW/GDI 卡死。
 
 ---
 
@@ -44,9 +46,8 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 ### 3.1 尺寸变化重新绑定（SURFACE_CHANGED）
 - 上游行为：`WineView.onSurfaceTextureSizeChanged` 会通知底层 `wine_surface_changed`。
 - Amphora 实现：
-  1. `WINDOW_POS` → `updateHwndRects` → 调用 `SurfaceHolder.setFixedSize(visibleW, visibleH)`（传入 guest 像素）；
-  2. `SurfaceHolder.Callback.surfaceChanged` 触发时，调用 `nativeRegisterSurface` 向 native 发送 `SURFACE_CHANGED`（带新尺寸）；
-  3. 若 `setFixedSize` 修改了缓冲区但系统回调未及时到达，宿主在 Surface 仍有效时也会主动触发一次注册。
+  1. `WINDOW_POS` → `updateHwndRects` → `Transaction.setBufferSize(layer, visibleW, visibleH)`（guest 像素）；
+  2. 随后再调一次 `nativeRegisterSurface`。层的 `Surface` 不变，native 发现是同一个 ANativeWindow 时只发 `SURFACE_CHANGED`（新尺寸），不重连。
 - **历史 Bug 解决**：过去任务栏先以 1×1 注册，随后尺寸变为 1280×46 时只改了 fixedSize 却没重新 register，导致任务栏扭曲。当前必须在尺寸改变后重新 bind。
 
 ### 3.2 首次注册延迟（Defer Initial Register）
@@ -56,8 +57,8 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 ### 3.3 颜色格式（RGBA + 宿主 Swizzle）
 - **HA262 避坑**：对 Surface 路径**严禁**调用 `SET_BUFFERS_FORMAT(BGRA=5)`（真机曾直接整机闪退）；
 - 保持标准的 **PF_RGBA_8888 (1)**，颜色差异由宿主软件做 **R/B 交换（swizzle）** 修正。
-- 绝不能将上游 TextureView 假设的 BGRA 盲目照搬到 SurfaceView。
-- 以上只管 GDI 视图。client（Vulkan）视图是 `PixelFormat.OPAQUE`，buffer 格式由 AHB 交换链按交换链格式设（[`05`](05-AHB-IMPORT-PRESENT.md) §2.3）。
+- 绝不能将上游 TextureView 假设的 BGRA 盲目照搬到我们的层上。
+- 以上只管 GDI 层。client（Vulkan）层建成不透明（`SurfaceControl.Builder.setOpaque(true)`），buffer 格式由 AHB 交换链按交换链格式设（[`05`](05-AHB-IMPORT-PRESENT.md) §2.3）。
 
 ---
 
@@ -78,7 +79,7 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 ## 5. 宿主铺满、DPI 与分辨率策略
 
 1. **铺满屏幕（scale-to-fill）**：
-   - 正确做法：Buffer 保持 guest 尺寸（`setFixedSize(guest)`），外层 View 根据 `hostScale = min(屏宽/guestW, 屏高/guestH)` 等比放大居中（黑边 letterbox）；
+   - 正确做法：Buffer 保持 guest 尺寸（层 buffer = guest 像素），外层 View 根据 `hostScale = min(屏宽/guestW, 屏高/guestH)` 等比放大居中（黑边 letterbox）；
    - **严禁**通过硬改 guest 内部的 `/desktop=WxH` 分辨率来强行铺满，否则会导致应用 UI 严重变形拉伸。
 2. **DPI 策略**：
    - 虚拟桌面内部统一采用经典 Wine DPI **96**；
@@ -110,14 +111,14 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 
 | 对比维度 | Winlator X11 方案 | Amphora WineAndroid 方案（现行） |
 |---|---|---|
-| **视图架构** | 单一 `TextureView`（XServerSurfaceView） | 每个 HWND 一块独立 `SurfaceView`，包在嵌套 `WindowGroup` 中 |
+| **视图架构** | 单一 `TextureView`（XServerSurfaceView） | 每个 HWND 一个 `SurfaceControl` 层（同一容器 SurfaceView 下），布局 / 输入走嵌套 `WindowGroup` |
 | **窗口合成** | Java XServer 遍历窗口树，统一绘制进单张纹理 | 交给 Android 系统的 **SurfaceFlinger** 进行原生硬件多层合成 |
 | **尺寸与注册** | 换尺寸只需换 Drawable，无每窗注册概念 | 必须在尺寸稳定后调用 `nativeRegisterSurface` 重新绑定 |
 | **颜色与通道** | 私有 BGRA AHB + Vulkan 采样 | 保持标准 RGBA，宿主做 R/B 交换，严禁推 BGRA=5 |
 | **系统开销** | 单一视图开销小，但有 XServer 软件中转损耗 | 窗口多时消耗 BufferQueue / SurfaceFlinger 层数，但省去 X 中转，3D 呈现性能更好 |
 
-**多 SurfaceView 评估**：
-对于 Windows 桌面环境（explorer + 少量顶层窗口），SurfaceFlinger 完全能够高效承载。未来若有打磨需求，可考虑“仅顶层建 Surface”或局部切 TextureView，但当前方案已在真机上验证稳定。
+**多层评估**：
+对于 Windows 桌面环境（explorer + 少量顶层窗口），SurfaceFlinger 完全能够高效承载每 HWND 一层。层序由我们显式设置，不依赖 SurfaceView 子层或创建顺序。
 
 ### 7.1 功能对齐表（X11 → wineandroid）
 
