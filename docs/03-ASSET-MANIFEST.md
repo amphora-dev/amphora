@@ -537,20 +537,21 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 ### 2.6 AIO Graphics Test
 
-开始菜单中的 32/64 位图形诊断程序固定为官方预编译 **AIO Graphics Test 2.1.0**
-（[`The412Banner/AIO-Graphics-Test`](https://github.com/The412Banner/AIO-Graphics-Test)
-tag **`2.1.0`**，CLI-capable：可直接传 `--cube vk|gl|dx11` 等参数，无需 `.bat`
-包装）。此前 amphora-patched / cnb `amphora` 标签 pin 已被本 pin 取代。
-
-设备端按 `content_manifest.json` 的 `remoteUrl` 下载并校验后复制到 Wine
-`ProgramData/Microsoft/Windows`。APK assets 中的同名文件是当前离线候选：
+开始菜单中的 32/64 位图形诊断程序由 `content_manifest.json` 的
+`runtimeAssets` 固定（设备端按 `remoteUrl` 下载校验后复制到 Wine
+`ProgramData/Microsoft/Windows`）。当前 pin 是 cnb `atowerlight/aio-graphics-test`
+release `amphora`（二进制内版本串 `v1.7.0`，CLI：`--cube vk|gl|dx7|ddraw2d|dx8|dx9|dx10|dx11|dx12`
+`--no-menu --bench <s> --autoclose <s>` 等），不是上游 2.1.0：
 
 | 资产 | SHA-256 | 大小 | source |
 |---|---|---:|---|
-| `Graphics-Test-32bit.exe` | `d8fa9b02d1881cb1c65f0192aa5f209a3e9c80214e1e74f93e704a6a859b4367` | 4,367,103 | GitHub `The412Banner/AIO-Graphics-Test` tag `2.1.0` (`AIO-Graphics-Test-32bit.exe`) |
-| `Graphics-Test-64bit.exe` | `1c27a4a71214ad3bc4e605acf4ed64098ce66cb4b65cfbd4ea6b1e016ffbb2c3` | 4,289,335 | GitHub `The412Banner/AIO-Graphics-Test` tag `2.1.0` (`AIO-Graphics-Test-64bit.exe`) |
+| `winnative/Graphics-Test-32bit.exe` | `75589dc37b72d509e23c9c3c043fdf8e03855e5d2f1ec846efe2672662719306` | 2,083,443 | cnb `atowerlight/aio-graphics-test` release `amphora` (`AIO-Graphics-Test-32bit.exe`) |
+| `winnative/Graphics-Test-64bit.exe` | `96d76d077139ef469eff31efbc75cd9202b99bf2906b97e3c5de07dc350f5c57` | 2,065,494 | cnb `atowerlight/aio-graphics-test` release `amphora` (`AIO-Graphics-Test-64bit.exe`) |
 
-上游发新版后 SHA 会变：先更新 APK assets / `content_manifest.json`；本文仅在人工校对时同步。
+`core/content/src/main/assets/winnative/` 里是上游 **2.1.0**
+（`d8fa9b02…` / `1c27a4a7…`，GitHub `The412Banner/AIO-Graphics-Test` tag `2.1.0`），
+`ea9a38f` 换了 APK 资产但没 bump manifest，会话里实际用的是上面 manifest 那份。
+真机矩阵与判读见 [`09`](09-AIO-GRAPHICS-TEST.md)。
 
 > `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。Amphora 生产路径由 `RemoteContentSource` 在设备上下载并校验 manifest 中固定的 Proton WCP，不再要求 build 时打入 APK。
 
@@ -651,7 +652,8 @@ nightly 或 GPU 特化包只用于显式兼容性试验，不能静默替换生�
 > **易混点**：真机是 **arm64-v8a Android**，但 guest 里跑的是 **x86_64 Wine**（外面套 Box64）。所以要下 **不带 `arm64ec`** 的 `.wcp`。带 `arm64ec` 的包是给「arm64ec Proton + FEX」那条 WinNative 路线的；装错 ABI 会直接对不上 `ContentsManager`/DLL 架构。`a6xx` 则是 **Adreno GPU** 名，和 `arm64ec` 不是一类东西。
 
 **和 WineD3D / Zink 的关系**：AIO **OpenGL** 走 Wine `opengl32` → EGL →
-Mesa **Zink**。32-bit DirectDraw 在 DxWrapper Dd7to9、cnc-ddraw（D3D9
+Mesa **Zink**（X11 时代的路径；wineandroid 上 EGL 拿不到 config，GL 目前不可用，见
+[`09`](09-AIO-GRAPHICS-TEST.md) §4）。32-bit DirectDraw 在 DxWrapper Dd7to9、cnc-ddraw（D3D9
 renderer）和 d7vk（D3D3–7 直转 Vulkan）中三选一；缺包时启动失败。三套路径都
 不部署 x86_64 DLL，因此 64-bit DirectDraw 走 Proton builtin `ddraw` → WineD3D
 → EGL/Zink。

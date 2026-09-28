@@ -17,7 +17,7 @@
 | [`06-ENVIRONMENT.md`](06-ENVIRONMENT.md) | **开发与测试环境指南** | 配置本地/云端编译环境、ADB 连机（Tailscale）、真机冒烟测试命令 |
 | [`07-DEV-PIN-OVERLAY.md`](07-DEV-PIN-OVERLAY.md) | **开发态本地临时换包指南** | 在真机调试时临时覆盖特定版本的 Proton/Box64（`dev_pins.json` 覆盖层） |
 | [`08-AGENT-BOOTSTRAP.md`](08-AGENT-BOOTSTRAP.md) | **开发者与协作 Agent 上手指南** | 新人从零上手、多 Bot 协同提交规范、避坑禁令与工作流配方 |
-| [`09-AIO-VK-PRESENTMODES-STATUS.md`](09-AIO-VK-PRESENTMODES-STATUS.md) | **AIO Vulkan PresentModes 开放排查记录** | 跟踪 AIO Graphics Test `--cube vk` 黑屏排查与 win32u 假报分析（当前已暂停） |
+| [`09-AIO-GRAPHICS-TEST.md`](09-AIO-GRAPHICS-TEST.md) | **AIO Graphics Test 矩阵** | 各图形后端（Vulkan / GL / DX7–12，32/64-bit）真机结果、脚本、已修与未解决项 |
 
 ---
 

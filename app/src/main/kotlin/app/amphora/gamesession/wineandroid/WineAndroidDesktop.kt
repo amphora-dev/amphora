@@ -897,7 +897,11 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
 
         val surfaceView =
             SurfaceView(context).apply {
-                holder.setFormat(PixelFormat.RGBA_8888)
+                // Client views carry Vulkan/GL swapchain images. Windows ignores
+                // their alpha, so the layer is opaque; the buffer format still
+                // comes from the swapchain (SET_BUFFERS_FORMAT). GDI views stay
+                // RGBA_8888 (docs/04).
+                holder.setFormat(if (window.isClient) PixelFormat.OPAQUE else PixelFormat.RGBA_8888)
                 if (window.isClient) {
                     setZOrderMediaOverlay(true)
                 }

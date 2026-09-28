@@ -57,6 +57,7 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 - **HA262 避坑**：对 Surface 路径**严禁**调用 `SET_BUFFERS_FORMAT(BGRA=5)`（真机曾直接整机闪退）；
 - 保持标准的 **PF_RGBA_8888 (1)**，颜色差异由宿主软件做 **R/B 交换（swizzle）** 修正。
 - 绝不能将上游 TextureView 假设的 BGRA 盲目照搬到 SurfaceView。
+- 以上只管 GDI 视图。client（Vulkan）视图是 `PixelFormat.OPAQUE`，buffer 格式由 AHB 交换链按交换链格式设（[`05`](05-AHB-IMPORT-PRESENT.md) §2.3）。
 
 ---
 
