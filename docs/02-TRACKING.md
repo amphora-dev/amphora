@@ -362,6 +362,16 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 > 进度只维护本节；本机 `amphora-progress.md` 是个人手记，与本节冲突时以本节为准。
 > 上面各日期条目是当时快照，里面的 “Next / 下一刀” 不代表现在。
 
+- **暂停点（2026-09-28，用户要求先停）**：main `4229aaa`（`app_update 0.1.0+266.4229aaa6`），Proton `11.0-2fd246cfc`，所有仓库已推送、无未提交改动。当时和用户定的阶段顺序与进度：
+  - ✅ Phase 0（PR 合并、AIO 2.1.0、HUD FPS）· ✅ Phase 1a（SurfaceControl 层序、Vulkan 窗口保留边框）· ✅ Phase 1b（`VK_LAYER_AMPHORA_wsi`，设置里的驱动到 guest）· ✅ Phase 2 的测量部分（Turnip 上 D3D8/9 FF、D3D12；wrapper + Qualcomm 复测 -13），结果在 [`09`](09-AIO-GRAPHICS-TEST.md) §2 / §4。
+  - **下一刀（已提议，用户未拍板）**：DXVK flavor 的 auto 改为“guest 所用驱动满足 3.0.2 全部必需特性”才选 3.0.2，否则 Sarek。现在 `DxvkFlavorIds.resolve` 只看 `GraphicsDriverCapabilities.vulkanMinorVersion`（按所选驱动探测的 Vulkan 次版本），Turnip A630 报 1.3 却没有 `storageBuffer16BitAccess`，于是选 3.0.2 后 `No adapters found`。必需特性清单从 DXVK 3.0.2 源码取（报 `Device does not support required feature` 的那段检查），不要按 GPU 型号判断。6T Turnip + Sarek 已实测可用（[`09`](09-AIO-GRAPHICS-TEST.md) §2）。
+  - **等用户决定**：Adreno 8xx + Qualcomm 驱动的 D3D8/9 FF -13（驱动编译器 bug，不是能力缺失，特性查询查不出）。选项 (a) 8xx 默认 Turnip（先比 D3D11 下 Turnip / Qualcomm 性能）；(b) Qualcomm 驱动上只让 d3d8/d3d9 用 Sarek，dxgi/d3d10/d3d11 仍 3.0.2；(c) 找出被拒的 DXVK FF 着色器绕开。
+  - **之后**：Phase 3 OpenGL，先实验 A（PE Mesa zink `opengl32.dll`，走 Box64 有 CPU 模拟代价），A 不行再做 B（原生 Mesa surfaceless + 回读，需要出画那一段）。Phase 4：6T 64-bit dx11 偶发卡首帧、32-bit padding 修复上游化、Mali 上 VirGL。Phase 5：ARM64EC 评估。
+  - **零散待办**：Vulkan 窗口切后台后会话结束（[`09`](09-AIO-GRAPHICS-TEST.md) §4，两条 loader 路径都这样）；层现在如实报 FIFO / MAILBOX，win32u 里“永远广告 IMMEDIATE、宿主没有就改 FIFO”的补丁（proton-wine `dlls/win32u/vulkan.c` `win32u_vkGetPhysicalDeviceSurfacePresentModesKHR` / `win32u_vkCreateSwapchainKHR`）仍在起作用：没有 IMMEDIATE 就退出的 app（AIO `--cube vk`）两条路径都靠它，要删得先决定层是否报 IMMEDIATE（AHB 交换链上它等同 MAILBOX）；D3D12 选 Sarek 时必然失败（Sarek 的 dxgi 不认 D3D12 设备）；HUD 显示 `GUEST 0%`；AIO 2.1.0 dx8 的 `D3DPRESENT_INTERVAL_IMMEDIATE` 是 AIO 的 bug。
+  - **测试分层（用户认可）**：UI 改动 → 一台 vk 64；Present / 窗口改动 → 两台 vk / dx11 / ddraw2d 64 + 相关场景；驱动链改动 → 受影响后端 32 + 64 两台；全矩阵只在发 Proton / Box64 / 驱动 pin 时跑。脚本 `scripts/aio-smoke/`，换驱动 / flavor 见 [`09`](09-AIO-GRAPHICS-TEST.md) §1。
+  - **设备现状**：两台装的都是与 `4229aaa` 同源的 debug APK，dev pin 已清，prefs 已还原（Y700 只有 `display_resolution=R1024x768`，6T 只有 `advanced_audio_driver=pulseaudio`）；6T 首次选 Turnip 时下载安装了驱动包，留在 `files/contents/adrenotools/`。**6T 是 SELinux Permissive**（非官方 Android 15 ROM，bootloader 解锁，开机即如此，不是我们改的；用户看到过一次“SELinux 已关闭”警告，来源未查到），它上面的 PASS 不代表 Enforcing 设备；Y700 的 enforce 状态未确认。
+  - **旁注**：imagefs main 有他人的 CI 提交（`bb7f5b3` 等），content_manifest `24df3a7` 把同一版本名 `Proton-11.0-2fd246cfc` 重新 pin 成 sha256 `1ab7366c…`（原 `a93cd764…`）；版本名没变，已装 profile 不会重下，是否预期未确认。dev 主机 `/data/co/github/imagefs` 的 checkout 落后 main，下次构建前先 pull。`_scratch/imagefs-aio-matrix` worktree 的分支已合并删除，可清理。
+
 - **壳层（GDI 出画 / 输入 / IME / z-order）**：主动项已关，只剩可选人工目视确认 → [`08`](08-AGENT-BOOTSTRAP.md) §12；细节 [`04`](04-WINEANDROID-DISPLAY.md)。
 - **游戏 Vulkan Present**：AHB import CreateSwapchain 是现行路径，勿退（[`05`](05-AHB-IMPORT-PRESENT.md)）。GDI 壳层不走 CreateSwapchain、禁私有 host.sock。
 - **guest Vulkan 驱动链**：非 System 驱动走 imagefs Khronos loader + wrapper ICD（Turnip 经 adrenotools）+ 隐式层 `VK_LAYER_AMPHORA_wsi`；System 走平台 loader（[`05`](05-AHB-IMPORT-PRESENT.md) §2.4）。
