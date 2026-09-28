@@ -188,7 +188,11 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     isFocusableInTouchMode = false
                     setContent {
                         Box(Modifier.fillMaxSize()) {
-                            HostPerformanceOverlay("wineandroid", guestPid)
+                            HostPerformanceOverlay(
+                                "wineandroid",
+                                guestPid,
+                                presentTimes = WineAndroidNative::nativeRecentPresentTimes,
+                            )
                         }
                     }
                 },

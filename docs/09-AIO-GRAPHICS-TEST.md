@@ -24,7 +24,7 @@ scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台
 
 ## 2. 当前结果
 
-Proton 为 proton-wine `wip/aio-matrix` @ `6512f18bd02`（dev 构建），APK 为引入本文的那次提交。
+发布组合：APK `b89d083`（main），Proton `11.0-6512f18bd`（imagefs main `66e0cd9`，manifest `446d19b`），AIO 2.1.0（manifest `7097cb2`）。
 
 | 后端 | 路径 | Y700 64 | Y700 32 | 6T 64 | 6T 32 |
 |---|---|---|---|---|---|
@@ -32,11 +32,16 @@ Proton 为 proton-wine `wip/aio-matrix` @ `6512f18bd02`（dev 构建），APK �
 | gl | opengl32 → EGL | ❌ 无 GL | ❌ | ❌ | ❌ |
 | dx7 | 64：wined3d(GL)；32：d7vk → DXVK | ❌ 无 GL | ⚠️ 空画面 | ❌ 无 GL | ✅ |
 | ddraw2d | 64：GDI；32：wrapper → DXVK D3D9 | ✅ | ⚠️ 空画面 | ✅ | ✅ |
-| dx8 / dx9 | DXVK D3D8/9（FF） | ⚠️ 空画面 | ⚠️ 空画面 | ✅ | ✅ |
+| dx8 | DXVK D3D8 | ❌ 建不了设备 | ❌ | ❌ | ❌ |
+| dx9 | DXVK D3D9（FF） | ⚠️ 空画面 | ⚠️ 空画面 | ✅ | ✅ |
 | dx10 / dx11 | DXVK | ✅ | ✅ | ✅ | ✅ |
-| dx12 | vkd3d-proton | ❌ 驱动缺能力 | ❌ | ❌ 驱动缺能力 | ❌ |
+| dx12 | vkd3d-proton | ❌ 驱动缺能力 | ❌ | ❌ | ❌ |
 
-6T 自动选 DXVK-Sarek 1.11（Vulkan 1.1），Y700 选 DXVK 3.0.2-gplasync。⚠️ 空画面 = 有帧、有 bench，只有清屏色。Y700 把 `dxvk_flavor` 设成 `sarek` 后，dx8 / dx9 / 32-bit dx7 / 32-bit ddraw2d 全部出方块和色条。
+6T 自动选 DXVK-Sarek 1.11（Vulkan 1.1），Y700 选 DXVK 3.0.2-gplasync。⚠️ 空画面 = 有帧、有 bench，只有清屏色。Y700 把 `dxvk_flavor` 设成 `sarek` 后，dx9 / 32-bit dx7 / 32-bit ddraw2d 全部出方块和色条（v1.7.0 时测，dx8 当时同样）。帧率两台都卡在刷新率（Y700 144、6T 60；6T 32-bit dx7 35、ddraw2d 24）。
+
+AIO 2.1.0 与 v1.7.0 的差别：
+- **dx8**：2.1.0 建窗口模式设备时 `FullScreen_PresentationInterval` 填 `D3DPRESENT_INTERVAL_IMMEDIATE`；DXVK d3d8 按 D3D8 规则只接受 `DEFAULT`，返回 `D3DERR_INVALIDCALL`，AIO 弹 "Could not create a Direct3D 8 device"。v1.7.0 能建设备。这是 AIO 的问题，不是我们的链路。
+- **64-bit ddraw2d** 截图要早（`SHOT_DELAY=5`），2.1.0 跑完 bench 窗口就关了。
 
 ## 3. 已修（2026-09-28）
 
@@ -49,5 +54,5 @@ Proton 为 proton-wine `wip/aio-matrix` @ `6512f18bd02`（dev 构建），APK �
 
 - **Y700 D3D8/9 固定管线不出画**：DXVK 3.0.2-gplasync 的 FF VS/FS 管线在 Qualcomm 0.800.72 上 `vkCreateGraphicsPipelines` 返回 -13（`Failed to compile pipeline: -13`，每轮 1–2 条），清屏照常、方块不画。32-bit dx7 / ddraw2d 经 wrapper 落到 D3D9 FF，同样。Sarek 1.11 没这个问题。可选：Qualcomm 驱动上 D3D8/9 默认走 Sarek，或者查 DXVK FF 着色器里驱动不收的写法。
 - **D3D12**：Y700 Qualcomm 驱动 `uniform/storageTexelBufferOffsetSingleTexelAlignment` 都是 false（vkd3d：`Lacking support for single texel alignment`）；6T 缺 transform feedback（`Lacking support for transform feedback`）。都是驱动能力，不是我们的链路。Turnip 满足这两项，但 wineandroid 路径不认 Turnip 设置：`adrenotools_driver_id=WN-Turnip-1.06-b` 时宿主进程加载了 Turnip，guest 里 DXVK 看到的仍是 Qualcomm 驱动。
-- **OpenGL**：`wineandroid.drv/opengl.c` 用 `EGL_PLATFORM_ANDROID_KHR` 调 guest 的 x86_64 Mesa libEGL，`eglChooseConfig` 一个 config 都没有（`egldrv_init_pixel_formats Failed to get any configs`）。以前 X11 路径靠 zink；wineandroid 上 GL 要单独设计（例如 zink 画到我们的 Vulkan 交换链）。64-bit DX7 走 wined3d GL，跟着不可用。
-- **6T 64-bit dx11 偶发卡首帧**：第二个交换链第一次 acquire 之后再没有 present，AIO 没写 bench（4 轮里 1 次，其余 3 次正常），未查。
+- **OpenGL**：`wineandroid.drv/opengl.c` 用 `EGL_PLATFORM_ANDROID_KHR` 调 imagefs 的 Mesa libEGL（原生 aarch64，Box64 直接转过去；构建只有 `-Dplatforms=x11`），`eglChooseConfig` 一个 config 都没有（`egldrv_init_pixel_formats Failed to get any configs`）。X11 时同一份 Mesa 走 EGL X11 平台 + zink + kopper（xcb surface 经 wrapper ICD）。wineandroid 上缺的是 Wine 的 GL 驱动这一段和 kopper 的出画目标，方案见 [`02`](02-TRACKING.md) 当前状态指针。64-bit DX7 走 wined3d GL，跟着不可用。
+- **6T 64-bit dx11 偶发卡首帧**：第二个交换链第一次 acquire 之后再没有 present，AIO 没写 bench（2026-09-28 dev 构建 4 轮里 1 次；发布组合那一轮正常），未查。

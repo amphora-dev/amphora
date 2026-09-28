@@ -53,7 +53,11 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.StateFlow
 
 @Composable
-internal fun BoxScope.HostPerformanceOverlay(configuredBackend: String, guestProcessId: StateFlow<Int?>) {
+internal fun BoxScope.HostPerformanceOverlay(
+    configuredBackend: String,
+    guestProcessId: StateFlow<Int?>,
+    presentTimes: (sinceNs: Long) -> LongArray = { LongArray(0) },
+) {
     val context = LocalContext.current
     val monitor =
         remember(configuredBackend) {
@@ -61,6 +65,7 @@ internal fun BoxScope.HostPerformanceOverlay(configuredBackend: String, guestPro
                 context = context,
                 configuredBackend = configuredBackend,
                 guestProcessId = guestProcessId,
+                presentTimes = presentTimes,
             )
         }
     DisposableEffect(monitor) {
@@ -206,7 +211,11 @@ internal fun BoxScope.HostPerformanceOverlay(configuredBackend: String, guestPro
                 if (expanded) {
                     Spacer(modifier = Modifier.padding(top = 1.dp))
                     HudDivider()
-                    MetricLine("FRAME", "P95 — ms · 1% LOW — FPS")
+                    MetricLine(
+                        "FRAME",
+                        "P95 ${stats.frameTimeP95Ms?.let { "%.1f".format(it) } ?: "—"} ms · " +
+                            "1% LOW ${stats.onePercentLowFps?.roundToInt() ?: "—"} FPS",
+                    )
                     MetricLine("COMPOSITOR", "GPU timing unsupported")
                     MetricLine("DISPLAY", "present timing unsupported")
                     MetricLine(
