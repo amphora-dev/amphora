@@ -21,7 +21,7 @@ scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台
 - `bench=none`：后端没起来，看截图里 AIO 的报错框和 `err=`。
 - 有 `bench` 也不等于有画面（见 §4 FF 那条：帧照常提交，方块没画），要看截图。
 - FPS 都卡在屏幕刷新率：交换链只有 FIFO / MAILBOX，win32u 把 IMMEDIATE 改成 FIFO，这些数字不代表性能。
-- 换驱动：先 `am force-stop app.amphora`，在 `shared_prefs/amphora_graphics.xml` 加 `<string name="adrenotools_driver_id">WN-Turnip-1.06-b</string>`（或 `System`），测完还原原文件；会话日志 `Launch graphics driver: configured=…`、DXVK 的 `Found device: … (Wrapper driver <版本>)` 确认实际驱动（Turnip 是 `26.2.99`，Qualcomm 是 `0.800.72`）。
+- 换驱动：先 `am force-stop app.amphora`，在 `shared_prefs/amphora_graphics.xml` 加 `<string name="adrenotools_driver_id">WN-Turnip-1.06-b</string>`（或 `System`），测完还原原文件；会话日志 `Launch graphics driver: configured=…`、DXVK 的 `Found device: … (Wrapper driver <版本>)` 确认实际驱动（Turnip 是 `26.2.99`，Qualcomm 是 `0.800.72`）。DXVK 版本同一文件的 `dxvk_flavor`（`dxvk` / `sarek`，不设 = auto），wine 日志 `DXVK: 3.0.2` 或 `DXVK-Sarek: v1.11.0-async` 确认。
 
 ## 2. 当前结果
 
@@ -40,7 +40,7 @@ scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台
 
 Turnip（`WN-Turnip-1.06-b`）只测了 vk / dx9 / dx11 / dx12 / ddraw2d：
 - **Y700 全过**，而且 dx9、32-bit ddraw2d 出方块 / 色条（FF 的 -13 是 Qualcomm 驱动的问题，Turnip 上没有）；dx12 同样能跑。
-- **6T 只有 vk 能跑**：WN-Turnip 在 A630 上不报 `storageBuffer16BitAccess`，DXVK 3.0.2 不收这个设备（`No adapters found`），vkd3d 同样起不来。6T 用 wrapper。
+- **6T 默认只有 vk 能跑**：WN-Turnip 在 A630 上不报 `storageBuffer16BitAccess`，DXVK 3.0.2 不收这个设备（`No adapters found`）。auto 只看 Vulkan 版本（Turnip 报 1.3），所以还是选了 3.0.2。手动设 `dxvk_flavor=sarek` 后 dx11 64 / dx9 32 / ddraw2d 32 都出画，58 / 58 / 59 fps（wrapper 下 32-bit ddraw2d 只有 24）；dx12 仍不行：vkd3d 在 Turnip A630 上建成了设备，但 dxgi 来自 Sarek，不认 D3D12 设备（`CreateSwapChainForHwnd: Unsupported device type`）。
 
 6T 自动选 DXVK-Sarek 1.11（Vulkan 1.1），Y700 选 DXVK 3.0.2-gplasync。⚠️ 空画面 = 有帧、有 bench，只有清屏色。Y700 把 `dxvk_flavor` 设成 `sarek` 后，dx9 / 32-bit dx7 / 32-bit ddraw2d 全部出方块和色条（v1.7.0 时测，dx8 当时同样）。帧率两台都卡在刷新率（Y700 144、6T 60；6T 32-bit dx7 35、ddraw2d 24）。System 驱动（平台 loader，不经层）在 Y700 上 vk / dx11 64 照常 144 fps。
 
@@ -59,7 +59,7 @@ AIO 2.1.0 与 v1.7.0 的差别：
 ## 4. 未解决
 
 - **Y700 D3D8/9 固定管线不出画（Qualcomm 驱动）**：DXVK 3.0.2-gplasync 的 FF VS/FS 管线在 Qualcomm 0.800.72 上 `vkCreateGraphicsPipelines` 返回 -13（`Failed to compile pipeline: -13`，每轮 1–2 条），清屏照常、方块不画。32-bit dx7 / ddraw2d 经 wrapper 落到 D3D9 FF，同样。Sarek 1.11 和 Turnip 都没这个问题。可选：Qualcomm 驱动上 D3D8/9 默认走 Sarek 或 Turnip，或者查 DXVK FF 着色器里驱动不收的写法。
-- **D3D12 在 6T**：wrapper 下仍缺 transform feedback（`Lacking support for transform feedback`），Turnip 又不给 DXVK / vkd3d 要的 16-bit storage。驱动能力，不是我们的链路。
+- **D3D12 在 6T**：wrapper 下仍缺 transform feedback（`Lacking support for transform feedback`）。Turnip 下 vkd3d 能建设备，但 3.0.2 的 dxgi 因缺 16-bit storage 枚举不到适配器，Sarek 的 dxgi 又不认 D3D12 设备，两条都走不通。
 - **Vulkan 窗口不能切后台**：Activity 进后台时容器 SurfaceView 销毁（`layer root destroyed`），宿主那一侧的 buffer serve 退出，guest 下一次 acquire 拿到 -5、重建交换链失败，vkcube 退出，会话随之结束。平台 loader 和层两条路径一样，未修。GDI 窗口不受影响（灭屏再亮屏会重挂层，见 [`02`](02-TRACKING.md) 2026-09-28 层序条目）。
 - **OpenGL**：`wineandroid.drv/opengl.c` 用 `EGL_PLATFORM_ANDROID_KHR` 调 imagefs 的 Mesa libEGL（原生 aarch64，Box64 直接转过去；构建只有 `-Dplatforms=x11`），`eglChooseConfig` 一个 config 都没有（`egldrv_init_pixel_formats Failed to get any configs`）。X11 时同一份 Mesa 走 EGL X11 平台 + zink + kopper（xcb surface 经 wrapper ICD）。wineandroid 上缺的是 Wine 的 GL 驱动这一段和 kopper 的出画目标，方案见 [`02`](02-TRACKING.md) 当前状态指针。64-bit DX7 走 wined3d GL，跟着不可用。
 - **6T 64-bit dx11 偶发卡首帧**：第二个交换链第一次 acquire 之后再没有 present，AIO 没写 bench（2026-09-28 dev 构建 4 轮里 1 次；发布组合那一轮正常），未查。
