@@ -417,8 +417,20 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
   - **Lenovo Y700 `HA262AAH` PASS**：64-bit vk / dx8 / dx9 / dx10 / dx11 bench 144 fps、`presents` 1145–1156，ddraw2d 144 fps；32-bit vk / dx7 / ddraw2d / dx8 / dx9 / dx10 / dx11 由建设备失败变为 142–144 fps、`presents` 1130–1157；vkcube 背景实测 (51,51,51) = 清屏色 RGB（改前 (81,140,170)），dx9 背景 (26,26,31)（改前 (104,160,193)）。无 FATAL。
   - **OnePlus 6T `5b1736c7` PASS**：32 / 64-bit 的 vk、dx8–dx11、ddraw2d、32-bit dx7 都出画（方块 / 色条），约 60 fps；64-bit dx11 有 1 轮卡在首帧（第二个交换链 acquire 后无 present），同版本另 3 轮正常，记为未解决。无 FATAL。
   - **仍不行**（详 [`09`](09-AIO-GRAPHICS-TEST.md) §4）：Y700 上 DXVK 3.0.2 的 D3D8/9 固定管线 `Failed to compile pipeline: -13`，只有清屏色（设 `dxvk_flavor=sarek` 后全部出画）；D3D12 卡驱动能力（Y700 Qualcomm 缺 single texel alignment、6T 缺 transform feedback），wineandroid 路径不认 Turnip 设置；OpenGL 与 64-bit DX7 因 EGL 无 config 不可用。
-  - 待办：imagefs 把 proton-wine `wip/aio-matrix` pin 到 main 发布 WCP、bump manifest，发布后两台用 `scripts/aio-smoke/aio-matrix.sh` 复验。
+  - **已发布**：amphora PR #18（main `53ddda5`，CI pin `app_update 0.1.0+258.53ddda5e`，content_manifest `54328f4`）；imagefs PR #23（main `66e0cd9`，proton-wine `wip/aio-matrix` @ `6512f18bd02`），`build-proton-wine` 全量重建后发布 `Proton-11.0-6512f18bd-x86_64.wcp`（66,338,721 B，sha256 `c2a5c6b3…`；元素描述和 dev 构建不同，所以不是逐字节相同），manifest `446d19b` 把 wine 指过去，旧 `11064b988` 资产按惯例被删。
 
 - **2026-09-28 · AIO 升到 2.1.0**（本提交 + content_manifest PR）：manifest 的 `winnative/Graphics-Test-{32,64}bit.exe`（cnb `amphora` 版，自报 v1.7.0）换成 GitHub `The412Banner/AIO-Graphics-Test` 2.1.0，key 改为 `aio-graphics-test/…`（落地文件名不变，开始菜单项照旧）；APK 里没用到的两份 exe 删掉。`RuntimeAssetProvisioner` 装完后删掉 manifest 不再 pin 的 runtime asset（连同 `.sha256` / `.part`），单测 3 条。2.x 把 bench 结果写到工作目录下的 `AIO Results/Benchmark/`，`aio-run.sh` 跟着改。
   - **Lenovo Y700 `HA262AAH` PASS**（本分支 APK，manifest 缓存换成该 PR 的内容，Proton 仍是已发布的 `11064b988`）：`Removed unpinned runtime asset winnative/Graphics-Test-{32,64}bit.exe` 及其 `.sha256` 共 4 行，`Staged Graphics-Test-32bit.exe (4367103 bytes)` / `Graphics-Test-64bit.exe (4289335 bytes)`；64-bit vk 出方块（截图），bench 143.96 fps、`presents=1156`；64-bit dx11 bench 144.01、`presents=1146`。32-bit dx9 仍 `VK_ERROR_FEATURE_NOT_PRESENT`、gl 仍无 EGL config，与这版 Proton 的已知状态一致（padding 修复随 `6512f18bd` 发布）。
   - 上线顺序：APK 先，manifest 后。新 APK 配旧 manifest 时只是容器里没有 AIO，不影响会话。
+  - **已发布**：amphora PR #19（main `b89d083`，CI pin `app_update 0.1.0+260.b89d083c`），content_manifest PR #4（`7097cb2`）。
+
+- **2026-09-28 · 发布组合复验**：APK `b89d083` + Proton `11.0-6512f18bd`（发布版）+ AIO 2.1.0，两台清掉 manifest 缓存后用 `scripts/aio-smoke/aio-matrix.sh HA262AAH 5b1736c7` 全矩阵；结果表见 [`09`](09-AIO-GRAPHICS-TEST.md) §2。
+  - 两台首轮都 `Removed unpinned runtime asset winnative/…`（4 行）、`Staged Graphics-Test-{32,64}bit.exe (4367103 / 4289335 bytes)`；6T 另有 `Removed unpinned Proton install 11.0-11064b988-x86_64-0`。
+  - **Lenovo Y700 `HA262AAH` PASS**：vk / dx10 / dx11 64 与 32-bit 144 fps 出方块；32-bit dx9 / dx7 / ddraw2d 142–144 fps（发布版 padding 修复生效），画面与 dev 构建时一致（FF 空画面，已知）；64-bit ddraw2d 144 fps 出色条。无 FATAL。
+  - **OnePlus 6T `5b1736c7` PASS**：vk / dx9 / dx10 / dx11 64 与 32-bit 约 60 fps 出方块，32-bit dx7 35、32 / 64-bit ddraw2d 24 / 60 出画；64-bit dx11 这一轮没卡首帧。无 FATAL。
+  - 两台 dx8 在 AIO 2.1.0 下都建不了设备：2.1.0 窗口模式填 `D3DPRESENT_INTERVAL_IMMEDIATE`，DXVK d3d8 按 D3D8 规则只收 `DEFAULT`（`D3DERR_INVALIDCALL`）。AIO 的问题，不是回归。
+  - gl / 64-bit dx7 / dx12 仍不行，同 [`09`](09-AIO-GRAPHICS-TEST.md) §4；6T 64-bit dx12 这一轮先报 `try_map_free_area mmap() … Out of memory`，之后同样是 `Lacking support for transform feedback`。
+
+
+- **2026-09-28 · HUD 显示 FPS**（本提交）：宿主 buffer serve 线程每次 `queueBuffer` 成功记一个 `CLOCK_MONOTONIC` 时间（512 项环，`wineandroid_host_anw.c`），JNI `nativeRecentPresentTimes` 取最近 2 s 内 present 最多的窗口；`PresentFrameStats` 算 FPS（区间数 / 跨度）、P95 帧时间、1% low（最慢 1% 帧时间的均值），最后一帧超过 1 s 视为停住，显示 `—`。单测 4 条。GDI 窗口不走这条路，不计入。
+  - **Lenovo Y700 `HA262AAH` PASS**（HUD 分支 APK，经 `app.amphora.debug.PERF_HUD`）：vk cube 时 HUD `144 FPS 6.9 ms`，与 AIO 自己的 bench 143.96 一致；dx11 bench 40 s 时展开行 `P95 9.4 ms · 1% LOW 92 FPS`，AIO 同一轮 CSV 算出 P95 9.3 ms（1% low 64：AIO 统计的是整整 40 s 自己的帧循环，最慢一帧约 24.6 ms；HUD 的 1% low 只看最近 2 s 的 queueBuffer 间隔，不是同一个量）；cube 窗口关掉后回到 `— FPS`。

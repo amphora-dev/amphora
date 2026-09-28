@@ -22,6 +22,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <poll.h>
+#include <time.h>
 
 #define LOG_TAG "WineAndroidHostAnw"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -103,6 +104,28 @@ struct serve_ctx {
     struct wine_native_buffer *buffers[NB_BUFFERS];
     int buffer_lru[NB_BUFFERS];
 };
+
+/* Present timeline for the HUD: CLOCK_MONOTONIC of every successful QUEUE on
+ * any window (the same clock as Java's System.nanoTime). A ring of the last
+ * PRESENT_RING presents covers ~3.5 s at 144 fps. */
+#define PRESENT_RING 512
+static struct {
+    int32_t hwnd;
+    int64_t ns;
+} g_presents[PRESENT_RING];
+static uint32_t g_present_count;
+static pthread_mutex_t g_present_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void record_present(int hwnd)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    pthread_mutex_lock(&g_present_lock);
+    g_presents[g_present_count % PRESENT_RING].hwnd = hwnd;
+    g_presents[g_present_count % PRESENT_RING].ns = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    g_present_count++;
+    pthread_mutex_unlock(&g_present_lock);
+}
 
 static int write_full(int fd, const void *buf, size_t len)
 {
@@ -786,6 +809,7 @@ static void *serve_thread(void *arg)
                 saw_queue = 1;
                 queue_ret = ret;
                 ctx->queue_n++;
+                if (!ret) record_present(ctx->hwnd);
             }
             if (ret || !queue || ctx->queue_n <= 8 || ctx->queue_n % 600 == 0)
                 LOGI("serve %s hwnd=%08x id=%d gen=%d/%d fence=%d ret=%d queued=%u",
@@ -994,6 +1018,55 @@ void amphora_host_anw_stop_serve(void *serve_ptr)
         /* serve thread closes ctx->sock on exit; shutdown to unblock read */
         shutdown(fd, SHUT_RDWR);
     }
+}
+
+/* Present times (CLOCK_MONOTONIC ns, ascending) at or after sinceNs for the
+ * window that presented most in that span; empty when nothing presented. */
+JNIEXPORT jlongArray JNICALL
+Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeRecentPresentTimes(
+    JNIEnv *env, jclass clazz, jlong sinceNs)
+{
+    enum { MAX_WINDOWS = 16 };
+    int32_t hwnds[PRESENT_RING];
+    jlong times[PRESENT_RING];
+    int32_t window_ids[MAX_WINDOWS];
+    uint32_t window_counts[MAX_WINDOWS];
+    uint32_t n = 0, windows = 0, i, w, best = 0, count, start;
+    int32_t best_hwnd = 0;
+    jlongArray result;
+    (void)clazz;
+
+    /* Copy under the lock; QUEUE threads only ever wait for this memcpy-sized loop. */
+    pthread_mutex_lock(&g_present_lock);
+    count = g_present_count < PRESENT_RING ? g_present_count : PRESENT_RING;
+    start = g_present_count - count;
+    for (i = 0; i < count; i++) {
+        uint32_t slot = (start + i) % PRESENT_RING;
+        if (g_presents[slot].ns < sinceNs) continue;
+        hwnds[n] = g_presents[slot].hwnd;
+        times[n] = (jlong)g_presents[slot].ns;
+        n++;
+    }
+    pthread_mutex_unlock(&g_present_lock);
+
+    for (i = 0; i < n; i++) {
+        for (w = 0; w < windows && window_ids[w] != hwnds[i]; w++) {}
+        if (w == windows) {
+            if (windows == MAX_WINDOWS) continue;
+            window_ids[windows] = hwnds[i];
+            window_counts[windows++] = 0;
+        }
+        if (++window_counts[w] > best) {
+            best = window_counts[w];
+            best_hwnd = hwnds[i];
+        }
+    }
+    count = 0;
+    for (i = 0; i < n; i++)
+        if (hwnds[i] == best_hwnd) times[count++] = times[i];
+    result = (*env)->NewLongArray(env, (jsize)count);
+    if (result && count) (*env)->SetLongArrayRegion(env, result, 0, (jsize)count, times);
+    return result;
 }
 
 JNIEXPORT jlong JNICALL

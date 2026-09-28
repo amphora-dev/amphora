@@ -133,7 +133,7 @@ X11 会话链删于 `5909b50`，删前最后状态是 tag **`x11-reference`**（
 | 退出确认 / 会话结束遮罩 | `GameSessionOverlays.kt` `ExitSessionConfirmationDialog`、`SessionEndingOverlay` | ⚠️ | 返回键弹 AlertDialog 确认（文案同旧版）已补；结束遮罩未做 |
 | 暂停 / 恢复 | `GameSessionCoordinator.kt`、`PendingSessionActions` | ⚠️ 只有 Activity `onPause`/`onResume` | |
 | 帧率限制 | `GameSessionRuntimeDrawer.kt` `sessionFrameLimitHint`、`FPS_LIMITS` | ⚠️ | guest 侧 `DXVK_FRAME_RATE` 已生效（6T 实测 30 fps）；宿主刷新率对齐已接（`WineAndroidSessionActivity` → `RefreshRateUtils`，档位不超过用户的峰值刷新率设置；Y700 限 30 / 60 / 关 实测 30 / 60 / 144 Hz）；会话内切换未做（随会话抽屉） |
-| 性能 HUD（FPS / 帧时间 / CPU 核频率 / GPU / 温度 / 电池 / guest 进程） | `gamesession/HostPerformanceMonitor.kt`、`HostPerformanceParser.kt`、`GameSessionPerformanceHud.kt` | ✅（FPS 缺） | 已搬到 `WineAndroidSessionActivity`（ComposeView 叠层，设置开关或 `app.amphora.debug.PERF_HUD`）；帧率 / 帧时间依赖 X11 Present 回调，wineandroid 尚无帧统计，显示 `—` |
+| 性能 HUD（FPS / 帧时间 / CPU 核频率 / GPU / 温度 / 电池 / guest 进程） | `gamesession/HostPerformanceMonitor.kt`、`HostPerformanceParser.kt`、`GameSessionPerformanceHud.kt` | ✅ | 已搬到 `WineAndroidSessionActivity`（ComposeView 叠层，设置开关或 `app.amphora.debug.PERF_HUD`）；FPS / P95 帧时间 / 1% low 来自宿主 `queueBuffer` 时间（`wineandroid_host_anw.c` 的 present 环，取最近 2 s 内 present 最多的那个窗口，`PresentFrameStats`）；合成器 GPU 时间与显示时序仍无来源 |
 
 X11 专有管道（`XServerSessionHandle`、`XServerInputSink`、`GameSessionSurface`、`StubInputSink`、`DisplayBackend`）不需要对齐。
 

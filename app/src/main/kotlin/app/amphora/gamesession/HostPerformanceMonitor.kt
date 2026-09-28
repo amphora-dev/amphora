@@ -48,6 +48,8 @@ internal class HostPerformanceMonitor(
     context: Context,
     private val configuredBackend: String,
     private val guestProcessId: StateFlow<Int?>,
+    /** Present times (System.nanoTime clock) at or after the given time, ascending. */
+    private val presentTimes: (sinceNs: Long) -> LongArray = { LongArray(0) },
     // Constructor-injected so JVM tests can drive sampling on a test dispatcher.
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -171,11 +173,15 @@ internal class HostPerformanceMonitor(
             lastDetailSampleMs = nowWall
         }
 
+        val nowNs = System.nanoTime()
+        val frames =
+            runCatching { PresentFrameStats.compute(presentTimes(nowNs - PresentFrameStats.WINDOW_NS), nowNs) }
+                .getOrNull()
+
         return HostPerformanceStats(
-            // wineandroid exposes no frame-present telemetry yet; frame fields stay empty.
-            fps = 0f,
-            frameTimeP95Ms = null,
-            onePercentLowFps = null,
+            fps = frames?.fps ?: 0f,
+            frameTimeP95Ms = frames?.frameTimeP95Ms,
+            onePercentLowFps = frames?.onePercentLowFps,
             compositorGpuMs = null,
             displayFps = null,
             presentIntervalMs = null,

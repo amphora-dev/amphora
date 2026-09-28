@@ -50,4 +50,11 @@ object WineAndroidNative {
      * @return false if code point invalid or event pipe not ready.
      */
     external fun nativeSendUnicodeChar(hwnd: Int, codePoint: Int): Boolean
+
+    /**
+     * Times (`System.nanoTime` clock, ascending) of the presents at or after
+     * [sinceNs] on the window that presented most in that span — the game's
+     * swapchain when one is running. Empty when nothing presented.
+     */
+    external fun nativeRecentPresentTimes(sinceNs: Long): LongArray
 }
