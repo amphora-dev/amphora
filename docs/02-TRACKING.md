@@ -434,3 +434,12 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 - **2026-09-28 · HUD 显示 FPS**（本提交）：宿主 buffer serve 线程每次 `queueBuffer` 成功记一个 `CLOCK_MONOTONIC` 时间（512 项环，`wineandroid_host_anw.c`），JNI `nativeRecentPresentTimes` 取最近 2 s 内 present 最多的窗口；`PresentFrameStats` 算 FPS（区间数 / 跨度）、P95 帧时间、1% low（最慢 1% 帧时间的均值），最后一帧超过 1 s 视为停住，显示 `—`。单测 4 条。GDI 窗口不走这条路，不计入。
   - **Lenovo Y700 `HA262AAH` PASS**（HUD 分支 APK，经 `app.amphora.debug.PERF_HUD`）：vk cube 时 HUD `144 FPS 6.9 ms`，与 AIO 自己的 bench 143.96 一致；dx11 bench 40 s 时展开行 `P95 9.4 ms · 1% LOW 92 FPS`，AIO 同一轮 CSV 算出 P95 9.3 ms（1% low 64：AIO 统计的是整整 40 s 自己的帧循环，最慢一帧约 24.6 ms；HUD 的 1% low 只看最近 2 s 的 queueBuffer 间隔，不是同一个量）；cube 窗口关掉后回到 `— FPS`。
+
+
+- **2026-09-28 · 窗口层序改为显式 SurfaceControl；Vulkan 窗口的边框不再丢**（本提交 + proton-wine `wip/client-window-frame` @ `2fd246cfc36`）：
+  - 现象（Y700）：AIO 的 bench 结果弹窗被挡在 3D 画面后面；有时 3D 窗口没有标题栏和边框。
+  - 弹窗：每个 client（Vulkan）SurfaceView 都设了 `setZOrderMediaOverlay(true)`，SurfaceFlinger 把它放在同一窗口所有普通 SurfaceView 之上，与 Win32 z-order 无关；同一子层的 SurfaceView 之间又按创建顺序排，`bringChildToFront` 管不到。现在每个 HWND 的 buffer 是一个 `SurfaceControl` 层，全部挂在一个容器 SurfaceView（`layerHost`）下，`syncLayers()` 在布局后按 View 树先序给每层设 z、`setGeometry` 和祖先裁剪（`WineAndroidLayerGeometry`，单测 4 条）；buffer 尺寸用 `Transaction.setBufferSize`，同一 Surface 重新注册时 native 只发 `SURFACE_CHANGED`。层名改为 `amphora-gdi-<hwnd>` / `amphora-client-<hwnd>`，`aio-run.sh` / `present-check.sh` 按 `amphora-client-` 数 SF 帧。
+  - 边框：win32u 在窗口有 client surface 后（`clip_clients`）直接丢掉该窗口的 window surface（`window_clip_client_surfaces`）。winex11 上 GDI 还能直接画到 X 窗口，wineandroid 上没有别处可画；client surface 抢在第一次 flush 之前挂上，标题栏就永远不出（`+win` 追踪：`nc_paint 0x10054` 画了两次，但这个 surface 一次 `Flushing` 都没有，随后 `apply_window_pos … -> 0x0`）。`AMPHORA_WINEANDROID=1` 时保留 window surface；客户区仍不经 GDI 画（`SET_WINPOS_PIXEL_FORMAT`），client 层在它上面。上游 master 没有这段裁剪。
+  - 两边改动互不依赖，没有上线顺序要求。验证用的 Proton 是 dev 主机本地构建的 `Proton-11.0-2fd246cfc-x86_64.wcp`（sha256 `ec14b819…`），经 dev pin 装到两台。
+  - **Lenovo Y700 `HA262AAH` PASS**：vk / dx11 窗口都有标题栏和边框；bench 结束的结果弹窗在 dx11 / vk 画面之上，点 OK 命中弹窗（`motion … hit=<弹窗 hwnd>`）并退出；vk / dx11 / ddraw2d 64 位 144 fps，client 层 SF 帧 1154 / 1144（`presents` 1156 / 1147）；桌面 + Start 菜单出画；灭屏再亮屏后 `layer root destroyed` → `created; attaching 21 window layers`，画面恢复。无 FATAL。
+  - **OnePlus 6T `5b1736c7` PASS**：vk / dx11 / ddraw2d 64 位约 58–60 fps 出画，有标题栏；client 层 SF 帧 463 / 462（`presents` 464 / 464）。无 FATAL。

@@ -107,7 +107,7 @@ grep -E '^# (AIO|frames|avg)' "$OUT.csv" | sed 's/^# //' | paste -sd ' ' -
 grep -E 'AHB_SC create ' "$OUT.log" | grep -v cancel | sed -E 's/.*(AHB_SC create )/\1/; s/ (sc|surface)=0x[0-9a-f]+//' | sort | uniq -c | head -2
 grep -oE 'AHB_SC destroy .*' "$OUT.log" | sed -E 's/ sc=0x[0-9a-f]+//' | tail -2
 sf=$(awk '/^layerName =/{n=$3" "$4} /^totalFrames =/{t=$3}
-  /^averageFPS =/{if(n ~ /SurfaceView\[app.amphora/) print t}' "$OUT.ts" | sort -rn | head -1)
+  /^averageFPS =/{if(n ~ /amphora-client-/) print t}' "$OUT.ts" | sort -rn | head -1)
 fatal=$(grep -cE 'FATAL EXCEPTION|Fatal signal' "$OUT.log")
 bench=$(grep -oE 'avg_fps,[0-9.]+' "$OUT.csv" | cut -d, -f2)
 presents=$(grep -oE 'AHB_SC destroy .*presents=[0-9]+' "$OUT.log" | grep -oE 'presents=[0-9]+' | cut -d= -f2 | sort -rn | head -1)

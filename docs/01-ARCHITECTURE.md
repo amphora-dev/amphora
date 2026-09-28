@@ -2,7 +2,7 @@
 
 > **架构真源**：本文档是 Amphora 现行工程实现的唯一架构真源。  
 > 进度真源见 [`02-TRACKING.md`](02-TRACKING.md)；资产清单见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md)；立项决议见 [`research/01-RFC.md`](research/01-RFC.md)。  
-> **当前状态（2026-09-25）**：采用 **WineAndroid 宿主**出画（Android 原生 SurfaceView + 嵌套 WindowGroup）与 **Vulkan AHB 导入零拷贝**渲染；旧版 X11 会话链已删除。
+> **当前状态（2026-09-25）**：采用 **WineAndroid 宿主**出画（每 HWND 一个 SurfaceControl 层 + 嵌套 WindowGroup）与 **Vulkan AHB 导入零拷贝**渲染；旧版 X11 会话链已删除。
 
 ---
 
@@ -10,7 +10,7 @@
 
 Amphora 是一款模块化、高可维护性的 Android 平台 Windows/Wine 模拟器：
 - **内核封装**：`:core:engine` 承载核心运行时逻辑，上层应用与业务功能仅通过 `ContainerManager` / `ContentSource` / `RootfsInstaller` / `WineSessionPreparer` 等标准化接口与运行时交互；会话启动经 `SessionLaunch` 直达 `WineAndroidSessionActivity`；
-- **原生宿主出画**：抛弃了传统模拟器繁重且损耗性能的内置 X11 服务，默认走 Android 原生 `SurfaceView` 窗口体系与 SurfaceFlinger 硬件多层合成；
+- **原生宿主出画**：抛弃了传统模拟器繁重且损耗性能的内置 X11 服务，每个 HWND 是一个 `SurfaceControl` 层，由 SurfaceFlinger 硬件多层合成，层序跟随 Win32 窗口栈；
 - **图形零拷贝**：游戏 3D 渲染通过 `amphora_wsi` 桥接将 Android Hardware Buffer (AHB) 零拷贝直接注入系统 Vulkan Swapchain；
 - **内容受控交付**：Wine、Box64、DXVK 等二进制运行时组件与驱动均通过 `RemoteContentSource` 按照 SHA-256 强校验在设备端按需下载安装。
 
@@ -72,7 +72,7 @@ WineAndroidSessionActivity 启动时序：
      - 通过 /system/bin/linker64 libamphora-exec.so 启动 guest：
        box64 wine explorer /desktop=shell,WxH "C:\<exe>"
   4. 双轨画面呈现与交互打通：
-     - 2D GDI 窗口：wineandroid.drv 通过 ANativeWindow 直接绘制到 SurfaceView；
+     - 2D GDI 窗口：wineandroid.drv 通过 ANativeWindow 直接绘制到该 HWND 的 SurfaceControl 层；
      - 3D Vulkan 游戏：经 amphora_wsi 导入 AHardwareBuffer 实现零拷贝 Present 送显；
      - 交互输入：触控 MotionEvent、物理键盘、软键盘 IME 与光标 PointerIcon 实时分发。
 ```
@@ -86,7 +86,7 @@ WineAndroidSessionActivity 启动时序：
 ### 4.1 现行真源：WineAndroid 原生宿主（详见 [`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)）
 
 1. **2D 桌面与普通应用（GDI 路径）**：
-   - 每个 Windows HWND 对应宿主的一块 `SurfaceView`，包在嵌套的 `WindowGroup` 中；
+   - 每个 Windows HWND 对应宿主的一个 `SurfaceControl` 层（都挂在同一个容器 SurfaceView 下），布局和输入走嵌套的 `WindowGroup`；层序按 View 树先序显式设置（`WineAndroidLayerGeometry`）；
    - 子窗口坐标严格遵循 win32u 的 `visible_rect`（相对父客户区坐标）；
    - `wineandroid_host_ipc.c` 指定 `api=NATIVE_WINDOW_API_CPU(2)`，利用 CPU buffer 绘制，最终由 Android 系统的 **SurfaceFlinger** 统一硬件多层合成；
    - 保持标准的 **PF_RGBA_8888** 格式，颜色通过宿主软件 R/B 交换修正（严禁设 BGRA=5 导致闪退）。
@@ -131,6 +131,6 @@ WineAndroidSessionActivity 启动时序：
 
 ## 7. 关键设计守则与红线
 
-1. **GDI 壳层严禁引入 CreateSwapchain 或私有 host.sock**：桌面与 2D 窗口必须走标准 `wineandroid` SurfaceView 挂载；
+1. **GDI 壳层严禁引入 CreateSwapchain 或私有 host.sock**：桌面与 2D 窗口必须走标准 `wineandroid` 窗口挂载（每 HWND 一个 SurfaceControl 层）；
 2. **游戏 3D 呈现必须保留 AHB Import CreateSwapchain**：绝不可退回软拷贝或已被清除的 HostVk 冗余路径；
 3. **主分支与代码规范**：开发推前必须执行 `./gradlew spotlessCheck :app:testDebugUnitTest` 保证持续集成 (CI) 始终为绿灯。

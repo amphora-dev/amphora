@@ -102,6 +102,6 @@ grep -oE 'AHB_SC acquire: .*' "$OUT" | sort -u | head -2
 grep -oE 'serve DEQUEUE .*release_fences=[0-9]+' "$OUT" | tail -1
 echo "fatal=$(grep -cE 'FATAL EXCEPTION|Fatal signal' "$OUT") prepare_failed=$(grep -c 'prepare failed' "$OUT")"
 awk '/^layerName =/{n=$3" "$4} /^totalFrames =/{t=$3} /^droppedFrames =/{d=$3}
-  /^averageFPS =/{if(n ~ /SurfaceView\[app.amphora/) print "sf totalFrames="t" dropped="d" fps="$3}' "$OUT.ts" |
+  /^averageFPS =/{if(n ~ /amphora-client-/) print "sf totalFrames="t" dropped="d" fps="$3}' "$OUT.ts" |
   sort -t= -k2 -rn | head -1
 grep -oE 'Proton-[0-9.]+-[0-9a-f]{9}' "$OUT" | sort | uniq -c | sort -rn | head -2

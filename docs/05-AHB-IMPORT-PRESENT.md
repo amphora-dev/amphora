@@ -87,7 +87,7 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 | 呈现模式 | FIFO / FIFO_RELAXED → swap interval 1，其余 → 0 | FIFO 由 dequeue 按 vsync 节流；MAILBOX 替换未锁存的帧 |
 | 并发 | `wsi-sc` 每个请求一个线程 | Acquire 可能阻塞在宿主 dequeue，不能卡住其他交换链的 Present / Destroy |
 | 队列配置 | 重连后 `SET_USAGE 0xB00`（TEXTURE / RENDER / COMPOSER）、`SET_BUFFERS_FORMAT`（按交换链格式：R8G8B8A8 → RGBA_8888，A2B10G10R10 → RGBA_1010102，R16G16B16A16_SFLOAT → RGBA_FP16，R5G6B5 → RGB_565）、`SET_BUFFERS_DIMENSIONS` = 交换链 extent、`SCALE_TO_WINDOW` | 断开重连会清掉这些；导入时 VkImage 格式取自 buffer，不设格式时 10-bit 交换链（Adreno 8xx 上 D3D8/9 会选）的像素写进 8888 buffer，画面发白、半透明；AHB 导入要求图像与 buffer 尺寸一致，Surface 尺寸暂时不同（resize 途中）时由合成器缩放 |
-| 宿主视图 | client（Vulkan）SurfaceView 按 `clientRect` 布局、`setFixedSize` 成客户区尺寸，格式 `PixelFormat.OPAQUE` | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图。Windows 忽略交换链的 alpha，图层标不透明后 SurfaceFlinger 也忽略（之前按 RGBA_8888 半透明合成，vkcube 的 α=0.2 清屏色透出桌面） |
+| 宿主视图 | client（Vulkan）层按 `clientRect` 布局、buffer 设成客户区尺寸，建成不透明（`setOpaque(true)`） | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图。Windows 忽略交换链的 alpha，图层标不透明后 SurfaceFlinger 也忽略（之前按 RGBA_8888 半透明合成，vkcube 的 α=0.2 清屏色透出桌面） |
 | 呈现 fence | 每个宿主 device 一个 `VkExportSemaphoreCreateInfo(SYNC_FD)` 信号量，present 提交时 signal、`vkGetSemaphoreFdKHR` 导出（导出即复位）；fd 在 box64 同进程里按整数传给 libamphora_wsi，再 SCM_RIGHTS 给宿主 `queueBuffer(fence)` | 替掉每帧 `vkQueueWaitIdle`，和 AOSP 把 release fence 交给 queueBuffer 一致；只有 q50/q100 回读帧在 guest 侧等 fence |
 
 | Acquire fence | 宿主 `CMD_DEQUEUE_FENCE` 在回复前先发 int32 + release fence（SCM_RIGHTS）；libamphora_wsi 对 app 的信号量 / fence 做 `vkImportSemaphoreFdKHR` / `vkImportFenceFdKHR`（SYNC_FD、TEMPORARY，fd -1 = 已释放），不提交；win32u 开 `VK_KHR_external_fence(_fd)` | 同 AOSP / Mesa。取代原来"记在 win32u 一个全局槽、下次提交补空提交"：那个会被多交换链互相覆盖、可能提交到别的 device 的队列、提交前等 acquire fence 会一直等 |
@@ -144,7 +144,7 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 为保证渲染管线的纯粹与高性能，以下行为被严格禁止：
 
 1. **严禁恢复任何形式的中间拷贝**：严禁引入 `ImageReader`、CPU 内存拷贝（如 `AMPHORA_CPU_FILL`）或主机端无谓的纹理复制（HostVk Blit）来假装出画。
-2. **严禁退回 X11 内层渲染**：游戏 3D 渲染必须直接跑在宿主 SurfaceView 与 AHB 零拷贝链路上。
+2. **严禁退回 X11 内层渲染**：游戏 3D 渲染必须直接跑在宿主 client 层与 AHB 零拷贝链路上。
 3. **禁止竞态 GPU 提交**：严禁在 IPC 独立线程上直接操作 Vulkan 渲染队列。
 4. **禁止猜测私有驱动布局**：不得依靠硬编码偏移猜测高通/联发科私有 GraphicBuffer 内部结构。
 
@@ -168,7 +168,7 @@ adb shell am start -n app.amphora/.MainActivity \
 # 等 presents>0 的那条 AHB_SC destroy。DXVK 可能先建一个空交换链再重建，也可能只建一个，
 # 所以别数 destroy 次数（只建一个时"等第二次 destroy"会一直等到超时）
 adb logcat -e 'AHB_SC destroy .*presents=[1-9]' -m 1
-adb shell dumpsys SurfaceFlinger --timestats -dump    # 看 SurfaceView[app.amphora/…](BLAST) 的 totalFrames
+adb shell dumpsys SurfaceFlinger --timestats -dump    # 看 `[BBQ] amphora-client-<hwnd>` 的 totalFrames
 adb shell dumpsys SurfaceFlinger --timestats -disable
 ```
 
@@ -176,5 +176,5 @@ adb shell dumpsys SurfaceFlinger --timestats -disable
 - [x] 日志中必须输出 `AHB_SC create images=<N> import=ok`（N 见 §2.3，6T 为 3，Y700 为 6）；
 - [x] 日志必须连续输出 `Present frame=... hr=0x00000000` 且帧数稳定超过 **50** 帧；
 - [x] 显存回读采样（guest readback）必须持续为纯正品红色（`CLASS=MAGENTA`）；
-- [x] **帧真的送到屏幕**：跑前 `dumpsys SurfaceFlinger --timestats -enable -clear`，跑完 `--timestats -dump`，游戏窗口那层 `SurfaceView[app.amphora/…](BLAST)` 的 `totalFrames` 应接近 `AHB_SC destroy … presents=<n>`（修复前是 4 / 175，修复后 173 / 175）。只看回读和静态品红画面发现不了帧没上屏。同一行的 `fenced=<m>` 在支持 op 7 的 Proton 上应等于 `presents`，为 0 说明退回了 QueueWaitIdle；`imported=` 在支持 op 8 的 Proton 上应等于 `acquires`，为 0 说明 acquire 走了延迟空提交；
+- [x] **帧真的送到屏幕**：跑前 `dumpsys SurfaceFlinger --timestats -enable -clear`，跑完 `--timestats -dump`，游戏窗口那层 `[BBQ] amphora-client-<hwnd>` 的 `totalFrames` 应接近 `AHB_SC destroy … presents=<n>`（修复前是 4 / 175，修复后 173 / 175）。只看回读和静态品红画面发现不了帧没上屏。同一行的 `fenced=<m>` 在支持 op 7 的 Proton 上应等于 `presents`，为 0 说明退回了 QueueWaitIdle；`imported=` 在支持 op 8 的 Proton 上应等于 `acquires`，为 0 说明 acquire 走了延迟空提交；
 - [x] 手机屏幕左上角窗口必须肉眼可见品红色矩形，画面无闪烁、无撕裂、无无响应崩溃（ANR）。

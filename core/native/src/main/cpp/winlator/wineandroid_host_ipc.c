@@ -1867,8 +1867,14 @@ Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeRegisterSurface
         return JNI_FALSE;
     }
     if (data->parent == (struct wine_native_window *)win) {
+        /* Same Surface (our SurfaceControl layers keep theirs): only the buffer
+         * size moved. Tell Wine the new size without reconnecting. */
         ANativeWindow_release(win);
+        data->parent->query(data->parent, 0, &w); /* NATIVE_WINDOW_WIDTH */
+        data->parent->query(data->parent, 1, &h); /* NATIVE_WINDOW_HEIGHT */
+        send_surface_changed_event(hwnd, opengl ? 1 : 0, (unsigned)w, (unsigned)h);
         pthread_mutex_unlock(&g_lock);
+        LOGI("registerSurface hwnd=%08x opengl=%d %dx%d same surface (size only)", hwnd, (int)opengl, w, h);
         return JNI_TRUE;
     }
     if (data->parent) {
