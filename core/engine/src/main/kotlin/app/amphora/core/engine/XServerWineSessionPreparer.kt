@@ -1429,7 +1429,7 @@ class XServerWineSessionPreparer @Inject constructor(
      * by `metadata/startmenu.json`.
      *
      * RuntimeAssetProvisioner downloads and verifies the source files before
-     * preparation. The shared applied-asset marker prevents rewriting ~4.7 MB
+     * preparation. The shared applied-asset marker prevents rewriting ~8.7 MB
      * on every launch while still replacing binaries when the source SHA moves.
      */
     private fun stageGraphicsTestExes(container: Container) {
@@ -1631,8 +1631,8 @@ class XServerWineSessionPreparer @Inject constructor(
         /** Mesa's opt-in to kopper on an X server without a DRI3 render device. */
         private const val KOPPER_DRI2 = "LIBGL_KOPPER_DRI2"
         private val GRAPHICS_TEST_ASSETS = arrayOf(
-            "winnative/Graphics-Test-32bit.exe",
-            "winnative/Graphics-Test-64bit.exe",
+            "aio-graphics-test/Graphics-Test-32bit.exe",
+            "aio-graphics-test/Graphics-Test-64bit.exe",
         )
         private val DXWRAPPER_DLLS = arrayOf(
             "d3d10.dll", "d3d10_1.dll", "d3d10core.dll",

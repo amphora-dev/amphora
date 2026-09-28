@@ -54,8 +54,8 @@ a shell am force-stop "$PKG"
 a shell svc power stayon usb
 a shell input keyevent KEYCODE_WAKEUP
 a shell wm dismiss-keyguard
-# AIO writes its results into the guest working directory (the imagefs root).
-a shell "run-as $PKG sh -c 'rm -f files/imagefs/AIO-Graphics-Test_*; : > files/wine_stderr.log'" 2>/dev/null
+# AIO 2.x writes its results under "AIO Results/" in the guest working directory (the imagefs root).
+a shell "run-as $PKG sh -c 'rm -rf \"files/imagefs/AIO Results\"; : > files/wine_stderr.log'" 2>/dev/null
 a shell dumpsys SurfaceFlinger --timestats -disable -clear >/dev/null
 a logcat -c
 a shell dumpsys SurfaceFlinger --timestats -enable -clear >/dev/null
@@ -98,7 +98,7 @@ a shell dumpsys SurfaceFlinger --timestats -dump | tr -d '\r' >"$OUT.ts"
 a shell dumpsys SurfaceFlinger --timestats -disable >/dev/null
 a logcat -d >"$OUT.log"
 a shell "run-as $PKG cat files/wine_stderr.log" >"$OUT.wine.log" 2>/dev/null
-a shell "run-as $PKG cat files/imagefs/AIO-Graphics-Test_bench.csv" 2>/dev/null | tr -d '\r' >"$OUT.csv"
+a shell "run-as $PKG cat 'files/imagefs/AIO Results/Benchmark/AIO-Graphics-Test_bench.csv'" 2>/dev/null | tr -d '\r' >"$OUT.csv"
 a shell am force-stop "$PKG"
 
 echo "== $S $BITS-bit $API args='$ARGS' pid=${pid:-none} exited=${exited:-no}" \

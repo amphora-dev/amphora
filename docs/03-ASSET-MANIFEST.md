@@ -423,7 +423,7 @@ ADRENOTOOLS_HOOKS_PATH / host hookLibDir = imagefs/usr/lib
 | 同上 | ~~官方 `imagefs.tzst` / `wrapper.tzst` / `extra_libs.tzst`~~ | — | — | — | ⛔ 已由 amphora-dev 自建或废止 |
 | **`WinNative-Emu/Drivers`** | `WN-Turnip-*.zip` | 可选驱动 | 2.7 MB | `contents/adrenotools/<id>/` | ⚪ 可选 |
 | **`amphora-assets`（cnb）** | 历史镜像设想 | — | — | — | ⛔ **不再阻塞**（生产 = GitHub Release + `content_manifest` / GitHub API）|
-| **`aio-graphics-test`**（cnb）| 图形自测 PE | 测试 | 小 | 容器 `drive_c` | ✅ |
+| **`The412Banner/AIO-Graphics-Test`**（GitHub Release）| 图形自测 PE 2.1.0 | 测试 | 8.7 MB | 容器 `drive_c` | ✅ |
 
 ### 按落地根（覆盖域视角）
 
@@ -539,19 +539,17 @@ shasum -a 256 app/src/main/assets/imagefs.tzst   # 须 = 0902e324...
 
 开始菜单中的 32/64 位图形诊断程序由 `content_manifest.json` 的
 `runtimeAssets` 固定（设备端按 `remoteUrl` 下载校验后复制到 Wine
-`ProgramData/Microsoft/Windows`）。当前 pin 是 cnb `atowerlight/aio-graphics-test`
-release `amphora`（二进制内版本串 `v1.7.0`，CLI：`--cube vk|gl|dx7|ddraw2d|dx8|dx9|dx10|dx11|dx12`
-`--no-menu --bench <s> --autoclose <s>` 等），不是上游 2.1.0：
+`ProgramData/Microsoft/Windows`，文件名取 assetPath 的最后一段，与
+`metadata/startmenu.json` 对应）。pin 是上游 GitHub `The412Banner/AIO-Graphics-Test`
+tag `2.1.0`（CLI：`--cube vk|gl|dx7|ddraw2d|dx8|dx9|dx10|dx11|dx12`
+`--no-menu --bench <s> --autoclose <s>`，另有 `--gpuinfo` 导出 GL / Vulkan 适配器信息）：
 
 | 资产 | SHA-256 | 大小 | source |
 |---|---|---:|---|
-| `winnative/Graphics-Test-32bit.exe` | `75589dc37b72d509e23c9c3c043fdf8e03855e5d2f1ec846efe2672662719306` | 2,083,443 | cnb `atowerlight/aio-graphics-test` release `amphora` (`AIO-Graphics-Test-32bit.exe`) |
-| `winnative/Graphics-Test-64bit.exe` | `96d76d077139ef469eff31efbc75cd9202b99bf2906b97e3c5de07dc350f5c57` | 2,065,494 | cnb `atowerlight/aio-graphics-test` release `amphora` (`AIO-Graphics-Test-64bit.exe`) |
+| `aio-graphics-test/Graphics-Test-32bit.exe` | `d8fa9b02d1881cb1c65f0192aa5f209a3e9c80214e1e74f93e704a6a859b4367` | 4,367,103 | release `2.1.0` `AIO-Graphics-Test-32bit.exe` |
+| `aio-graphics-test/Graphics-Test-64bit.exe` | `1c27a4a71214ad3bc4e605acf4ed64098ce66cb4b65cfbd4ea6b1e016ffbb2c3` | 4,289,335 | release `2.1.0` `AIO-Graphics-Test-64bit.exe` |
 
-`core/content/src/main/assets/winnative/` 里是上游 **2.1.0**
-（`d8fa9b02…` / `1c27a4a7…`，GitHub `The412Banner/AIO-Graphics-Test` tag `2.1.0`），
-`ea9a38f` 换了 APK 资产但没 bump manifest，会话里实际用的是上面 manifest 那份。
-真机矩阵与判读见 [`09`](09-AIO-GRAPHICS-TEST.md)。
+APK 不带副本。真机矩阵与判读见 [`09`](09-AIO-GRAPHICS-TEST.md)。
 
 > `proton-9.0-x86_64.txz` (Wine/Proton 主二进制) 在 WinNative assets 内**未见** -- 走 build.gradle `downloadProton` 任务从 GitLab 下载 (见 §3)。Amphora 生产路径由 `RemoteContentSource` 在设备上下载并校验 manifest 中固定的 Proton WCP，不再要求 build 时打入 APK。
 

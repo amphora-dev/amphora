@@ -14,9 +14,12 @@ import java.io.IOException
  * Order per entry:
  * 1. Trust an already-verified file under `filesDir/runtime-assets/` that
  *    matches the **effective** catalog pin ([ContentCatalog] ⊕ [DevPinOverlay]).
- * 2. Copy from the APK asset of the same relative path when present (offline
- *    fallback for patched AIO Graphics Test PEs).
+ * 2. Copy from the APK asset of the same relative path when present (content
+ *    staged into the APK by `stageBundledContent`).
  * 3. Fall back to HTTPS download via [VerifiedAssetDownloader].
+ *
+ * Afterwards, files that belong to no pinned asset path are deleted, so a pin
+ * that moves to a new path does not leave the old bytes behind.
  */
 class RuntimeAssetProvisioner(
     private val context: Context,
@@ -27,7 +30,8 @@ class RuntimeAssetProvisioner(
     suspend fun ensureAvailable() {
         val manifest = catalog.require()
         val root = runtimeAssetsDir(context)
-        for (entry in manifest.runtimeAssets()) {
+        val entries = manifest.runtimeAssets()
+        for (entry in entries) {
             val destination = File(root, entry.assetPath)
             if (isVerified(destination, entry)) continue
             if (installFromApkAsset(entry, destination)) continue
@@ -47,6 +51,9 @@ class RuntimeAssetProvisioner(
                 expectedSize = entry.size,
                 label = entry.assetPath,
             )
+        }
+        for (removed in pruneUnpinned(root, entries.mapTo(HashSet()) { it.assetPath })) {
+            Log.i(TAG, "Removed unpinned runtime asset $removed")
         }
     }
 
@@ -104,5 +111,41 @@ class RuntimeAssetProvisioner(
 
         @JvmStatic
         fun runtimeAssetsDir(context: Context): File = File(context.filesDir, DIRECTORY_NAME)
+
+        /**
+         * Suffixes of files that travel with an asset: its `.sha256` sidecar, the
+         * sidecar's `.tmp` while it is being replaced, and a `.part` download or
+         * APK copy in flight.
+         */
+        private val COMPANION_SUFFIXES = listOf(".tmp", AssetDigest.SHA_SUFFIX, ".part")
+
+        /**
+         * Deletes every file under [root] whose asset path (the relative path with
+         * [COMPANION_SUFFIXES] stripped) is not in [pinnedPaths], then any
+         * directories left empty. Returns the removed relative paths, sorted.
+         */
+        internal fun pruneUnpinned(root: File, pinnedPaths: Set<String>): List<String> {
+            if (!root.isDirectory) return emptyList()
+            val removed = mutableListOf<String>()
+            root.walkBottomUp().forEach { file ->
+                if (file == root) return@forEach
+                if (file.isDirectory) {
+                    if (file.list()?.isEmpty() == true) file.delete()
+                    return@forEach
+                }
+                val relative = file.relativeTo(root).invariantSeparatorsPath
+                if (assetPathOf(relative) in pinnedPaths) return@forEach
+                if (file.delete()) removed += relative
+            }
+            return removed.sorted()
+        }
+
+        private fun assetPathOf(relativePath: String): String {
+            var path = relativePath
+            while (true) {
+                val suffix = COMPANION_SUFFIXES.firstOrNull { path.endsWith(it) } ?: return path
+                path = path.removeSuffix(suffix)
+            }
+        }
     }
 }
