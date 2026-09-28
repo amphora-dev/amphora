@@ -803,18 +803,24 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       envVars.remove("DISPLAY");
       envVars.remove("ANDROID_SYSVSHM_SERVER");
       envVars.remove("GST_PLUGIN_FEATURE_RANK");
-      // Guest always uses the Android platform loader (/system/lib64/libvulkan.so):
-      // redroid → pastel/SwiftShader; HA262AAH → Adreno. wrapper_icd + ADRENOTOOLS
-      // made win32u vulkan_init_once fail vkEnumerateInstanceExtensionProperties
-      // with VK_ERROR_INCOMPATIBLE_DRIVER (-9) before DXVK createInstance.
-      applyWineAndroidSystemVulkan(context, envVars);
+      // The preparer sets VK_ICD_FILENAMES for every driver but System. A guest ICD
+      // (wrapper / Turnip / Leegao) runs under the imagefs Khronos loader, which has
+      // no Android WSI: VK_LAYER_AMPHORA_wsi adds VK_KHR_android_surface. System keeps
+      // the platform loader, which has it.
+      boolean guestIcd = envVars.has("VK_ICD_FILENAMES");
+      if (guestIcd) {
+        applyWineAndroidWsiLayer(context, envVars);
+      } else {
+        applyWineAndroidSystemVulkan(context, envVars);
+      }
       Log.i(
           TAG,
           "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
-              + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); "
-              + "system Vulkan /system/lib64/libvulkan.so "
-              + "(dropped wrapper_icd / ADRENOTOOLS); "
-              + "LD_PRELOAD libamphora_wsi.so");
+              + "GST_PLUGIN_FEATURE_RANK (no Java XServerComponent); Vulkan "
+              + (guestIcd
+                  ? "imagefs loader + " + envVars.get("VK_ICD_FILENAMES") + " + VK_LAYER_AMPHORA_wsi"
+                  : "platform loader /system/lib64/libvulkan.so")
+              + "; LD_PRELOAD libamphora_wsi.so");
       applyWineAndroidWsiHelperPreload(context, envVars);
     }
     normalizeSyncEnvVars(envVars);
@@ -965,78 +971,29 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
 
   /**
-   * True on redroid / AVD / qemu-style hosts where wineandroid must bind the Android
-   * platform loader (pastel SwiftShader). False on real devices (e.g. HA262AAH /
-   * Adreno) so Turnip via {@code VK_ICD_FILENAMES=wrapper_icd} + {@code ADRENOTOOLS_*}
-   * survives {@code AMPHORA_WINEANDROID=1}.
-   */
-  static boolean wineAndroidNeedsSystemVulkan() {
-    // Prefer fingerprint/hardware tokens: Build.IS_EMULATOR needs a higher
-    // compileSdk than this module's current Android stubs expose.
-    String blob =
-        (nullToEmpty(android.os.Build.FINGERPRINT)
-                + "|"
-                + nullToEmpty(android.os.Build.HARDWARE)
-                + "|"
-                + nullToEmpty(android.os.Build.PRODUCT)
-                + "|"
-                + nullToEmpty(android.os.Build.MODEL)
-                + "|"
-                + nullToEmpty(android.os.Build.DEVICE)
-                + "|"
-                + nullToEmpty(android.os.Build.BRAND)
-                + "|"
-                + nullToEmpty(android.os.Build.MANUFACTURER))
-            .toLowerCase(java.util.Locale.ROOT);
-    return blob.contains("redroid")
-        || blob.contains("ranchu")
-        || blob.contains("goldfish")
-        || blob.contains("sdk_gphone")
-        || blob.contains("vsoc_")
-        || blob.contains("generic_x86")
-        || blob.contains("emulator");
-  }
-
-  private static String nullToEmpty(String s) {
-    return s == null ? "" : s;
-  }
-
-  /**
-   * Point wineandroid guest at the Android platform loader
-   * ({@code /system/lib64/libvulkan.so}) and drop {@code wrapper_icd} /
-   * {@code ADRENOTOOLS_*}. Used for every Amphora wineandroid session (emulator
-   * pastel and real-device Adreno). X11 path is unchanged when
-   * {@code AMPHORA_WINEANDROID} is unset.
+   * System driver: put {@code wineandroid/vkloader} (libvulkan.so / .so.1 symlinks to
+   * the platform loader) in front of {@code LD_LIBRARY_PATH}, so box64/win32u and the
+   * WSI helper load {@code /system/lib64/libvulkan.so}.
    */
   static void applyWineAndroidSystemVulkanEnv(EnvVars envVars, String vkLoaderDir) {
-    envVars.remove("VK_ICD_FILENAMES");
-    envVars.remove("VK_DRIVER_FILES");
-    envVars.remove("ADRENOTOOLS_DRIVER_PATH");
-    envVars.remove("ADRENOTOOLS_DRIVER_NAME");
-    envVars.remove("ADRENOTOOLS_HOOKS_PATH");
-    envVars.remove("ADRENOTOOLS_DRIVER_CUSTOM");
-    if (vkLoaderDir != null && !vkLoaderDir.isEmpty()) {
-      String ld = envVars.get("LD_LIBRARY_PATH");
-      envVars.put("LD_LIBRARY_PATH", vkLoaderDir + (ld.isEmpty() ? "" : ":" + ld));
-    }
+    String ld = envVars.get("LD_LIBRARY_PATH");
+    envVars.put("LD_LIBRARY_PATH", vkLoaderDir + (ld.isEmpty() ? "" : ":" + ld));
   }
 
   private static void applyWineAndroidSystemVulkan(Context context, EnvVars envVars) {
     File systemVulkan = new File("/system/lib64/libvulkan.so");
     if (!systemVulkan.isFile()) {
-      applyWineAndroidSystemVulkanEnv(envVars, null);
       Log.w(TAG, "AMPHORA_WINEANDROID: missing " + systemVulkan.getAbsolutePath());
       return;
     }
     File vkDir = new File(context.getFilesDir(), "wineandroid/vkloader");
     if (!vkDir.isDirectory() && !vkDir.mkdirs()) {
-      applyWineAndroidSystemVulkanEnv(envVars, null);
       Log.w(TAG, "AMPHORA_WINEANDROID: cannot create " + vkDir.getAbsolutePath());
       return;
     }
     File link = new File(vkDir, "libvulkan.so");
     FileUtils.symlink(systemVulkan.getAbsolutePath(), link.getAbsolutePath());
-    /* box64/win32u also resolve SONAME libvulkan.so.1 (imagefs Khronos). */
+    /* box64 (for win32u) and the WSI helper load SONAME libvulkan.so.1. */
     FileUtils.symlink(
         systemVulkan.getAbsolutePath(), new File(vkDir, "libvulkan.so.1").getAbsolutePath());
     applyWineAndroidSystemVulkanEnv(envVars, vkDir.getAbsolutePath());
@@ -1046,6 +1003,59 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             + vkDir.getAbsolutePath()
             + " -> "
             + systemVulkan.getAbsolutePath());
+  }
+
+  static final String WSI_LAYER_MANIFEST = "amphora_wsi.json";
+
+  /**
+   * Implicit-layer manifest for {@code VK_LAYER_AMPHORA_wsi} in {@code libamphora_wsi.so}
+   * ({@code amphora_vklayer.inc}). {@code api_version} is the imagefs loader's, so the
+   * loader never treats the layer as older than the app.
+   */
+  static String wineAndroidWsiLayerManifest(String libraryPath) {
+    String path = libraryPath.replace("\\", "\\\\").replace("\"", "\\\"");
+    return "{\n"
+        + "  \"file_format_version\": \"1.2.0\",\n"
+        + "  \"layer\": {\n"
+        + "    \"name\": \"VK_LAYER_AMPHORA_wsi\",\n"
+        + "    \"type\": \"GLOBAL\",\n"
+        + "    \"library_path\": \"" + path + "\",\n"
+        + "    \"api_version\": \"1.4.313\",\n"
+        + "    \"implementation_version\": \"1\",\n"
+        + "    \"description\": \"VK_KHR_android_surface on Amphora wineandroid windows\",\n"
+        + "    \"instance_extensions\": [\n"
+        + "      { \"name\": \"VK_KHR_android_surface\", \"spec_version\": \"6\" }\n"
+        + "    ],\n"
+        + "    \"disable_environment\": { \"AMPHORA_WSI_LAYER_DISABLE\": \"1\" }\n"
+        + "  }\n"
+        + "}\n";
+  }
+
+  /**
+   * The imagefs loader is a Linux build: its list of known instance extensions has no
+   * VK_KHR_android_surface, and vkCreateInstance rejects unknown names even when an
+   * enabled layer provides them unless the filter is off.
+   */
+  static void applyWineAndroidWsiLayerEnv(EnvVars envVars, String layerDir) {
+    envVars.put("VK_ADD_IMPLICIT_LAYER_PATH", layerDir);
+    envVars.put("VK_LOADER_DISABLE_INST_EXT_FILTER", "1");
+  }
+
+  /** Guest ICD: write the layer manifest for this install's nativeLibraryDir. */
+  private static void applyWineAndroidWsiLayer(Context context, EnvVars envVars) {
+    File helper = new File(context.getApplicationInfo().nativeLibraryDir, "libamphora_wsi.so");
+    File layerDir = new File(context.getFilesDir(), "wineandroid/vklayer");
+    if (!layerDir.isDirectory() && !layerDir.mkdirs()) {
+      Log.e(TAG, "AMPHORA_WINEANDROID: cannot create " + layerDir.getAbsolutePath());
+      return;
+    }
+    File manifest = new File(layerDir, WSI_LAYER_MANIFEST);
+    if (!FileUtils.writeString(manifest, wineAndroidWsiLayerManifest(helper.getAbsolutePath()))) {
+      Log.e(TAG, "AMPHORA_WINEANDROID: cannot write " + manifest.getAbsolutePath());
+      return;
+    }
+    applyWineAndroidWsiLayerEnv(envVars, layerDir.getAbsolutePath());
+    Log.i(TAG, "AMPHORA_WINEANDROID: VK_ADD_IMPLICIT_LAYER_PATH " + layerDir.getAbsolutePath());
   }
 
   /**

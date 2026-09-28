@@ -102,6 +102,7 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 |---|---|---|
 | **amphora** | `core/native/src/main/cpp/winlator/amphora_ahb_sc.inc` | 负责 AHB 导入为 VkImage、缓冲槽位状态维护（FREE / ACQUIRED）及交换链呈现 |
 | **amphora** | `core/native/src/main/cpp/winlator/amphora_wsi.c` | 提供 `wsi-sc-%pid.sock` 服务端，调度 AHB 交换链流程 |
+| **amphora** | `core/native/src/main/cpp/winlator/amphora_vklayer.inc` | 隐式层 `VK_LAYER_AMPHORA_wsi`：给 Khronos loader 补 `VK_KHR_android_surface` 与 surface 查询（§2.4） |
 | **amphora** | `core/native/src/main/cpp/winlator/wineandroid_host_anw.c` | 负责宿主端 `ANativeWindow` 与底层 `AHardwareBuffer` 的跨进程收发 |
 | **proton-wine** | `dlls/wineandroid.drv/vulkan.c` | Vulkan IPC 客户端，负责通知 win32u 记录 Acquire 信号量状态 |
 | **proton-wine** | `dlls/wineandroid.drv/amphora_ahb_sc.inc` | 与 amphora 仓库中的同名文件保持逻辑同源与结构对齐 |
@@ -114,6 +115,26 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 2. **强制注入 Vulkan 扩展**：在应用创建 Vulkan 逻辑设备（`vkCreateDevice`）时，强制向设备注入 `VK_ANDROID_external_memory_android_hardware_buffer` 扩展及其依赖，否则后续导入 AHB 时会因驱动不支持而报错失败（`props=0`）。
 3. **动态链接符号防丢失**：由于 Android 动态链接器的隔离机制，Wine 组件需要通过 `dlopen("wineandroid.so", RTLD_NOLOAD|RTLD_NOW)` 显式定位驱动符号，防止由于 `RTLD_LOCAL` 导致符号解析为 NULL。
 
+### 2.4 guest 的 Vulkan 驱动链
+
+设置里选的驱动决定 guest 用哪个 loader（`GuestProgramLauncherComponent`，按 preparer 是否设了 `VK_ICD_FILENAMES` 分）：
+
+| 驱动 | loader | ICD | surface |
+|---|---|---|---|
+| wrapper（Adreno 默认） | imagefs Khronos loader 1.4.313 | `wrapper_icd.aarch64.json` → wrapper dlopen `/system/lib64/libvulkan.so`（平台 loader + Qualcomm 驱动）；adrenotools PATH/NAME 不设 | `VK_LAYER_AMPHORA_wsi` |
+| Turnip（`WN-Turnip-1.06-b`） | 同上 | wrapper 经 adrenotools 加载包里的 `libvulkan_freedreno.so` | 同上 |
+| Leegao | 同上 | Leegao wrapper，adrenotools 指 vendor HAL | 同上 |
+| System（模拟器 / 非 Adreno） | 平台 loader（`filesDir/wineandroid/vkloader` 里 `libvulkan.so{,.1}` 软链排在 `LD_LIBRARY_PATH` 最前） | 平台选的驱动 | 平台 loader 自己的 `vkCreateAndroidSurfaceKHR` |
+
+imagefs 的 Khronos loader 是 Linux 构建，没有 Android WSI；wrapper 也只带 X11 WSI。层补这一段：
+
+- **加载**：宿主每次开会话把 manifest 写到 `filesDir/wineandroid/vklayer/amphora_wsi.json`（`library_path` = 本次安装的 `nativeLibraryDir/libamphora_wsi.so`，`instance_extensions` 只有 `VK_KHR_android_surface`，`disable_environment` = `AMPHORA_WSI_LAYER_DISABLE`），`VK_ADD_IMPLICIT_LAYER_PATH` 指过去。loader dlopen 的就是 LD_PRELOAD 进 box64 的那份 so，层和 WSI helper 共用全局状态。
+- **`VK_LOADER_DISABLE_INST_EXT_FILTER=1`**：这版 loader 在 vkCreateInstance 时只收它编译进去的已知扩展名，Linux 构建的表里没有 `VK_KHR_android_surface`，即使层提供了也报 `not found in list of known instance extensions`（AIO 弹 `vkCreateInstance Failure`）。
+- **建 surface**：loader 也没有 `vkCreateAndroidSurfaceKHR` 的分发槽，所以不经 loader。wineandroid 照旧把宿主 instance 和 client 窗口的 socket 发到 `wsi-<pid>.sock`；helper 看到是层记录过的 instance，就在代理 ANW 上 `API_CONNECT(EGL)`（同 AOSP `CreateAndroidSurfaceKHR`，不连的话第一次 dequeue 报 `BufferQueue has no connected producer`），surface 句柄就是代理窗口指针，登记进 AHB 交换链的表。`vkDestroySurfaceKHR` 时 `API_DISCONNECT` 并放掉窗口。
+- **查询**：层拦 `vkGetPhysicalDeviceSurface{Support,Capabilities,Capabilities2,Formats,Formats2,PresentModes}KHR`、`vkGetPhysicalDevicePresentRectanglesKHR`、`vkGetDeviceGroupSurfacePresentModesKHR`，只回答自己的 surface，别的原样往下传。回答照 AOSP `swapchain.cpp`：`minImageCount = min(MAX_BUFFER_COUNT, MIN_UNDEQUEUED + 2)`，`maxImageCount` 不超过 AHB 交换链的 8；变换只有 IDENTITY；格式 RGBA8 UNORM / SRGB，外加 gralloc 能分配的 565 / FP16 / 1010102；呈现模式 FIFO、MAILBOX；窗口查询失败回 `VK_ERROR_SURFACE_LOST_KHR`。win32u 之后再把 extent 改成客户区。
+- **交换链**：不变，仍是 wsi-sc 上的 AHB 导入（§2.3）。层 surface 导入失败时不退回 ICD 的 `vkCreateSwapchainKHR`（loader 认不出这个句柄）。helper 取 loader 用 SONAME `libvulkan.so.1`，即 box64 给 win32u 加载的那份；不能用 `libvulkan.so`，那是平台 loader 的 soname，wrapper 也把它加载进同一进程。
+- wrapper 默认不设 adrenotools PATH/NAME：指到 `vulkan.adreno.so` 时 wrapper 取实例扩展报 `undefined symbol: vkCreateRayTracingPipelinesKHR`，loader 返回 -9。
+
 ---
 
 ## 3. 核心技术踩坑与解决历程
@@ -122,7 +143,7 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 
 1. **废弃旧式 Hook 与内存扫描**：
    - 早期方案曾尝试通过运行时劫持（Runtime Hook）、Vulkan 隐式层（VkLayer）或扫描底层 GraphicBuffer 内存表来截获帧缓冲；
-   - 实践证明这类方案在不同 Android 版本和厂商 GPU 驱动上极易崩溃且极难维护。现已全面废止，转为源码级标准 CreateSwapchain 介入。
+   - 实践证明这类方案在不同 Android 版本和厂商 GPU 驱动上极易崩溃且极难维护。现已全面废止，转为源码级标准 CreateSwapchain 介入。现在的 `VK_LAYER_AMPHORA_wsi`（§2.4）是标准 loader 层，只提供 Android surface 扩展和 surface 查询，不截帧、不接管交换链。
 2. **解决显存导入属性为空（`import props=0`）**：
    - 现象：尝试将 AHB 绑定为 VkImage 时，驱动返回属性全零，显存绑定失败；
    - 根因：游戏本身并不知道自己运行在 Android 上，创建 Vulkan 设备时未请求 Android 硬件缓冲区扩展；
