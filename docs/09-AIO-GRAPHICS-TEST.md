@@ -6,7 +6,7 @@
 
 ## 1. 怎么跑
 
-容器里的 AIO 来自 manifest 的 `winnative/Graphics-Test-{32,64}bit.exe`，每次开会话复制到 `C:\ProgramData\Microsoft\Windows\`，开始菜单 Programs → Graphics Test (32/64-bit) 打开它自带的菜单。
+容器里的 AIO（2.1.0）来自 manifest 的 `aio-graphics-test/Graphics-Test-{32,64}bit.exe`，每次开会话复制到 `C:\ProgramData\Microsoft\Windows\`，开始菜单 Programs → Graphics Test (32/64-bit) 打开它自带的菜单。
 
 脚本（每个后端开一次会话，`--cube <api> --no-menu --bench 8 --autoclose 2`）：
 
@@ -15,7 +15,7 @@ scripts/aio-smoke/aio-run.sh <serial> <vk|gl|dx7|ddraw2d|dx8|dx9|dx10|dx11|dx12>
 scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台并行，末尾打 RESULT 表
 ```
 
-产物在 `.tmp/aio-smoke/`：截图（第一个 AHB 交换链出现后 3 s）、logcat、SF timestats、`wine_stderr.log`、AIO 的 `AIO-Graphics-Test_bench.csv`（写在 guest 工作目录 = imagefs 根）。
+产物在 `.tmp/aio-smoke/`：截图（第一个 AHB 交换链出现后 3 s）、logcat、SF timestats、`wine_stderr.log`、AIO 的 `AIO-Graphics-Test_bench.csv`（写在 guest 工作目录 = imagefs 根下的 `AIO Results/Benchmark/`）。
 
 判读：
 - `bench=none`：后端没起来，看截图里 AIO 的报错框和 `err=`。

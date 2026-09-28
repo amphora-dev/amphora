@@ -53,7 +53,6 @@ __pycache__/
 *.wcp
 *.exe
 !docs/**
-!core/content/src/main/assets/winnative/*.exe
 
 # Exported LLM/agent session transcripts. Useful while debugging, never a
 # reviewable artifact — they are megabytes of HTML and go stale immediately.
