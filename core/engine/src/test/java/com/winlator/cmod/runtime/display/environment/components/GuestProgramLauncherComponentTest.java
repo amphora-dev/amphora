@@ -22,24 +22,43 @@ public class GuestProgramLauncherComponentTest {
   }
 
   @Test
-  public void wineandroidSystemVulkanEnvDropsWrapperIcdAndAdrenotools() {
+  public void wineandroidSystemVulkanEnvPrefixesPlatformLoaderDir() {
     EnvVars envVars = new EnvVars();
-    envVars.put("VK_ICD_FILENAMES", "/imagefs/usr/share/vulkan/icd.d/wrapper_icd.aarch64.json");
-    envVars.put("ADRENOTOOLS_DRIVER_NAME", "vulkan.broadcom.so");
-    envVars.put("ADRENOTOOLS_DRIVER_PATH", "/vendor/lib64/hw/");
-    envVars.put("ADRENOTOOLS_HOOKS_PATH", "/imagefs/usr/lib");
-    envVars.put("ADRENOTOOLS_DRIVER_CUSTOM", "1");
     envVars.put("LD_LIBRARY_PATH", "/imagefs/usr/lib:/system/lib64");
 
     GuestProgramLauncherComponent.applyWineAndroidSystemVulkanEnv(envVars, "/files/wineandroid/vkloader");
 
-    assertFalse(envVars.has("VK_ICD_FILENAMES"));
-    assertFalse(envVars.has("ADRENOTOOLS_DRIVER_NAME"));
-    assertFalse(envVars.has("ADRENOTOOLS_DRIVER_PATH"));
-    assertFalse(envVars.has("ADRENOTOOLS_HOOKS_PATH"));
-    assertFalse(envVars.has("ADRENOTOOLS_DRIVER_CUSTOM"));
-    assertTrue(envVars.get("LD_LIBRARY_PATH").startsWith("/files/wineandroid/vkloader:"));
-    assertTrue(envVars.get("LD_LIBRARY_PATH").contains("/imagefs/usr/lib"));
+    assertEquals(
+        "/files/wineandroid/vkloader:/imagefs/usr/lib:/system/lib64", envVars.get("LD_LIBRARY_PATH"));
+  }
+
+  @Test
+  public void wineandroidWsiLayerEnvAddsImplicitLayerPath() {
+    EnvVars envVars = new EnvVars();
+    envVars.put("VK_ICD_FILENAMES", "/imagefs/usr/share/vulkan/icd.d/wrapper_icd.aarch64.json");
+    envVars.put("ADRENOTOOLS_DRIVER_NAME", "libvulkan_freedreno.so");
+
+    GuestProgramLauncherComponent.applyWineAndroidWsiLayerEnv(envVars, "/files/wineandroid/vklayer");
+
+    assertEquals("/files/wineandroid/vklayer", envVars.get("VK_ADD_IMPLICIT_LAYER_PATH"));
+    assertEquals("1", envVars.get("VK_LOADER_DISABLE_INST_EXT_FILTER"));
+    assertEquals(
+        "/imagefs/usr/share/vulkan/icd.d/wrapper_icd.aarch64.json", envVars.get("VK_ICD_FILENAMES"));
+    assertEquals("libvulkan_freedreno.so", envVars.get("ADRENOTOOLS_DRIVER_NAME"));
+  }
+
+  @Test
+  public void wineandroidWsiLayerManifestDeclaresAndroidSurface() {
+    String manifest =
+        GuestProgramLauncherComponent.wineAndroidWsiLayerManifest(
+            "/data/app/~~x/app.amphora-y/lib/arm64/libamphora_wsi.so");
+
+    assertTrue(manifest.contains("\"name\": \"VK_LAYER_AMPHORA_wsi\""));
+    assertTrue(
+        manifest.contains(
+            "\"library_path\": \"/data/app/~~x/app.amphora-y/lib/arm64/libamphora_wsi.so\""));
+    assertTrue(manifest.contains("\"name\": \"VK_KHR_android_surface\", \"spec_version\": \"6\""));
+    assertTrue(manifest.contains("\"disable_environment\""));
   }
 
   @Test
@@ -55,15 +74,6 @@ public class GuestProgramLauncherComponentTest {
     assertEquals(
         "/data/app/app.amphora/lib/arm64/libamphora_wsi.so:/imagefs/usr/lib/libandroid-sysvshm.so:/system/lib64/libjpeg.so",
         envVars.get("LD_PRELOAD"));
-  }
-
-  @Test
-  public void wineAndroidNeedsSystemVulkanIsDeterministicApi() {
-    // Just ensure the helper is callable from unit tests (Build.* is host JVM stub /
-    // Robolectric-free). Result may be true or false depending on the JVM Build fields;
-    // we only assert it does not throw and returns a boolean.
-    boolean v = GuestProgramLauncherComponent.wineAndroidNeedsSystemVulkan();
-    assertTrue(v || !v);
   }
 
   @Test

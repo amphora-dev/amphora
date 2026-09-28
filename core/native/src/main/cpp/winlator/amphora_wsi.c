@@ -12,7 +12,10 @@
  *
  * CreateSwapchain imports sock-proxy AHBs as VkImages via
  * VK_ANDROID_external_memory_android_hardware_buffer (Winlator vk_image
- * route). No GraphicBuffer/VkLayer/runtime hooks. Wine CreateSwapchain calls amphora_ahb_sc_*.
+ * route). No GraphicBuffer/runtime hooks. Wine CreateSwapchain calls amphora_ahb_sc_*.
+ *
+ * The same .so is VK_LAYER_AMPHORA_wsi (amphora_vklayer.inc), the implicit layer
+ * that gives the imagefs Khronos loader VK_KHR_android_surface for the guest ICD.
  */
 #include <android/log.h>
 #include <dlfcn.h>
@@ -277,6 +280,7 @@ typedef int (*pfn_ahb_recv)(int, void **);
 typedef int (*pfn_ahb_lock)(void *buffer, uint64_t usage, int32_t fence,
                             const void *rect, void **outVirt);
 typedef int (*pfn_ahb_unlock)(void *buffer, int32_t *fence);
+typedef int (*pfn_ahb_is_supported)(const amphora_ahb_desc *desc);
 
 static pfn_ahb_create_from_handle g_ahb_create_from_handle;
 static pfn_ahb_get_native_handle g_ahb_get_native_handle;
@@ -284,6 +288,7 @@ static pfn_ahb_release g_ahb_release;
 static pfn_ahb_recv g_ahb_recv;
 static pfn_ahb_lock g_ahb_lock;
 static pfn_ahb_unlock g_ahb_unlock;
+static pfn_ahb_is_supported g_ahb_is_supported;
 static int g_ahb_resolved;
 static int g_guest_client_queue_n; /* hwnd-sized client QUEUE count */
 static int g_guest_fence_log_n;    /* first ~20 client fence_in logs */
@@ -374,6 +379,7 @@ static void amphora_resolve_ahb(void)
     g_ahb_recv = (pfn_ahb_recv)dlsym(lib, "AHardwareBuffer_recvHandleFromUnixSocket");
     g_ahb_lock = (pfn_ahb_lock)dlsym(lib, "AHardwareBuffer_lock");
     g_ahb_unlock = (pfn_ahb_unlock)dlsym(lib, "AHardwareBuffer_unlock");
+    g_ahb_is_supported = (pfn_ahb_is_supported)dlsym(lib, "AHardwareBuffer_isSupported");
     LOGI("AHB symbols create=%p getNh=%p release=%p recv=%p lock=%p unlock=%p",
          (void *)g_ahb_create_from_handle, (void *)g_ahb_get_native_handle,
          (void *)g_ahb_release, (void *)g_ahb_recv,
@@ -1178,12 +1184,37 @@ static struct ANativeWindow *make_win(int sock)
     return &win->win;
 }
 
+/* The Vulkan loader Box64 loaded for win32u (SONAME libvulkan.so.1): the imagefs
+ * Khronos loader, or with the System driver the wineandroid/vkloader symlink to
+ * /system/lib64/libvulkan.so. Not "libvulkan.so": that soname is the platform
+ * loader, which the wrapper ICD also loads into this process. */
+static void *amphora_vulkan_lib(void)
+{
+    static void *lib;
+    Dl_info info;
+    void *gipa;
+    if (lib) return lib;
+    lib = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_NOLOAD);
+    if (!lib) lib = dlopen("libvulkan.so.1", RTLD_NOW);
+    if (!lib) {
+        LOGE("dlopen libvulkan.so.1: %s", dlerror());
+        return NULL;
+    }
+    gipa = dlsym(lib, "vkGetInstanceProcAddr");
+    if (gipa && dladdr(gipa, &info) && info.dli_fname)
+        LOGI("vulkan loader %s", info.dli_fname);
+    return lib;
+}
+
 #include "amphora_ahb_sc.inc"
+#include "amphora_vklayer.inc"
 
 /* Present PE Vulkan onto the Amphora hwnd sock-proxy ANW directly (no ImageReader
  * intermediate). Host already DEQUEUE/QUEUEs that hwnd Surface; the aarch64 helper
  * only rebuilds a native-ABI ANativeWindow over the same client sock so Box64 can
- * enter vkCreateAndroidSurfaceKHR. */
+ * enter vkCreateAndroidSurfaceKHR. With a guest ICD (wrapper / Turnip) the surface
+ * is a VK_LAYER_AMPHORA_wsi one; with the System driver the platform loader
+ * creates it. */
 /* width/height: optional initial size from guest (ioctl on wine thread).
  * <=0 falls back to 640x480. Seeded onto proxy req_w/req_h so win_query does
  * not sock-round-trip during vkCreateAndroidSurfaceKHR. */
@@ -1218,9 +1249,30 @@ int32_t amphora_wsi_create_android_surface(uint64_t vk_instance, int32_t sock_fd
     aw->req_h = h;
     LOGI("create_android_surface seed req %dx%d (no sock query)", w, h);
 
-    lib = dlopen("libvulkan.so", RTLD_NOW);
+    if (vkl_instance_get(inst)) {
+        /* As AOSP CreateAndroidSurfaceKHR: the surface is the window's producer
+         * from here until vkDestroySurfaceKHR. The layer owns the proxy's only ref. */
+        int cret = win_perform(proxy, NATIVE_WINDOW_API_CONNECT, NATIVE_WINDOW_API_EGL);
+        if (cret != 0) {
+            LOGE("create_android_surface %s API_CONNECT ret=%d", VKL_LAYER_NAME, cret);
+            proxy->common.decRef(&proxy->common);
+            return (int32_t)VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;
+        }
+        surface = (VkSurfaceKHR)(uintptr_t)aw;
+        if (!ahb_sc_register_surface(surface, aw, inst)) {
+            win_perform(proxy, NATIVE_WINDOW_API_DISCONNECT, NATIVE_WINDOW_API_EGL);
+            proxy->common.decRef(&proxy->common);
+            return -ENOSPC;
+        }
+        ahb_sc_ensure_instance_procs(inst);
+        *out_surface = (uint64_t)(uintptr_t)surface;
+        LOGI("create_android_surface %s inst=%p surface=%p %dx%d", VKL_LAYER_NAME,
+             (void *)inst, (void *)(uintptr_t)surface, w, h);
+        return 0;
+    }
+
+    lib = amphora_vulkan_lib();
     if (!lib) {
-        LOGE("dlopen libvulkan: %s", dlerror());
         proxy->common.decRef(&proxy->common);
         return -ENOENT;
     }
@@ -1250,7 +1302,7 @@ int32_t amphora_wsi_create_android_surface(uint64_t vk_instance, int32_t sock_fd
     /* Surface owns a ref via incRef inside the driver; keep our ref so the
      * sock-proxy stays alive for the lifetime of the VkSurfaceKHR. */
     *out_surface = (uint64_t)(uintptr_t)surface;
-    ahb_sc_register_surface(surface, (struct amphora_win *)proxy);
+    ahb_sc_register_surface(surface, (struct amphora_win *)proxy, VK_NULL_HANDLE);
     ahb_sc_ensure_instance_procs(inst);
     LOGI("AHB_SC register after create_android_surface surface=%p win=%p (no hooks)",
          (void *)(uintptr_t)surface, (void *)proxy);

@@ -1,7 +1,7 @@
 # 02 · 进度跟踪与状态真源 (Tracking)
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-09-25 · **当前状态与下一步只看文末「当前状态指针」**；下方按时间追加的条目都是当时快照。
+> 最后更新: 2026-09-28 · **当前状态与下一步只看文末「当前状态指针」**；下方按时间追加的条目都是当时快照。
 > **v0.1 端到端已跑通**；AIO 各图形后端见 [`09-AIO-GRAPHICS-TEST.md`](09-AIO-GRAPHICS-TEST.md) (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。当前已采用远程 manifest 内容供应、自建 imagefs/Proton/Box64/DXVK/VKD3D、共享字体，并加入可选 PulseAudio/AAudio（ALSA 默认回退）。架构真源见 [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md)。
 > 必读: [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) · [`01-RFC.md`](research/01-RFC.md) · [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) · [`02-SCAFFOLD.md`](research/02-SCAFFOLD.md)
 
@@ -357,13 +357,14 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 ---
 
-## 当前状态指针（2026-09-26，唯一真源）
+## 当前状态指针（2026-09-28，唯一真源）
 
 > 进度只维护本节；本机 `amphora-progress.md` 是个人手记，与本节冲突时以本节为准。
 > 上面各日期条目是当时快照，里面的 “Next / 下一刀” 不代表现在。
 
 - **壳层（GDI 出画 / 输入 / IME / z-order）**：主动项已关，只剩可选人工目视确认 → [`08`](08-AGENT-BOOTSTRAP.md) §12；细节 [`04`](04-WINEANDROID-DISPLAY.md)。
 - **游戏 Vulkan Present**：AHB import CreateSwapchain 是现行路径，勿退（[`05`](05-AHB-IMPORT-PRESENT.md)）。GDI 壳层不走 CreateSwapchain、禁私有 host.sock。
+- **guest Vulkan 驱动链**：非 System 驱动走 imagefs Khronos loader + wrapper ICD（Turnip 经 adrenotools）+ 隐式层 `VK_LAYER_AMPHORA_wsi`；System 走平台 loader（[`05`](05-AHB-IMPORT-PRESENT.md) §2.4）。
 - **AIO 图形矩阵**：各后端现状与未解决项只看 [`09`](09-AIO-GRAPHICS-TEST.md)（2026-09-16 的 PresentModes / `c0000135` 排查已作废，复测不再出现）。
 - **已停**：第二台真机 / 分屏 / hostScale 双机。
 - **CI**：`spotlessKotlinCheck` 自 2026-09-16 起让 main CI 变红，本次 `style: spotlessApply` 修复；ReDroid 冒烟最近 60 次无绿（最后一次实跑 `a17810b`：`guest did not stay running`），待单独排查。
@@ -443,3 +444,13 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
   - 两边改动互不依赖，没有上线顺序要求。验证用的 Proton 是 dev 主机本地构建的 `Proton-11.0-2fd246cfc-x86_64.wcp`（sha256 `ec14b819…`），经 dev pin 装到两台。
   - **Lenovo Y700 `HA262AAH` PASS**：vk / dx11 窗口都有标题栏和边框；bench 结束的结果弹窗在 dx11 / vk 画面之上，点 OK 命中弹窗（`motion … hit=<弹窗 hwnd>`）并退出；vk / dx11 / ddraw2d 64 位 144 fps，client 层 SF 帧 1154 / 1144（`presents` 1156 / 1147）；桌面 + Start 菜单出画；灭屏再亮屏后 `layer root destroyed` → `created; attaching 21 window layers`，画面恢复。无 FATAL。
   - **OnePlus 6T `5b1736c7` PASS**：vk / dx11 / ddraw2d 64 位约 58–60 fps 出画，有标题栏；client 层 SF 帧 463 / 462（`presents` 464 / 464）。无 FATAL。
+  - **已发布**：amphora PR #21（main `10d5079`，CI pin `app_update 0.1.0+264.10d50791`，content_manifest `f3f4223`）；imagefs PR #24（main `8aca860`，proton-wine `wip/client-window-frame` @ `2fd246cfc364a5a6685d132cc085a8896b41e431`），发布 `Proton-11.0-2fd246cfc-x86_64.wcp`（66,333,379 B，sha256 `a93cd764…`），manifest `090891f` 把 wine 指过去。
+  - **发布组合复验两台 PASS**（dev pin 已清，`APIS="vk dx11 ddraw2d" BITS="64 32"`，全部跑在 `Proton-11.0-2fd246cfc` 上）：Y700 vk 64 / 32 为 144.38 / 143.93 fps，32-bit dx11 144.02、`presents` 1138 / SF 1135，32-bit ddraw2d 144.02、1143 / 1140（FF 空画面，已知）；6T vk 64 / 32 为 58.10 / 57.88，64-bit dx11 58.35、466 / 464，32-bit ddraw2d 24.31、192 / 190。窗口都有标题栏，无 FATAL。
+
+- **2026-09-28 · 设置里的驱动真正到 guest：`VK_LAYER_AMPHORA_wsi`**（本提交，只改 APK）：wineandroid 会话原来一律把 guest 指到平台 loader，wrapper / Turnip 设置只在宿主进程生效。imagefs 的 Khronos loader 是 Linux 构建，没有 `VK_KHR_android_surface`，wrapper 也只带 X11 WSI，所以之前 wrapper 路径要么 -9、要么 `failed to find VK_KHR_win32_surface`。现在 `libamphora_wsi.so` 同时是隐式层，给 loader 补上这个扩展和 surface 查询；非 System 驱动走 Khronos loader + wrapper ICD（Turnip 经 adrenotools），System 仍走平台 loader。wrapper 默认不再把 adrenotools 指到 `vulkan.adreno.so`（`065c3a8` 引入，正是 -9 的来源）。细节 [`05`](05-AHB-IMPORT-PRESENT.md) §2.4。
+  - 真机上补的两处：loader 只收它编译进去的已知实例扩展名，要 `VK_LOADER_DISABLE_INST_EXT_FILTER=1`；层 surface 要像 AOSP 一样 `API_CONNECT(EGL)`，否则第一次 dequeue `BufferQueue has no connected producer`。
+  - **wrapper（默认）两台 PASS**（vk / dx7 / ddraw2d / dx8 / dx9 / dx10 / dx11 / dx12 / gl × 64 / 32）：DXVK 看到的是 `Wrapper(Adreno (TM) 830) (Wrapper driver 0.800.72)`；helper 日志 `vulkan loader …/imagefs/usr/lib/libvulkan.so.1.4.313`、`create_android_surface VK_LAYER_AMPHORA_wsi`；图像数、格式与平台 loader 时相同（Y700 5 张 / D3D9 选 A2B10G10R10，6T 3 张），`fenced` = `presents`。Y700 vk / dx10 / dx11 / dx12 64 与 32 位 144 fps，**dx12 新近能跑**（平台 loader 时 vkd3d 报缺 single texel alignment），dx9 / 32-bit dx7 / 32-bit ddraw2d 仍是 FF -13 空画面；6T 除 dx12（缺 transform feedback）外都与 [`09`](09-AIO-GRAPHICS-TEST.md) §2 表一致。dx8（AIO 2.1.0）/ gl / 64-bit dx7 同前不行。无 FATAL。
+  - **Turnip（`WN-Turnip-1.06-b`）**：Y700 vk / dx9 / dx11 / dx12 / ddraw2d × 64 / 32 全过，DXVK 设备 `Wrapper driver 26.2.99`，dx9 与 32-bit ddraw2d 出方块 / 色条（FF -13 在 Turnip 上没有）。6T 只有 vk 能跑：WN-Turnip 在 A630 上不报 `storageBuffer16BitAccess`，DXVK 3.0.2 `No adapters found`。6T 首次选 Turnip 时从 GitHub 下载安装了驱动包，现在留在 `files/contents/adrenotools/`。
+  - **System**：Y700 vk / dx11 64 位 144 fps，helper 取到 `/system/lib64/libvulkan.so`（经 vkloader 软链），不经层。
+  - 两台测完 prefs 还原，容器驱动配置迁回 `wrapper`。
+  - **未修**：Vulkan 窗口切后台后宿主 buffer serve 退出，app 重建交换链失败退出、会话结束；平台 loader 路径同样如此，记入 [`09`](09-AIO-GRAPHICS-TEST.md) §4。

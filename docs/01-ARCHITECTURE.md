@@ -122,7 +122,7 @@ WineAndroidSessionActivity 启动时序：
 |---|---|
 | `libwinlator.so` | C 运行时基础库：提供底层 socket 通信、共享内存、进程树监管及 adrenotools 驱动装载 |
 | `libamphora-exec.so` | `LD_PRELOAD` 拦截器：拦截 Box64 / Wine 子进程的 `exec*` 调用，强制将应用私有 ELF 路由给 `/system/bin/linker64` 装载（绕过 targetSdk 36 的 W^X/exec 限制） |
-| `libamphora_wsi.so` | aarch64 WSI 桥接库：注入进程后启动服务端，提供 Vulkan AHB 导入与零拷贝 Swapchain 呈现调度 |
+| `libamphora_wsi.so` | aarch64 WSI 桥接库：注入进程后启动服务端，提供 Vulkan AHB 导入与零拷贝 Swapchain 呈现调度；同时是隐式层 `VK_LAYER_AMPHORA_wsi`，给 guest 的 Khronos loader 补 `VK_KHR_android_surface`（[`05`](05-AHB-IMPORT-PRESENT.md) §2.4） |
 | `libamphora-android-shim.so` | 符号垫片库：为特定兼容环境导出包装符号 |
 
 - **ABI 约束**：严格限定为 **arm64-v8a**；compileSdk 37，minSdk 30，targetSdk 36。

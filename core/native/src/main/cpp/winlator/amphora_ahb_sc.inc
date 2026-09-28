@@ -1,8 +1,8 @@
-/* AHB-import swapchain (Winlator vk_image route).
- * NOT a VkLayer. No GIPA/Negotiate export. No GraphicBuffer.
- * No runtime wine-table / needle / GIPA / GDPA hooks.
- * Wine CreateSwapchain (wineandroid / win32u) calls amphora_ahb_sc_* at
- * compile-time; this file only implements import + register + exports.
+/* AHB-import swapchain (Winlator vk_image route). No GraphicBuffer.
+ * Wine CreateSwapchain (wineandroid / win32u) reaches amphora_ahb_sc_* over the
+ * wsi-sc socket; this file only implements import + register + exports. The
+ * surfaces are either VK_LAYER_AMPHORA_wsi ones (amphora_vklayer.inc) or, with the
+ * System driver, the platform loader's.
  * Winlator steps: dequeue AHB → GetAHBProps → CreateImage(EXTERNAL) →
  * ImportAHB+dedicated alloc → BindImageMemory.
  */
@@ -122,6 +122,9 @@ static int ahb_sc_native_format(VkFormat format)
 struct ahb_sc_surface {
     VkSurfaceKHR surface;
     struct amphora_win *win;
+    /* Instance of a VK_LAYER_AMPHORA_wsi surface (handle == win, the layer owns
+     * the window ref); NULL for a surface the platform loader created. */
+    VkInstance layer_instance;
 };
 struct ahb_sc {
     uint32_t magic;
@@ -176,11 +179,8 @@ static void ahb_resolve_real_vulkan(void)
 {
     void *lib;
     if (g_real_gipa && g_real_gdpa) return;
-    lib = dlopen("libvulkan.so", RTLD_NOW);
-    if (!lib) {
-        LOGE("AHB_SC dlopen libvulkan failed: %s", dlerror());
-        return;
-    }
+    lib = amphora_vulkan_lib();
+    if (!lib) return;
     if (!g_real_gipa)
         g_real_gipa = (PFN_vkGetInstanceProcAddr)dlsym(lib, "vkGetInstanceProcAddr");
     if (!g_real_gdpa)
@@ -188,36 +188,69 @@ static void ahb_resolve_real_vulkan(void)
     LOGI("AHB_SC real gipa=%p gdpa=%p (no hooks)", (void *)g_real_gipa, (void *)g_real_gdpa);
 }
 
-static void ahb_sc_register_surface(VkSurfaceKHR surface, struct amphora_win *win)
+/* Returns 0 when the table is full. */
+static int ahb_sc_register_surface(VkSurfaceKHR surface, struct amphora_win *win, VkInstance layer_instance)
 {
     int i;
-    if (!surface || !win) return;
+    if (!surface || !win) return 0;
     pthread_mutex_lock(&g_ahb_sc_lock);
     for (i = 0; i < g_ahb_surface_n; i++) {
         if (g_ahb_surfaces[i].surface == surface) {
             g_ahb_surfaces[i].win = win;
+            g_ahb_surfaces[i].layer_instance = layer_instance;
             pthread_mutex_unlock(&g_ahb_sc_lock);
-            return;
+            return 1;
         }
     }
     if (g_ahb_surface_n < AHB_SC_MAX_SURFACES) {
         g_ahb_surfaces[g_ahb_surface_n].surface = surface;
         g_ahb_surfaces[g_ahb_surface_n].win = win;
+        g_ahb_surfaces[g_ahb_surface_n].layer_instance = layer_instance;
         g_ahb_surface_n++;
-        LOGI("AHB_SC register surface=%p win=%p n=%d", (void *)(uintptr_t)surface, (void *)win, g_ahb_surface_n);
-    } else {
-        LOGW("AHB_SC surface table full");
+        LOGI("AHB_SC register surface=%p win=%p layer=%d n=%d", (void *)(uintptr_t)surface,
+             (void *)win, layer_instance != VK_NULL_HANDLE, g_ahb_surface_n);
+        pthread_mutex_unlock(&g_ahb_sc_lock);
+        return 1;
     }
     pthread_mutex_unlock(&g_ahb_sc_lock);
+    LOGW("AHB_SC surface table full");
+    return 0;
 }
 
-static struct amphora_win *ahb_sc_win_for_surface(VkSurfaceKHR surface)
+/* *layer_owned (optional) tells whether the loader below knows the handle:
+ * it does not for layer surfaces, so those never fall back to the ICD. */
+static struct amphora_win *ahb_sc_win_for_surface(VkSurfaceKHR surface, int *layer_owned)
 {
     int i;
     struct amphora_win *w = NULL;
+    if (layer_owned) *layer_owned = 0;
+    if (!surface) return NULL;
     pthread_mutex_lock(&g_ahb_sc_lock);
     for (i = 0; i < g_ahb_surface_n; i++) {
-        if (g_ahb_surfaces[i].surface == surface) { w = g_ahb_surfaces[i].win; break; }
+        if (g_ahb_surfaces[i].surface == surface) {
+            w = g_ahb_surfaces[i].win;
+            if (layer_owned) *layer_owned = g_ahb_surfaces[i].layer_instance != VK_NULL_HANDLE;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_ahb_sc_lock);
+    return w;
+}
+
+/* Forget a layer surface; returns its window so the caller drops the layer's ref. */
+static struct amphora_win *ahb_sc_unregister_layer_surface(VkSurfaceKHR surface)
+{
+    int i;
+    struct amphora_win *w = NULL;
+    if (!surface) return NULL;
+    pthread_mutex_lock(&g_ahb_sc_lock);
+    for (i = 0; i < g_ahb_surface_n; i++) {
+        if (g_ahb_surfaces[i].surface == surface && g_ahb_surfaces[i].layer_instance) {
+            w = g_ahb_surfaces[i].win;
+            g_ahb_surfaces[i] = g_ahb_surfaces[--g_ahb_surface_n];
+            memset(&g_ahb_surfaces[g_ahb_surface_n], 0, sizeof(g_ahb_surfaces[0]));
+            break;
+        }
     }
     pthread_mutex_unlock(&g_ahb_sc_lock);
     return w;
@@ -470,6 +503,8 @@ static void ahb_sc_destroy_obj(struct ahb_sc *sc)
         sc->memories[i] = VK_NULL_HANDLE;
         sc->state[i] = AHB_SC_IN_QUEUE;
     }
+    if (sc->win)
+        sc->win->win.common.decRef(&sc->win->win.common);
     sc->magic = 0;
     free(sc);
 }
@@ -482,7 +517,7 @@ static VkResult amphora_vkCreateSwapchainKHR(
     struct ahb_sc *sc = NULL;
     uint32_t want, i;
     VkResult r;
-    int swap_interval;
+    int swap_interval, layer_owned;
 
     ahb_sc_ensure_device_procs(device);
     if (!pCreateInfo || !pSwapchain)
@@ -491,7 +526,7 @@ static VkResult amphora_vkCreateSwapchainKHR(
     LOGI("AHB_SC CreateSwapchain enter device=%p surface=%p (source-path, no hooks)",
          (void *)device, (void *)(uintptr_t)pCreateInfo->surface);
 
-    win = ahb_sc_win_for_surface(pCreateInfo->surface);
+    win = ahb_sc_win_for_surface(pCreateInfo->surface, &layer_owned);
     if (!win) {
         LOGW("AHB_SC CreateSwapchain no registered surface=%p — ICD fallback createSC=%p",
              (void *)(uintptr_t)pCreateInfo->surface, (void *)g_real_CreateSwapchainKHR);
@@ -575,6 +610,8 @@ static VkResult amphora_vkCreateSwapchainKHR(
     sc->phys = ahb_sc_phys_for_device(device);
     sc->surface = pCreateInfo->surface;
     sc->win = win;
+    /* The swapchain keeps the window alive even if the app drops the surface first. */
+    win->win.common.incRef(&win->win.common);
     sc->format = pCreateInfo->imageFormat;
     sc->extent = pCreateInfo->imageExtent;
 
@@ -627,6 +664,12 @@ static VkResult amphora_vkCreateSwapchainKHR(
 fallback:
     ahb_sc_destroy_obj(sc);
     sc = NULL;
+    if (layer_owned) {
+        /* The loader below cannot resolve a layer surface. */
+        LOGW("AHB_SC import failed on a %s surface — no ICD swapchain to fall back to",
+             "VK_LAYER_AMPHORA_wsi");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
     if (!g_real_CreateSwapchainKHR) {
         LOGW("AHB_SC fallback: no real CreateSwapchain");
         return VK_ERROR_INITIALIZATION_FAILED;
@@ -946,8 +989,4 @@ VkResult amphora_ahb_sc_present(VkQueue queue, const VkPresentInfoKHR *info)
 VkResult amphora_ahb_sc_present_fence(VkQueue queue, const VkPresentInfoKHR *info, int fence)
 {
     return ahb_sc_queue_present(queue, info, fence);
-}
-void amphora_ahb_sc_register(uint64_t surface, void *win)
-{
-    ahb_sc_register_surface((VkSurfaceKHR)(uintptr_t)surface, (struct amphora_win *)win);
 }
