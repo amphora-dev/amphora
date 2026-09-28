@@ -2,7 +2,7 @@
 
 > 给下一个 agent 的接手文档。living checklist--完成就勾。
 > 最后更新: 2026-09-25 · **当前状态与下一步只看文末「当前状态指针」**；下方按时间追加的条目都是当时快照。
-> **v0.1 端到端已跑通**；AIO PresentModes / 黑屏见 [`09-AIO-VK-PRESENTMODES-STATUS.md`](09-AIO-VK-PRESENTMODES-STATUS.md) (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。当前已采用远程 manifest 内容供应、自建 imagefs/Proton/Box64/DXVK/VKD3D、共享字体，并加入可选 PulseAudio/AAudio（ALSA 默认回退）。架构真源见 [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md)。
+> **v0.1 端到端已跑通**；AIO 各图形后端见 [`09-AIO-GRAPHICS-TEST.md`](09-AIO-GRAPHICS-TEST.md) (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。当前已采用远程 manifest 内容供应、自建 imagefs/Proton/Box64/DXVK/VKD3D、共享字体，并加入可选 PulseAudio/AAudio（ALSA 默认回退）。架构真源见 [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md)。
 > 必读: [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) · [`01-RFC.md`](research/01-RFC.md) · [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) · [`02-SCAFFOLD.md`](research/02-SCAFFOLD.md)
 
 ---
@@ -38,7 +38,7 @@
 > 本节按时间追加，记录“当时做了什么”；早期的 ALSA-only、删除 Pulse 组件、
 > 本地 bundled manifest 等条目已被后面的演进条目替代，不应单独视为当前状态。
 
-- ⚠ **AIO Vulkan PresentModes / HA262 黑屏（开放）** (2026-09-16): 为消「Present mode unsupported」在 win32u 全局假报 FIFO/MAILBOX/IMMEDIATE（proton-wine `05ca3a658db`，WCP 同 tip）；包内 DRIVER_VERSION=48 一致。干净一轮真机 guest 以 `kernel32.dll` `c0000135` 退出，未见 `AHB_SC create images`。详 [`09-AIO-VK-PRESENTMODES-STATUS.md`](09-AIO-VK-PRESENTMODES-STATUS.md)。
+- ⚠ **AIO Vulkan PresentModes / HA262 黑屏（开放）** (2026-09-16): 为消「Present mode unsupported」在 win32u 全局假报 FIFO/MAILBOX/IMMEDIATE（proton-wine `05ca3a658db`，WCP 同 tip）；包内 DRIVER_VERSION=48 一致。干净一轮真机 guest 以 `kernel32.dll` `c0000135` 退出，未见 `AHB_SC create images`。2026-09-28 复测已不再出现，见 [`09-AIO-GRAPHICS-TEST.md`](09-AIO-GRAPHICS-TEST.md)。
 - ✅ scaffold 已落地并提交 (`fc14357`)。
 - ✅ P0 已落地并提交 (`9e0929f`): `:core:native` 真实 `libwinlator.so`+`libfakeinput.so` (62 JNI 导出 + JNI_OnLoad, adrenotools 静态链入, 19 shader 编入)。`./gradlew :app:assembleDebug` 绿, APK `lib/arm64-v8a/` 含真 `.so`。
 - ✅ P1 已落地并提交 (`dee877e`+`92b00ef`): `:core:engine` runtime Java 内核 (221 .java + 3 .kt) + 11 JNI 绑定 + AdrenotoolsManager 精简 (D8) + cut 类 stub; `WineEngineImpl` facade skeleton (注入 ContainerManager/RootfsInstaller/WineSessionPreparer, launch 编排骨架委托 com.winlator.cmod, 每步 TODO 标 P-phase) + `WineSessionPreparer` 接口 (6 方法, compile-only)。`./gradlew :app:assembleDebug` 绿, APK 31.9MB 含 libwinlator.so 964K。
@@ -364,7 +364,7 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
 
 - **壳层（GDI 出画 / 输入 / IME / z-order）**：主动项已关，只剩可选人工目视确认 → [`08`](08-AGENT-BOOTSTRAP.md) §12；细节 [`04`](04-WINEANDROID-DISPLAY.md)。
 - **游戏 Vulkan Present**：AHB import CreateSwapchain 是现行路径，勿退（[`05`](05-AHB-IMPORT-PRESENT.md)）。GDI 壳层不走 CreateSwapchain、禁私有 host.sock。
-- **开放排查（已暂停）**：AIO PresentModes / HA262 黑屏，2026-09-16 用户叫停 → [`09`](09-AIO-VK-PRESENTMODES-STATUS.md) §4（主假设：`kernel32.dll` `c0000135` + `execmod`）。
+- **AIO 图形矩阵**：各后端现状与未解决项只看 [`09`](09-AIO-GRAPHICS-TEST.md)（2026-09-16 的 PresentModes / `c0000135` 排查已作废，复测不再出现）。
 - **已停**：第二台真机 / 分屏 / hostScale 双机。
 - **CI**：`spotlessKotlinCheck` 自 2026-09-16 起让 main CI 变红，本次 `style: spotlessApply` 修复；ReDroid 冒烟最近 60 次无绿（最后一次实跑 `a17810b`：`guest did not stay running`），待单独排查。
 - **2026-09-26 · wineandroid NDK 符号收敛**：x86_64 Wine 在 Box64 里只经 wrappedandroid 调 NDK 符号（imagefs `240671e`），`lib*-real.so` 软链 / amphora_wsi 链接 android 方案已废弃（分支 `wip/box64-libandroid`、`wip/ha262-paint` 已删）。宿主新增 `AMPHORA_WSI_DIR=<filesDir>/wineandroid`，`libamphora_wsi.so` 的 `wsi-%d.sock` / `wsi-sc-%d.sock` 路径改为运行时读取该变量（缺省不启动服务线程）；Leegao 兜底 shim（`libamphora-android-shim.so`）补 AHardwareBuffer 8 符号转发到平台 libnativewindow，`GuestLibandroidShim` 判等改 SHA-256。
@@ -409,3 +409,12 @@ WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b
   - **已发布**：APK `aacf7da` 先由 CI pin 成 `app_update 0.1.0+254.aacf7da6`（content_manifest `c3f924d`），再合 imagefs PR #21（main `2f214a7`，元素文件与测过的分支构建逐字节相同，缓存键一致，`build-proton-wine` 1 分 24 秒），发布 `Proton-11.0-11064b988-x86_64.wcp`（sha256 `36df0834…`，与 dev 构建逐字节相同），manifest `4544092` 把 wine 指过去；旧 `b1c230b99` 资产按惯例被删。
   - **两台 PASS（发布 pin）**：dev pin 已清，启动主界面后缓存 manifest 刷新到 `11064b988`。用 `scripts/dxvk-smoke/present-check.sh`（本提交）：6T / Y700 关限帧都是 `presents=175 fenced=175 acquires=176 imported=176`，游戏层 `totalFrames=172–173 dropped=0`；限 30（6T）/ 60（Y700）SF averageFPS 30.2 / 62.5；回读 MAGENTA，无 FATAL，自上次 bind 起 `flush acquire signal` 0 行。退出后两台 prefs 与跑前一致。
   - 冒烟检查脚本从 `.tmp` 收进 `scripts/dxvk-smoke/`（本提交）：原来等"第二次 AHB_SC destroy"，Y700 只建一个交换链，每轮都等满 240 秒超时；现在等 presents>0 的那条 destroy，一轮 8–23 秒。原脚本重写 prefs 时只留两项，现在只改 `advanced_frame_rate`，退出时还原。`docs/05` §5 的手动步骤一并改正。
+
+- **2026-09-28 · AIO 图形矩阵：32-bit DXVK、游戏画面 alpha、10-bit 交换链、D3D12 instance**（本提交 + proton-wine `wip/aio-matrix` @ `6512f18bd02`）：第一次把 AIO 的全部后端 × 32/64-bit 在两台上跑了一遍，结果表和未解决项见 [`09`](09-AIO-GRAPHICS-TEST.md)，脚本 `scripts/aio-smoke/`（本提交）。
+  - proton-wine：winevulkan `conversion_context_alloc` 先清零（`6512f18bd02`）。thunk 逐成员拷贝，padding 留着缓冲区旧数据，Qualcomm 驱动把 `VkPhysicalDeviceVulkan13Features` 末尾 padding 当成请求的特性，Y700 上所有 32-bit DXVK（含 d7vk / wrapper 的 32-bit DirectDraw）都 `VK_ERROR_FEATURE_NOT_PRESENT`。`vkGetInstanceProcAddr` 对宿主缺的物理设备函数也返回 thunk（`29a3ed5f28d`），vkd3d-proton 不再在建 instance 时失败。
+  - APK：client（Vulkan）SurfaceView 改 `PixelFormat.OPAQUE`，交换链 alpha 不再参与 SurfaceFlinger 混合；AHB 交换链按交换链格式 `SET_BUFFERS_FORMAT`，Y700 上 D3D8/9 的 A2B10G10R10 不再写进 8888 buffer。GDI 视图仍是 RGBA_8888。
+  - 验证用的 Proton 是 dev 主机本地 BuildStream 构建的 `Proton-11.0-6512f18bd-x86_64.wcp`（sha256 `eb8de069…`），经 dev pin 装到两台；定位 32-bit 问题用的诊断分支 `wip/aio-diag` 已删。两边改动互不依赖，没有上线顺序要求。
+  - **Lenovo Y700 `HA262AAH` PASS**：64-bit vk / dx8 / dx9 / dx10 / dx11 bench 144 fps、`presents` 1145–1156，ddraw2d 144 fps；32-bit vk / dx7 / ddraw2d / dx8 / dx9 / dx10 / dx11 由建设备失败变为 142–144 fps、`presents` 1130–1157；vkcube 背景实测 (51,51,51) = 清屏色 RGB（改前 (81,140,170)），dx9 背景 (26,26,31)（改前 (104,160,193)）。无 FATAL。
+  - **OnePlus 6T `5b1736c7` PASS**：32 / 64-bit 的 vk、dx8–dx11、ddraw2d、32-bit dx7 都出画（方块 / 色条），约 60 fps；64-bit dx11 有 1 轮卡在首帧（第二个交换链 acquire 后无 present），同版本另 3 轮正常，记为未解决。无 FATAL。
+  - **仍不行**（详 [`09`](09-AIO-GRAPHICS-TEST.md) §4）：Y700 上 DXVK 3.0.2 的 D3D8/9 固定管线 `Failed to compile pipeline: -13`，只有清屏色（设 `dxvk_flavor=sarek` 后全部出画）；D3D12 卡驱动能力（Y700 Qualcomm 缺 single texel alignment、6T 缺 transform feedback），wineandroid 路径不认 Turnip 设置；OpenGL 与 64-bit DX7 因 EGL 无 config 不可用。
+  - 待办：imagefs 把 proton-wine `wip/aio-matrix` pin 到 main 发布 WCP、bump manifest，发布后两台用 `scripts/aio-smoke/aio-matrix.sh` 复验。

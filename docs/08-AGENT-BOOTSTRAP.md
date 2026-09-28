@@ -135,4 +135,4 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 - [`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md) — Vulkan AHB 零拷贝游戏渲染机制与验收证据
 - [`06-ENVIRONMENT.md`](06-ENVIRONMENT.md) — 开发、编译环境与远程 ADB 调试搭建指南
 - [`07-DEV-PIN-OVERLAY.md`](07-DEV-PIN-OVERLAY.md) — 开发态组件覆盖层（`dev_pins.json`）配置方法
-- [`09-AIO-VK-PRESENTMODES-STATUS.md`](09-AIO-VK-PRESENTMODES-STATUS.md) — AIO Vulkan 呈现模式排查记录与假设
+- [`09-AIO-GRAPHICS-TEST.md`](09-AIO-GRAPHICS-TEST.md) — AIO Graphics Test 各后端真机矩阵与未解决项

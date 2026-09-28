@@ -36,7 +36,7 @@ Git author (local): `skywalker512` / `houzhenhong@outlook.com`.
 ## Read order
 
 1. `AGENTS.md` → `docs/08-AGENT-BOOTSTRAP.md`
-2. Progress: `docs/02-TRACKING.md` last section (current-status pointer) + `git log -15`; open investigation in `docs/09-AIO-VK-PRESENTMODES-STATUS.md`
+2. Progress: `docs/02-TRACKING.md` last section (current-status pointer) + `git log -15`; AIO graphics matrix in `docs/09-AIO-GRAPHICS-TEST.md`
 3. Shell: `docs/04-WINEANDROID-DISPLAY.md`
 4. Present (only if tasked): `docs/05-AHB-IMPORT-PRESENT.md`
 

@@ -86,8 +86,8 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 | 重建 | 同一窗口再次 CreateSwapchain 前 `API_DISCONNECT` + `API_CONNECT`（EGL），宿主清空 buffer id 并 generation+1 | 队列只在第一次 queue 之前允许把所有槽位 dequeue 出来；重连后旧 buffer 作废，guest 按新 generation 重新导入 |
 | 呈现模式 | FIFO / FIFO_RELAXED → swap interval 1，其余 → 0 | FIFO 由 dequeue 按 vsync 节流；MAILBOX 替换未锁存的帧 |
 | 并发 | `wsi-sc` 每个请求一个线程 | Acquire 可能阻塞在宿主 dequeue，不能卡住其他交换链的 Present / Destroy |
-| 队列配置 | 重连后 `SET_USAGE 0xB00`（TEXTURE / RENDER / COMPOSER）、`SET_BUFFERS_DIMENSIONS` = 交换链 extent、`SCALE_TO_WINDOW` | 断开重连会清掉这些；AHB 导入要求图像与 buffer 尺寸一致，Surface 尺寸暂时不同（resize 途中）时由合成器缩放 |
-| 宿主视图 | client（Vulkan）SurfaceView 按 `clientRect` 布局、`setFixedSize` 成客户区尺寸 | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图 |
+| 队列配置 | 重连后 `SET_USAGE 0xB00`（TEXTURE / RENDER / COMPOSER）、`SET_BUFFERS_FORMAT`（按交换链格式：R8G8B8A8 → RGBA_8888，A2B10G10R10 → RGBA_1010102，R16G16B16A16_SFLOAT → RGBA_FP16，R5G6B5 → RGB_565）、`SET_BUFFERS_DIMENSIONS` = 交换链 extent、`SCALE_TO_WINDOW` | 断开重连会清掉这些；导入时 VkImage 格式取自 buffer，不设格式时 10-bit 交换链（Adreno 8xx 上 D3D8/9 会选）的像素写进 8888 buffer，画面发白、半透明；AHB 导入要求图像与 buffer 尺寸一致，Surface 尺寸暂时不同（resize 途中）时由合成器缩放 |
+| 宿主视图 | client（Vulkan）SurfaceView 按 `clientRect` 布局、`setFixedSize` 成客户区尺寸，格式 `PixelFormat.OPAQUE` | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图。Windows 忽略交换链的 alpha，图层标不透明后 SurfaceFlinger 也忽略（之前按 RGBA_8888 半透明合成，vkcube 的 α=0.2 清屏色透出桌面） |
 | 呈现 fence | 每个宿主 device 一个 `VkExportSemaphoreCreateInfo(SYNC_FD)` 信号量，present 提交时 signal、`vkGetSemaphoreFdKHR` 导出（导出即复位）；fd 在 box64 同进程里按整数传给 libamphora_wsi，再 SCM_RIGHTS 给宿主 `queueBuffer(fence)` | 替掉每帧 `vkQueueWaitIdle`，和 AOSP 把 release fence 交给 queueBuffer 一致；只有 q50/q100 回读帧在 guest 侧等 fence |
 
 | Acquire fence | 宿主 `CMD_DEQUEUE_FENCE` 在回复前先发 int32 + release fence（SCM_RIGHTS）；libamphora_wsi 对 app 的信号量 / fence 做 `vkImportSemaphoreFdKHR` / `vkImportFenceFdKHR`（SYNC_FD、TEMPORARY，fd -1 = 已释放），不提交；win32u 开 `VK_KHR_external_fence(_fd)` | 同 AOSP / Mesa。取代原来"记在 win32u 一个全局槽、下次提交补空提交"：那个会被多交换链互相覆盖、可能提交到别的 device 的队列、提交前等 acquire fence 会一直等 |

@@ -96,6 +96,29 @@ enum { AHB_SC_IN_QUEUE = 0, AHB_SC_ACQUIRED = 1 };
  * swapchain on Android asks for (colour attachment + sampled + overlay). */
 #define AHB_SC_BUFFER_USAGE 0xB00
 
+/* Buffer format for a swapchain format, as AOSP swapchain.cpp
+ * GetNativePixelFormat. Without it the queue hands out the SurfaceView's
+ * default (8888), the import below takes the image format from that buffer,
+ * and a 10-bit swapchain's pixels land in an 8888 buffer (Adreno 8xx picks
+ * A2B10G10R10 for D3D8/9). HAL values from android.hardware.graphics.common;
+ * 0 = leave the queue default. */
+static int ahb_sc_native_format(VkFormat format)
+{
+    switch (format) {
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SRGB:
+        return 0x1; /* RGBA_8888 */
+    case VK_FORMAT_R5G6B5_UNORM_PACK16:
+        return 0x4; /* RGB_565 */
+    case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+        return 0x2B; /* RGBA_1010102 */
+    case VK_FORMAT_R16G16B16A16_SFLOAT:
+        return 0x16; /* RGBA_FP16 */
+    default:
+        return 0;
+    }
+}
+
 struct ahb_sc_surface {
     VkSurfaceKHR surface;
     struct amphora_win *win;
@@ -505,15 +528,22 @@ static VkResult amphora_vkCreateSwapchainKHR(
      * match; scaled to the Surface when the view is a different size (resize in
      * flight); render-target usage so the gralloc layout suits the GPU. */
     {
+        int native_format = ahb_sc_native_format(pCreateInfo->imageFormat);
         int uret = win_perform(&win->win, NATIVE_WINDOW_SET_USAGE, AHB_SC_BUFFER_USAGE);
+        int fret = native_format
+            ? win_perform(&win->win, NATIVE_WINDOW_SET_BUFFERS_FORMAT, native_format) : 0;
         int dret = win_perform(&win->win, NATIVE_WINDOW_SET_BUFFERS_DIMENSIONS,
                                (int)pCreateInfo->imageExtent.width,
                                (int)pCreateInfo->imageExtent.height);
         int sret = win_perform(&win->win, NATIVE_WINDOW_SET_SCALING_MODE,
                                NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-        LOGI("AHB_SC configure usage=0x%x ret=%d dims=%ux%u ret=%d scale-to-window ret=%d",
-             AHB_SC_BUFFER_USAGE, uret, pCreateInfo->imageExtent.width,
-             pCreateInfo->imageExtent.height, dret, sret);
+        if (!native_format)
+            LOGW("AHB_SC no buffer format for vkFormat=%d, keeping the queue default",
+                 (int)pCreateInfo->imageFormat);
+        LOGI("AHB_SC configure usage=0x%x ret=%d format=%d->0x%x ret=%d dims=%ux%u ret=%d "
+             "scale-to-window ret=%d",
+             AHB_SC_BUFFER_USAGE, uret, (int)pCreateInfo->imageFormat, native_format, fret,
+             pCreateInfo->imageExtent.width, pCreateInfo->imageExtent.height, dret, sret);
     }
 
     int min_undequeued = 1;
