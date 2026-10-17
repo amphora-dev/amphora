@@ -153,7 +153,7 @@ LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"   # 运行期从设备 /data/
 
 - **是什么**：一个 `wineboot` 初始化过的 Wine prefix（`~/.wine` 的 `drive_c` + `system.reg` + `user.reg` + `userdef.reg` 等），打包成 xz tar。作为新容器的初始模板。
 - **大小**：`prefixPack-x86_64-11.txz` = **7.9 MB**；`prefixPack-arm64ec-11.txz` = 21 MB。
-- **怎么准备**：**仓库里没有生成脚本**。workflow 直接从 release `Assets` 下载。生成方式（推断 + Amphora 00-RESEARCH.md 已记）：用构建好的 Wine 跑一次 `wineboot`（在 Android 设备/模拟器或带 Bionic sysroot 的环境里），初始化 prefix，再 `tar cJf prefixPack.txz ~/.wine`。**先有鸡（可运行 Wine）才有蛋（prefixPack）**——首次构建要么复用上游的，要么在能跑 Wine 的环境里现场生成。
+- **怎么准备**：**仓库里没有生成脚本**。workflow 直接从 release `Assets` 下载。生成方式（推断 + Amphora `00-RESEARCH.md` 曾记，该文档已删除）：用构建好的 Wine 跑一次 `wineboot`（在 Android 设备/模拟器或带 Bionic sysroot 的环境里），初始化 prefix，再 `tar cJf prefixPack.txz ~/.wine`。**先有鸡（可运行 Wine）才有蛋（prefixPack）**——首次构建要么复用上游的，要么在能跑 Wine 的环境里现场生成。
 - **运行期怎么用**（WinNative `ContainerManager.extractContainerPatternFile`）：创建容器时，把 `prefixPack.txz` 解压到容器目录作为初始 prefix。`ContentsManager` 校验 `profile.winePrefixPack` 存在。
 
 ---
@@ -277,4 +277,4 @@ LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"   # 运行期从设备 /data/
 - shm_utils：`android/shm_utils/shm_utils.h`
 - 上游 release `Assets`：`termuxfs-{x86_64,aarch64}.tar`、`prefixPack-{x86_64-11,arm64ec-11}.txz`
 - WinNative 消费参考：`app/src/main/runtime/content/{ContentsManager.java,ContentProfile.java}`、`app/src/main/runtime/container/ContainerManager.java`
-- Amphora 现有调研：`docs/00-RESEARCH.md` §4.3、`docs/01-RFC.md` D4/D5
+- Amphora 现有调研：`research/00-RESEARCH.md` §4.3（已删除，`git show dd99971:docs/research/00-RESEARCH.md`）、`research/01-RFC.md` D4/D5

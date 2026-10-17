@@ -5,7 +5,7 @@
 | **Status** | Approved - 决议已定；v0.1 已按本 RFC 落地并端到端跑通（as-built 见 [`05-ARCHITECTURE.md`](../01-ARCHITECTURE.md)） |
 | **作者** | (待定) |
 | **日期** | 2026-07-10 |
-| **依据** | [`00-RESEARCH.md`](00-RESEARCH.md) |
+| **依据** | `00-RESEARCH.md`（已删除；`git show dd99971:docs/research/00-RESEARCH.md`） |
 
 > 本文保留立项时的决策与取舍，不作为当前实现清单。后续演进会在对应决议下标注；
 > 未标注的现状以 [`05-ARCHITECTURE.md`](../01-ARCHITECTURE.md) 为准。
@@ -18,13 +18,13 @@
 
 **Amphora**（古希腊双耳酒器）--承载 Wine 容器的容器。
 
-**愿景**: 一个现代化、最小先跑通、长期工程化的 Android Wine 模拟器。以 WinNative 为参考（事实依据见 `00-RESEARCH.md`），但全新工程、干净架构，从 MVP 起步，模块边界为长期扩展铺路。
+**愿景**: 一个现代化、最小先跑通、长期工程化的 Android Wine 模拟器。以 WinNative 为参考（事实依据见已删除的 `00-RESEARCH.md`，`git show dd99971:docs/research/00-RESEARCH.md`），但全新工程、干净架构，从 MVP 起步，模块边界为长期扩展铺路。
 
 ## 2. 背景
 
 - 参考项目 WinNative 已完成深度分析：183k Kotlin/Java + ~78.5k native。可砍: feature 层 91.6k + Steam native ~41k + 死代码 native(proot/patchelf 等) ~28k。Amphora 实际需移植的 native 仅 `winlator`(9.6k)+`fakeinput`+`adrenotools` ≈ 10k；Java 运行时内核（xserver/renderer/environment 等 `runtime/`）整块复用 ~32k 行（见 §7），仅 app 壳 + 特性层全新写。
 - **已有资产**: `winlator-imagefs`（Bionic rootfs，42 包，经多轮 CI 迭代转绿，已验证对齐）--rootfs 层已攻克。
-- native 技术核心 `winlator`（Vulkan X-server 渲染器，模块 9.6k 行，含 `vk_renderer.c` 3.2k）整块复用；`proot`/`patchelf` 为死代码不移植（见 `00-RESEARCH.md` §2.2/§6.1）。
+- native 技术核心 `winlator`（Vulkan X-server 渲染器，模块 9.6k 行，含 `vk_renderer.c` 3.2k）整块复用；`proot`/`patchelf` 为死代码不移植（见 `00-RESEARCH.md` §2.2/§6.1，该文档已删除，`git show dd99971:docs/research/00-RESEARCH.md`）。
 - 所有运行时二进制（box64/Wine/Turnip/DXVK）均有开放源码构建源。
 
 ## 3. 目标与非目标
