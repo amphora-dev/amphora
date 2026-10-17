@@ -840,4 +840,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
   }
 
+  public int getPid() {
+    synchronized (lock) {
+      return pid;
+    }
+  }
 }
