@@ -1,6 +1,5 @@
 package com.winlator.cmod.shared.io;
 
-import android.content.res.AssetManager;
 import com.winlator.cmod.shared.util.OnExtractFileListener;
 import java.io.File;
 
@@ -21,25 +20,6 @@ public final class NativeContentIO {
         type, source.getAbsolutePath(), destination.getAbsolutePath(), listener);
   }
 
-  public static boolean extractAsset(
-      int type,
-      AssetManager assetManager,
-      String assetFile,
-      File destination,
-      OnExtractFileListener listener) {
-    if (assetManager == null || assetFile == null || assetFile.isEmpty() || destination == null) {
-      return false;
-    }
-    return nativeExtractAsset(type, assetManager, assetFile, destination.getAbsolutePath(), listener);
-  }
-
   private static native boolean nativeExtractArchive(
       int type, String sourcePath, String destinationPath, OnExtractFileListener listener);
-
-  private static native boolean nativeExtractAsset(
-      int type,
-      AssetManager assetManager,
-      String assetFile,
-      String destinationPath,
-      OnExtractFileListener listener);
 }

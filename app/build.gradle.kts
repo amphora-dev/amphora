@@ -30,8 +30,7 @@ android {
         getByName("release") {
             isMinifyEnabled = true
             // The release build already keeps the com.winlator.cmod kernel by name
-            // (proguard-rules.pro) and the runtime-resolved drawables by resource id
-            // (res/values/keep.xml), so unused resources can go too.
+            // (proguard-rules.pro), so unused resources can go too.
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

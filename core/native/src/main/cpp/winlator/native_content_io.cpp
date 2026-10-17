@@ -1,7 +1,5 @@
 #include <jni.h>
 
-#include <android/asset_manager.h>
-#include <android/asset_manager_jni.h>
 #include <android/log.h>
 #include <lzma.h>
 #include <zstd.h>
@@ -243,26 +241,6 @@ public:
 
 private:
     FILE* file_ = nullptr;
-};
-
-class AssetReader final : public Reader {
-public:
-    AssetReader(AAssetManager* manager, std::string path)
-        : asset_(manager ? AAssetManager_open(manager, path.c_str(), AASSET_MODE_STREAMING) : nullptr) {}
-
-    ~AssetReader() override {
-        if (asset_) AAsset_close(asset_);
-    }
-
-    bool ok() const { return asset_ != nullptr; }
-
-    ssize_t read(uint8_t* out, size_t length) override {
-        if (!asset_) return -1;
-        return AAsset_read(asset_, out, length);
-    }
-
-private:
-    AAsset* asset_ = nullptr;
 };
 
 class FileWriter final {
@@ -746,61 +724,4 @@ Java_com_winlator_cmod_shared_io_NativeContentIO_nativeExtractArchive(
     }
     if (!ok && env->ExceptionCheck()) return JNI_FALSE;
     return ok ? JNI_TRUE : JNI_FALSE;
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_winlator_cmod_shared_io_NativeContentIO_nativeExtractAsset(
-    JNIEnv* env,
-    jclass,
-    jint type,
-    jobject jasset_manager,
-    jstring jasset_file,
-    jstring jdestination,
-    jobject listener) {
-    AAssetManager* manager = AAssetManager_fromJava(env, jasset_manager);
-    std::string asset_file = jstr(env, jasset_file);
-    std::string destination = jstr(env, jdestination);
-    if (!manager || asset_file.empty() || destination.empty()) return JNI_FALSE;
-    if (!mkdirs(destination)) return JNI_FALSE;
-
-    bool ok = false;
-    if (type == 0) {
-        auto raw = std::make_unique<AssetReader>(manager, asset_file);
-        if (!raw->ok()) return JNI_FALSE;
-        XzReader reader(std::move(raw));
-        ok = reader.ok() && extract_tar(reader, destination, env, listener, false);
-    } else if (type == 1) {
-        auto raw = std::make_unique<AssetReader>(manager, asset_file);
-        if (!raw->ok()) return JNI_FALSE;
-        ZstdReader reader(std::move(raw));
-        ok = reader.ok() && extract_tar(reader, destination, env, listener, false);
-    }
-    if (!ok && env->ExceptionCheck()) return JNI_FALSE;
-    return ok ? JNI_TRUE : JNI_FALSE;
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_winlator_cmod_shared_io_NativeContentIO_nativeDownloadFile(
-    JNIEnv* env, jclass, jstring jaddress, jstring jdestination, jstring jca_bundle, jobject listener) {
-    // Amphora: HTTP download disabled (RFC §10 D4 -- MVP bundles fixed binaries,
-    // no remote fetch). Symbol retained so NativeContentIO.java's native decl
-    // resolves and callers get a clean false instead of UnsatisfiedLinkError.
-    // Restore the curl-backed body from WinNative upstream when v0.3 adds
-    // RemoteContentSource download.
-    (void) env;
-    (void) jaddress;
-    (void) jdestination;
-    (void) jca_bundle;
-    (void) listener;
-    return JNI_FALSE;
-}
-
-extern "C" JNIEXPORT jlong JNICALL
-Java_com_winlator_cmod_shared_io_NativeContentIO_nativeFetchContentLength(
-    JNIEnv* env, jclass, jstring jaddress, jstring jca_bundle) {
-    // Amphora: download disabled (see nativeDownloadFile stub above).
-    (void) env;
-    (void) jaddress;
-    (void) jca_bundle;
-    return -1;
 }
