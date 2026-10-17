@@ -58,7 +58,7 @@ AIO 2.1.0 与 v1.7.0 的差别：
 
 ## 4. 未解决
 
-- **Y700 D3D8/9 固定管线不出画（Qualcomm 驱动）**：DXVK 3.0.2-gplasync 的 FF VS/FS 管线在 Qualcomm 0.800.72 上 `vkCreateGraphicsPipelines` 返回 -13（`Failed to compile pipeline: -13`，每轮 1–2 条），清屏照常、方块不画。32-bit dx7 / ddraw2d 经 wrapper 落到 D3D9 FF，同样。Sarek 1.11 和 Turnip 都没这个问题。可选：Qualcomm 驱动上 D3D8/9 默认走 Sarek 或 Turnip，或者查 DXVK FF 着色器里驱动不收的写法。
+- **Y700 D3D8/9 固定管线不出画（Qualcomm 驱动）**：DXVK 3.0.2-gplasync 的 FF VS/FS 管线在 Qualcomm 0.800.72 上 `vkCreateGraphicsPipelines` 返回 -13（`Failed to compile pipeline: -13`，每轮 1–2 条），清屏照常、方块不画。32-bit dx7 / ddraw2d 经 wrapper 落到 D3D9 FF，同样。Sarek 1.11 和 Turnip 都没这个问题。可选：Qualcomm 驱动上 D3D8/9 默认走 Sarek 或 Turnip，或者查 DXVK FF 着色器里驱动不收的写法。2026-10-17 Y700 手动实验：只把 `d3d8.dll` / `d3d9.dll` 换成 Sarek、其余留 3.0.2，dx8 / dx9 64+32、32-bit dx7、32-bit ddraw2d 全部出画，D3D10/11/12、vk 不变；实现待办见 [`02`](02-TRACKING.md) §2。
 - **D3D12 在 6T**：wrapper 下仍缺 transform feedback（`Lacking support for transform feedback`）。Turnip 下 vkd3d 能建设备，但 3.0.2 的 dxgi 因缺 16-bit storage 枚举不到适配器，Sarek 的 dxgi 又不认 D3D12 设备，两条都走不通。
 - **Vulkan 窗口不能切后台**：Activity 进后台时容器 SurfaceView 销毁（`layer root destroyed`），宿主那一侧的 buffer serve 退出，guest 下一次 acquire 拿到 -5、重建交换链失败，vkcube 退出，会话随之结束。平台 loader 和层两条路径一样，未修。GDI 窗口不受影响（灭屏再亮屏会重挂层，见 [`02`](02-TRACKING.md) §3 层序行）。
 - **OpenGL**：`wineandroid.drv/opengl.c` 用 `EGL_PLATFORM_ANDROID_KHR` 调 imagefs 的 Mesa libEGL（原生 aarch64，Box64 直接转过去；构建只有 `-Dplatforms=x11`），`eglChooseConfig` 一个 config 都没有（`egldrv_init_pixel_formats Failed to get any configs`）。X11 时同一份 Mesa 走 EGL X11 平台 + zink + kopper（xcb surface 经 wrapper ICD）。wineandroid 上缺的是 Wine 的 GL 驱动这一段和 kopper 的出画目标，方案见 [`02`](02-TRACKING.md) §2「之后」（Phase 3 OpenGL）。64-bit DX7 走 wined3d GL，跟着不可用。

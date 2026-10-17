@@ -12,7 +12,7 @@
   - ✅ Phase 1a：SurfaceControl 层序、Vulkan 窗口保留边框
   - ✅ Phase 1b：`VK_LAYER_AMPHORA_wsi`（设置里选的驱动真正到 guest）
   - ✅ Phase 2 的测量部分：Turnip 上 D3D8/9 FF、D3D12；wrapper + Qualcomm 复测 -13，结果在 [`09`](09-AIO-GRAPHICS-TEST.md) §2 / §4
-- 2026-10-17 · 清理 X11 遗留（`wip/cleanup`：bb3bed7 / c0d3a07 / 8f7a4aa / a556914 + 本次 docs 提交）：删 Java X server、旧 host Vulkan 渲染器（vk/ + shaders）、drawable/sync_fence/gpu_image JNI、无引用脚本，release 补 wineandroid IPC 回调 keep 规则。真机冒烟 PASS（Y700，APK `7c75c36`，Proton `11.0-2fd246cfc`，产物 `.tmp/cleanup-smoke/`）：GDI 桌面 + File Manager 出画（`registerSurface ok=true`、无 FATAL / 新 tombstone）；vk 64 144.32 fps（presents 1157 / SF 1155）；dx11 64 144.00 fps（1148/1145）；dx8 64 设备已建成、bench 144.05 fps，但方块不画（Qualcomm FF -13 已知项，见 §2）。
+- 2026-10-17 · 清理 X11 遗留（`wip/cleanup`：bb3bed7 / c0d3a07 / 8f7a4aa / a556914 + 本次 docs 提交）：删 Java X server、旧 host Vulkan 渲染器（vk/ + shaders）、drawable/sync_fence/gpu_image JNI、无引用脚本，release 补 wineandroid IPC 回调 keep 规则。真机冒烟 PASS（Y700，APK `5c8f5e1`，Proton `11.0-2fd246cfc`，产物 `.tmp/cleanup-smoke/`）：GDI 桌面 + File Manager 出画（`registerSurface ok=true`、无 FATAL / 新 tombstone）；vk 64 144.32 fps（presents 1157 / SF 1155）；dx11 64 144.00 fps（1148/1145）；dx8 64 设备已建成、bench 144.05 fps，但方块不画（Qualcomm FF -13 已知项，见 §2）。
 
 ## 2. 下一步与待决
 
@@ -20,13 +20,14 @@
   - **待办 · 宿主探测 ≠ guest 视角**（2026-10-17 记）：DXVK 在 guest 里检查能力，auto 却按宿主探测选（`GraphicsDriverCapabilities` 经 `GraphicsDriverIds.resolveHostDriver`）。wrapper / Leegao 时宿主查的是平台 loader 上的裸驱动，guest 看到的是 wrapper 处理后的：容器默认 `bcnEmulation=auto` → `WRAPPER_EMULATE_BCN=3`，`textureCompressionBC` 两边可能不同；`WRAPPER_EXTENSION_BLACKLIST` 非空时扩展也不同。Turnip 时宿主直接开 Turnip，guest 仍隔一层 wrapper；System 两边一致。先在 Y700 / 6T 上用 wrapper 与 Turnip 各跑一次，对比宿主探测的缺项与 guest 里 DXVK 报的缺项，再定是按 wrapper 配置补算差异，还是改在 guest 侧探测。原生探测（`core/native/.../winlator/vulkan.c`）现在只取版本和扩展名，要加 `vkGetPhysicalDeviceFeatures2`。必需项来源：DXVK `v3.0.2` `src/dxvk/dxvk_device_info.cpp` 里 `getFeatureList()` 中 `require=true` 的项，加 `checkDeviceCompatibility()` 的 Vulkan 1.3、图形队列、push data 大小三条。
   - 顺带：wineandroid 会话里宿主已不用 Vulkan 渲染（GDI 走 CPU 拷贝，3D 只把 AHB `queueBuffer` 给 SurfaceFlinger），宿主 Vulkan 只剩上述探测；X11 时代的 `VulkanRenderer` / `vk_renderer.c` 已无处创建（`XServerSurfaceView` 未被实例化），`resolveHostDriver` 注释里的 “host compositor” 是旧说法。
 - **等用户决定**：Adreno 8xx + Qualcomm 驱动的 D3D8/9 FF -13（驱动编译器 bug，不是能力缺失，特性查询查不出）。选项 (a) 8xx 默认 Turnip（先比 D3D11 下 Turnip / Qualcomm 性能）；(b) Qualcomm 驱动上只让 d3d8/d3d9 用 Sarek，dxgi/d3d10/d3d11 仍 3.0.2；(c) 找出被拒的 DXVK FF 着色器绕开。
+  - **待办 · 实现 (b)**（2026-10-17 记）：Y700 手动实验已通过（APK `5c8f5e1`、Proton `11.0-2fd246cfc`、wrapper 驱动，只把 prefix 里 `system32` / `syswow64` 的 `d3d8.dll`、`d3d9.dll` 链接改指 `contents/DXVK/1.11.0-async-sarek-0/`）：dx8 / dx9 64+32、32-bit dx7（dd7to9）、32-bit ddraw2d 全部出画、`-13` 为 0、约 144 fps；dx10 / dx11 64+32、dx12、vk 仍走 3.0.2 / vkd3d 不受影响。11 次开会话 preparer 都没把链接改回。证据 `.tmp/split-dxvk/`（本机，未入库）。d3d8 与 d3d9 必须同一套（3.0.2 的 d3d8 经私有 bridge 找 d3d9），dxgi / d3d11 / d3d10core 必须同一套。待定：启用方式——auto 自动（auto 解析为 3.0.2 且驱动为 Qualcomm 官方 wrapper / System 时 d3d8/d3d9 取 Sarek，Turnip 不启用）、设置里加"混合"选项、或两者都做。实现时还要改 `sharedGraphicsLinksNeedRefresh` 的 DXVK 链接检查与设置页显示。未覆盖：真实游戏、同进程同时用 D3D9 与 D3D11、6T。
 - **之后**：Phase 3 OpenGL，先实验 A（PE Mesa zink `opengl32.dll`，走 Box64 有 CPU 模拟代价），A 不行再做 B（原生 Mesa surfaceless + 回读，需要出画那一段）。Phase 4：6T 64-bit dx11 偶发卡首帧、32-bit padding 修复上游化、Mali 上 VirGL。Phase 5：ARM64EC 评估。
 - **零散待办**：
   - Vulkan 窗口切后台后会话结束（[`09`](09-AIO-GRAPHICS-TEST.md) §4，两条 loader 路径都这样）。
   - 层现在如实报 FIFO / MAILBOX，win32u 里“永远广告 IMMEDIATE、宿主没有就改 FIFO”的补丁（proton-wine `dlls/win32u/vulkan.c` `win32u_vkGetPhysicalDeviceSurfacePresentModesKHR` / `win32u_vkCreateSwapchainKHR`）仍在起作用：没有 IMMEDIATE 就退出的 app（AIO `--cube vk`）两条路径都靠它，要删得先决定层是否报 IMMEDIATE（AHB 交换链上它等同 MAILBOX）。
   - D3D12 选 Sarek 时必然失败（Sarek 的 dxgi 不认 D3D12 设备）。
   - HUD 显示 `GUEST 0%`。
-  - content_manifest `f9cfa31` 已把 AIO 改 pin 到 amphora fork `cnb.cool/atowerlight/aio-graphics-test`（fork `b8acc49` = 上游 2.1.0 `582454d` + D3D8 窗口模式 PresentationInterval 修复），dx8 已在 Y700 复测（`7c75c36`）：fork 修复生效——D3D8 设备建成、bench 144.05 fps；方块仍不画是 Qualcomm FF -13（上条等用户决定项），非 AIO 问题。
+  - content_manifest `f9cfa31` 已把 AIO 改 pin 到 amphora fork `cnb.cool/atowerlight/aio-graphics-test`（fork `b8acc49` = 上游 2.1.0 `582454d` + D3D8 窗口模式 PresentationInterval 修复），dx8 已在 Y700 复测（`5c8f5e1`）：fork 修复生效——D3D8 设备建成、bench 144.05 fps；方块仍不画是 Qualcomm FF -13（上条等用户决定项），非 AIO 问题。
   - ReDroid CI 仍红：`redroid-ci.sh` 的测试清单已在 `8f7a4aa` 去掉两个不存在的类、断言改 `OK (7 tests)`，是否变绿未验。
   - `WineHeadlessRunner` 为 `HeadlessWineBootTest` 与 PrefixPack 生成器共用，Y700 均已验证（§3）。生成器与 `dd99971`（XServer + GPLC 完整 env）同机同 WCP 对比：两棵 `.wine` 树 472 项逐路径一致，仅 `system.reg` 差 10 行，全部在 `Wow6432Node\Interface` 下、为共享 IID 的最后写入者差异（`Picture`/`IPictureDisp`、`Font`/`IFontDisp` 名、PSOAInterface/PSFactoryBuffer 代理 CLSID、wshom/scrrun TypeLib 反向指针）——两边都是合法 Wine 注册、被引用的 CLSID/Typelib 在两树都在场，64 位 Interface 视图逐字节相同，判定为 X 环境下 32 位注册写序差异，非回归。复现注意：`dd99971` 的生成器在 instrument 进程里要先 `ProcessHelper.init`（HiltTestApplication 不走 `AmphoraApplication.onCreate`，Enforcing 设备上 box64 直接 exec 会被 `execute_no_trans` 拒），给 `setUp` 补一行即可；`HeadlessWineBootTest` 的 staged .wcp 文件名与 Entry 常量硬编码，换 pin 需同步。
 
@@ -51,7 +52,7 @@
 | HUD FPS / P95 / 1% low | 同 09-28 提交（`nativeRecentPresentTimes`） | Y700 | HUD `144 FPS 6.9 ms` 与 AIO bench 143.96 一致；`P95 9.4 ms`（CSV 9.3） | [`04`](04-WINEANDROID-DISPLAY.md) |
 | SurfaceControl 显式层序 + Vulkan 窗口边框 | `10d5079` + proton-wine `2fd246cfc`；发布 pin `Proton-11.0-2fd246cfc`（当前 pin） | Y700 + 6T | bench 弹窗在 3D 之上且可点；窗口有标题栏；灭屏亮屏层重挂恢复；发布组合复验 vk/dx11/ddraw2d × 32/64 PASS | [`04`](04-WINEANDROID-DISPLAY.md) §2 |
 | `VK_LAYER_AMPHORA_wsi` 驱动链（wrapper / Turnip / System） | 同 09-28（只改 APK） | Y700 + 6T | wrapper 下 DXVK 见 `Wrapper(Adreno 830) driver 0.800.72`；Y700 dx12 新可跑；6T Turnip 缺 `storageBuffer16BitAccess` 仅 vk | [`05`](05-AHB-IMPORT-PRESENT.md) §2.4 |
-| Headless Wine boot（linker64 app-data exec，无显示） | `wip/cleanup`（`7c75c36` exec 路由 + 本提交 staged-.wcp pin 同步）；Proton `11.0-2fd246cfc`、Box64 `0.4.5-0db8df775` | Y700 | `am instrument` `OK (2 tests)`；`Routing app-private executable through linker64` → `exit=0`（`wine --version` 与 `wineboot --init`，后者产出有效 user.reg） | [`01`](01-ARCHITECTURE.md) |
+| Headless Wine boot（linker64 app-data exec，无显示） | `5c8f5e1`（exec 路由 + staged-.wcp pin 同步）；Proton `11.0-2fd246cfc`、Box64 `0.4.5-0db8df775` | Y700 | `am instrument` `OK (2 tests)`；`Routing app-private executable through linker64` → `exit=0`（`wine --version` 与 `wineboot --init`，后者产出有效 user.reg） | [`01`](01-ARCHITECTURE.md) |
 | PrefixPack 生成器走 `WineHeadlessRunner` | 同左；对照基线 `dd99971`（XServer + GPLC env） | Y700 | 同 WCP 同机两轮生成确定性 txz（sha256 `da1ed00c…`，各 2 次全同）；与基线 `diff` 仅 `system.reg` 10 行 Wow64 COM 注册序差异（§2 有逐项解释），无回归 | 本文件 §2 |
 
 > 失效行已剔除：2026-09-26 的「3D 冒烟」当时只按回读判 PASS（SF 层只有 4 帧），判据无效，已由 `2a70f95` 的逐帧送显取代。
