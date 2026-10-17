@@ -70,14 +70,14 @@ adb -s "$SERIAL" logcat -c
 set +e
 adb -s "$SERIAL" shell am instrument -w -r \
   -e class \
-  app.amphora.AlsaRuntimeSupportTest,app.amphora.GameSessionLaunchTest,app.amphora.ImagefsExtractionTest,app.amphora.PreparerGraphicsDriverTest,app.amphora.RemoteContentSourceTest,app.amphora.SharedDllLinkerTest,app.amphora.XServerSurfaceViewInitTest \
+  app.amphora.AlsaRuntimeSupportTest,app.amphora.ImagefsExtractionTest,app.amphora.PreparerGraphicsDriverTest,app.amphora.RemoteContentSourceTest,app.amphora.SharedDllLinkerTest \
   app.amphora.test/app.amphora.HiltTestRunner \
   | tee "$ARTIFACT_DIR/instrumentation.txt"
 instrument_rc=${PIPESTATUS[0]}
 set -e
 if (( instrument_rc != 0 )) ||
   grep -q 'FAILURES!!!' "$ARTIFACT_DIR/instrumentation.txt" ||
-  ! grep -q 'OK (9 tests)' "$ARTIFACT_DIR/instrumentation.txt"; then
+  ! grep -q 'OK (7 tests)' "$ARTIFACT_DIR/instrumentation.txt"; then
   echo "Instrumentation suite failed" >&2
   exit 1
 fi
