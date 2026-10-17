@@ -25,7 +25,7 @@ scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台
 
 ## 2. 当前结果
 
-组合：APK 自引入 `VK_LAYER_AMPHORA_wsi` 的提交起（guest 走 imagefs Khronos loader + 该层，见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.4），Proton `11.0-2fd246cfc`（发布版）。下表是 AIO 2.1.0（上游版）实测；当前 manifest 已改 pin 到 amphora fork `b8acc49`（含 dx8 修复），dx8 结果待复测。默认驱动 wrapper（Qualcomm 驱动之上的 ICD）：
+组合：APK 自引入 `VK_LAYER_AMPHORA_wsi` 的提交起（guest 走 imagefs Khronos loader + 该层，见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.4），Proton `11.0-2fd246cfc`（发布版）。下表是 AIO 2.1.0（上游版）实测；当前 manifest 已改 pin 到 amphora fork `b8acc49`（含 dx8 修复）；dx8 已于 2026-10-17 在 Y700 复测：设备建成、bench 144.05 fps，但方块不画（Qualcomm FF -13，见 §4）。默认驱动 wrapper（Qualcomm 驱动之上的 ICD）：
 
 | 后端 | 路径 | Y700 64 | Y700 32 | 6T 64 | 6T 32 |
 |---|---|---|---|---|---|
@@ -33,7 +33,7 @@ scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台
 | gl | opengl32 → EGL | ❌ 无 GL | ❌ | ❌ | ❌ |
 | dx7 | 64：wined3d(GL)；32：d7vk → DXVK | ❌ 无 GL | ⚠️ 空画面 | ❌ 无 GL | ✅ |
 | ddraw2d | 64：GDI；32：wrapper → DXVK D3D9 | ✅ | ⚠️ 空画面 | ✅ | ✅ |
-| dx8 | DXVK D3D8 | ❌ AIO 2.1.0（fork 已修，待复测） | ❌ | ❌ | ❌ |
+| dx8 | DXVK D3D8 | ⚠️ 空画面（fork 已修，设备建成；-13） | ❌ | ❌ | ❌ |
 | dx9 | DXVK D3D9（FF） | ⚠️ 空画面 | ⚠️ 空画面 | ✅ | ✅ |
 | dx10 / dx11 | DXVK | ✅ | ✅ | ✅ | ✅ |
 | dx12 | vkd3d-proton | ✅ | ✅ | ❌ 缺 transform feedback | ❌ |
@@ -45,7 +45,7 @@ Turnip（`WN-Turnip-1.06-b`）只测了 vk / dx9 / dx11 / dx12 / ddraw2d：
 6T 自动选 DXVK-Sarek 1.11（Vulkan 1.1），Y700 选 DXVK 3.0.2-gplasync。⚠️ 空画面 = 有帧、有 bench，只有清屏色。Y700 把 `dxvk_flavor` 设成 `sarek` 后，dx9 / 32-bit dx7 / 32-bit ddraw2d 全部出方块和色条（v1.7.0 时测，dx8 当时同样）。帧率两台都卡在刷新率（Y700 144、6T 60；6T 32-bit dx7 35、ddraw2d 24）。System 驱动（平台 loader，不经层）在 Y700 上 vk / dx11 64 照常 144 fps。
 
 AIO 2.1.0 与 v1.7.0 的差别：
-- **dx8**：2.1.0 建窗口模式设备时 `FullScreen_PresentationInterval` 填 `D3DPRESENT_INTERVAL_IMMEDIATE`；DXVK d3d8 按 D3D8 规则只接受 `DEFAULT`，返回 `D3DERR_INVALIDCALL`，AIO 弹 "Could not create a Direct3D 8 device"。v1.7.0 能建设备。这是 AIO 的问题，不是我们的链路。**已在 amphora fork `b8acc49` 修复（content_manifest `f9cfa31` 起 pin 到 fork），尚未真机复测。**
+- **dx8**：2.1.0 建窗口模式设备时 `FullScreen_PresentationInterval` 填 `D3DPRESENT_INTERVAL_IMMEDIATE`；DXVK d3d8 按 D3D8 规则只接受 `DEFAULT`，返回 `D3DERR_INVALIDCALL`，AIO 弹 "Could not create a Direct3D 8 device"。v1.7.0 能建设备。这是 AIO 的问题，不是我们的链路。**已在 amphora fork `b8acc49` 修复（content_manifest `f9cfa31` 起 pin 到 fork），2026-10-17 Y700 复测确认：staged 为 fork 构建（3,959,954 字节），D3D8 设备建成、bench 144.05 fps（presents 1148 / SF 1145，无 FATAL）；方块不画是 Qualcomm FF -13 已知项（下条），与 AIO 无关。**
 - **64-bit ddraw2d** 截图要早（`SHOT_DELAY=5`），2.1.0 跑完 bench 窗口就关了。
 
 ## 3. 已修（2026-09-28）

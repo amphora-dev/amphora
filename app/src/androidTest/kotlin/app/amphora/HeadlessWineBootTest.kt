@@ -50,11 +50,11 @@ import org.junit.runner.RunWith
  *    FUSE blocks adb push to /sdcard/Android/data/<pkg>/). The .wcp come from
  *    `nicholasx417/WinNative-Components` releases (or `./gradlew :app:stageBundledContent`):
  *    ```
- *    adb push Proton-10.0-4-x86_64.wcp        /data/local/tmp/
- *    adb push Bionic-Box64-0.4.3-8ee3d8f2c.wcp /data/local/tmp/
+ *    adb push Proton-11.0-2fd246cfc-x86_64.wcp        /data/local/tmp/
+ *    adb push Box64-0.4.5-0db8df775-p07e67ded.wcp /data/local/tmp/
  *    adb shell "run-as app.amphora mkdir -p /data/data/app.amphora/files"
- *    adb shell "cat /data/local/tmp/Proton-10.0-4-x86_64.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/Proton-10.0-4-x86_64.wcp'"
- *    adb shell "cat /data/local/tmp/Bionic-Box64-0.4.3-8ee3d8f2c.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/Bionic-Box64-0.4.3-8ee3d8f2c.wcp'"
+ *    adb shell "cat /data/local/tmp/Proton-11.0-2fd246cfc-x86_64.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/Proton-11.0-2fd246cfc-x86_64.wcp'"
+ *    adb shell "cat /data/local/tmp/Box64-0.4.5-0db8df775-p07e67ded.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/Box64-0.4.5-0db8df775-p07e67ded.wcp'"
  *    ```
  * 2. **SELinux permissive** -- the AOSP emulator's strict `untrusted_app` policy
  *    denies `execute_no_trans` for binaries in app_data_file (box64 exec fails with
@@ -67,7 +67,7 @@ import org.junit.runner.RunWith
  * WinNative checkout). Tests `assumeTrue`-skip when an asset is absent.
  *
  * Run: `./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.amphora.HeadlessWineBootTest`
- * (or `adb shell am instrument -w -e class app.amphora.HeadlessWineBootTest#headlessWine_versionPrints app.amphora.test/androidx.test.runner.AndroidJUnitRunner`)
+ * (or `adb shell am instrument -w -e class app.amphora.HeadlessWineBootTest app.amphora.test/app.amphora.HiltTestRunner`)
  */
 @RunWith(AndroidJUnit4::class)
 class HeadlessWineBootTest {
@@ -137,8 +137,8 @@ class HeadlessWineBootTest {
         // into filesDir via `adb shell "cat /data/local/tmp/x.wcp | run-as app.amphora sh -c
         // 'cat > /data/data/app.amphora/files/x.wcp'"` (see docs/02-TRACKING.md §P4-followup).
         val wcpDir = appCtx.filesDir
-        val protonWcp = File(wcpDir, "Proton-10.0-4-x86_64.wcp")
-        val box64Wcp = File(wcpDir, "Bionic-Box64-0.4.3-8ee3d8f2c.wcp")
+        val protonWcp = File(wcpDir, "Proton-11.0-2fd246cfc-x86_64.wcp")
+        val box64Wcp = File(wcpDir, "Box64-0.4.5-0db8df775-p07e67ded.wcp")
         assumeTrue("Proton .wcp not staged in app filesDir ($wcpDir)", protonWcp.exists())
         assumeTrue("Box64 .wcp not staged in app filesDir ($wcpDir)", box64Wcp.exists())
 
@@ -260,7 +260,7 @@ class HeadlessWineBootTest {
 
     private companion object {
         // Entry names = type-verName-verCode (versionCode=0 in both .wcp profile.json).
-        private const val PROTON_ENTRY = "Proton-10.0-4-x86_64-0"
-        private const val BOX64_ENTRY = "Box64-0.4.3-8ee3d8f2c-0"
+        private const val PROTON_ENTRY = "Proton-11.0-2fd246cfc-x86_64-0"
+        private const val BOX64_ENTRY = "Box64-0.4.5-0db8df775-p07e67ded-0"
     }
 }

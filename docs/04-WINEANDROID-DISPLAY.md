@@ -110,11 +110,7 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 
 ## 7. 功能缺口（对照 x11-reference）
 
-X11 会话链删于 `5909b50`，删前最后状态是 tag **`x11-reference`**（= `4e39be3`），取参考用 `git show x11-reference:<路径>`。
-
-### 7.1 功能缺口（对照 x11-reference）
-
-下表只列 wineandroid 仍缺（非 ✅）的用户可见功能与运行时组件；已对齐项（音频服务 Pulse/ALSA、性能 HUD、返回键退出确认等）的验收记录见 [`docs/02-TRACKING.md`](02-TRACKING.md) §3。
+X11 会话链删于 `5909b50`，删前最后状态是 tag **`x11-reference`**（= `4e39be3`），取参考用 `git show x11-reference:<路径>`。下表只列 wineandroid 仍缺（非 ✅）的用户可见功能与运行时组件；已对齐项（音频服务 Pulse/ALSA、性能 HUD、返回键退出确认等）的验收记录见 [`docs/02-TRACKING.md`](02-TRACKING.md) §3。
 
 | 功能 | X11 参考（`x11-reference`） | wineandroid 现状 | 备注 |
 |---|---|---|---|

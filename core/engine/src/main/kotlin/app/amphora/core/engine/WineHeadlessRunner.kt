@@ -10,6 +10,7 @@ import com.winlator.cmod.runtime.container.Container as WnContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WnContainerManager
 import com.winlator.cmod.runtime.content.ContentsManager
 import com.winlator.cmod.runtime.display.environment.ImageFs
+import com.winlator.cmod.runtime.system.ProcessHelper
 import com.winlator.cmod.runtime.wine.EnvVars
 import com.winlator.cmod.runtime.wine.LocaleEnv
 import com.winlator.cmod.runtime.wine.WineInfo
@@ -44,6 +45,13 @@ import kotlinx.coroutines.withContext
  * a test). The app process is already a subreaper (`JNI_OnLoad`
  * `PR_SET_CHILD_SUBREAPER`), so short-lived children are reaped.
  *
+ * It still goes through ProcessHelper's app-data exec routing
+ * ([ProcessHelper.prepareCommandForAppData] +
+ * [ProcessHelper.configureAppDataExecEnvironment]), exactly like GPLC's
+ * `execGuestProgram` via `ProcessHelper.exec`: targetSdk 36 forbids exec of
+ * app-private ELFs, so box64 is launched through linker64 and
+ * `libamphora-exec.so` stays in `LD_PRELOAD` to route every Wine descendant.
+ *
  * This is both a **production seam** (headless wineboot / prefix warm-up is a
  * real need -- WinNative ships a pre-built prefixPack instead, but a headless
  * Wine exec is the canonical CI prefix-init path) and the backbone of the
@@ -58,6 +66,11 @@ class WineHeadlessRunner @Inject constructor(
     private val imageFs: ImageFs = ImageFs.find(context)
     private val contentsManager: ContentsManager = ContentsManager(context)
     private val wnContainerManager: WnContainerManager = WnContainerManager(context)
+
+    init {
+        // Idempotent; an instrumented process may not have run AmphoraApplication.
+        ProcessHelper.init(context)
+    }
 
     /** Result of a headless Wine command. [exitCode] is `-1` on timeout. */
     data class Result(val exitCode: Int, val stdout: String, val timedOut: Boolean)
@@ -77,61 +90,96 @@ class WineHeadlessRunner @Inject constructor(
             val wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion)
             imageFs.setWinePath(wineInfo.path)
 
-            val rootDir = imageFs.getRootDir()
-            val env = buildHeadlessEnv(rootDir, wnContainer, wineInfo)
-            val wineBin = File(wineInfo.path, "bin/wine").absolutePath
-            val box64 = File(rootDir, "usr/bin/box64").absolutePath
-            // box64 must be executable (mirror GPLC repairRuntimeExecutablePermissions).
-            if (File(box64).isFile) FileUtils.chmod(File(box64), MODE_0755)
-
-            val outFile = File.createTempFile("wine-headless", ".log", context.cacheDir)
-            val args = splitArgs(wineArgs)
-            val command = ArrayList<String>().apply {
-                add(box64)
-                add(wineBin)
-                addAll(args)
-            }
-            val pb = ProcessBuilder(command).apply {
-                directory(rootDir)
-                redirectErrorStream(true)
-                redirectOutput(ProcessBuilder.Redirect.to(outFile))
-                // Keep the inherited Android env (Bionic may want ANDROID_*), overlay the Wine slice.
-                environment().putAll(env)
-            }
-
-            Log.i(TAG, "headless exec: ${command.joinToString(" ")}  (cwd=${rootDir.path}, timeout=${timeoutSec}s)")
-            val box64File = File(box64)
-            Log.i(
-                TAG,
-                "pre-exec box64: exists=${box64File.exists()} isFile=${box64File.isFile}" +
-                    " len=${if (box64File.isFile) box64File.length() else -1} canExec=${box64File.canExecute()}",
+            run(
+                wineInfo = wineInfo,
+                winePrefix = File(imageFs.wineprefix),
+                home = File(imageFs.home_path),
+                workingDir = imageFs.getRootDir(),
+                args = wineArgs,
+                cpuList = wnContainer.getCPUList(true),
+                timeoutSec = timeoutSec,
             )
-            val process = pb.start()
-            val exited = try {
-                process.waitFor(timeoutSec, TimeUnit.SECONDS)
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                false
-            }
-            if (!exited) process.destroyForcibly()
-            val stdout = try {
-                outFile.readText()
-            } catch (e: Exception) {
-                ""
-            }
-            outFile.delete()
-            val exitCode = if (exited) {
-                try {
-                    process.exitValue()
-                } catch (e: IllegalThreadStateException) {
-                    -1
-                }
-            } else {
+        }
+
+    /**
+     * Exec `box64 <wineInfo>/bin/[executable] <[args]>` against an explicit
+     * prefix, headlessly -- no registered container required.
+     *
+     * @param winePrefix value of `WINEPREFIX`, e.g. `container/.wine`.
+     * @param home value of `HOME`.
+     * @param workingDir process working directory.
+     * @param executable resolved as `File(wineInfo.path, "bin/$executable")`,
+     *   e.g. `"wine"` or `"wineserver"`.
+     * @param extraEnv overlaid on the env last (wins over every default).
+     * @param box64Preset a [Box64Preset] name, e.g. [Box64Preset.PERFORMANCE].
+     * @param cpuList optional `BOX64_CPULIST`/`BOX86_CPULIST` affinity string.
+     * @param timeoutSec hard timeout; on expiry the process is force-killed and
+     *   [Result.timedOut] is true with [Result.exitCode] = -1.
+     */
+    suspend fun run(
+        wineInfo: WineInfo,
+        winePrefix: File,
+        home: File,
+        workingDir: File,
+        args: String,
+        executable: String = "wine",
+        extraEnv: Map<String, String> = emptyMap(),
+        box64Preset: String = Box64Preset.PERFORMANCE,
+        cpuList: String? = null,
+        timeoutSec: Long = DEFAULT_TIMEOUT_SEC,
+    ): Result = withContext(dispatchers.io) {
+        val rootDir = imageFs.getRootDir()
+        val env = buildHeadlessEnv(rootDir, wineInfo, winePrefix, home, box64Preset, cpuList, extraEnv)
+        val wineBin = File(wineInfo.path, "bin/$executable").absolutePath
+        val box64 = File(rootDir, "usr/bin/box64").absolutePath
+        // box64 must be executable (mirror GPLC repairRuntimeExecutablePermissions).
+        if (File(box64).isFile) FileUtils.chmod(File(box64), MODE_0755)
+
+        val outFile = File.createTempFile("wine-headless", ".log", context.cacheDir)
+        val requested = arrayOf(box64, wineBin) + splitArgs(args)
+        val launch = ProcessHelper.prepareCommandForAppData(requested)
+        val pb = ProcessBuilder(*launch).apply {
+            directory(workingDir)
+            redirectErrorStream(true)
+            redirectOutput(ProcessBuilder.Redirect.to(outFile))
+            // Keep the inherited Android env (Bionic may want ANDROID_*), overlay the Wine slice.
+            environment().putAll(env)
+            ProcessHelper.configureAppDataExecEnvironment(environment(), requested[0])
+        }
+
+        Log.i(TAG, "headless exec: ${launch.joinToString(" ")}  (cwd=${workingDir.path}, timeout=${timeoutSec}s)")
+        val box64File = File(box64)
+        Log.i(
+            TAG,
+            "pre-exec box64: exists=${box64File.exists()} isFile=${box64File.isFile}" +
+                " len=${if (box64File.isFile) box64File.length() else -1} canExec=${box64File.canExecute()}",
+        )
+        val process = pb.start()
+        val exited = try {
+            process.waitFor(timeoutSec, TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+        if (!exited) process.destroyForcibly()
+        val stdout = try {
+            outFile.readText()
+        } catch (e: Exception) {
+            ""
+        }
+        outFile.delete()
+        val exitCode = if (exited) {
+            try {
+                process.exitValue()
+            } catch (e: IllegalThreadStateException) {
                 -1
             }
-            Log.i(TAG, "headless result: exit=$exitCode timedOut=${!exited} stdoutLen=${stdout.length}")
-            Result(exitCode, stdout, !exited)
+        } else {
+            -1
         }
+        Log.i(TAG, "headless result: exit=$exitCode timedOut=${!exited} stdoutLen=${stdout.length}")
+        Result(exitCode, stdout, !exited)
+    }
 
     /**
      * The wineboot-essential env slice (a subset of GPLC `execGuestProgram`):
@@ -139,15 +187,23 @@ class WineHeadlessRunner @Inject constructor(
      * `PATH`, reads the prefix from `WINEPREFIX`. No `DISPLAY`, no
      * `VK_ICD_FILENAMES`, no `GALLIUM_DRIVER`, no `LD_PRELOAD`, no `ALSA_*`.
      */
-    private fun buildHeadlessEnv(rootDir: File, container: WnContainer, wineInfo: WineInfo): Map<String, String> {
+    private fun buildHeadlessEnv(
+        rootDir: File,
+        wineInfo: WineInfo,
+        winePrefix: File,
+        home: File,
+        box64Preset: String,
+        cpuList: String?,
+        extraEnv: Map<String, String>,
+    ): Map<String, String> {
         val env = LinkedHashMap<String, String>()
-        env["HOME"] = imageFs.home_path
+        env["HOME"] = home.absolutePath
         env["USER"] = ImageFs.USER
         env["TMPDIR"] = rootDir.path + "/usr/tmp"
         env["PREFIX"] = rootDir.path + "/usr"
         env["LD_LIBRARY_PATH"] = rootDir.path + "/usr/lib:/system/lib64"
         env["PATH"] = wineInfo.path + "/bin:" + rootDir.path + "/usr/bin"
-        env["WINEPREFIX"] = imageFs.wineprefix
+        env["WINEPREFIX"] = winePrefix.absolutePath
         env["WINEDEBUG"] = "-all"
         env["LC_ALL"] = LocaleEnv.normalize(LocaleEnv.deriveFromDevice())
         // box64 essentials (mirror GPLC.addBox64EnvVars, minus log/X11GLX frills).
@@ -155,16 +211,16 @@ class WineHeadlessRunner @Inject constructor(
         env["BOX64_NOBANNER"] = "1"
         env["BOX64_NORCFILES"] = "1"
         env["BOX64_RCFILE"] = rootDir.path + "/etc/config.box64rc"
-        // Box64Preset.PERFORMANCE dynarec tuning (same as the real launch).
+        // Dynarec tuning for the requested preset (same source as the real launch).
         val presetEnv: EnvVars =
-            Box64PresetManager.getEnvVars("box64", context, Box64Preset.PERFORMANCE)
+            Box64PresetManager.getEnvVars("box64", context, box64Preset)
         for (key in presetEnv) env[key] = presetEnv.get(key)
         // CPU affinity (container may pin cores; honor it like the launcher).
-        val cpuList = container.getCPUList(true)
         if (!cpuList.isNullOrEmpty()) {
             env["BOX64_CPULIST"] = cpuList
             env["BOX86_CPULIST"] = cpuList
         }
+        env.putAll(extraEnv)
         return env
     }
 
