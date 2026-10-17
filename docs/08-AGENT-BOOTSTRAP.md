@@ -2,7 +2,7 @@
 
 > **接手须知**：任何新加入的开发者或 AI 协同 Agent，在阅读代码或修改前，**请务必先通读本文与项目根目录的 [`AGENTS.md`](../AGENTS.md)**。  
 > 快速可执行配方参见：[`.cursor/skills/amphora-from-zero/SKILL.md`](../.cursor/skills/amphora-from-zero/SKILL.md)。  
-> 当前项目进展与下一步工作：统一以 [`docs/02-TRACKING.md`](02-TRACKING.md) 末节「当前状态指针」及最新的 Git 提交历史为准。
+> 当前项目进展与下一步工作：统一以 [`docs/02-TRACKING.md`](02-TRACKING.md)（唯一进度真源）及最新的 Git 提交历史为准。
 
 ---
 
@@ -97,7 +97,7 @@ bash scripts/setup-git-hooks.sh
 
 ## 7. 日常编译与真机冒烟验证
 
-### 8.1 构建 APK
+### 7.1 构建 APK
 
 ```bash
 # 在联调机或本地仓库执行
@@ -105,7 +105,7 @@ bash scripts/setup-git-hooks.sh
 # 编译产物位于: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### 8.2 安装并运行冒烟测试
+### 7.2 安装并运行冒烟测试
 
 ```bash
 SERIAL=HA262AAH
@@ -127,12 +127,4 @@ adb -s $SERIAL shell am start -n app.amphora/.MainActivity
 
 ## 8. 核心技术文档导航
 
-- [`AGENTS.md`](../AGENTS.md) — 开发纪律、宿主禁令与代码门禁
-- [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) — 现行工程架构与启动时序真源
-- [`02-TRACKING.md`](02-TRACKING.md) — 开发进度、历史里程碑与当前状态指针
-- [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) — 运行时资产清单、分包决策与 SHA 锁
-- [`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md) — 宿主窗口树、SurfaceControl 层生命周期与输入系统
-- [`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md) — Vulkan AHB 零拷贝游戏渲染机制与验收证据
-- [`06-ENVIRONMENT.md`](06-ENVIRONMENT.md) — 开发、编译环境与远程 ADB 调试搭建指南
-- [`07-DEV-PIN-OVERLAY.md`](07-DEV-PIN-OVERLAY.md) — 开发态组件覆盖层（`dev_pins.json`）配置方法
-- [`09-AIO-GRAPHICS-TEST.md`](09-AIO-GRAPHICS-TEST.md) — AIO Graphics Test 各后端真机矩阵与未解决项
+全部文档的职责分工与阅读顺序见 [`docs/README.md`](README.md)。

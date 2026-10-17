@@ -1,466 +1,99 @@
-# 02 · 进度跟踪与状态真源 (Tracking)
+# 02 · 进度与当前状态
 
-> 给下一个 agent 的接手文档。living checklist--完成就勾。
-> 最后更新: 2026-09-28 · **当前状态与下一步只看文末「当前状态指针」**；下方按时间追加的条目都是当时快照。
-> **v0.1 端到端已跑通**；AIO 各图形后端见 [`09-AIO-GRAPHICS-TEST.md`](09-AIO-GRAPHICS-TEST.md) (RFC §8: Wine desktop 画面 + 相对触控 + host/guest Vulkan 对齐)。当前已采用远程 manifest 内容供应、自建 imagefs/Proton/Box64/DXVK/VKD3D、共享字体，并加入可选 PulseAudio/AAudio（ALSA 默认回退）。架构真源见 [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md)。
-> 必读: [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) · [`01-RFC.md`](research/01-RFC.md) · [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) · [`02-SCAFFOLD.md`](research/02-SCAFFOLD.md)
+> 本文是**唯一进度真源**，只记当前状态；过程历史看 `git log`。清理前完整历史：`git show dd99971:docs/02-TRACKING.md`。
 
 ---
 
-## 专项 · Exit ANR / 会话 teardown
+## 1. 当前版本与暂停点
 
-> 状态: **已根治（关 FD 唤醒）** · 原记档 2026-07-26 · 止血 `7dc3dc9` · 根治 2026-08-05
+- main `4229aaa`（`app_update 0.1.0+266.4229aaa6`），Proton pin `11.0-2fd246cfc`（`Proton-11.0-2fd246cfc-x86_64.wcp`）。2026-09-28 用户要求先停，当时所有仓库已推送、无未提交改动。
+- 阶段进度（当时与用户定的顺序）：
+  - ✅ Phase 0：PR 合并、AIO 2.1.0、HUD FPS
+  - ✅ Phase 1a：SurfaceControl 层序、Vulkan 窗口保留边框
+  - ✅ Phase 1b：`VK_LAYER_AMPHORA_wsi`（设置里选的驱动真正到 guest）
+  - ✅ Phase 2 的测量部分：Turnip 上 D3D8/9 FF、D3D12；wrapper + Qualcomm 复测 -13，结果在 [`09`](09-AIO-GRAPHICS-TEST.md) §2 / §4
+- 2026-10-17 · 清理 X11 遗留（`wip/cleanup`：bb3bed7 / c0d3a07 / 8f7a4aa / a556914 + 本次 docs 提交）：删 Java X server、旧 host Vulkan 渲染器（vk/ + shaders）、drawable/sync_fence/gpu_image JNI、无引用脚本，release 补 wineandroid IPC 回调 keep 规则；真机冒烟待补。
 
-### 现象（历史）
-点 GameSession **Exit** 后主线程卡死 → ANR。
+## 2. 下一步与待决
 
-### 根因
-1. `stop` 曾在 Main 上跑；teardown → `XConnectorEpoll.stop()` → `Thread.join()` 无限等。
-2. client poll 堵在 native `recvAncillaryMsg`（`recvmsg`）；只写 shutdown eventfd **唤不醒**（已过 `poll`、在 `handleExistingConnection` 内）。
-3. 旧 `killConnection` **先 join 再 close fd**，关不上也就唤醒不了。
+- **下一刀（已提议，用户未拍板）**：DXVK flavor 的 auto 改为“guest 所用驱动满足 3.0.2 全部必需特性”才选 3.0.2，否则 Sarek。现在 `DxvkFlavorIds.resolve` 只看 `GraphicsDriverCapabilities.vulkanMinorVersion`（按所选驱动探测的 Vulkan 次版本），Turnip A630 报 1.3 却没有 `storageBuffer16BitAccess`，于是选 3.0.2 后 `No adapters found`。必需特性清单从 DXVK 3.0.2 源码取（报 `Device does not support required feature` 的那段检查），不要按 GPU 型号判断。6T Turnip + Sarek 已实测可用（[`09`](09-AIO-GRAPHICS-TEST.md) §2）。
+  - **待办 · 宿主探测 ≠ guest 视角**（2026-10-17 记）：DXVK 在 guest 里检查能力，auto 却按宿主探测选（`GraphicsDriverCapabilities` 经 `GraphicsDriverIds.resolveHostDriver`）。wrapper / Leegao 时宿主查的是平台 loader 上的裸驱动，guest 看到的是 wrapper 处理后的：容器默认 `bcnEmulation=auto` → `WRAPPER_EMULATE_BCN=3`，`textureCompressionBC` 两边可能不同；`WRAPPER_EXTENSION_BLACKLIST` 非空时扩展也不同。Turnip 时宿主直接开 Turnip，guest 仍隔一层 wrapper；System 两边一致。先在 Y700 / 6T 上用 wrapper 与 Turnip 各跑一次，对比宿主探测的缺项与 guest 里 DXVK 报的缺项，再定是按 wrapper 配置补算差异，还是改在 guest 侧探测。原生探测（`core/native/.../winlator/vulkan.c`）现在只取版本和扩展名，要加 `vkGetPhysicalDeviceFeatures2`。必需项来源：DXVK `v3.0.2` `src/dxvk/dxvk_device_info.cpp` 里 `getFeatureList()` 中 `require=true` 的项，加 `checkDeviceCompatibility()` 的 Vulkan 1.3、图形队列、push data 大小三条。
+  - 顺带：wineandroid 会话里宿主已不用 Vulkan 渲染（GDI 走 CPU 拷贝，3D 只把 AHB `queueBuffer` 给 SurfaceFlinger），宿主 Vulkan 只剩上述探测；X11 时代的 `VulkanRenderer` / `vk_renderer.c` 已无处创建（`XServerSurfaceView` 未被实例化），`resolveHostDriver` 注释里的 “host compositor” 是旧说法。
+- **等用户决定**：Adreno 8xx + Qualcomm 驱动的 D3D8/9 FF -13（驱动编译器 bug，不是能力缺失，特性查询查不出）。选项 (a) 8xx 默认 Turnip（先比 D3D11 下 Turnip / Qualcomm 性能）；(b) Qualcomm 驱动上只让 d3d8/d3d9 用 Sarek，dxgi/d3d10/d3d11 仍 3.0.2；(c) 找出被拒的 DXVK FF 着色器绕开。
+- **之后**：Phase 3 OpenGL，先实验 A（PE Mesa zink `opengl32.dll`，走 Box64 有 CPU 模拟代价），A 不行再做 B（原生 Mesa surfaceless + 回读，需要出画那一段）。Phase 4：6T 64-bit dx11 偶发卡首帧、32-bit padding 修复上游化、Mali 上 VirGL。Phase 5：ARM64EC 评估。
+- **零散待办**：
+  - Vulkan 窗口切后台后会话结束（[`09`](09-AIO-GRAPHICS-TEST.md) §4，两条 loader 路径都这样）。
+  - 层现在如实报 FIFO / MAILBOX，win32u 里“永远广告 IMMEDIATE、宿主没有就改 FIFO”的补丁（proton-wine `dlls/win32u/vulkan.c` `win32u_vkGetPhysicalDeviceSurfacePresentModesKHR` / `win32u_vkCreateSwapchainKHR`）仍在起作用：没有 IMMEDIATE 就退出的 app（AIO `--cube vk`）两条路径都靠它，要删得先决定层是否报 IMMEDIATE（AHB 交换链上它等同 MAILBOX）。
+  - D3D12 选 Sarek 时必然失败（Sarek 的 dxgi 不认 D3D12 设备）。
+  - HUD 显示 `GUEST 0%`。
+  - content_manifest `f9cfa31` 已把 AIO 改 pin 到 amphora fork `cnb.cool/atowerlight/aio-graphics-test`（fork `b8acc49` = 上游 2.1.0 `582454d` + D3D8 窗口模式 PresentationInterval 修复），dx8 待真机复测。
+  - ReDroid CI 仍红：`redroid-ci.sh` 的测试清单已在 `8f7a4aa` 去掉两个不存在的类、断言改 `OK (7 tests)`，是否变绿未验。
+  - `WineHeadlessRunner` 只为 `HeadlessWineBootTest` 保留，去留待定。
+  - `PrefixPack` 生成器：待定（见清理记录）。
 
-### 修复
-- 止血：`Dispatchers.IO` + `joinOrGiveUp(2s)`（保留作兜底）。
-- **根治**：`ClientSocket.close()` 幂等；`stop` / `killConnection` **先关 client fd** 再 join，使阻塞中的 `recvmsg`/`read` 立即返回。
+## 3. 已验证能力（最近一次真机 PASS）
 
-### 验收
-- [x] Exit 不 ANR（IO + 关 FD 唤醒）
-- [ ] 真机多次 Exit→再开：logcat 无持续涨 FD/thread（建议回归）
-- [x] shutdown 路径强制关闭 client FD
-- [ ] 回归：`GameSessionLaunchTest` + 真机连点 Exit
+设备简称：Y700 = Lenovo Y700 `HA262AAH`（Adreno 830，Android 16），6T = OnePlus 6T `5b1736c7`（Adreno 630，Android 15）。
 
-相关：`ClientSocket.java` · `XConnectorEpoll.java` · `GameSessionViewModel.kt`
+| 能力 | 代码版本 | 设备 | 关键判据与数字 | 细节文档 |
+|---|---|---|---|---|
+| NDK 符号收敛（wrappedandroid），GDI 桌面出画 | amphora `37a8729`（6T 构建 `175bcbd`，仅文档差异）；Box64 `0.4.5-0db8df775-p07e67ded`；Proton `11.0-0d7ffcb97`（proton-wine `0d7ffcb970e`） | Y700 + 6T | `load_android_libs … host=1`，无 `can't find` / abort / host IPC；GDI 桌面 + File Manager + Start 出画（6T 非黑约 82%）；无 FATAL，90 s 会话仍在 | [`01`](01-ARCHITECTURE.md) |
+| 音频 Pulse / ALSA 双后端 | 同 09-26 pin 组 | 6T | 30 s 440 Hz：Pulse 有 `protocol-native` sink-input + AAudioSink RUNNING；ALSA `AS0` AudioTrack 送 1,440,480 帧（=30 s×48 kHz）；wine `err:` 音频 0 | [`04`](04-WINEANDROID-DISPLAY.md) |
+| 性能 HUD（CPU/RAM/温度等） | `2f3e8f0` | 6T | HUD 显示 CPU / RAM / 宿主内存 / 电池温度，不吞触摸 | [`04`](04-WINEANDROID-DISPLAY.md) |
+| 返回键退出确认 | `9b7480f` | 6T | box64 进程 10 → 取消 10 → 确认 0；`:session` 进程退出干净 | [`04`](04-WINEANDROID-DISPLAY.md) §6 |
+| AHB 逐帧送显（dequeue/queueBuffer 模型） | `2a70f95` | Y700 + 6T | `presents=175`，游戏层 SF `totalFrames=173`、`dropped=0`；限 30 / 60 / 关 → 29.4–30.0 / 56.7–60.0 fps | [`05`](05-AHB-IMPORT-PRESENT.md) §2.3 |
+| 宿主刷新率对齐 + 峰值上限 | `4c4d514` + `ce4b739` | Y700 + 6T | `peak_refresh_rate=144` → 关限帧选 modeId 3（144 Hz）143 fps；限 30/60 → modeId 6/5 | [`05`](05-AHB-IMPORT-PRESENT.md) §5 |
+| Vulkan 视图对齐客户区 | `8b3d17b` | Y700 + 6T | 屏上品红框实测与计算坐标一致（±2 px），标题栏露出；`totalFrames=172–173 / presents=175` | [`04`](04-WINEANDROID-DISPLAY.md) §2 |
+| render-done fence（替代 QueueWaitIdle） | `157300d` + proton-wine `b1c230b9904`；发布 pin `Proton-11.0-b1c230b99` | Y700 + 6T | `presents=175 fenced=175`，fd 87–103 复用无泄漏；旧 Proton 配新 APK `fenced=0` 正常回退 | [`05`](05-AHB-IMPORT-PRESENT.md) §2.3 |
+| manifest 过期刷新重试 | `provisionWithCurrentPins`（同 `157300d` 提交） | Y700 | 旧 manifest → 404×3 → `retrying with refreshed pins` → 会话正常；单测 3 条 | [`03`](03-ASSET-MANIFEST.md) |
+| acquire fence 导入（release fence → guest） | `aacf7da` + proton-wine `11064b98807`；发布 pin `Proton-11.0-11064b988` | Y700 + 6T | `acquires=176 imported=176`，`fenced=175`，`flush acquire signal` 0 行；旧 Proton `imported=0` 正常回退 | [`05`](05-AHB-IMPORT-PRESENT.md) §2.3 |
+| AIO 全矩阵（32-bit DXVK / alpha / 10-bit / D3D12 instance） | `53ddda5` + proton-wine `6512f18bd02`；发布 pin `Proton-11.0-6512f18bd` | Y700 + 6T | 32-bit DXVK 由 `VK_ERROR_FEATURE_NOT_PRESENT` 变为 142–144 fps；vkcube 背景 (51,51,51) = 清屏色；矩阵见 09 | [`09`](09-AIO-GRAPHICS-TEST.md) §3 |
+| AIO 2.1.0 换源 + 旧资产清理 | `b89d083` | Y700 | `Removed unpinned runtime asset` 4 行 + `Staged` 两条；vk/dx11 64 位 143.96–144.01 fps | [`09`](09-AIO-GRAPHICS-TEST.md) §1 |
+| HUD FPS / P95 / 1% low | 同 09-28 提交（`nativeRecentPresentTimes`） | Y700 | HUD `144 FPS 6.9 ms` 与 AIO bench 143.96 一致；`P95 9.4 ms`（CSV 9.3） | [`04`](04-WINEANDROID-DISPLAY.md) |
+| SurfaceControl 显式层序 + Vulkan 窗口边框 | `10d5079` + proton-wine `2fd246cfc`；发布 pin `Proton-11.0-2fd246cfc`（当前 pin） | Y700 + 6T | bench 弹窗在 3D 之上且可点；窗口有标题栏；灭屏亮屏层重挂恢复；发布组合复验 vk/dx11/ddraw2d × 32/64 PASS | [`04`](04-WINEANDROID-DISPLAY.md) §2 |
+| `VK_LAYER_AMPHORA_wsi` 驱动链（wrapper / Turnip / System） | 同 09-28（只改 APK） | Y700 + 6T | wrapper 下 DXVK 见 `Wrapper(Adreno 830) driver 0.800.72`；Y700 dx12 新可跑；6T Turnip 缺 `storageBuffer16BitAccess` 仅 vk | [`05`](05-AHB-IMPORT-PRESENT.md) §2.4 |
 
----
+> 失效行已剔除：2026-09-26 的「3D 冒烟」当时只按回读判 PASS（SF 层只有 4 帧），判据无效，已由 `2a70f95` 的逐帧送显取代。
 
-## 0. 状态快照
+## 4. 设备与测试分层
 
-> 本节按时间追加，记录“当时做了什么”；早期的 ALSA-only、删除 Pulse 组件、
-> 本地 bundled manifest 等条目已被后面的演进条目替代，不应单独视为当前状态。
+- **测试分层（用户认可）**：UI 改动 → 一台 vk 64；Present / 窗口改动 → 两台 vk / dx11 / ddraw2d 64 + 相关场景；驱动链改动 → 受影响后端 32 + 64 两台；全矩阵只在发 Proton / Box64 / 驱动 pin 时跑。脚本 `scripts/aio-smoke/`，换驱动 / flavor 见 [`09`](09-AIO-GRAPHICS-TEST.md) §1。
+- **设备现状**：两台装的都是与 `4229aaa` 同源的 debug APK，dev pin 已清，prefs 已还原（Y700 只有 `display_resolution=R1024x768`，6T 只有 `advanced_audio_driver=pulseaudio`）；6T 首次选 Turnip 时下载安装了驱动包，留在 `files/contents/adrenotools/`。
+- **6T 是 SELinux Permissive**（非官方 Android 15 ROM，bootloader 解锁，开机即如此，不是我们改的；用户看到过一次“SELinux 已关闭”警告，来源未查到），它上面的 PASS 不代表 Enforcing 设备；Y700 的 enforce 状态未确认。
 
-- ⚠ **AIO Vulkan PresentModes / HA262 黑屏（开放）** (2026-09-16): 为消「Present mode unsupported」在 win32u 全局假报 FIFO/MAILBOX/IMMEDIATE（proton-wine `05ca3a658db`，WCP 同 tip）；包内 DRIVER_VERSION=48 一致。干净一轮真机 guest 以 `kernel32.dll` `c0000135` 退出，未见 `AHB_SC create images`。2026-09-28 复测已不再出现，见 [`09-AIO-GRAPHICS-TEST.md`](09-AIO-GRAPHICS-TEST.md)。
-- ✅ scaffold 已落地并提交 (`fc14357`)。
-- ✅ P0 已落地并提交 (`9e0929f`): `:core:native` 真实 `libwinlator.so`+`libfakeinput.so` (62 JNI 导出 + JNI_OnLoad, adrenotools 静态链入, 19 shader 编入)。`./gradlew :app:assembleDebug` 绿, APK `lib/arm64-v8a/` 含真 `.so`。
-- ✅ P1 已落地并提交 (`dee877e`+`92b00ef`): `:core:engine` runtime Java 内核 (221 .java + 3 .kt) + 11 JNI 绑定 + AdrenotoolsManager 精简 (D8) + cut 类 stub; `WineEngineImpl` facade skeleton (注入 ContainerManager/RootfsInstaller/WineSessionPreparer, launch 编排骨架委托 com.winlator.cmod, 每步 TODO 标 P-phase) + `WineSessionPreparer` 接口 (6 方法, compile-only)。`./gradlew :app:assembleDebug` 绿, APK 31.9MB 含 libwinlator.so 964K。
-- ✅ 技术栈对齐 Google `android/compose-samples` 当前参考 (比 `android/nowinandroid` 新一档)。详见 [02-SCAFFOLD.md §1](research/02-SCAFFOLD.md)。
-- ✅ P2(部分) 已落地并提交 (`c593021`): native 资产提取能力恢复 (修正 P0 over-exclusion -- `native_content_io.cpp` 回归, zstd v1.5.6 + liblzma v5.4.6 静态链入, curl/download 2 JNI stub per D4); libwinlator.so 66 JNI 导出 (62+4 NativeContentIO), `TarCompressorUtils` kernel-wide 可用; `ImageFsRootfsInstaller` 真实现 (适配 `ImageFsInstaller`, 剥 Steam/Container/Activity, 仅 imagefs 提取+版本), EngineModule 绑定, `StubRootfsInstaller` 删除。`./gradlew :app:assembleDebug` 绿, APK 34.5MB 含 libwinlator.so 2.5MB (zstd+xz 静态链入)。compile-only。
-- ✅ P2(续) `WineSessionPreparer` body 抽取已落地 (`829e83b`): D9 XSDA 6 方法 body 逐字移植到 `XServerWineSessionPreparer` (849 行, XSDA L6127/7127/6280/7164/7970/7537 + helpers L6290/7950/5777/6398/6410/8098/8124/10793), 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI-refresh (D5/D8/D9); 4 个 feature-layer/.kt 小类移植 (WinComponentSetup 145 行 + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils 共 193 行 -> `com.winlator.cmod.runtime.{wine,container}`); 接口加 `envVars(): Map<String,String>` 输出 accessor (XSDA `envVars` 字段, 供 P3 launch 合并); `StubWineSessionPreparer` 删除, EngineModule 绑真实现。`./gradlew :app:assembleDebug` 绿, APK 34.5MB。compile-only (端到端验待资产)。
-- ✅ 早期用 WinNative LFS `imagefs.tzst` 验证 Bionic/rootfs 提取链；生产随后迁移到
-  `amphora-dev/imagefs` 自建 `imagefs.txz` 和远程 manifest SHA pin。真机
-  `ImagefsExtractionTest` 已验证安装路径。
-- ✅ P3 已落地并提交 (`2a2078a`+`0404922`, compile-only): `WineEngineImpl.launch` 真接线 (XSDA `setupXEnvironment` L6439 移植 -- RootfsInstaller->ContainerManager->Preparer->resolveWinNativeContainer->`XServer`->`EnvVars`->`XEnvironment`+components->`startEnvironmentComponents`, 剥 Steam/shortcut/recording/arm64ec/WinHandler); `XServerSessionHandle` (pause/resume/stop via XEnvironment+ProcessHelper, teardownOnce); 真 sinks (`XServerInputSink`/`XServerAudioSink`); `GameSessionSurfaceProvider` 暴露 `XServer` (WineEngine 接口保 kernel-free); `GameSessionScreen` (AndroidView{`XServerSurfaceView`}+`TouchInputOverlay`+生命周期, D9 XSDA 重写); `GameSessionViewModel` (launch/stop/pause/resume, Throwable 边界)。`./gradlew :app:assembleDebug` 绿, `:core:content`/`:core:common` test 绿。launch 在 P4 container stub 抛, 端到端验待 P4。
-- ✅ P4 已落地并提交 (`fdaa4e8`, `:app:assembleDebug` 绿): `:core:container` `ContainerManager` 真实现 = `WinlatorContainerManager` (`:core:engine`, DIP 桥); launcher SAF `.exe` picker + 分辨率; exe 进 `drive_c` 跑 `C:\<name>`; syncContents gap 修复; **零 stub 剩余**.
-- ✅ **RFC §8 真机验收通过** (2026-07-21): 启动 Windows `.exe` → Vulkan Wine desktop 有画面 + 相对触控。P4 后关键修复见上 (DXVK WCP / host-guest Vulkan / surface+touch)。
-- ✅ 残留清理 (2026-07-21): 默认 `LauncherRoute`; 内置 PE 测试路径保留
-  (launcher **Debug: Wine smoke test**；后续改为 `SessionActivity` debug intent，不再有
-  `DEBUG_AUTO_LAUNCH_WINE`); 删 Graphics-Test staging / `StubAudioSink` / 空
-  `SettingsViewModel`; surface 渲染异常改记日志。
-- ✅ 当时残留清理: 删旧 `GameRecorder`/`PulseAudioComponent`/`WinToast`/
-  `AppTerminationHelper`/`PerformanceHudState` 接线；后续已用
-  `HostPerformanceMonitor` + `GameSessionPerformanceHud` 重做 HUD，并恢复新的 Pulse
-  组件。`WineInfo` 不再读假 `R.array.wine_entries`。
-- ✅ WinHandler/手柄 stub 闭包清理: 删 `WinHandler`/`XServerDisplayActivity`/controls stubs/`rumble/*`; 按钮一律走 X 协议; `FakeInputWriter` 仅留 GPLC env 空环辅助; inputType 常量内联到 `Container`。
-- ✅ fakeinput 裁剪 + BuildConfig/R 收敛: GPLC 不再 copy/LD_PRELOAD `libfakeinput` / FAKE_EVDEV/udev; CMake 停编 fakeinput; 删 `FakeInputWriter` + 手写 `BuildConfig`; Vulkan validation 改读 `FLAG_DEBUGGABLE`; preset/拷贝文案硬编码，避开假 `R` ID。
-- ✅ 假 `R` 死 UI 闭包: 删手写 `R.java` + `DownloadProgressDialog`/`MultiSelectionComboBox`/`HttpUtils`/`AppUtils`; `ImageFsInstaller` 仅留 `LATEST_VERSION`; wallpaper 改纯色回退; Box64/FEX 去掉 Spinner/import-export 死路径。
-- ✅ MVP 当时再削: `WineThemeManager` 仅留默认串; 删 `MSBitmap`/`LogManager`/`CPUStatus`/`UnitUtils`/`fakeinput.cpp`; Box64/FEX 仅留 `getEnvVars`; 当时去掉 Pulse 旁路并采用 ALSA-only。Pulse 后端已在后续条目恢复；`:feature:settings` 保留。
-- ✅ 内核再削 (2026-07-21): 删 Shortcut / PE 图标 / WineThemeManager / EffectComposer；GPLC 去 shortcut 与浏览器/剪贴板 prefs；ContainerManager 去 duplicate/shortcuts；ContentsManager 去 remote profiles；`NativeContentIO` 去 download JNI 包装；`AssetPaths` 仅留 GPU_CARDS+WINE_STARTMENU；un-include `:core:ui`。
-- ✅ **AIO DX8/DX9 / OpenGL·DX7 黑屏** (2026-07-26 记档 → 后续已关闭): DX8 CreateDevice（IMMEDIATE→DEFAULT）+ DXVK d3d8/d3d10 trust-augment；OpenGL/DX7 靠容器 env 合并 + 不再误钉 `GALLIUM_DRIVER=zink` / `LIBGL_KOPPER_DISABLE`。真机路径已可用；文档不再当开放项。
-- ✅ **adrenotools hooks 收敛为单份** (2026-08-05): guest / host 都用 `wrapper.tzst` → `imagefs/usr/lib`（CI pin `8483dfd`）。APK **不建** SHARED hooks（只静链 `adrenotools`；hooks 由 imagefs wrapper CI 产出）；host `vulkan.c` 读 `ImageFs.getLibDir()`。
-- 🗑 **删除空壳 `:core:ui`** (2026-08-05)。
-- ✅ **资产供应链已切自建主通道** (2026-08): rootfs / Proton / Box64 / DXVK / VKD3D /
-  wrapper 当前均由 `amphora-dev/imagefs` Release 提供；唯一生产 pin 面 =
-  `amphora-dev/content_manifest`（GitHub Contents API，raw 回退）。部分 wincomponents /
-  ddraw / metadata 仍 pin 到 WinNative raw，后续逐步自有化。
-- ✅ **`extra_libs.tzst` 已废止 / Mesa GL 自建并入 imagefs** (2026-08-01)。
-- 🩹 **Wine 全白窗口 / libpng patchelf** (2026-08-01): 已在 imagefs 配方侧修（链接期 SONAME + LOAD 同余断言）；见 imagefs `ELF-PITFALLS.md`。
-- ✅ **staging 可靠性收敛** (2026-08-11): `stageBundledContent` 不再写 `app/src/main/assets`，改为精确同步到已接入 Android source set 的 `build/generated/assets/bundledContent`；遍历非 ROOTFS components + runtimeAssets，本地缺项按 manifest URL 下载，size/SHA 任一不符即失败。本文 P2 #9 的 best-effort/旧输出路径仅为历史记录，以当前插件和 `01-ARCHITECTURE.md` §5 为准。
-- ✅ **PulseAudio/AAudio 可选后端** (2026-08-11): 恢复并加固
-  `PulseAudioComponent`；PA13 native 库与匹配模块随 APK 交付，Proton WCP 自构建
-  `winepulse.so`/`winepulse.drv`；设置可选 Pulse，4 KB 页/驱动完整性不满足时保留
-  ALSA。启动等待真实 `AAudioSink`，音量/静音跨后端与生命周期保持。代码与 WCP
-  构建验证已完成；仍需合并两仓改动、发布 WCP 并更新生产 manifest 才能端到端启用。
-- ✅ **Mali 上 OpenGL 落到软件光栅器的根因定位** (2026-08-13): 华为 Mali-G76 r34
-  (Vulkan 1.1.191) 缺 zink 硬性要求的 `VK_KHR_dynamic_rendering` 与
-  `VK_EXT_robustness2`(`nullDescriptor`)，zink 建屏失败，Mesa 静默回退到
-  **softpipe**（imagefs Mesa 是 `-Dgallium-drivers=zink,softpipe -Dllvm=disabled`，
-  连 llvmpipe 都没有）。失败之所以无声：zink 在 `driver_name_is_inferred` 时屏蔽自己
-  的 `mesa_loge`，缺扩展那条只走 release 编译掉的 `debug_printf`，日志里只剩
-  `MESA-EGL: warning: egl: failed to create dri2 screen`。现已加 `ZinkRequirements`
-  前置探测：命中即不设 zink/kopper 旋钮、打点名日志，并在设置页 Graphics 分区明写
-  OpenGL 走软件渲染。**无法靠改 zink 绕过**——zink 已删除 renderpass 路径
-  (`zink_render_pass.c` 只剩属性计算，无 `vkCreateRenderPass`)。Adreno / Turnip
-  两个扩展齐备，高通路径不受影响。
-- ✅ **VirGL 阶段 0：链路与性能判据通过** (2026-08-13): 方案见
-  [`09-VIRGL-PLAN.md`](research/09-VIRGL-PLAN.md)。imagefs 侧 `graphics/mesa-gl.bst` 加了
-  `virgl`（[imagefs#5](https://github.com/amphora-dev/imagefs/pull/5)，CI 绿，产物验过
-  `virpipe` 字面量与 `.libgl-virgl` 标记）；安卓侧直接用 Termux 的
-  `virglrenderer-android`（上游协议、自包含、标准 linker64），**省掉 libepoxy/gbm 两个
-  移植**。真机两次复现：guest Mesa 连上 vtest socket，server 子进程加载
-  `/vendor/lib64/egl/libGLES_mali.so`，**全程未改 app 代码**。重新实测确认 OpenGL/softpipe
-  约 **30 fps**，VirGL 达到 **100+ fps**，超过 3× 判据；先前记录的 519 fps 是 AIO
-  列表中其他测试的残值，并非 OpenGL 成绩。顺带确认 W^X 可用
-  `linker64 <绝对路径>` 绕过、guest 拿的是绝对宿主路径无需命名空间映射。
-- ⏭ 下一步: 把 VirGL renderer、socket 生命周期和 OpenGL 后端三态选择集成进 app；手柄 / FEX 等明确扩展项；
-  WinNative raw runtimeAssets 逐步自有化；Exit 真机连点回归。Pulse 生产 WCP 已含
-  `winepulse`（2026-08-11 pin SHA `99c664d9…`）；真机栈回归见 `GameSessionPulseAudioTest`。详见
-  [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) §9。
+## 5. 发布与上线顺序
 
-| 项 | 值 |
-|---|---|
-| AGP / Gradle / Kotlin / KSP | 9.2.1 / 9.4.1 / 2.3.21 / 2.3.9 |
-| Hilt / Compose BOM | 2.59.2 / 2026.06.01 |
-| compileSdk / targetSdk / minSdk / NDK | 37 / **36** / **30** / r28 (28.2.13676358) — minSdk 对齐发布运行时的 `LIBC_R` 依赖；linker64 首启 + `libamphora-exec.so` 递归拦截满足 app-data W^X |
-| 包名 / 模块数 | `app.amphora` / 9 模块 + build-logic（已删空壳 `core/ui`） |
-| 架构文档 | [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) |
+- **APK 发布**：`main` 推送由 CI（`.github/workflows/ci.yml`）跑 `scripts/ci/publish-app-update.sh`，把 debug APK 发为 GitHub Release 并把 `content_manifest` 的 `app_update.json` 指到新版本。
+- **组件发布**：proton-wine / imagefs 改动走 imagefs PR → `build-proton-wine` 出 WCP Release → bump `content_manifest.json` pin。发版会立即删掉上一版 release 资产。
+- **上线顺序**：协议类改动（wsi-sc op 7 / op 8、宿主 `CMD_QUEUE_FENCE` / `CMD_DEQUEUE_FENCE`）**APK 先于 Proton**——新 APK 遇到旧 Proton 走 op 4 / op 5 回退，已双向回归验证。
+- **过期 manifest**：设备磁盘缓存的 manifest 可能 pin 已删除的旧资产（下载 404）；`WineAndroidSessionBootstrap` 经 `ContentCatalog.provisionWithCurrentPins` 在 IOException 时刷新 manifest、pin 变了才重试一次。
 
----
+## 6. 架构铁律
 
-## 1. 已完成 ✅
+- 每个 HWND 一个 `SurfaceControl` 层，挂在同一个宿主 `SurfaceView`（layerHost）下；层序由宿主 `syncLayers()` 按 View 树先序显式设置。
+- GDI 走 CPU buffer（`NATIVE_WINDOW_API_CPU(2)` + `PF_RGBA_8888`，宿主 R/B swizzle），不走 CreateSwapchain / 私有 socket。
+- 游戏 Vulkan 走 AHB 导入 swapchain（`libamphora_wsi` + `VK_LAYER_AMPHORA_wsi`），无旧 X11 renderer 回退。
+- 铺满靠宿主等比缩放 + Wine DPI 96，不把 Android densityDpi 喂给 Wine。
 
-> 这里从 scaffold 起按时间记录；括号内补充当前结果。
-
-- [x] `build-logic` 初始 6 个 convention 插件；当前另有 `amphora.content.staging`，共 7 个
-- [x] `gradle/libs.versions.toml` 版本目录
-- [x] 初始 10 模块空壳；`core/ui` 后续删除，当前为 9 模块
-- [x] `:core:native` CMake 初始桩完成；当前只生产 `libwinlator.so`，
-  `libfakeinput.so` 已停编
-- [x] 核心接口定义: `WineEngine` / `ContentSource` / `ContainerManager` / `RootfsInstaller` + `LaunchSpec`/`SessionHandle`/`InputSink`/`AudioSink`
-- [x] `StubWineEngine` 曾用于 scaffold DI；当前已删除并绑定 `WineEngineImpl`
-- [x] `:app` Compose 壳 + 测试骨架；当前 NavHost 只含 launcher/settings，
-  会话由独立 `SessionActivity :session` 承载
-- [x] `docs/02-SCAFFOLD.md` (as-built 栈 + 踩坑)
-- [x] **P0 `:core:native` 移植** (`9e0929f`): 10 个 C/CXX 源整块拷 (零改, 保 `com.winlator.cmod`); 真实 CMakeLists (adrenotools submodule `add_subdirectory` + 19 glslc shader); 排除 `native_content_io.cpp` 省 curl/zstd/xz; 删 stub; `libwinlator.so` 62 JNI 导出 + JNI_OnLoad; APK 含真 `.so`
-
----
-
-## 2. v0.1 实现路线 (按依赖序)
-
-### 源码定位 (已核实, 非 RFC 旧路径)
-WinNative 审查样本: `WinNative-Emu/WinNative` branch `main`，HEAD **`48fe6b9`**
-- **native C/C++**: `WinNative/app/src/main/cpp/`
-  - 要移植: `cpp/winlator/` (`vk/vk_renderer.c` 3.2k 行 + 8 其它源, 48 JNI), `cpp/winlator/fakeinput.cpp`
-  - 死代码不移植: `cpp/proot/`, `cpp/patchelf/`, `cpp/wn-steam-*` (RFC §7/D6)
-  - 依赖: `android_sysvshm/` (top-level), `audio_plugin/` (top-level, 随 imagefs 进 rootfs, 非本项目 CMake)
-- **Java runtime 内核**: `WinNative/app/src/main/runtime/` (`display/`, `audio/`, `container/`, `content/`, `system/`, `compat/`, `environment/`, `connector/`, `winhandler/`, `renderer/`, `ui/` ... ~32k 行)
-- **JNI 绑定类**: 初始上游清点口径为 12；Amphora 当前保留 11 个运行时绑定类
-- **巨型 Activity (不整块搬, 拆解)**: `WinNative/app/src/main/runtime/display/XServerDisplayActivity.java` (10,995 行, D9 拆解)
-
-### P0 · `:core:native` 移植 ✅ 完成 (`9e0929f`)
-- [x] 拷 `cpp/winlator/` C 源到 `core/native/src/main/cpp/winlator/`, **保留 `com.winlator.cmod` 包名** -> C 零改 (10 源: drawable/gpu_image/sync_fence/sysvshared_memory/xconnector_epoll/process_lifecycle/vulkan + vk/vk_dispatch/vk_image/vk_renderer)
-- [x] 写真 `core/native/src/main/cpp/CMakeLists.txt`: 单文件出 `libwinlator.so`+`libfakeinput.so`; adrenotools submodule `add_subdirectory`; 19 GLSL shader 经 NDK `glslc`+`bin2c.cmake`。**无 zstd/xz/curl** (见下条裁剪)
-- [x] 删 stub (`winlator_stub.c`/`fakeinput_stub.c`)
-- [x] 裁剪: 排除 `native_content_io.cpp` -> 省 curl + zstd + xz 三依赖 (该文件是三者唯一消费者; RFC "zstd/xz 仍需" 指 Java 侧 zstd-jni, 非 native 构建)
-- [x] adrenotools 作 git submodule 引入 (pin `8483dfd`, 递归 linkernsbypass `b10d485`), 静态链入 libwinlator.so; 产物含 4 个 hook `.so` (main_hook/file_redirect_hook/gsl_alloc_hook/hook_impl, LD_PRELOAD 用)
-- [x] 验证: `:core:native:assembleDebug` + `:app:assembleDebug` 绿; `libwinlator.so` 含 **62** 个 `Java_com_winlator_cmod_*` 导出 + `JNI_OnLoad`, 覆盖全部 7 组 (VulkanRenderer 16/Texture 4/GPUImage 5/Drawable+Pixmap 8/XConnectorEpoll+ClientSocket/SyncFenceFd 6/GPUInformation 4/ProcessHelper 2/SysVSharedMemory 4); NativeContentIO 组按裁剪排除
-
-**P0 修正 (原 checklist 误区, 供下个 agent 参考):**
-- `android_sysvshm/` 是 **rootfs (imagefs Tier3.5) 组件**, 非 amphora native -- 它产 `libandroid-sysvshm.so` (socket-based shmem server, 供 rootfs 内 X11 lib 用)。4 个 SysV JNI 实际在 `cpp/winlator/sysvshared_memory.c` (直接开 `/dev/ashmem`), 随 winlator 拷贝即得, 无需单独移植 android_sysvshm。
-- JNI 绑定类是 **13 (非 12)**, 散在 `runtime/`(VulkanRenderer/Drawable/Pixmap/GPUImage/Texture/XConnectorEpoll/ClientSocket/SyncFenceFd/GPUInformation/ProcessHelper) + `shared/`(NativeContentIO) + `sharedmemory/`(SysVSharedMemory) + `java/com/winlator/cmod/`(PatchElf 死代码)。**非** `java/com/winlator/cmod/` 内 12 个。按架构 (native 不向上依赖) **全部延至 P1 `:core:engine`** -- 它们 import runtime 内核类, 无法在 `:core:native` 编译; `.so` 编译不需它们 (JNI 符号按名解析, 运行时才 FindClass)。
-- minor: AGP `stripDebugDebugSymbols` 对本 .so 报 "Unable to strip, packaging as they are" (debug 包不 strip, APK 略大); `llvm-strip --strip-debug` 手动 OK (941K->217K), 是 AGP 9 debug strip 怪癖, 非损坏。release strip 留 P4 核实。
-
-### P1 · `:core:engine` runtime 内核移植 ✅ 完成（以下为历史过程）
-- [x] 拷 `runtime/`+`shared/`+`sharedmemory/` Java 内核到 `:core:engine` (`src/main/java/com/winlator/cmod/...`), 保 `com.winlator.cmod` 包名, Java 原样不转 Kotlin (RFC §7)。WinNative 用 5 个 srcDirs + 非 canonical 路径 (javac 容忍); amphora 规整到 canonical 包路径。
-- [x] D8 `AdrenotoolsManager` 精简 (~30 行: ctor+`getLibraryName`)。仅 `ImageFsInstaller.installDriversFromAssets` 调过 `extractDriverFromResources` -> no-op (驱动抽取移 P2 RootfsInstaller)。
-- [x] 当时裁剪: `input/`(controls+rumble+ui+Activities) · `display/recording` · `display/steampipeserver` · `display/ExternalDisplayController`(D9 重写) · `SteamClientComponent` · `PulseAudioComponent` · `compat/fexcore` · `SessionKeepAliveService` · `audio/midi`。后续只恢复并重构了 PulseAudio 可选后端；其余仍按当前架构裁剪。
-- [x] 依赖 (版本取自 WinNative catalog 保源码兼容): `androidx.appcompat`1.7.1 · `androidx.preference`1.2.1 · `com.google.android.material`1.14.0 · `zstd-jni`1.5.7-9@aar · `commons-compress`1.28.0 · `tukaani-xz`1.12。加 `:core:engine/build.gradle.kts`。
-- [x] `R`+`BuildConfig` stub 曾用于 P1 compile-only；后续已删手写 `BuildConfig`/`R.java`，相关路径改硬编码 / `:app` 真资源名解析 / 删死 UI。
-- [x] 解耦剩余 cut 引用 ✅: 23 个 cut 类 stub (co-located 在 engine, 无向上依赖) + `input/rumble`/`compat/fexcore` 整块拷 + `AppTerminationHelper`/`XServerDisplayActivity`/`InputControlsView` 等 stub。WinHandler 124 错 (XSDA field/ctor + input.controls 6 类) 用 stub 解决 (内核 .java 原样不动)。
-- [x] `WineSessionPreparer` 接口 (6 方法, 名字 verbatim 自 XSDA + 行号) + `StubWineSessionPreparer` (body TODO P2/P3) - :core:engine (`92b00ef`)
-- [x] `WineEngineImpl` facade skeleton: 注入 ContainerManager/RootfsInstaller/WineSessionPreparer + DispatcherProvider, launch 编排骨架委托 com.winlator.cmod (XEnvironment/GuestProgramLauncherComponent/VulkanRenderer), 每步 TODO 标 P-phase; 替换 StubWineEngine 作 bound impl (Stub 保留 fallback)
-- [x] Hilt: EngineModule 绑 WineEngineImpl + 临时 @Provides sibling 接口 stub (StubContainerManager/StubRootfsInstaller/StubWineSessionPreparer); `:core:engine` 是 P1 唯一 Hilt 模块, stub 暂居此 -> **P2/P4 移至 :core:{rootfs,container} 并删 EngineModule 对应 @Provides**
-- [x] 验证: Hilt 图仍编译 ✅ (`./gradlew :app:assembleDebug` 绿, commit `92b00ef`; APK 31.9MB 含 libwinlator.so 964K)
-
-**P1 关键发现 (供下个 agent, 修正 RFC/跟踪文档假设):**
-1. **WinNative `runtime/` 是 Java+Kotlin 混合** (非纯 Java): 40 个 .kt 文件多为 Compose UI (dialog/theme/toast/nav/focus/widget/HUD/glasses)。amphora 砍 37 个 (app 层, 重写), 留 3 个干净 kernel 逻辑 .kt (`LogManager`/`PeIconExtractor`/`StoragePathUtils`, 被 .java 引用)。
-2. **11 个 JNI 绑定类全落 `:core:engine`** (开放问题已定): leaf 下沉不可行 — `SysVSharedMemory` import `XConnectorEpoll` (runtime), `ProcessHelper` import `shared.util.Callback`; `GPUInformation` 虽干净但与 `EnvironmentManager` 同包, 拆包不值。`.so` 按名 loadLibrary + FindClass 走 app classloader, 共处 engine OK。
-3. **AGP 9 built-in Kotlin**: `compileDebugKotlin` 与 `compileDebugJavaWithJavac` **分离并行** — 单跑 `compileDebugKotlin` 会 **隐藏 .java 错误** (它不编 .java)。须跑 `:core:engine:compileDebugJavaWithJavac` 或 `:app:assembleDebug` 才见 .java 错。JDK 中文 locale -> 错误是 `错误:`/`程序包...不存在`/`找不到符号` (非 `error:`)。
-4. **解耦策略**: cut 类 stub (co-located, 保内核 .java 原样) 优于编辑内核 — `feature/app` 类 stub 后无向上依赖 (stub 在 engine 内), 架构干净; 真正 de-couple (删 SettingsConfig/PrefManager/PluviaApp/Marker/GOG 引用) 可作 P1-followup。✅ **P1-followup 已完成 (2026-07-18)**: 删 8 个 RFC §7 stub (GOGGame/GOGService/GOGConstants/Marker/MarkerUtils/PrefManager/EpicGameFixHelper/GogDependencyFixHelper) + 改 3 个调用点 (GameFixes 砍 GOG/Epic 路径 / ImageFsInstaller 删 clearSteamDllMarkers / WineUtils 删 PrefManager 死分支); 进一步发现 `GameFixes` 自 P1 移植以来 0 外部引用 (XSDA 调用点被 D9 砍) — 连 `GameFixes` + `gamefixes/` 整目录一并删; `SteamBridge` (5 方法全反射查不存在的 `feature.stores.steam.service.SteamService`/`SteamClientManager`, catch 后返默认值, 运行期 100% 死) 紧跟着也删 — `runtime/compat/` 根下现仅剩 `box64/`+`fexcore/` 子包。✅ **孤儿清理 (2026-07-18 续)**: 全仓扫 0 外部引用类, 删 31 个文件 — 16 个 XSDA UI/manager 移植残留 (FEXCoreManager/WineRequestHandler/VKD3DVersionItem/SessionLogWriter/LogFileUtils/FrameRating/SGSRResolutionUtils/AudioFocusHandler/BadLength/BadCursor/EnvVarsView/ColorPickerView/CubicBezierInterpolator/WaveView/ImageUtils/ActivityResultHost) + 14 个 Effect 子类 (CRTEffect/VividEffect/... 等, `EffectComposer.addEffect` 从未被调, 整条 post-process 流水线死; `Effect.java` base + `EffectComposer.java` 被 `VulkanRenderer` 引用故保留) + `StubWineEngine.kt` (`@Inject` 但未在任何 `@Provides`/`@Binds` 绑, docstring 写"deliberately-retained fallback"但实际无 Hilt 绑定点); 进一步删 `SettingsConfig.java` (inline `DEFAULT_WINLATOR_PATH` 进 Box64/FEXCorePresetManager + 删 `ImageFsInstaller.resetEmulatorsVersion` 调用) + `PluviaApp.java` (僵尸, `ProcessHelper` 调 `getInstance().getFilesDir()` 永远 NPE 被 try/Throwable 吞, 连带删 `resolveWineStderrLog`/`resolveWineTailCapture`/`startDebugTailThread`/`emitDebugLine`/`tailSeq` 死代码 + 2 import); `app/` 整目录消失。`feature/stores/` 整目录早已消失。`:app:assembleDebug` 绿。**Defer**: `XServerDisplayActivity.java` + `WinHandler.java` (ctor 死但 `WinHandler` 类被 `XServer` 字段 + `Container.DEFAULT_INPUT_TYPE` + `XServerWineSessionPreparer.FLAG_INPUT_TYPE_DINPUT` 引用为类型, 删需动 kernel 多处, 留 v0.2+ 手柄支持时一并处理)。
-5. `audio/midi` 用 `cn.sherlock`+`jp.kshoji` MIDI 库, 自含 (0 外部引用), 整块砍省两个外部依赖。
-6. **sibling 接口 stub 暂居 :core:engine**: P1 仅 `:core:engine` 有 Hilt; `ContainerManager`/`RootfsInstaller`/`WineSessionPreparer` 的 stub impl + `@Provides` 暂放 `EngineModule` (`StubEngineBindings.kt`, `internal`)。P2 (`:core:rootfs`)/P4 (`:core:container`) 给各自模块加 `amphora.android.hilt` + 真实现后, 删 `EngineModule` 三个临时 `@Provides`, 绑定移至 owning module。XSDA 6 方法 body 抽取 (~800-1000 行, 剥 Steam/录屏) 延后 P2/P3 -- 依赖 rootfs 就位才能端到端验, 复用 251KB 抽取调研。
-
-### P2 · 运行时二进制 + rootfs (与 P1 并行, 长 pole)
-- [x] native 资产提取能力恢复 (`c593021`): `native_content_io.cpp` 回归 + zstd v1.5.6/liblzma v5.4.6 静态链入 + curl/download 2 JNI stub; libwinlator.so 66 导出, `TarCompressorUtils` kernel-wide 可用 (修正 P0 over-exclusion -- RFC §7 原意只省 curl, zstd/xz 提取仍需)
-- [x] 定位/clone `winlator-imagefs` (cnb.cool/atowerlight, 构建配方非预产物; imagefs.tzst 真资产来自 WinNative Git LFS)
-- [x] `RootfsInstaller` 真实现 (`c593021`, `ImageFsRootfsInstaller` in `:core:engine`): imagefs 提取 (shard/单档) + 版本 (`.img_version`); 剥 Steam/Container/Activity. **契约留 `:core:rootfs`, concretion 落 `:core:engine` (DIP -- `:core:rootfs` 不可见 `TarCompressorUtils`/`ImageFs`)**
-- [x] termuxfs rpath 核实 (D7): imagefs 内**无** `/data/data/com.termux/...` 路径 (grep 0 命中); rpath 烙在 Wine ELF, 运行时由 launch `LD_LIBRARY_PATH` 解析 (P3 事项, 非提取阻塞)
-- [x] 自建 Proton 11 x86_64（`amphora-dev/proton-wine`，默认 pin `Proton-11.0-amphora-x86_64`；见远程 `content_manifest`）
-- [x] box64 / Turnip / DXVK: SHA256 锁定 (D4/D8, MVP 单 Turnip=`graphics_driver/wrapper.tzst`; 见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) §2)
-- [x] `:core:content` `BundledContentSource` 实现 (2026-07-13): `ContentManifest`+`content_manifest.json` (5 组件, 04-ASSET-MANIFEST 派生) + `BundledContentSource` (编排: 查 manifest -> 拷资产 + SHA-256 流式校验 -> 委托 `BundledAssetInstaller` -> `Resolved`) + `WinlatorBundledAssetInstaller` (`:core:engine`, ARCHIVE=`TarCompressorUtils.extract(File)`, WCP=`ContentsManager.extraContentFile`+`finishInstallContent`); `EngineModule` 绑 `ContentSource`. DIP (契约 `:core:content`, concretion `:core:engine`). `:core:content:test` 6 JVM 单测过, `:app:assembleDebug` 绿 (APK 含 manifest+libwinlator.so). 详见 §P2 #8.
-- [x] **`WineSessionPreparer` body 抽取** (D9, `829e83b`): `XServerWineSessionPreparer` 849 行, XSDA 6 方法 + helpers 逐字移植, 剥 Steam/录屏/快捷方式/Activity/arm64ec/UI (D5/D8/D9); 4 个小类移植 (WinComponentSetup + DXVKConfigUtils/WineD3DConfigUtils/GraphicsDriverConfigUtils); 接口加 `envVars()` 输出 accessor; `StubWineSessionPreparer` 删除, EngineModule 绑真实现。✅ **真机验证通过** (见 §P2 #7): `extractGraphicsDriverFiles` 填 14 envVars (`WRAPPER_VK_VERSION=1.3.284` 等) + `wrapper.tzst` 提进 imagefs root。
-
-**P2 关键发现 (供下个 agent, 修正 P0/RFC 假设):**
-1. **P0 over-exclusion 修正**: P0 排除 `native_content_io.cpp` 时连 zstd+xz native 依赖一起砍, 但 RFC §7 原意是只省 curl (下载), zstd/xz 提取仍需 ("zstd/xz 仍需" 指 native 提取, 非仅 Java zstd-jni). 后果: `TarCompressorUtils.extract` -> `NativeContentIO.extractAsset` -> native (符号缺失) 对整个 kernel 是死路径 (ContentsManager/ContainerManager/ImageFsInstaller 调即 UnsatisfiedLinkError); P1 compile-only 没暴露. P2 (`c593021`) 恢复: cpp 回归 + FetchContent zstd v1.5.6/liblzma v5.4.6 静态链 + curl/download 2 JNI stub. 66 导出 (62+4). 提取 (L781-835) 与下载 (L836-927, curl) 在 cpp 内干净分离, 剥 curl 无伤提取.
-2. **DIP: 契约在低模块, concretion 在 engine**: `RootfsInstaller` 接口留 `:core:rootfs`, 但真 impl `ImageFsRootfsInstaller` 落 `:core:engine` (紧邻它适配的 `ImageFs`/`TarCompressorUtils`). 因依赖方向 `engine -> rootfs`, `:core:rootfs` 不可见 kernel. 这是 DIP (低模块拥抽象, 高模块拥 concretion), 非 "stub 暂居" 妥协. **`:core:rootfs` 无需 Hilt**. `ContainerManager` (P4) / `WineSessionPreparer` (P2 ✅ `XServerWineSessionPreparer`) 同理: 若 impl 依赖 kernel, concretion 落 engine, EngineModule 删 stub 换真 impl. 跟踪文档原 "移 owning module" 假设据此修正.
-3. **imagefs 资产仍是占位**: WinNative `assets/imagefs.tzst` 仅 134 字节 (占位), 真实 ~869MB 提取产物来自 `winlator-imagefs` (本地未检出). `gh search repos` 找到 `Other-backup/winlator-imagefs-v2` + `kissGPT/imagefs-winlator` 但非 `WinNative-Emu/` 下; clone + SHA 锁仍是 P2 资产项. `ImageFsRootfsInstaller` 提取路径正确 (对 shard/单档), 端到端验待资产.
-4. **xz 测试二进制 bloat**: xz FetchContent 默认建 test_*/xzdec 二进制 (非链入 .so, 仅占 build 空间+时间). 已加 `XZ_BUILD_TESTS OFF` 抑制. `ensure_parent_dir` (cpp L75) 在 download stub 后无调用者, 编译报 unused-function 警告 (无害, 保留待 v0.3 download 恢复).
-5. **XSDA body 抽取: envVars 输出 accessor + 4 类小补丁 + AdrenotoolsManager stub**: (a) XSDA 的 `envVars` 是 Activity 字段, 被 `extractGraphicsDriverFiles`/DXVK/wined3d `setEnvVars` 累积, launch 时消费. 接口原 6 方法全 `Unit` 返回, 没有输出通道 -> 给 `WineSessionPreparer` 加 `envVars(): Map<String,String>` (additive, 不改现有签名), impl 持 `EnvVars envState` 累积, `WineEngineImpl` P3 合并进 launch env. (b) 6 方法依赖 4 个 WinNative feature-layer/.kt 小类 (`WinComponentSetup` 145 行 .kt + `DXVKConfigUtils`/`WineD3DConfigUtils`/`GraphicsDriverConfigUtils` 共 193 行), 全部移植到 `com.winlator.cmod.runtime.{wine,container}` (包名从 `feature.settings` 提升到 runtime, 逻辑零改). (c) `extractGraphicsDriverFiles` 的 adrenotools 驱动加载块 stub: D8 已把 `AdrenotoolsManager` 精简到只剩 `getLibraryName` (删 `setDriverById`/`getDriverName`/`getDriverVersion`), 单固定 Turnip 驱动 env-var 设置 (ADRENOTOOLS_DRIVER_PATH/NAME/HOOKS_PATH) 留 TODO, 资产到位 (P2) + runtime (P3) 恢复. (d) `getDxvkFrameRateOverride` stub=0 (快捷方式/偏好驱动, amphora 无), `getActiveGameDirectoryPath`=null / `isSteamShortcut`=false (快捷方式-only, D9 砍). (e) `desktopTheme` apply (`WineThemeManager.apply` 需 `xServer.screenInfo`) 延后 P3 setupXEnvironment (prep 阶段无 xServer). (f) `AmphoraContainer`->WinNative `Container` 解析: `ContainerManager.loadContainers()` + 按 `rootPath` 匹配 `getRootDir()` (P4 ContainerManager 接管桥接). (g) `WinHandler.FLAG_INPUT_TYPE_DINPUT` 是 `byte`, Kotlin `and` 需 `.toInt()` (Java 自动提升). 全 849 行 compile-only, `:app:assembleDebug` 绿.
-6. **资产获取 + 真机 rootfs 提取验证**: (a) `winlator-imagefs` (cnb.cool/atowerlight) 是**构建配方仓** (1.2MB 脚本+CI, 产 `imagefs.txz` 18MB 重建版 SHA `af66e28b`), 非预产物; imagefs.tzst 真资产 (190MB, zstd, SHA `0902e324...`, **Bionic libc**) 实为 WinNative Git LFS blob (`git lfs install` + `git lfs pull --include="app/src/main/assets/imagefs.tzst"`), 与 amphora `ImageFsRootfsInstaller` (ZSTD/`.tzst`) 直配, 无需转码. 解压 877MB / 10,892 条目 / merged-usr / `libc.so -> /system/lib64/libc.so` (Bionic 确认, 无 glibc 标记). (b) box64/Turnip/DXVK 资产已存 WinNative assets (非 LFS), 全 SHA 锁定 ([`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md)); Turnip=`graphics_driver/wrapper.tzst`, DXVK=`dxwrapper/d8vk-1.0.tzst`, box64 二进制不在 imagefs (走 installable). (c) **真机验证**: Lenovo TB322FC (arm64-v8a / API 36 / Adreno 830) instrumented `ImagefsExtractionTest` 通过 -- `libwinlator.so` 加载 OK, `TarCompressorUtils.extract(ZSTD)` 提取 877MB rootfs (27,614 条目, 1.5s), Bionic 结构 + merged-usr + libc.so 符号链接断言全过. (d) **preparer 真机验 ✅ 已通过** (见 #7): 原阻塞 (需 Proton 资产 + Container 创建) 已用运行时 .wcp 本地安装绕过; `extractGraphicsDriverFiles` 的 native 提取原语 (`TarCompressorUtils.extract`) 与 rootfs 同路径已证. (e) D7 termuxfs rpath: imagefs 内无 `/data/data/com.termux/...`, rpath 烙 Wine ELF, 运行时 `LD_LIBRARY_PATH` 解析 (P3). (f) imagefs.tzst 测试资产 (190MB) git-ignored (`*.tzst`), 测试用 `assumeTrue` 资产缺时 skip.
-> 数量口径说明：同一历史段中的 10,892（归档条目）与 27,614（测试遍历计数）
-> 来自不同统计方法，均只保留为当时日志，不代表当前 `imagefs.txz` 的条目数或体积。
-
-7. **preparer 真机验证通过** (`PreparerGraphicsDriverTest`, 2026-07-13): (a) **D4 下载 stub 绕过路径确立**: `native_content_io.cpp:783 nativeDownloadFile` 返回 `JNI_FALSE` (MVP 无远程抓取), 但 `ContentsManager.extraContentFile(uri)` 走 `nativeExtractArchive` (L728, 非下载路径) -- 宿主 curl `.wcp` + `adb push` 到外存 + `extraContentFile` 本地装, 完全绕过 stub. (b) **.wcp 下载源** (`nicholasx417/WinNative-Components` releases): `Proton-10.0-4-x86_64.wcp` (161MB, zstd, 含 `bin/`+`lib/wine/`+`prefixPack.txz`) + `Bionic-Box64-0.4.3-8ee3d8f2c.wcp` (2.7MB, xz, `box64`->`${bindir}/box64`). entry name = `type-verName-verCode` (verCode=0): `Proton-10.0-4-x86_64-0` / `Box64-0.4.3-8ee3d8f2c-0`. (c) **真机全链路** (Lenovo TB322FC / Adreno 830 / arm64-v8a / API 36, 2.7s): imagefs 提取 (1.6s) -> Proton/Box64 `extraContentFile`+`finishInstallContent` 安装 -> `ContainerManager.createContainer` (从 Proton `prefixPack.txz` 抽 Wine prefix) -> 反射调 preparer 内部 `ContentsManager.syncContents()` (preparer 不自调, 需补) -> 删 `.wine` 强制 `ensureWinePrefixReady` 修复 (firstTimeBoot=true) -> `extractGraphicsDriverFiles` -> `wrapper.tzst`/`layers.tzst`/`extra_libs.tzst` 提进 imagefs root + 14 envVars 填充. (d) **envVars 验证**: `GALLIUM_DRIVER=zink`, `WRAPPER_VK_VERSION=1.3.284` (GPUInformation 查到 Adreno 真实 Vulkan patch), `VK_ICD_FILENAMES=.../wrapper_icd.aarch64.json`, `MESA_VK_WSI_PRESENT_MODE=mailbox`, `WRAPPER_EMULATE_BCN=3`, DXVK 系 (`DXVK_ASYNC=1` 等). (e) **wrapper 库设备实测**: `libvulkan_wrapper.so` (19MB) + `libvulkan_freedreno.so` (11MB) + `libadrenotools.so`/`libhook_impl.so` + `wrapper_icd.aarch64.json` 全在 imagefs/usr/lib + usr/share/vulkan/icd.d. (f) **资产打包缺口 (已补)**: app APK 原 `app/src/main/assets/` 不存在 (路径 1 资产在 WinNative 上游未拷入); 测试从 WinNative checkout `48fe6b9` 拷 `graphics_driver/wrapper.tzst`+`extra_libs.tzst`+`layers.tzst` 进 amphora assets (git-ignored `*.tzst`) 后 wrapper 提取验通. **该方式已被 RemoteContentSource 生产路径替代**. (g) **WineInfo 解析**: identifier `Proton-10.0-4-x86_64-0` 因尾部 `-0`(verCode) 不匹配 `pattern` (`^(wine|proton)-...-(x86_64|...)$`), 走 `wineProfile != null` 分支 -> `path=getInstallDir`; 需 profilesMap (syncContents) 已就绪, 否则回退 MAIN_WINE_VERSION (path=null, 不抛). `extractGraphicsDriverFilesCore` 的 envState.put 全无条件 (不依赖 wineInfo), 故 envVars 即使 WineInfo 未解析也填充.
-
-8. **`:core:content` `BundledContentSource` 落地** (2026-07-13): (a) **DIP 落点**: `ContentManifest`+`ManifestEntry`+`BundledContentSource`+`BundledAssetInstaller`(接口) 在 `:core:content` (纯编排: 查 manifest -> 拷资产到临时文件 + SHA-256 流式 tee 校验 -> 委托 installer -> `ContentArtifact.Resolved`); 内核依赖的 concretion `WinlatorBundledAssetInstaller` 在 `:core:engine` (ARCHIVE=`TarCompressorUtils.extract(Type,File,File)`, WCP=`ContentsManager.extraContentFile(Uri)`+`finishInstallContent`)。与 `ImageFsRootfsInstaller`/`XServerWineSessionPreparer` 同 DIP (契约低模块, concretion engine); `:core:content` 无 Hilt, `EngineModule.@Provides` 构造绑定 `ContentSource`+`BundledAssetInstaller`+`ContentManifest`。(b) **manifest**: `core/content/src/main/assets/content_manifest.json` (04-ASSET-MANIFEST 派生, 5 组件: wine/box64=WCP + turnip/dxvk/audio_plugin=ARCHIVE; ROOTFS 故意不入 -- `RootfsInstaller` 拥有, `resolve(ROOTFS)` 抛 UnsupportedOp 指向它; `.wcp` SHA 已锁 (gap #1), tar 资产全锁)。`ContentManifest.parse(json)` 纯 JVM 可测, `load(context)` 读合并资产 (APK 内 `assets/content_manifest.json` 1828B 已确认)。(c) **WCP 路径替代 curl+push**: `resolve(WINE)`/`resolve(BOX64)` 从 APK assets 读 `.wcp` -> `extraContentFile` (本地 `nativeExtractArchive`, 非 D4 下载 stub) -> `finishInstallContent` 装到 `filesDir/contents/<type>/<verName>-<verCode>/` (与测试 curl+push 同路径, `syncContents`/`createContainer` 无感)。生产需 `.wcp` 打进 `app/src/main/assets/` (build 时 staging, git-ignored `*.wcp`)。(d) **ARCHIVE 前向**: `resolve(TURNIP/DXVK/AUDIO_PLUGIN)` SHA 校验 + 提到 `filesDir/amphora-content/<component>/<version>/`; 当前内核 (`extractGraphicsDriverFiles`/`ImageFsRootfsInstaller`) 仍直接读 `context.assets`, P3 才迁移消费 `Resolved.path`。(e) **缓存**: `isInstalled` (路径存在) 即命中; version 编码进路径, manifest bump 走新路径 (旧目录孤儿); `ERROR_EXIST` (他路径已装) 当成功 (CompletableDeferred 同步完成安全)。(f) **验证**: `:core:content:test` 6 JVM 单测过 (manifest 解析 / WCP+ARCHIVE / null-SHA skip / 默认 zstd / 未知组件 IllegalArgumentException); `:app:assembleDebug` 绿 (APK 61M -- 含 3 个 git-ignored `.tzst` + manifest + libwinlator.so 2.5M); `BundledContentSourceTest` (instrumentation, 3 tier assumeTrue 门控: manifest 加载恒跑 / TURNIP 需 wrapper.tzst / WINE 需 Proton .wcp) 编译过, 真机验 ✅ 通过 (2026-07-14, §P2 #10)。~~`.wcp` SHA 锁~~ ✅ (gap #1, 2026-07-14 -- SHAs 已入 manifest)。~~build 时资产 staging Gradle 任务~~ ✅ (§P2 #9)。
-
-9. **build 时资产 staging Gradle 任务 `:app:stageBundledContent`** (2026-07-14): (a) **manifest 驱动**: 读 `core/content/src/main/assets/content_manifest.json` (单一真源) -> 每 entry 按 `kind` 分发; ARCHIVE 从 WinNative checkout (`amphora.winnative.dir`, 默认 `../WinNative`) `app/src/main/assets/<assetPath>` 拷 + SHA-256 校验 pinned; WCP 从 `nicholasx417/WinNative-Components` GitHub releases 下载 (URL 映射 build-only, 同 `ContentsManager.REMOTE_PROFILES` 源) -> `build/content-cache/` 缓存 -> 拷入 `app/src/main/assets/`。入 `app/src/main/assets/` (git-ignored `*.tzst`+`*.wcp`)。(b) **best-effort 不破构建**: 缺 WinNative checkout / 下载失败 / SHA 不匹配 -> `logger.warn` skip 该资产, task 不 fail (`BundledContentSourceTest` tier `assumeTrue` 门控, 构建无资产也绿)。(c) **standalone 不 auto-wire preBuild**: 160M Proton `.wcp` 入 `src/main/assets` 会膨胀每次 debug APK (61M->231M), 故 `stageBundledContent` 显式运行 (`./gradlew :app:stageBundledContent`); routine `assembleDebug` 保持 slim。删 `app/src/main/assets/*.wcp` 复 slim。(d) **idempotent**: `outputs.upToDateWhen` 检全资产存在 + ARCHIVE SHA; 已 staged skip; download 仅 cache miss 时。(e) **.wcp SHA 锁定 (gap #1 ✅)**: wine `Proton-10.0-4-x86_64.wcp` = `e61d29be8c736abe13f662d33ff4b14fae2b7294b011283be53c8e33665d2b48` (161M), box64 `Bionic-Box64-0.4.3-8ee3d8f2c.wcp` = `eec659650ff31df151c13d2a522330b1636b98cd82dbf60ba3ff522759f528fd` (2.7M); 已入 manifest `sha256` 锁 ✅ (2026-07-14, gap #1 闭环)。(f) **验证**: `:app:stageBundledContent` 跑通 (5 资产全 staged, ARCHIVE SHA 全匹配 manifest pinned: turnip `2651fbe6...`/dxvk `da30a104...`/audio_plugin `357bb53f...`); `:app:assembleDebug` 绿 APK 231M 含 `assets/{content_manifest.json,Proton*.wcp,Bionic-Box64*.wcp,graphics_driver/wrapper.tzst,dxwrapper/d8vk-1.0.tzst,pulseaudio.tzst}`; `:core:content:test` 6/6 绿 (无回归, 用 SAMPLE 不读真 manifest)。~~`.wcp` SHA 锁~~ ✅ (gap #1, 2026-07-14 -- SHAs 已入 manifest)。
-
-10. **`BundledContentSourceTest` 真机验通过** (2026-07-14, Lenovo TB322FC / Adreno 830 / arm64-v8a / API 36): `:app:connectedDebugAndroidTest` (class filter `app.amphora.BundledContentSourceTest`) 3/3 绿 (`skipped=0 failures=0 errors=0`, XML `TEST-TB322FC - 16-_app-.xml`)。跑前 `adb shell pm clear app.amphora` 清 data 强制 cache miss -> `stageAndVerify` 真校验 SHA (locked, 非 null 分支 mismatch 即 throw)。三 tier: (1) `manifest_loadsAndParsesAllEntries` (0.001s) -- APK 内合并 manifest 加载, wine/box64/turnip 全在, wine contentType+verName 就绪; (2) `resolve_turnip_archive_extractsWithShaVerify` (0.03s) -- ARCHIVE: wrapper.tzst 拷+SHA 校验 (`2651fbe6...`)+`TarCompressorUtils.extract` 提取, wrapper_icd.aarch64.json 断言过; (3) `resolve_wine_wcp_installsLocally` (1.549s) -- WCP: 161M Proton.wcp 拷+SHA 校验 (`e61d29be...`, **锁后首次真校验**)+`extraContentFile`+`finishInstallContent` 装到 `filesDir/contents/Proton/10.0-4-x86_64-0/`, `bin/`+`prefixPack` 断言过。时长证 cache miss (1.549s >> hit ~0ms)。**P2 资产获取轨含真机全闭环**: 生产路径 `BundledContentSource` (APK 内联资产, 无远程下载) 设备验通, 替代 `PreparerGraphicsDriverTest` host curl+adb push workaround。注: connectedDebugAndroidTest 跑完自动卸载 app, run-as/logcat 无残留, XML 为权威结果。
-
-### P3 · `:app` GameSessionScreen (D9) -- compile-only 落地 (`2a2078a`+`0404922`)
-- [x] 初版使用 `AndroidView{SurfaceView}` + `TouchInputOverlay`；后续因 Compose
-  子窗口可靠性改为 TextureView-based `XServerSurfaceView`，输入也已替换为解耦后的
-  `TouchpadView`。本条仅保留演进记录。
-- [x] `GameSessionViewModel` 生命周期编排: `WineEngine.launch` -> `RootfsInstaller` -> `ContainerManager` -> `WineSessionPreparer` -> `XEnvironment.startEnvironmentComponents` -> `GuestProgramLauncherComponent` (`box64 wine explorer /desktop=WxH exe`) -> `XServerSurfaceView.attachSurface` (via surface StateFlow)
-- [x] onPause->`XEnvironment.onPause` / onResume->`onResume`+`ProcessHelper.resumeAllWineProcesses` / onDestroy->`stopEnvironmentComponents`+`terminateAllWineProcesses` (+forceKill fallback)。`XServerSurfaceView.onPause/onResume` (渲染线程) 由 SurfaceHolder 生命周期处理
-- [x] `WineEngineImpl` P3 step 真实现 (替换 TODO): `startEnvironment`/`launchGuestProgram`/`sessionHandleFor` (合并为 setupXEnvironment 移植); `inputFeed`/`audioSink` 换 `XServerInputSink`/`XServerAudioSink` (xServer.injectPointerMove/Button + `ALSAClient.setOutputSuspended`)。`EngineModule.provideContainerManager` stub **保留至 P4** (DIP: concretion 落 :core:engine 时删, 同 RootfsInstaller/Preparer)
-
-**P3 关键发现 (供下个 agent):**
-1. **P3 是编排/接线, 非重写**: `GuestProgramLauncherComponent` (1265 行, P1 已移植) 由*配置*驱动 -- `setGuestExecutable("wine explorer /desktop=shell,WxH exe")`+`setEnvVars`+`setContainer`+`setWineInfo`+`setBox64Preset`+`setTerminationCallback`, 再 `environment.startEnvironmentComponents()` (GPLC 最后启动, exec guest)。`XEnvironment` (P1 移植) API 是 `onPause/onResume/stopEnvironmentComponents` (非跟踪文档原写 "pauseComponents")。`XServerSurfaceView`+`VulkanRenderer`+`XServer`+`XServerComponent`+`ALSAServerComponent`+`SysVSharedMemoryComponent`+`NetworkInfoUpdateComponent` 全 P1 移植就绪 -- P3 只编排。
-2. **TouchpadView 不可直用**: `runtime/input/ui/TouchpadView.kt` (697 行) import `XServerDisplayActivity` 并以 Activity 为 context (ctor `TouchpadView(ctx, xServer, handler, hideControlsRunnable)`) -- 与我们正重写的 XSDA 强耦合 (P1 已整块砍 input/ui)。改 amphora-native `TouchInputOverlay`: Compose `pointerInput`+`awaitEachGesture` 直调 `xServer.injectPointerMove/ButtonPress|Release` (XSDA TouchpadView 同路径)。MVP direct-touch (down=press+move, up=release); trackpad 相对模式/手势 profile 留 P4+。
-3. **WinHandler 跳过 (MVP)**: `WinHandler(XServerDisplayActivity)` 同样 Activity 耦合, 且是*手柄*输入 (UDP -> wine)。MVP 触屏/鼠标走 `XServer` pointer injection (X 协议), 无需 WinHandler。`xServer.setWinHandler(null)`/`winHandler.start()` 不调。手柄支持留 P4+ (需解耦 WinHandler 或重写)。
-4. **surface 暴露设计 (DIP)**: GameSession UI (D9 XSDA 重写) 需 `XServer` 构造 `XServerSurfaceView(ctx, xServer)`。`WineEngine` 接口保持 kernel-free ("feature layers never touch native internals"); 加 `GameSessionSurfaceProvider` 接口 (`WineEngineImpl` 实现 + `EngineModule` 单独 `@Provides`), 暴露 `surface: StateFlow<GameSessionSurface?>` (持 `XServer`)。`SessionHandle` (model) 仍 kernel-free (state/awaitReady/pause/resume/stop); concrete `XServerSessionHandle` (engine) 持 `XEnvironment`+`XServer`。
-5. **Amphora Container -> WinNative Container 桥**: `GuestProgramLauncherComponent.setContainer` 要 WinNative `Container` (getEmulator/getBox64Version/getCPUList...), amphora `Container` 仅 {id,rootPath,winePrefixPath}。`WineEngineImpl.resolveWinNativeContainer` 镜像 `XServerWineSessionPreparer.resolveContainer` (按 rootPath 匹配 `wnContainerManager.getContainers()`)。**P4 ContainerManager 接管此桥** (TRACKING P2 #5f 已定)。launch 链在 `containerManager.getOrCreate` (amphora stub, `NotImplementedError`) 处抛 -- VM `catch (Throwable)` (CancellationException 重抛) 优雅显示错误不崩。
-6. **envVars 合并**: XSDA setupXEnvironment 设 LC_ALL/WINEPREFIX/WINEDEBUG + **container env** + prep envVars (driver/DXVK/WineD3D) + shortcut env。amphora: `LocaleEnv` + `WINEPREFIX`/`WINEDEBUG` + `container.getEnvVars()`（`ZINK_*`/`TU_DEBUG`/`mesa_glthread`，OpenGL/ddraw→Zink 必需）+ `preparer.envVars()` + `spec.env` + ALSA。曾漏合并容器 env → AIO GL/DX7 黑屏+FPS（2026-07-26 已修）。GPLC 自设 HOME/PATH/LD_LIBRARY_PATH/DISPLAY/BOX64_* 等。
-7. **imagefs 版本（历史）**: P3 当时沿用 WinNative 常量 22；当前内核常量为 24，
-   生产安装身份由远程 manifest 的 rootfs version（本次校对为 44）和 SHA 决定，
-   不再把内核常量当发布真源。
-8. **lifecycle-runtime-compose 加入 catalog**: `collectAsState`/`LocalLifecycleOwner` 需此依赖 (Compose BOM 1.11.4 的 `AndroidView` 在 `androidx.compose.ui.viewinterop` 非 `viewbinding`; `LocalLifecycleOwner` 已从 `ui.platform` 移至 `androidx.lifecycle.compose`)。app `build.gradle.kts` 加 `implementation(libs.androidx.lifecycle.runtime.compose)`。
-9. **端到端验待 P4**: P3 compile-only -- launch 在 P4 container stub 抛, surface 不 emit, 屏幕显错 + Exit。真机验 (启动 .exe, Vulkan 画面, 触屏映射, 音频) 是 P4 验收 (RFC §8)。
-
-### P4 · 收尾 -- 落地 + RFC §8 真机验收 ✅
-- [x] `:core:container` `ContainerManager` 实现 = `WinlatorContainerManager` (`:core:engine`, DIP 桥 -- WinNative `ContainerManager` 861 行已在 P1 移植为内核, P4 写 amphora-facing concretion 适配它)
-- [x] launcher: exe picker (SAF) + 分辨率选择 -> 构 `LaunchSpec`
-- [x] **验收 (RFC §8)**: 启动 Windows .exe, Vulkan desktop 有画面 + 相对触控 ✅
-  (2026-07-21)。当时音频只接 ALSA；当前音量/静音已接 ALSA 与可选 Pulse 后端。
-  联网运行无需 staging；资产门禁测试使用 `connectedAndroidTestWithContent`。
-- [x] P4 后关键修复: `ecc7ee3` desktop surface + relative touch + `GameSessionLaunchTest`; `65e180f` DXVK → `Dxvk-3.0.2-gplasync.wcp` + host/guest Turnip wrapper 对齐; `04ec6f5` host Vulkan 读容器 `graphicsDriverConfig` + wine debug logs。
-
-**P4 关键发现 (供下个 agent):**
-1. **WinNative `ContainerManager` 861 行早非 P4 移植项**: P1 已把 `runtime/container/` 内核 (Container 773 + ContainerManager 861 + Shortcut) 整块拷进 `:core:engine` (保 `com.winlator.cmod` 包名)。P4 的 "移植" 实为写 amphora `ContainerManager` 接口的 **DIP concretion** (`WinlatorContainerManager`) -- 桥接 amphora 的 lean `Container{id,rootPath,winePrefixPath}` 与 WinNative `Container`(id+rootDir+wineVersion+emulator+...)。同 `ImageFsRootfsInstaller`/`XServerWineSessionPreparer` 模式: 契约在低模块 (`:core:container`), concretion 在 `:core:engine` (紧邻它适配的内核); `:core:container` 无 Hilt, `EngineModule` 绑定。**三个 sibling 接口全部毕业, 零 stub 剩余**。
-2. **`getOrCreate` 拥有完整容器创建依赖链**: (a) `ContentSource.resolve(WINE/BOX64)` -- `BundledContentSource` 从 APK assets 装 Proton/Box64 .wcp (idempotent, `isInstalled` 缓存); (b) `contentsManager.syncContents()` -- 装载已装 profile 供 `createContainer`+`WineInfo.fromIdentifier`; (c) 解析 wineVersion -- manifest WINE entry `version` (= ContentsManager entry name `Proton-10.0-4-x86_64-0`), fallback 扫装好的 Proton profile, 最后 `MAIN_WINE_VERSION`; (d) `createContainer(JSONObject{name,wineVersion,graphicsDriver=wrapper,dxwrapper=dxvk+vkd3d,wincomponents=FALLBACK}, cm)` -- 自动选 box64 (x86_64) + 自动填 box64Version + 从 Proton `prefixPack.txz` 抽 Wine prefix; (e) `activateContainer` -- 符号链接 `home/xuser` -> `home/xuser-<id>` (Wine HOME = `imageFs.home_path` = `root/home/xuser` 的目标)。amphora `ContainerId` = WinNative int id 的字符串 (`"1"`); MVP 单共享容器 (RFC §9 multi-prefix=v0.2)。
-3. **syncContents gap 修复 (原 §P2 #7c)**: `WineEngineImpl`/`XServerWineSessionPreparer`/`WinlatorContainerManager` **各持独立 `ContentsManager(context) 实例** (`ImageFs.find` 也是每次 `new`)。原 `PreparerGraphicsDriverTest` 需反射调 preparer 私有 `contentsManager.syncContents()` 才能让 `WineInfo.fromIdentifier`/`repairContainerWinePrefix` 解析 profile -- 是生产 bug。P4 修: `WinlatorContainerManager.getOrCreate` + `WineEngineImpl.launch` (getOrCreate 后) + `XServerWineSessionPreparer.resolveState` (!alreadyResolved 分支) 各自调 `contentsManager.syncContents()`。三次扫描 (各扫 `filesDir/contents/*/` 几个 profile.json) 开销可忽。未做 ContentsManager DI 单例 (会破 `PreparerGraphicsDriverTest` 直接 ctor + 反射 workaround; 净改进但风险/收益不划算, 推 v0.2)。
-4. **exe 路径必须进 `drive_c` (Z: 映 rootfs 非 `/`)**: `WineUtils.createDosdevicesSymlinks` 造 `c:`->`../drive_c`, `z:`->`container.getRootDir()/../..` = **rootfs 根** (`filesDir/imagefs`), 非 Android `/`。`hostPathToMappedWinePath` 对 rootfs 外的路径走 fallback `Z:\<path>` -> 解析到 `<rootfs>/<path>` (不存在)。所以 launcher SAF 暂存的 `filesDir/exe/<name>` (rootfs 兄弟目录) **不可直传 Wine**。解法: `WineEngineImpl.stageExeIntoPrefix` 把暂存 exe 拷进容器 `drive_c/<name>`, 跑 `C:\<name>` (C:->drive_c 恒在)。镜像 WinNative `ensureDriveCGameSymlink` 模式 (WineUtils, 它对游戏目录造符号链接进 `drive_c/WinNative/Games/`)。idempotent (size 匹配 skip)。
-5. **launcher exe picker = SAF `OpenDocument("*/*")`**: `.exe` mime 不可靠 (`application/octet-stream`/`x-dosexec`/未知), 用 `*/*`。`ContentResolver.query(DISPLAY_NAME)` 取文件名, 拷进 `filesDir/exe/<name>` (app-private, 无 scoped-storage 权限问题)。`Resolution` enum (1280×720/1920×1080/1024×768/800×600) `FilterChip` 选择。`feature:launcher` 加 `androidx.activity.compose` (rememberLauncherForActivityResult)。导航 `gameSessionRoute` 对 exePath `Uri.encode` (Unix 路径含 `/`, 防查询串解析出错; `NavType.StringType.parseValue` 自动 decode)。
-6. **`removeContainer` 是 private**: amphora `delete` 不能直调; 用 public `removeContainerAsync(Container, Runnable)` + `suspendCancellableCoroutine` 桥 (callback 走 main Handler, resume 回 IO)。MVP 删除非关键路径 (RFC §8 只验启动)。shortcuts (`loadShortcuts`/`upgradeShortcuts`)/duplicate 留在移植内核未用 (D9 non-target / v0.2)。
-7. **端到端验 ✅**: launch 链全接线并真机跑通 (RFC §8)。复现: `./gradlew :app:stageBundledContent` → 装 APK / `GameSessionLaunchTest`。DXVK 现为 WCP (`Dxvk-3.0.2-gplasync`, 见 manifest), 非早期 `d8vk-1.0.tzst` ARCHIVE。debug 默认直启 notepad -- 见 `AmphoraNavHost`。
-
-### P4+ · 端到端硬化 (2026-07-21) ✅
-- [x] 显示 explorer desktop surface (不再隐藏桌面进程窗口)
-- [x] 触控改为相对移动 + tap-to-click
-- [x] 真实 DXVK WCP + 旧 `dxvk-1.0` 容器迁移
-- [x] host/guest Vulkan 后端对齐：默认 wrapper → system Adreno；显式 Turnip → 双端 adrenotools
-- [x] `GameSessionLaunchTest` / `XServerSurfaceViewInitTest` + content-aware connected 测试入口
-- [x] 文档: [`01-ARCHITECTURE.md`](01-ARCHITECTURE.md) as-built 架构真源
-
-### P4-followup · no-GPU 测试路径 (headless Wine) -- ✅ mac ARM 模拟器验通 (`feat/headless-wine-test`)
-
-> 注 (2026-09-13): 本节的 `wine-10.0` / `Proton-10.0-4-x86_64.wcp` 是**当时旧 pin** 的实测记录; 当前生产 pin 已是 `Proton-11.0-d12a5634a-x86_64-0` (见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) §5.1, 2026-08-11 起)。本节结论不受版本差异影响。
-
-分支 `feat/headless-wine-test` 加了一条**不碰 GPU** 的测试路径,把 box64+Wine+Bionic-rootfs+prefix 的 CPU 栈从 Adreno Vulkan 渲染里剥出来,能在 mac ARM 模拟器上迭代(无需真机)。
-
-- **`WineHeadlessRunner` (`:core:engine`, 生产 seam)**: `ProcessBuilder` 直接跑 `box64 wine <args>`,不启 X server/不挂 Vulkan surface/不碰音频。env 是 GPLC `execGuestProgram` 的 wineboot-essential 切片(HOME/USER/TMPDIR/LD_LIBRARY_PATH/PATH/WINEPREFIX/box64),不设 DISPLAY/VK_ICD_FILENAMES/GALLIUM_DRIVER。文件式 stdout 捕获 + 超时(避管道死锁/挂起)。`ProcessHelper.exec` 在 `WINEDEBUG=-all` 下把 stdout 丢 /dev/null,故不用它。
-- **`HeadlessWineBootTest` (`app/androidTest`)**: 两个用例 -- `headlessWine_versionPrints` (`box64 wine --version` -> exit 0 + stdout `wine-10.0`) + `headlessWineboot_initSucceeds` (`box64 wine wineboot --init` -> exit 0 + `user.reg`)。setup 复用 `PreparerGraphicsDriverTest` 的 imagefs + .wcp 安装 + `createContainer`,**加上 `preparer.ensureLaunchRuntimeFilesReady`** (createContainer 只抽 prefix,box64 二进制由 preparer 的 `ensureBox64RuntimeReady` -> `applyContent` 装到 `imagefs/usr/bin/box64`)。
-- **✅ mac ARM 模拟器 (arm64-v8a API 30) 验通**: box64 dynarec (x86_64->ARM64) 在 Apple Silicon HVF 下正常;Bionic rootfs + termuxfs rpath;Proton Wine 加载运行;`wine --version` 打印 `wine-10.0`,`wineboot --init` exit 0。证明整条 CPU 栈无需 Adreno 即可跑。
-- **模拟器三大坑 (已记入测试 KDoc)**: (1) **SELinux** -- AOSP 模拟器 `untrusted_app` 严格策略 deny `execute_no_trans` app_data_file (box64 exec 报 error=13)。userdebug image 需 `adb root && adb shell setenforce 0`。**真机 OEM 策略通常允许**(WinNative 上游在真机跑通即证),故此坑模拟器专属。(2) **磁盘** -- 每次跑抽 ~800MB prefix,5.8G 分区跑 2-3 次满;`pm clear app.amphora` 清(再重 stage .wcp)。(3) **.wcp 暂存** -- API 30+ FUSE 禁 adb push 到 `/sdcard/Android/data/<pkg>/`;改用 `cat /data/local/tmp/x.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/x.wcp'` 灌进内部 filesDir(测试读 `filesDir` 非 `getExternalFilesDir`)。
-- **能验/不能验**: ✅ box64 dynarec / Bionic rootfs / Wine .so 链接 / prefix / wineserver / content+syncContents 链 / (audio AudioTrack 也能模拟器验)。❌ 仍需真机 Adreno: Vulkan 渲染(Turnip/Freedreno)、`vk_renderer` swapchain、DXVK/vkd3d 实跑 D3D、触屏到可见画面 -- 那些是 RFC §8。
-- **未合并**: 在 `feat/headless-wine-test` 分支,基于 P4 `fdaa4e8`。合并前可选清理 runner 的 `pre-exec box64` 调试 log。
-
-### P5 · 桌面/shell 复核 + winefile 切换 (2026-09-13) ✅
-
-- [x] **文件浏览路径切 winefile**: `WineEngineImpl.buildWineExplorerCommand` 的 trailing arg `explorer.exe` → `winefile.exe` (Wine 内建, system32 裸名解析, 无需新增组件 pin); 测试改名 `explorerLaunchOpensWinefileInsideWineDesktop`; 真机 TB322FC 截图验证 (Wine File Manager 在 `/desktop=shell` 桌面内正常显示, 外层容器与 Start 任务栏不变)。游戏路径 (`LaunchTarget.PROGRAM`) 不动。
-- [x] **真机内容 pin 确认**: `files/contents/Proton/11.0-d12a5634a-x86_64-0` (= 2026-08-11 起的生产 pin, 见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) §5.1)。上文 P2/P4-followup 段落里的 `Proton-10.0-4` / `wine-10.0` 均为**当时旧 pin 的历史实测记录**, 不描述当前内容; 与 EGG 的桌面 UI 差异和 Wine 版本无关 (双方都是 Wine 11 explorer)。
-- [x] **EGG (`com.xiaoji.egggame` 6.2.1) 桌面拆解** → [`08-EGGGAME-COMPARISON.md`](research/08-EGGGAME-COMPARISON.md) §12: 桌面 UI (壁纸/时钟/"应用"任务栏) 全部来自 rootfs 内置 **jwm** (`system.jwmrc` 的 `Background`/`Clock`/`TrayButton`/`TaskList`), **不是** `SPI_SETDESKWALLPAPER` (注册表 `Wallpaper=""`, `libwinemu.so` 无相关调用); explorer.exe 裸跑 (无 `/desktop=`) 且未定制 (字符串表与 Wine 自带一致, 仅重编译); `libxserver.so` = NDK 自编译 Xorg (WinEmuKernel), 含 RANDR/GLX/XKB/XFIXES 等完整扩展集——Amphora Java X server 缺 RANDR (`/desktop=` 绕法仍必要) 与 WM 依赖扩展 (jwm 路线需先换 native X server)。
-- 取证方法可复用: EGG 会话 launch 参数读 `files/pcLaunchLog/launchLog*.txt` 的 `WINEMU_LAUNCH_CONFIG` 块; 容器/rootfs 经 KernelSU `su` 读 `/data/data/com.xiaoji.egggame`。
-
----
-
-## 3. 必须遵守的约束 (别重踩)
-
-**版本/构建**
-- 别「逐组件取最新再修」--照抄一个 Google 参考栈 (`android/compose-samples` 的 `gradle/libs.versions.toml`)。查仓库用 `gh search repos`, 别凭记忆赌路径 (例: `now-in-android` 已改名 `nowinandroid`)。
-- AGP 9 **built-in Kotlin**: 禁止 apply `org.jetbrains.kotlin.android`。Kotlin 2.3.21 靠 compose 插件带 KGP 覆盖 built-in 2.2.10。convention 不设 jvmTarget (默认取 `compileOptions.targetCompatibility`=17)。
-- KSP 必须对齐 Kotlin (2.3.x -> KSP 2.3.9); compose-compiler 版本 = Kotlin 版本。
-- `compileSdk=37` 平台包名是 `platforms;android-37.0` (带 `.0`), 不是 `platforms;android-37`。
-- 升 AndroidX 前查 AAR `minCompileSdk` (最新 core 1.19/lifecycle 2.11 需 37, 已满足)。
-- convention `.kt` 里 `getByType<T>()`/`findByType<T>()` 要 `import org.gradle.kotlin.dsl.getByType/findByType` (不自动导入)。
-
-**架构 (RFC §4/§6/§7)**
-- 依赖严格单向: `feature -> engine -> {native, rootfs, content, container}`。native 永不向上依赖。
-- **保 `com.winlator.cmod` 包名** -> C/JNI 零改 (函数名硬编码 `Java_com_winlator_cmod_...`)。
-- `:core:native` AGP namespace = `app.amphora.core.nativelib` (`native` 是 Java 关键字); 模块路径仍 `:core:native`。
-- runtime 内核全 Java 原样复用 (含 audio); 只有 app 壳 + facade 用 Kotlin; 唯一重写的是 `XServerDisplayActivity` (D9)。
-
----
-
-## 4. 参考资源
-
-| 用途 | 位置 |
-|---|---|
-| **As-Built 架构 (优先读)** | [`docs/01-ARCHITECTURE.md`](01-ARCHITECTURE.md) |
-| 项目立项决议 | [`research/01-RFC.md`](research/01-RFC.md) (D1-D9 已定) |
-| 移植研究基础 (WinNative 拆解) | [`research/00-RESEARCH.md`](research/00-RESEARCH.md) |
-| Proton 自建方案 | [`research/RESEARCH-proton-wine-selfbuild.md`](research/RESEARCH-proton-wine-selfbuild.md) |
-| 脚手架与踩坑记 | [`research/02-SCAFFOLD.md`](research/02-SCAFFOLD.md) |
-| 移植源码基线 | `WinNative-Emu/WinNative` @ `48fe6b9` |
-| 依赖版本参考 | `android/compose-samples` (Reply/Jetcaster) `gradle/libs.versions.toml` |
-| 规范工程参考 | `android/nowinandroid` |
-| rootfs 资产源 | 当前为 `amphora-dev/imagefs` |
-| 资产 SHA 锁与清单 | [`docs/03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md) |
-
----
-
-## 5. 验证命令
+## 7. 验证命令
 
 ```bash
-./gradlew help                       # 全工程配置检查
-./gradlew :app:assembleDebug         # 全量编译 (Kotlin + KSP + native .so + Compose + APK)
-./gradlew jvmTest                    # 运行全仓 JVM 单元测试
-./gradlew :app:connectedAndroidTestWithContent  # 资产准备就绪后运行真机测试
-# 编译产物位于: app/build/outputs/apk/debug/app-debug.apk
+./gradlew spotlessCheck :app:testDebugUnitTest :app:lintDebug   # 门禁（pre-push / CI 同款）
+./gradlew jvmTest                                             # 全仓 JVM 单测
+./gradlew :app:assembleDebug                                  # 产物 app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleDebugAndroidTest                       # androidTest 编译
+# 真机冒烟（屏幕亮着、已解锁）：
+adb -s HA262AAH shell svc power stayon usb && adb -s HA262AAH shell input keyevent KEYCODE_WAKEUP && adb -s HA262AAH shell wm dismiss-keyguard
+adb -s HA262AAH install -r app/build/outputs/apk/debug/app-debug.apk
+scripts/dxvk-smoke/present-check.sh HA262AAH                  # AHB present 判据，见 docs/05 §5
+scripts/aio-smoke/aio-run.sh HA262AAH vk 8 64                 # AIO 后端冒烟，见 docs/09 §1
 ```
 
----
+## 8. 旁注
 
-## 6. 待决议 / 开放
-
-- [x] 历史 rootfs 来源验证完成；生产已迁移到 `amphora-dev/imagefs` 的
-  BuildStream + Release 管线，cnb.cool 旧地址不再作为依赖
-- [x] ~~adrenotools submodule 来源~~ ✅ 已引为 amphora git submodule (`core/native/src/main/cpp/adrenotools` @ `8483dfd`, 递归 linkernsbypass `b10d485`); `git submodule update --init --recursive` 即可
-- [x] ~~`NativeContentIO` 是否排除~~ ✅ P0 排除 (省 curl), P2 (`c593021`) **恢复提取**: `native_content_io.cpp` 回归 + zstd/xz 静态链, curl/download 2 JNI stub. `TarCompressorUtils` kernel-wide 可用 (见 P2 关键发现 #1)
-- [x] Proton 11 自建已上线为默认 wine pin（无需 proton-9 临时回退）
-- [x] release/native 产物已进入持续构建与 ELF 门禁；AGP debug 包不 strip 属预期，
-  不再作为开放阻塞项
-- [x] ~~13 个 JNI 绑定类全放 :core:engine 还是 leaf 下沉~~ ✅ 已定: 11 个全落 `:core:engine` (leaf 下沉不可行, 见关键发现 #2)
-- [x] ~~P2/P4: `RootfsInstaller` + `WineSessionPreparer` + `ContainerManager` 已真实现~~ ✅ `RootfsInstaller` (P2 `c593021`) + `WineSessionPreparer` (P2 `829e83b`, `XServerWineSessionPreparer` 849 行) + `ContainerManager` (P4, `WinlatorContainerManager`) concretion 均在 `:core:engine` (DIP -- `:core:rootfs`/`:core:container` 不可见 kernel). `:core:rootfs`/`:core:container` 无需 Hilt. **`EngineModule` 零 stub 剩余** (三个 sibling 接口全毕业, `StubContainerManager` 删除).
+- imagefs main 有他人的 CI 提交（`bb7f5b3` 等）；content_manifest `24df3a7` 曾把同一版本名 `Proton-11.0-2fd246cfc` 重新 pin 成 sha256 `1ab7366c…`（原 `a93cd764…`）——版本名没变，已装 profile 不会重下，是否预期未确认。
+- dev 主机 `/data/co/github/imagefs` 的 checkout 落后 main，下次构建前先 pull。
 
 ---
 
-## 2026-09-14 · AHB import Present≥50 关门
-
-- 文档：[`05-AHB-IMPORT-PRESENT.md`](05-AHB-IMPORT-PRESENT.md)
-- 代码版本：amphora `344f731` / proton-wine `1c62dd9a8ba`
-- HA262AAH 真机表现：`import=ok`，Present≥50 帧稳定运行，显存回读品红采样（MAGENTA @50），完全关闭 CPU fill
-- 演进目标：HWND Surface 原生零拷贝直通（清除残留的 host blit 拷贝）；严格保留 AHB import CreateSwapchain 成果
-
-## 2026-09-14 · HWND Surface 零拷贝验收关门
-
-- 状态：呈现热路径实现原生零拷贝（无 ImageReader 与 HostVk blit 开销）；Present 逻辑保持稳定
-- HA262AAH 真机表现：`DIRECT hwnd-ANW` + `import=ok` + MAGENTA@50/100；无 `WineAndroidHostVk` 与 `GUEST_CPU_FILL`
-- 架构清理：清除 `CMD_VK_PRESENT` 与 HostVk 冗余死代码；严禁触碰 AHB CreateSwapchain 稳定路径
-
-## 2026-09-14 · CI 冒烟清理与 WCP 联动
-
-- 清理 HostVk Present 冗余源码（`wineandroid_host_vk.c`）；将 `CMD_VK_PRESENT` 处理置为 stub
-- proton-wine 侧：移除无用的 `amphora_parent_vk_present`；在 `amphora_wsi_wanted()` 条件下将 `surface_get_fshack_dpi` 置 0
-- 核心稳定性：AHB CreateSwapchain / 导入 / 创建期 `win_queue` 逻辑完全保持不变
-- 后续跟进：提升 imagefs Proton WCP pin 版本，在真机上验证 Release APK 与 CI WCP 的组合效果
-
----
-
-## 当前状态指针（2026-09-28，唯一真源）
-
-> 进度只维护本节；本机 `amphora-progress.md` 是个人手记，与本节冲突时以本节为准。
-> 上面各日期条目是当时快照，里面的 “Next / 下一刀” 不代表现在。
-
-- **暂停点（2026-09-28，用户要求先停）**：main `4229aaa`（`app_update 0.1.0+266.4229aaa6`），Proton `11.0-2fd246cfc`，所有仓库已推送、无未提交改动。当时和用户定的阶段顺序与进度：
-  - ✅ Phase 0（PR 合并、AIO 2.1.0、HUD FPS）· ✅ Phase 1a（SurfaceControl 层序、Vulkan 窗口保留边框）· ✅ Phase 1b（`VK_LAYER_AMPHORA_wsi`，设置里的驱动到 guest）· ✅ Phase 2 的测量部分（Turnip 上 D3D8/9 FF、D3D12；wrapper + Qualcomm 复测 -13），结果在 [`09`](09-AIO-GRAPHICS-TEST.md) §2 / §4。
-  - **下一刀（已提议，用户未拍板）**：DXVK flavor 的 auto 改为“guest 所用驱动满足 3.0.2 全部必需特性”才选 3.0.2，否则 Sarek。现在 `DxvkFlavorIds.resolve` 只看 `GraphicsDriverCapabilities.vulkanMinorVersion`（按所选驱动探测的 Vulkan 次版本），Turnip A630 报 1.3 却没有 `storageBuffer16BitAccess`，于是选 3.0.2 后 `No adapters found`。必需特性清单从 DXVK 3.0.2 源码取（报 `Device does not support required feature` 的那段检查），不要按 GPU 型号判断。6T Turnip + Sarek 已实测可用（[`09`](09-AIO-GRAPHICS-TEST.md) §2）。
-  - **等用户决定**：Adreno 8xx + Qualcomm 驱动的 D3D8/9 FF -13（驱动编译器 bug，不是能力缺失，特性查询查不出）。选项 (a) 8xx 默认 Turnip（先比 D3D11 下 Turnip / Qualcomm 性能）；(b) Qualcomm 驱动上只让 d3d8/d3d9 用 Sarek，dxgi/d3d10/d3d11 仍 3.0.2；(c) 找出被拒的 DXVK FF 着色器绕开。
-  - **之后**：Phase 3 OpenGL，先实验 A（PE Mesa zink `opengl32.dll`，走 Box64 有 CPU 模拟代价），A 不行再做 B（原生 Mesa surfaceless + 回读，需要出画那一段）。Phase 4：6T 64-bit dx11 偶发卡首帧、32-bit padding 修复上游化、Mali 上 VirGL。Phase 5：ARM64EC 评估。
-  - **零散待办**：Vulkan 窗口切后台后会话结束（[`09`](09-AIO-GRAPHICS-TEST.md) §4，两条 loader 路径都这样）；层现在如实报 FIFO / MAILBOX，win32u 里“永远广告 IMMEDIATE、宿主没有就改 FIFO”的补丁（proton-wine `dlls/win32u/vulkan.c` `win32u_vkGetPhysicalDeviceSurfacePresentModesKHR` / `win32u_vkCreateSwapchainKHR`）仍在起作用：没有 IMMEDIATE 就退出的 app（AIO `--cube vk`）两条路径都靠它，要删得先决定层是否报 IMMEDIATE（AHB 交换链上它等同 MAILBOX）；D3D12 选 Sarek 时必然失败（Sarek 的 dxgi 不认 D3D12 设备）；HUD 显示 `GUEST 0%`；AIO 2.1.0 dx8 的 `D3DPRESENT_INTERVAL_IMMEDIATE` 是 AIO 的 bug。
-  - **测试分层（用户认可）**：UI 改动 → 一台 vk 64；Present / 窗口改动 → 两台 vk / dx11 / ddraw2d 64 + 相关场景；驱动链改动 → 受影响后端 32 + 64 两台；全矩阵只在发 Proton / Box64 / 驱动 pin 时跑。脚本 `scripts/aio-smoke/`，换驱动 / flavor 见 [`09`](09-AIO-GRAPHICS-TEST.md) §1。
-  - **设备现状**：两台装的都是与 `4229aaa` 同源的 debug APK，dev pin 已清，prefs 已还原（Y700 只有 `display_resolution=R1024x768`，6T 只有 `advanced_audio_driver=pulseaudio`）；6T 首次选 Turnip 时下载安装了驱动包，留在 `files/contents/adrenotools/`。**6T 是 SELinux Permissive**（非官方 Android 15 ROM，bootloader 解锁，开机即如此，不是我们改的；用户看到过一次“SELinux 已关闭”警告，来源未查到），它上面的 PASS 不代表 Enforcing 设备；Y700 的 enforce 状态未确认。
-  - **旁注**：imagefs main 有他人的 CI 提交（`bb7f5b3` 等），content_manifest `24df3a7` 把同一版本名 `Proton-11.0-2fd246cfc` 重新 pin 成 sha256 `1ab7366c…`（原 `a93cd764…`）；版本名没变，已装 profile 不会重下，是否预期未确认。dev 主机 `/data/co/github/imagefs` 的 checkout 落后 main，下次构建前先 pull。`_scratch/imagefs-aio-matrix` worktree 的分支已合并删除，可清理。
-
-- **壳层（GDI 出画 / 输入 / IME / z-order）**：主动项已关，只剩可选人工目视确认 → [`08`](08-AGENT-BOOTSTRAP.md) §12；细节 [`04`](04-WINEANDROID-DISPLAY.md)。
-- **游戏 Vulkan Present**：AHB import CreateSwapchain 是现行路径，勿退（[`05`](05-AHB-IMPORT-PRESENT.md)）。GDI 壳层不走 CreateSwapchain、禁私有 host.sock。
-- **guest Vulkan 驱动链**：非 System 驱动走 imagefs Khronos loader + wrapper ICD（Turnip 经 adrenotools）+ 隐式层 `VK_LAYER_AMPHORA_wsi`；System 走平台 loader（[`05`](05-AHB-IMPORT-PRESENT.md) §2.4）。
-- **AIO 图形矩阵**：各后端现状与未解决项只看 [`09`](09-AIO-GRAPHICS-TEST.md)（2026-09-16 的 PresentModes / `c0000135` 排查已作废，复测不再出现）。
-- **已停**：第二台真机 / 分屏 / hostScale 双机。
-- **CI**：`spotlessKotlinCheck` 自 2026-09-16 起让 main CI 变红，本次 `style: spotlessApply` 修复；ReDroid 冒烟最近 60 次无绿（最后一次实跑 `a17810b`：`guest did not stay running`），待单独排查。
-- **2026-09-26 · wineandroid NDK 符号收敛**：x86_64 Wine 在 Box64 里只经 wrappedandroid 调 NDK 符号（imagefs `240671e`），`lib*-real.so` 软链 / amphora_wsi 链接 android 方案已废弃（分支 `wip/box64-libandroid`、`wip/ha262-paint` 已删）。宿主新增 `AMPHORA_WSI_DIR=<filesDir>/wineandroid`，`libamphora_wsi.so` 的 `wsi-%d.sock` / `wsi-sc-%d.sock` 路径改为运行时读取该变量（缺省不启动服务线程）；Leegao 兜底 shim（`libamphora-android-shim.so`）补 AHardwareBuffer 8 符号转发到平台 libnativewindow，`GuestLibandroidShim` 判等改 SHA-256。
-  - **HA262AAH 真机 PASS**：amphora `37a8729` + Box64 `0.4.5-0db8df775-p07e67ded`（sha256 `aa2ceec7…`，imagefs main `d2a8c26` 重建逐字节一致）+ Proton `11.0-0d7ffcb97`（proton-wine `0d7ffcb970e`，现为 `wip/ahb-present-fence` 的祖先，原分支已删），content_manifest `1b7288a`。开会话时下载安装新 pin 并删掉旧 profile；`load_android_libs: loader=plain android=libandroid.so log=FAIL host=1`，无 `can't find` / `using host IPC` / abort；GDI 桌面 + File Manager + Start 任务栏出画；WSI socket 在 `<filesDir>/wineandroid/wsi-<pid>.sock`；无 FATAL、无新 tombstone，90 s 后会话仍在。启动期 `Unable to lock surface` 3 次是 Surface 注册前 LOCK -11 的正常重试，同 hwnd 随后均成功。
-  - **OnePlus 6T（`5b1736c7`，Android 15，最初报障机）真机 PASS**：APK 构建于 `175bcbd`（相对 `37a8729` 仅文档），同一组 Box64 / Proton pin。开会话后下载 `Proton-11.0-0d7ffcb97` 与 `Box64 p07e67ded` 并 `Removed unpinned` 旧两份；`load_android_libs: loader=plain android=libandroid.so log=FAIL host=1`，`can't find` / `abort` / `bridge=none` / `using host IPC` 全 0；`registerSurface` 14 次，LOCK 成功 33 次、`Unable to lock surface` 0 次；桌面 + File Manager + Start 出画（非黑约 82%）；WSI socket 在 `<filesDir>/wineandroid/`；无 FATAL / Fatal signal，90 s 后会话仍在。
-  - **未覆盖**：3D 冒烟（AHB Present）已在下方「3D 冒烟补验」条目补上。Box64 下 liblog 仍 dlopen 失败，Wine 日志走 stub、logcat 看不到（旧问题，与本次无关）。
-- **2026-09-26 · 删除 X11/Java 会话链**：`SessionActivity` / `GameSession*` / `HostPerformance*` / `Touchpad*` / `RtsGestureController` / `WineAndroidLaunchGate` / `WineEngine(Impl)` / `XServerSessionHandle` / `XServerSinks` / `StubInputSink` / `GameSessionSurface` / `DisplayBackend` / `EXTRA_DEBUG_X11` 已删（59 文件、-7335 行），`SessionLaunch` 只开 `WineAndroidSessionActivity`；Wine 命令拼装移到 `WineLaunchCommands.kt`。保留仍被 wineandroid 使用的 `XEnvironment`、`GuestProgramLauncherComponent`、`XServerWineSessionPreparer`、`WineHeadlessRunner` 与 `core/engine/src/main/java/**`。删前状态留 tag `x11-reference`；wineandroid 尚缺的功能（音频服务、触控模式、会话抽屉、HUD 等）见 [`04`](04-WINEANDROID-DISPLAY.md) §7.1 对齐表。音频服务已补，6T 真机 Pulse / ALSA 两个后端都实测放声（30 s 440 Hz，Pulse 有 sink-input + AAudioSink RUNNING，ALSA 的 AudioTrack 送出 30 s×48 kHz 帧）。Winlator Java / native JNI 按对齐表逐项拆，未对齐的组件不删。
-  - **OnePlus 6T 真机 PASS**（`5909b50`，同一组 pin，组件未重装）：`load_android_libs … host=1`，`can't find` / `abort` / `bridge=none` / `using host IPC` 全 0；`registerSurface` 60 行（Ipc+Bridge），LOCK 成功 32、`Unable to lock surface` 1（启动期，同 hwnd 随后成功）；桌面 + File Manager + Start 出画（非黑约 82%）；WSI socket 在 `<filesDir>/wineandroid/`；无 FATAL / Fatal signal，90 s 后会话仍在。
-- **2026-09-26 · 性能 HUD 搬到 wineandroid**：`HostPerformanceMonitor` / `HostPerformanceParser` / `GameSessionPerformanceHud` 从 `x11-reference` 恢复，去掉 XServer 帧跟踪与渲染器名，CPU / GPU / 内存 / 温度 / 电池 / 特权读数 / guest 进程保持原逻辑；FPS 与帧时间暂无来源，显示 `—`。开关：设置里原有 HUD 项，或调试 extra `app.amphora.debug.PERF_HUD`。
-  - **OnePlus 6T 真机 PASS**（`2f3e8f0`）：`perf hud enabled=true`，HUD 在右上角键盘按钮下方显示 CPU / RAM / 宿主内存 / 电池温度；HUD 外点击 winecfg 的 Drives 标签能切页（触摸不被叠层吃掉）；无 FATAL。
-- **2026-09-26 · 返回键退出确认**：BACK 经 `onBackPressedDispatcher` 弹 AlertDialog（"Exit Windows session?"），取消不影响会话，确认走原有 `finish()` → onDestroy 清理。
-  - **OnePlus 6T 真机 PASS**（`9b7480f`，子代理 exit-confirm 实测，主代理复核任务栈）：box64 进程 启动 10 / 取消后 10 / 确认退出后 0；退出后任务栈只剩 `MainActivity`，`:session` 进程 0；logcat 有 `exit confirm shown/cancel/accept`，无 FATAL。
-- **2026-09-26 · 3D 冒烟（AHB Present）补验**：删 X11 后首次覆盖。APK 构建于 `eda1560`，同一组 Box64 / Proton pin，`C:\amphora-dxvk-smoke.exe`（sha256 `55d3c97a…`，放 `files/exe/` 后用 `WINE_EXE=/data/user/0/app.amphora/files/exe/amphora-dxvk-smoke.exe` 启动）。
-  - 当时 Y700 / 6T 都按 `AHB_SC create … import=ok` + `guest-readback CLASS=MAGENTA` + 屏上静态品红判了 PASS，**这组判据查不出帧没上屏**：SurfaceFlinger timestats 里游戏层只有 4 帧（guest 提交 175 帧），Present 从没把 buffer 送回 BufferQueue。已由下一条修复，以下一条的数据为准。
-  - **注意**：屏幕熄灭或锁屏时 Activity 没有 Surface，Vulkan 窗等 2 s 拿不到 client ANW，报 `no client ANW after wait` 后 `vkCreateWin32SurfaceKHR` 断言失败。这是测试环境问题不是回归，冒烟前先 `svc power stayon usb` + `KEYCODE_WAKEUP` + `wm dismiss-keyguard`。
-  - **帧率限制**：设置 `advanced_frame_rate` 经 preparer 的 `DXVK_FRAME_RATE` 传到 wineandroid guest。
-  - **宿主刷新率对齐**（`4c4d514`）：`WineAndroidSessionActivity` 在 `onResume`、`onWindowFocusChanged(true)`、`DisplayListener` 回调里调 `RefreshRateUtils.applyPreferredRefreshRate(…, frameRateLimit)`，把窗口的 `preferredDisplayModeId` 设成与限帧节拍一致的档位（限 30 → 30 Hz、限 60 → 60 Hz、关 → 最高档，同旧 X11 `GameSessionScreen`，不另加下限）。用 `preferredDisplayModeId` 而非 `Surface.setFrameRate`：DXVK 限帧不带呈现时间戳，Android 帧率指南建议这类应用固定模式。窗口 attach 前首调返回 0，由获焦 / 显示变化重试补上。
-- **2026-09-27 · AHB Present 逐帧送显**（`2a70f95`）：`amphora_ahb_sc.inc` 改成 AOSP `libvulkan/swapchain.cpp` 的模型：图像数 `max(minImageCount, MIN_UNDEQUEUED+2)`，创建时 dequeue 全部槽位导入后 cancel 回队列，Acquire 走 `dequeueBuffer`、Present 走 `queueBuffer`；同窗重建前 `API_DISCONNECT/CONNECT`，宿主清 buffer id、generation+1；FIFO → swap interval 1，其余 0；宿主 dequeue 先等 release fence；`wsi-sc` 每请求一线程。细节与遗留项见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.3。
-  - **OnePlus 6T `5b1736c7` PASS**：`images=3`（app min 3、MIN_UNDEQUEUED 1、FIFO）；DXVK 重建交换链时走了一次 reconnect。限 30 / 60 / 关：queue_n 50→100 为 29.4 / 57.3 / 56.7 fps（关时被 60 Hz vsync 节流）；三轮 SurfaceFlinger 游戏层 `totalFrames=173`、`dropped=0`，`AHB_SC destroy … presents=175`。6T 只有 60 Hz 一档，三轮都选 modeId 1。回读均 `CLASS=MAGENTA`，无 FATAL；返回键确认退出后 `:session` 进程结束。
-  - **Lenovo Y700 `HA262AAH` PASS**：`images=6`（app min 6、MIN_UNDEQUEUED 3、FIFO）。限 30 / 60 / 关：30.0 / 60.0 / 60.0 fps，modeId 6 / 5 / 2；三轮游戏层 `totalFrames=173`、`dropped=0`，`presents=175`；回读 `CLASS=MAGENTA`，无 FATAL。
-- **2026-09-27 · 刷新率档位不超过用户峰值**（`ce4b739`）：Y700 关限帧时原来请求 165 Hz（modeId 2），用户设置 `peak_refresh_rate=144` 的优先级更高，把整个请求否掉，合成器自己留在 60 Hz（timestats `present2present` 全 16 ms）。`RefreshRateUtils` 现在读 `Settings.System.peak_refresh_rate`，挑模式时跳过高于它的档（读不到或未设时不限）。
-  - **Lenovo Y700 `HA262AAH` PASS**：`userPeak=144.0` 可读，关限帧 → modeId 3（144 Hz），queue_n 50→100 为 143 fps，游戏层 `present2present` 6 ms 桶 171 帧、`totalFrames=172`；限 30 / 60 仍为 modeId 6 / 5、30.0 / 60.0 fps，`totalFrames=173`。
-  - **OnePlus 6T `5b1736c7` PASS**：`peak_refresh_rate` 未设（`userPeak=0.0`），关限帧 modeId 1、`totalFrames=173 / presents=175`，行为不变。
-- **2026-09-27 · Vulkan 视图对齐客户区**（`8b3d17b`）：client（Vulkan）SurfaceView 原来按 `visibleRect`（整窗）布局，Surface 656x519 而交换链图像是客户区 648x485，画面压在标题栏上、右下各有一条未定义像素，AHB 导入也违反"图像与 buffer 同尺寸"。现在 client 组按 `clientRect` 布局和 `setFixedSize`（同上游 `client_group`）；AHB 交换链创建时像 AOSP 一样设 `SET_USAGE 0xB00`、`SET_BUFFERS_DIMENSIONS`=extent、`SCALE_TO_WINDOW`（重连会清掉这些）。
-  - **OnePlus 6T `5b1736c7` PASS**：客户区 `(104,130)-(752,615)`、hostScale 1.5、offset 210 → 屏上品红框应在 x 366–1338、y 195–922，截图实测 x 366–1336、y 196–920，标题栏露出；`configure … ret=0`，`totalFrames=173 / presents=175`，无 FATAL。
-  - **Lenovo Y700 `HA262AAH` PASS**：hostScale 2.479、offset 251 → 应在 x 509–2115、y 322–1525，实测 x 508–2112、y 322–1522；关限帧 143 fps、`totalFrames=172 / presents=175`，无 FATAL。
-- **2026-09-27 · Present 用渲染完成 fence 替掉 QueueWaitIdle**（`157300d` + proton-wine `wip/ahb-present-fence` @ `b1c230b9904`）：win32u 在 present 提交里多 signal 一个可导出 SYNC_FD 的信号量，fd 经 wsi-sc op 7 → libamphora_wsi → 宿主 `CMD_QUEUE_FENCE`（SCM_RIGHTS）→ `queueBuffer(fence)`，每帧不再 `vkQueueWaitIdle`；导出不可用时退回原路径。宿主 `anw_fence_wait_brief` 改为不关 fd。细节见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.3。
-  - 验证用的 Proton 是 imagefs 分支 `wip/ahb-present-fence` 上 workflow_dispatch 构建的 `Proton-11.0-b1c230b99-x86_64.wcp`（run 36302748670，分支构建不发布），经 `inject-dev-pin.sh --component wine` 装到两台机器，测完已 `--clear-component wine`。
-  - **OnePlus 6T `5b1736c7` PASS**：dev pin 生效（`Removed unpinned Proton`，装 `b1c230b99`）；wine 日志 `present wait+fence … sync_fd=87 fenced=1`，fd 号在 87–103 间复用（无泄漏）；`AHB_SC destroy … presents=175 fenced=175`，游戏层 `totalFrames=173`，回读 MAGENTA，无 FATAL；关限帧 56.9 fps（改前 56.7）。
-  - **Lenovo Y700 `HA262AAH` PASS**：关 / 30 / 60 → 145 / 30.0 / 60.0 fps，三轮 `fenced=175`、`totalFrames=172–173`，回读 MAGENTA，无 FATAL。
-  - 冒烟 GPU 负载太轻，帧率看不出差别（两台都被 vsync 卡住）；收益在 GPU 重的游戏上（CPU 不再每帧等 GPU 空闲），尚无实测数据。
-  - 旧 Proton（`0d7ffcb97`）配这版 APK 回归：两台 `presents=175 fenced=0`、`totalFrames=173`，正常。**上线顺序：APK 先，Proton 后。**
-  - **已发布**：按该顺序上线。APK `157300d` 先由 CI pin 成 `app_update`（content_manifest `723de86`），再合 imagefs PR #20（main `d7cc33c`），发布 `Proton-11.0-b1c230b99-x86_64.wcp`（sha256 `63cc47ec…`，与 dev 构建同尺寸），manifest `6f5c329` 把 wine 指过去；旧 `0d7ffcb97` 资产按惯例被删。
-  - **Lenovo Y700 `HA262AAH` PASS（发布 pin）**：dev pin 已清，catalog 与已装 profile 都是 `b1c230b99`；关限帧 144 fps、`presents=175 fenced=175`、`totalFrames=172`，无 FATAL。OnePlus 6T 在发布后由用户手动进桌面，catalog 为 `b1c230b99`、profile 命中，GDI 出画。
-- **2026-09-27 · 缓存 manifest 过期时刷新重试**（本提交）：发版后 Y700 首次进会话失败。会话进程按设计先用磁盘缓存的 manifest（仍 pin 已被删的 `0d7ffcb97`），下载 404 三次后 `wineandroid prepare failed`；主进程稍后才刷新缓存。现在 `WineAndroidSessionBootstrap` 经 `ContentCatalog.provisionWithCurrentPins` 做准备：IOException 时刷新 manifest，pin 确实变了才重试一次；pin 没变或离线则抛原错误。单测 3 条（`ContentCatalogTest`）。
-  - **Lenovo Y700 `HA262AAH` PASS**：把旧 manifest（content_manifest `723de86`）写回 `files/content/content_manifest.json` 复现：404 ×3 → `ContentCatalog: … retrying with refreshed pins` → 按 `b1c230b99` 继续，会话正常，`presents=175 fenced=175`、`totalFrames=172`，无 `prepare failed`；缓存已更新为新 pin。
-- **2026-09-27 · Acquire 改为导入合成器 release fence**（`aacf7da` + proton-wine `wip/ahb-present-fence` @ `11064b98807`）：宿主 `CMD_DEQUEUE_FENCE` 把 dequeue 拿到的 release fence 交回 guest，libamphora_wsi 以 SYNC_FD 临时导入到 app 的 acquire 信号量 / fence（wsi-sc op 8），不再在宿主 CPU 上等 fence，也不再靠 win32u 全局槽 + 下次提交补空提交。导入失败的那项才走老路（此时 guest 先在 CPU 上等 fence）。win32u 开 `VK_KHR_external_fence(_fd)`。之前没这么做，是因为逐帧 dequeue、fence 回传通道和 SYNC_FD 扩展这三样在前几次改动之前都不存在。细节见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.3。
-  - dev Proton `Proton-11.0-11064b988-x86_64.wcp`（imagefs 分支 `wip/acquire-fence-import` run 36310980368，不发布）经 dev pin 装到两台。
-  - **Lenovo Y700 `HA262AAH` PASS**：`acquires=176 release_fences=170 imported=176`，`presents=175 fenced=175`，游戏层 `totalFrames=172–173`；关 / 30 / 60 → 145 / 30.0 / 60.0 fps；回读 MAGENTA，无 FATAL；wine 日志里 `flush acquire signal` 0 行。
-  - **OnePlus 6T `5b1736c7` PASS**：`acquires=176 release_fences=173 imported=176`，`fenced=175`，`totalFrames=174`，回读 MAGENTA，无 FATAL，`flush acquire signal` 0 行。
-  - 已发布的 Proton `b1c230b99`（op 4）配这版 APK 回归：两台 `imported=0`，`presents=175`、`totalFrames=172–173`，正常。**上线顺序仍是 APK 先。**
-  - **已发布**：APK `aacf7da` 先由 CI pin 成 `app_update 0.1.0+254.aacf7da6`（content_manifest `c3f924d`），再合 imagefs PR #21（main `2f214a7`，元素文件与测过的分支构建逐字节相同，缓存键一致，`build-proton-wine` 1 分 24 秒），发布 `Proton-11.0-11064b988-x86_64.wcp`（sha256 `36df0834…`，与 dev 构建逐字节相同），manifest `4544092` 把 wine 指过去；旧 `b1c230b99` 资产按惯例被删。
-  - **两台 PASS（发布 pin）**：dev pin 已清，启动主界面后缓存 manifest 刷新到 `11064b988`。用 `scripts/dxvk-smoke/present-check.sh`（本提交）：6T / Y700 关限帧都是 `presents=175 fenced=175 acquires=176 imported=176`，游戏层 `totalFrames=172–173 dropped=0`；限 30（6T）/ 60（Y700）SF averageFPS 30.2 / 62.5；回读 MAGENTA，无 FATAL，自上次 bind 起 `flush acquire signal` 0 行。退出后两台 prefs 与跑前一致。
-  - 冒烟检查脚本从 `.tmp` 收进 `scripts/dxvk-smoke/`（本提交）：原来等"第二次 AHB_SC destroy"，Y700 只建一个交换链，每轮都等满 240 秒超时；现在等 presents>0 的那条 destroy，一轮 8–23 秒。原脚本重写 prefs 时只留两项，现在只改 `advanced_frame_rate`，退出时还原。`docs/05` §5 的手动步骤一并改正。
-
-- **2026-09-28 · AIO 图形矩阵：32-bit DXVK、游戏画面 alpha、10-bit 交换链、D3D12 instance**（本提交 + proton-wine `wip/aio-matrix` @ `6512f18bd02`）：第一次把 AIO 的全部后端 × 32/64-bit 在两台上跑了一遍，结果表和未解决项见 [`09`](09-AIO-GRAPHICS-TEST.md)，脚本 `scripts/aio-smoke/`（本提交）。
-  - proton-wine：winevulkan `conversion_context_alloc` 先清零（`6512f18bd02`）。thunk 逐成员拷贝，padding 留着缓冲区旧数据，Qualcomm 驱动把 `VkPhysicalDeviceVulkan13Features` 末尾 padding 当成请求的特性，Y700 上所有 32-bit DXVK（含 d7vk / wrapper 的 32-bit DirectDraw）都 `VK_ERROR_FEATURE_NOT_PRESENT`。`vkGetInstanceProcAddr` 对宿主缺的物理设备函数也返回 thunk（`29a3ed5f28d`），vkd3d-proton 不再在建 instance 时失败。
-  - APK：client（Vulkan）SurfaceView 改 `PixelFormat.OPAQUE`，交换链 alpha 不再参与 SurfaceFlinger 混合；AHB 交换链按交换链格式 `SET_BUFFERS_FORMAT`，Y700 上 D3D8/9 的 A2B10G10R10 不再写进 8888 buffer。GDI 视图仍是 RGBA_8888。
-  - 验证用的 Proton 是 dev 主机本地 BuildStream 构建的 `Proton-11.0-6512f18bd-x86_64.wcp`（sha256 `eb8de069…`），经 dev pin 装到两台；定位 32-bit 问题用的诊断分支 `wip/aio-diag` 已删。两边改动互不依赖，没有上线顺序要求。
-  - **Lenovo Y700 `HA262AAH` PASS**：64-bit vk / dx8 / dx9 / dx10 / dx11 bench 144 fps、`presents` 1145–1156，ddraw2d 144 fps；32-bit vk / dx7 / ddraw2d / dx8 / dx9 / dx10 / dx11 由建设备失败变为 142–144 fps、`presents` 1130–1157；vkcube 背景实测 (51,51,51) = 清屏色 RGB（改前 (81,140,170)），dx9 背景 (26,26,31)（改前 (104,160,193)）。无 FATAL。
-  - **OnePlus 6T `5b1736c7` PASS**：32 / 64-bit 的 vk、dx8–dx11、ddraw2d、32-bit dx7 都出画（方块 / 色条），约 60 fps；64-bit dx11 有 1 轮卡在首帧（第二个交换链 acquire 后无 present），同版本另 3 轮正常，记为未解决。无 FATAL。
-  - **仍不行**（详 [`09`](09-AIO-GRAPHICS-TEST.md) §4）：Y700 上 DXVK 3.0.2 的 D3D8/9 固定管线 `Failed to compile pipeline: -13`，只有清屏色（设 `dxvk_flavor=sarek` 后全部出画）；D3D12 卡驱动能力（Y700 Qualcomm 缺 single texel alignment、6T 缺 transform feedback），wineandroid 路径不认 Turnip 设置；OpenGL 与 64-bit DX7 因 EGL 无 config 不可用。
-  - **已发布**：amphora PR #18（main `53ddda5`，CI pin `app_update 0.1.0+258.53ddda5e`，content_manifest `54328f4`）；imagefs PR #23（main `66e0cd9`，proton-wine `wip/aio-matrix` @ `6512f18bd02`），`build-proton-wine` 全量重建后发布 `Proton-11.0-6512f18bd-x86_64.wcp`（66,338,721 B，sha256 `c2a5c6b3…`；元素描述和 dev 构建不同，所以不是逐字节相同），manifest `446d19b` 把 wine 指过去，旧 `11064b988` 资产按惯例被删。
-
-- **2026-09-28 · AIO 升到 2.1.0**（本提交 + content_manifest PR）：manifest 的 `winnative/Graphics-Test-{32,64}bit.exe`（cnb `amphora` 版，自报 v1.7.0）换成 GitHub `The412Banner/AIO-Graphics-Test` 2.1.0，key 改为 `aio-graphics-test/…`（落地文件名不变，开始菜单项照旧）；APK 里没用到的两份 exe 删掉。`RuntimeAssetProvisioner` 装完后删掉 manifest 不再 pin 的 runtime asset（连同 `.sha256` / `.part`），单测 3 条。2.x 把 bench 结果写到工作目录下的 `AIO Results/Benchmark/`，`aio-run.sh` 跟着改。
-  - **Lenovo Y700 `HA262AAH` PASS**（本分支 APK，manifest 缓存换成该 PR 的内容，Proton 仍是已发布的 `11064b988`）：`Removed unpinned runtime asset winnative/Graphics-Test-{32,64}bit.exe` 及其 `.sha256` 共 4 行，`Staged Graphics-Test-32bit.exe (4367103 bytes)` / `Graphics-Test-64bit.exe (4289335 bytes)`；64-bit vk 出方块（截图），bench 143.96 fps、`presents=1156`；64-bit dx11 bench 144.01、`presents=1146`。32-bit dx9 仍 `VK_ERROR_FEATURE_NOT_PRESENT`、gl 仍无 EGL config，与这版 Proton 的已知状态一致（padding 修复随 `6512f18bd` 发布）。
-  - 上线顺序：APK 先，manifest 后。新 APK 配旧 manifest 时只是容器里没有 AIO，不影响会话。
-  - **已发布**：amphora PR #19（main `b89d083`，CI pin `app_update 0.1.0+260.b89d083c`），content_manifest PR #4（`7097cb2`）。
-
-- **2026-09-28 · 发布组合复验**：APK `b89d083` + Proton `11.0-6512f18bd`（发布版）+ AIO 2.1.0，两台清掉 manifest 缓存后用 `scripts/aio-smoke/aio-matrix.sh HA262AAH 5b1736c7` 全矩阵；结果表见 [`09`](09-AIO-GRAPHICS-TEST.md) §2。
-  - 两台首轮都 `Removed unpinned runtime asset winnative/…`（4 行）、`Staged Graphics-Test-{32,64}bit.exe (4367103 / 4289335 bytes)`；6T 另有 `Removed unpinned Proton install 11.0-11064b988-x86_64-0`。
-  - **Lenovo Y700 `HA262AAH` PASS**：vk / dx10 / dx11 64 与 32-bit 144 fps 出方块；32-bit dx9 / dx7 / ddraw2d 142–144 fps（发布版 padding 修复生效），画面与 dev 构建时一致（FF 空画面，已知）；64-bit ddraw2d 144 fps 出色条。无 FATAL。
-  - **OnePlus 6T `5b1736c7` PASS**：vk / dx9 / dx10 / dx11 64 与 32-bit 约 60 fps 出方块，32-bit dx7 35、32 / 64-bit ddraw2d 24 / 60 出画；64-bit dx11 这一轮没卡首帧。无 FATAL。
-  - 两台 dx8 在 AIO 2.1.0 下都建不了设备：2.1.0 窗口模式填 `D3DPRESENT_INTERVAL_IMMEDIATE`，DXVK d3d8 按 D3D8 规则只收 `DEFAULT`（`D3DERR_INVALIDCALL`）。AIO 的问题，不是回归。
-  - gl / 64-bit dx7 / dx12 仍不行，同 [`09`](09-AIO-GRAPHICS-TEST.md) §4；6T 64-bit dx12 这一轮先报 `try_map_free_area mmap() … Out of memory`，之后同样是 `Lacking support for transform feedback`。
-
-
-- **2026-09-28 · HUD 显示 FPS**（本提交）：宿主 buffer serve 线程每次 `queueBuffer` 成功记一个 `CLOCK_MONOTONIC` 时间（512 项环，`wineandroid_host_anw.c`），JNI `nativeRecentPresentTimes` 取最近 2 s 内 present 最多的窗口；`PresentFrameStats` 算 FPS（区间数 / 跨度）、P95 帧时间、1% low（最慢 1% 帧时间的均值），最后一帧超过 1 s 视为停住，显示 `—`。单测 4 条。GDI 窗口不走这条路，不计入。
-  - **Lenovo Y700 `HA262AAH` PASS**（HUD 分支 APK，经 `app.amphora.debug.PERF_HUD`）：vk cube 时 HUD `144 FPS 6.9 ms`，与 AIO 自己的 bench 143.96 一致；dx11 bench 40 s 时展开行 `P95 9.4 ms · 1% LOW 92 FPS`，AIO 同一轮 CSV 算出 P95 9.3 ms（1% low 64：AIO 统计的是整整 40 s 自己的帧循环，最慢一帧约 24.6 ms；HUD 的 1% low 只看最近 2 s 的 queueBuffer 间隔，不是同一个量）；cube 窗口关掉后回到 `— FPS`。
-
-
-- **2026-09-28 · 窗口层序改为显式 SurfaceControl；Vulkan 窗口的边框不再丢**（本提交 + proton-wine `wip/client-window-frame` @ `2fd246cfc36`）：
-  - 现象（Y700）：AIO 的 bench 结果弹窗被挡在 3D 画面后面；有时 3D 窗口没有标题栏和边框。
-  - 弹窗：每个 client（Vulkan）SurfaceView 都设了 `setZOrderMediaOverlay(true)`，SurfaceFlinger 把它放在同一窗口所有普通 SurfaceView 之上，与 Win32 z-order 无关；同一子层的 SurfaceView 之间又按创建顺序排，`bringChildToFront` 管不到。现在每个 HWND 的 buffer 是一个 `SurfaceControl` 层，全部挂在一个容器 SurfaceView（`layerHost`）下，`syncLayers()` 在布局后按 View 树先序给每层设 z、`setGeometry` 和祖先裁剪（`WineAndroidLayerGeometry`，单测 4 条）；buffer 尺寸用 `Transaction.setBufferSize`，同一 Surface 重新注册时 native 只发 `SURFACE_CHANGED`。层名改为 `amphora-gdi-<hwnd>` / `amphora-client-<hwnd>`，`aio-run.sh` / `present-check.sh` 按 `amphora-client-` 数 SF 帧。
-  - 边框：win32u 在窗口有 client surface 后（`clip_clients`）直接丢掉该窗口的 window surface（`window_clip_client_surfaces`）。winex11 上 GDI 还能直接画到 X 窗口，wineandroid 上没有别处可画；client surface 抢在第一次 flush 之前挂上，标题栏就永远不出（`+win` 追踪：`nc_paint 0x10054` 画了两次，但这个 surface 一次 `Flushing` 都没有，随后 `apply_window_pos … -> 0x0`）。`AMPHORA_WINEANDROID=1` 时保留 window surface；客户区仍不经 GDI 画（`SET_WINPOS_PIXEL_FORMAT`），client 层在它上面。上游 master 没有这段裁剪。
-  - 两边改动互不依赖，没有上线顺序要求。验证用的 Proton 是 dev 主机本地构建的 `Proton-11.0-2fd246cfc-x86_64.wcp`（sha256 `ec14b819…`），经 dev pin 装到两台。
-  - **Lenovo Y700 `HA262AAH` PASS**：vk / dx11 窗口都有标题栏和边框；bench 结束的结果弹窗在 dx11 / vk 画面之上，点 OK 命中弹窗（`motion … hit=<弹窗 hwnd>`）并退出；vk / dx11 / ddraw2d 64 位 144 fps，client 层 SF 帧 1154 / 1144（`presents` 1156 / 1147）；桌面 + Start 菜单出画；灭屏再亮屏后 `layer root destroyed` → `created; attaching 21 window layers`，画面恢复。无 FATAL。
-  - **OnePlus 6T `5b1736c7` PASS**：vk / dx11 / ddraw2d 64 位约 58–60 fps 出画，有标题栏；client 层 SF 帧 463 / 462（`presents` 464 / 464）。无 FATAL。
-  - **已发布**：amphora PR #21（main `10d5079`，CI pin `app_update 0.1.0+264.10d50791`，content_manifest `f3f4223`）；imagefs PR #24（main `8aca860`，proton-wine `wip/client-window-frame` @ `2fd246cfc364a5a6685d132cc085a8896b41e431`），发布 `Proton-11.0-2fd246cfc-x86_64.wcp`（66,333,379 B，sha256 `a93cd764…`），manifest `090891f` 把 wine 指过去。
-  - **发布组合复验两台 PASS**（dev pin 已清，`APIS="vk dx11 ddraw2d" BITS="64 32"`，全部跑在 `Proton-11.0-2fd246cfc` 上）：Y700 vk 64 / 32 为 144.38 / 143.93 fps，32-bit dx11 144.02、`presents` 1138 / SF 1135，32-bit ddraw2d 144.02、1143 / 1140（FF 空画面，已知）；6T vk 64 / 32 为 58.10 / 57.88，64-bit dx11 58.35、466 / 464，32-bit ddraw2d 24.31、192 / 190。窗口都有标题栏，无 FATAL。
-
-- **2026-09-28 · 设置里的驱动真正到 guest：`VK_LAYER_AMPHORA_wsi`**（本提交，只改 APK）：wineandroid 会话原来一律把 guest 指到平台 loader，wrapper / Turnip 设置只在宿主进程生效。imagefs 的 Khronos loader 是 Linux 构建，没有 `VK_KHR_android_surface`，wrapper 也只带 X11 WSI，所以之前 wrapper 路径要么 -9、要么 `failed to find VK_KHR_win32_surface`。现在 `libamphora_wsi.so` 同时是隐式层，给 loader 补上这个扩展和 surface 查询；非 System 驱动走 Khronos loader + wrapper ICD（Turnip 经 adrenotools），System 仍走平台 loader。wrapper 默认不再把 adrenotools 指到 `vulkan.adreno.so`（`065c3a8` 引入，正是 -9 的来源）。细节 [`05`](05-AHB-IMPORT-PRESENT.md) §2.4。
-  - 真机上补的两处：loader 只收它编译进去的已知实例扩展名，要 `VK_LOADER_DISABLE_INST_EXT_FILTER=1`；层 surface 要像 AOSP 一样 `API_CONNECT(EGL)`，否则第一次 dequeue `BufferQueue has no connected producer`。
-  - **wrapper（默认）两台 PASS**（vk / dx7 / ddraw2d / dx8 / dx9 / dx10 / dx11 / dx12 / gl × 64 / 32）：DXVK 看到的是 `Wrapper(Adreno (TM) 830) (Wrapper driver 0.800.72)`；helper 日志 `vulkan loader …/imagefs/usr/lib/libvulkan.so.1.4.313`、`create_android_surface VK_LAYER_AMPHORA_wsi`；图像数、格式与平台 loader 时相同（Y700 5 张 / D3D9 选 A2B10G10R10，6T 3 张），`fenced` = `presents`。Y700 vk / dx10 / dx11 / dx12 64 与 32 位 144 fps，**dx12 新近能跑**（平台 loader 时 vkd3d 报缺 single texel alignment），dx9 / 32-bit dx7 / 32-bit ddraw2d 仍是 FF -13 空画面；6T 除 dx12（缺 transform feedback）外都与 [`09`](09-AIO-GRAPHICS-TEST.md) §2 表一致。dx8（AIO 2.1.0）/ gl / 64-bit dx7 同前不行。无 FATAL。
-  - **Turnip（`WN-Turnip-1.06-b`）**：Y700 vk / dx9 / dx11 / dx12 / ddraw2d × 64 / 32 全过，DXVK 设备 `Wrapper driver 26.2.99`，dx9 与 32-bit ddraw2d 出方块 / 色条（FF -13 在 Turnip 上没有）。6T 只有 vk 能跑：WN-Turnip 在 A630 上不报 `storageBuffer16BitAccess`，DXVK 3.0.2 `No adapters found`。6T 首次选 Turnip 时从 GitHub 下载安装了驱动包，现在留在 `files/contents/adrenotools/`。
-  - **System**：Y700 vk / dx11 64 位 144 fps，helper 取到 `/system/lib64/libvulkan.so`（经 vkloader 软链），不经层。
-  - 两台测完 prefs 还原，容器驱动配置迁回 `wrapper`。
-  - **未修**：Vulkan 窗口切后台后宿主 buffer serve 退出，app 重建交换链失败退出、会话结束；平台 loader 路径同样如此，记入 [`09`](09-AIO-GRAPHICS-TEST.md) §4。
+> 已停项：第二台真机 / 分屏 / hostScale 双机。CI 备注：`spotlessKotlinCheck` 自 2026-09-16 起的 main 变红已由 `style: spotlessApply` 修复；ReDroid 冒烟最近 60 次无绿（最后一次实跑 `a17810b`：`guest did not stay running`），待单独排查。

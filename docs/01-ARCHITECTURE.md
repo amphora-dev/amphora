@@ -2,7 +2,7 @@
 
 > **架构真源**：本文档是 Amphora 现行工程实现的唯一架构真源。  
 > 进度真源见 [`02-TRACKING.md`](02-TRACKING.md)；资产清单见 [`03-ASSET-MANIFEST.md`](03-ASSET-MANIFEST.md)；立项决议见 [`research/01-RFC.md`](research/01-RFC.md)。  
-> **当前状态（2026-09-25）**：采用 **WineAndroid 宿主**出画（每 HWND 一个 SurfaceControl 层 + 嵌套 WindowGroup）与 **Vulkan AHB 导入零拷贝**渲染；旧版 X11 会话链已删除。
+> **当前状态（2026-10-17）**：采用 **WineAndroid 宿主**出画（每 HWND 一个 SurfaceControl 层 + 嵌套 WindowGroup）与 **Vulkan AHB 导入零拷贝**渲染。
 
 ---
 
@@ -30,11 +30,10 @@ Amphora 是一款模块化、高可维护性的 Android 平台 Windows/Wine 模�
           ├─ :core:container   ContainerManager 契约（容器与 Prefix 抽象）
           ├─ :core:rootfs      RootfsInstaller 契约（系统镜像解压与挂载）
           ├─ :core:native      libwinlator.so + libamphora-exec.so + libamphora_wsi.so
-          ├─ :core:ui          设计系统 Tokens 与动效规范（DesignTokens、AmphoraMotion）
           └─ :core:common      协程调度器与基础工具
 ```
 
-- **依赖单向流动**：`feature/app → engine → {native, rootfs, content, container, ui, common}`，底层的 native 与通用库绝不向上反向依赖；
+- **依赖单向流动**：`feature/app → engine → {native, rootfs, content, container, common}`，底层的 native 与通用库绝不向上反向依赖；
 - **依赖倒置 (DIP)**：标准化契约定义在底层接口模块中，依赖具体运行时的实现收拢在 `:core:engine`：
 
 | 契约模块 | 抽象接口 | engine 中的具体实现 |
@@ -56,7 +55,7 @@ UI 入口（AmphoraNavHost / DesktopActivity / MainActivity）
   ▼
 SessionLaunch.program / explorer(...)
   │
-  └─► 启动独立进程 :session 的 WineAndroidSessionActivity（唯一会话宿主；旧版 X11 会话链已删除）
+  └─► 启动独立进程 :session 的 WineAndroidSessionActivity（唯一会话宿主）
 
 WineAndroidSessionActivity 启动时序：
   1. WineAndroidSessionBootstrap.prepare(...)
@@ -81,7 +80,7 @@ WineAndroidSessionActivity 启动时序：
 
 ## 4. 双轨出画架构与输入体系
 
-会话呈现只有一套机制：WineAndroid 宿主。旧版 X11 会话链已删除，下文仅保留技术对照。
+会话呈现只有一套机制：WineAndroid 宿主。
 
 ### 4.1 现行真源：WineAndroid 原生宿主（详见 [`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)）
 
@@ -99,11 +98,6 @@ WineAndroidSessionActivity 启动时序：
    - **物理键盘与按键穿透**：常规按键经桌面管道注入；系统功能键（返回键 BACK、音量键 VOLUME）故意穿透回 Android 原生处理；
    - **软键盘与 IME**：默认点击不主动弹起键盘（避免遮挡）；通过悬浮按钮或长按外层黑边调起；支持 CJK 中文字符经 `KEYEVENTF_UNICODE` 注入。
 
-### 4.2 历史对照：Winlator X11 方案（已删除）
-
-- **架构特征**：单一 `TextureView`（XServerSurfaceView），由内置 Java XServer 遍历窗口树，统一绘制进单张纹理后由 VulkanRenderer 呈现；
-- **现状**：该会话链已删除，无回退路径；此处仅保留技术对照。
-
 ---
 
 ## 5. 内容与组件资产管理
@@ -120,7 +114,7 @@ WineAndroidSessionActivity 启动时序：
 
 | 原生动态库 | 架构与职责 |
 |---|---|
-| `libwinlator.so` | C 运行时基础库：提供底层 socket 通信、共享内存、进程树监管及 adrenotools 驱动装载 |
+| `libwinlator.so` | C 运行时基础库：wineandroid 宿主 IPC（`wineandroid_host_ipc.c`）与 ANW buffer serve（`wineandroid_host_anw.c`）、X connector socket 服务（`xconnector_epoll.c`，供 ALSA / SysV shm）、GPU/Vulkan 探测（`vulkan.c`）、进程树监管（`process_lifecycle.c`）、SysV 共享内存 JNI、归档提取（`native_content_io.cpp`，静态 zstd + xz）、adrenotools 静态链入 |
 | `libamphora-exec.so` | `LD_PRELOAD` 拦截器：拦截 Box64 / Wine 子进程的 `exec*` 调用，强制将应用私有 ELF 路由给 `/system/bin/linker64` 装载（绕过 targetSdk 36 的 W^X/exec 限制） |
 | `libamphora_wsi.so` | aarch64 WSI 桥接库：注入进程后启动服务端，提供 Vulkan AHB 导入与零拷贝 Swapchain 呈现调度；同时是隐式层 `VK_LAYER_AMPHORA_wsi`，给 guest 的 Khronos loader 补 `VK_KHR_android_surface`（[`05`](05-AHB-IMPORT-PRESENT.md) §2.4） |
 | `libamphora-android-shim.so` | 符号垫片库：为特定兼容环境导出包装符号 |
@@ -133,4 +127,5 @@ WineAndroidSessionActivity 启动时序：
 
 1. **GDI 壳层严禁引入 CreateSwapchain 或私有 host.sock**：桌面与 2D 窗口必须走标准 `wineandroid` 窗口挂载（每 HWND 一个 SurfaceControl 层）；
 2. **游戏 3D 呈现必须保留 AHB Import CreateSwapchain**：绝不可退回软拷贝或已被清除的 HostVk 冗余路径；
-3. **主分支与代码规范**：开发推前必须执行 `./gradlew spotlessCheck :app:testDebugUnitTest` 保证持续集成 (CI) 始终为绿灯。
+3. **保留 `com.winlator.cmod` 包名**：`:core:engine` 的移植内核不改包名，JNI 导出名硬编码为 `Java_com_winlator_cmod_...`；`:core:native` 的 AGP namespace 固定为 `app.amphora.core.nativelib`（`native` 是 Java 关键字）；
+4. **主分支与代码规范**：开发推前必须执行 `./gradlew spotlessCheck :app:testDebugUnitTest :app:lintDebug` 保证持续集成 (CI) 始终为绿灯。

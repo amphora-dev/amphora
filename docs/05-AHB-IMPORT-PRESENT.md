@@ -1,8 +1,7 @@
 # 05 · Vulkan AHB 零拷贝游戏渲染 (AHB Import Present)
 
-> 状态：**关键门禁已通过**（2026-09-14 在 Lenovo Y700 HA262AAH 真机验证）。2026-09-27 修正：此前 Present 从不把 buffer 送回 BufferQueue，SurfaceFlinger 只拿到创建时的几帧；现按 AOSP libvulkan 的逐帧 dequeue/queue 模型送显（§2.3），判据加上 SurfaceFlinger 帧数（§5）。  
 > 适用：Amphora 架构与渲染通道维护人员，以及后续审查零拷贝呈现机制的开发者。  
-> 关联文档：[`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)（宿主窗口系统）、[`research/11-ANDROID-NATIVE-VULKAN-PLAN.md`](research/11-ANDROID-NATIVE-VULKAN-PLAN.md)（前期技术预研）。  
+> 关联文档：[`04-WINEANDROID-DISPLAY.md`](04-WINEANDROID-DISPLAY.md)（宿主窗口系统）。  
 > **核心铁律**：AHB 零拷贝导入是游戏渲染的现行正轨，后续任何优化**严禁倒退或破坏已通的 AHB Import CreateSwapchain 路径**。
 
 ---
@@ -20,29 +19,12 @@
 
 ---
 
-## 1. 验收证据（Lenovo Y700 HA262AAH 真机）
+## 1. 当前判据
 
-| 验证项 | 实测结果 |
-|---|---|
-| **测试设备** | Lenovo Y700 (TB322FC，骁龙 8 Gen 3 / Adreno 830)，序列号 `HA262AAH` |
-| **测试程序** | `C:/amphora-dxvk-smoke.exe`（DXVK 3D 渲染与回读冒烟程序） |
-| **CPU 伪造填充** | **完全关闭**（未开启任何 `AMPHORA_CPU_FILL` 或 `GUEST_CPU_FILL`） |
-| **交换链创建** | `AHB_SC create images=3 import=ok`（3 张系统显存缓冲全部成功导入为 VkImage） |
-| **帧率与稳定性** | `hr=0` 稳定跑过 50 帧并持续运行至 100+ 帧（实测跑满至 175 帧测试完成） |
-| **画面正确性验证** | 第 0、1、5、25、50 帧显存回读采样：`centerRGBA=217,26,178,255 CLASS=MAGENTA`（纯正品红色） |
-| **真机视觉呈现** | 屏幕左上角游戏测试窗口正常显示实心品红色，无撕裂、卡死或黑屏 |
-| **关联代码版本** | amphora 仓库 `344f731`（`main` 分支）；proton-wine 仓库 `1c62dd9a8ba` |
-
-**真机判定日志关键特征**：
-
-```text
-AHB_SC create images=3 import=ok
-AHB_SC acquire signal deferred-to-win32u
-amphora flush acquire signal res=0
-amphora present wait+fence res=0 waits=1 fence=... sync_fd=<n> fenced=1   (前 8 帧后每 600 帧一行)
-d3d-readback ... CLASS=MAGENTA
-Present frame=50 hr=0x00000000
-```
+AHB 链路的验收标准与验证命令见 §5；最近一次真机 PASS 的版本、判据与数字见
+[`docs/02-TRACKING.md`](02-TRACKING.md) §3（AHB 逐帧送显、render-done fence、
+acquire fence import、VK_LAYER_AMPHORA_wsi 各行）。**只看回读和静态画面不够**——
+帧必须真的送进 BufferQueue（SF `totalFrames ≈ presents`）。
 
 ---
 
@@ -78,24 +60,6 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
            扩展 / 导出不可用时退回 QueueWaitIdle + 无 fence 的 op 5
 ```
 
-### 2.3 交换链与 BufferQueue 的对应（对齐 AOSP `libvulkan/swapchain.cpp`）
-
-| 环节 | 做法 | 原因 |
-|---|---|---|
-| 图像数 | `max(minImageCount, MIN_UNDEQUEUED + 2)`，上限 8；`SET_BUFFER_COUNT` 设成同一个数 | 每个队列槽位都是一张已导入的图像，dequeue 不会拿到陌生 buffer；app 最多持有 `图像数 - minImageCount + 1` 张，Acquire 只会等合成器，不会等自己的 Present |
-| 重建 | 同一窗口再次 CreateSwapchain 前 `API_DISCONNECT` + `API_CONNECT`（EGL），宿主清空 buffer id 并 generation+1 | 队列只在第一次 queue 之前允许把所有槽位 dequeue 出来；重连后旧 buffer 作废，guest 按新 generation 重新导入 |
-| 呈现模式 | FIFO / FIFO_RELAXED → swap interval 1，其余 → 0 | FIFO 由 dequeue 按 vsync 节流；MAILBOX 替换未锁存的帧 |
-| 并发 | `wsi-sc` 每个请求一个线程 | Acquire 可能阻塞在宿主 dequeue，不能卡住其他交换链的 Present / Destroy |
-| 队列配置 | 重连后 `SET_USAGE 0xB00`（TEXTURE / RENDER / COMPOSER）、`SET_BUFFERS_FORMAT`（按交换链格式：R8G8B8A8 → RGBA_8888，A2B10G10R10 → RGBA_1010102，R16G16B16A16_SFLOAT → RGBA_FP16，R5G6B5 → RGB_565）、`SET_BUFFERS_DIMENSIONS` = 交换链 extent、`SCALE_TO_WINDOW` | 断开重连会清掉这些；导入时 VkImage 格式取自 buffer，不设格式时 10-bit 交换链（Adreno 8xx 上 D3D8/9 会选）的像素写进 8888 buffer，画面发白、半透明；AHB 导入要求图像与 buffer 尺寸一致，Surface 尺寸暂时不同（resize 途中）时由合成器缩放 |
-| 宿主视图 | client（Vulkan）层按 `clientRect` 布局、buffer 设成客户区尺寸，建成不透明（`setOpaque(true)`） | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图。Windows 忽略交换链的 alpha，图层标不透明后 SurfaceFlinger 也忽略（之前按 RGBA_8888 半透明合成，vkcube 的 α=0.2 清屏色透出桌面） |
-| 呈现 fence | 每个宿主 device 一个 `VkExportSemaphoreCreateInfo(SYNC_FD)` 信号量，present 提交时 signal、`vkGetSemaphoreFdKHR` 导出（导出即复位）；fd 在 box64 同进程里按整数传给 libamphora_wsi，再 SCM_RIGHTS 给宿主 `queueBuffer(fence)` | 替掉每帧 `vkQueueWaitIdle`，和 AOSP 把 release fence 交给 queueBuffer 一致；只有 q50/q100 回读帧在 guest 侧等 fence |
-
-| Acquire fence | 宿主 `CMD_DEQUEUE_FENCE` 在回复前先发 int32 + release fence（SCM_RIGHTS）；libamphora_wsi 对 app 的信号量 / fence 做 `vkImportSemaphoreFdKHR` / `vkImportFenceFdKHR`（SYNC_FD、TEMPORARY，fd -1 = 已释放），不提交；win32u 开 `VK_KHR_external_fence(_fd)` | 同 AOSP / Mesa。取代原来"记在 win32u 一个全局槽、下次提交补空提交"：那个会被多交换链互相覆盖、可能提交到别的 device 的队列、提交前等 acquire fence 会一直等 |
-
-回退：wsi-sc op 8 回复 `handled` 位，导入失败的那一项仍记进 win32u 的全局槽、由下次提交补 signal，这时 libamphora_wsi 先在 CPU 上等 release fence。旧 Proton（op 4）整条走这个回退。
-
-上线顺序：wsi-sc op 7 / op 8 和宿主 `CMD_QUEUE_FENCE` / `CMD_DEQUEUE_FENCE` 在 APK 里，新 Proton 会发它们，所以 **APK 先于 Proton**；旧 Proton 配新 APK 走 op 4 / op 5。
-
 ### 2.1 涉及的关键源码与职责
 
 | 仓库 | 源码路径 | 模块职责 |
@@ -114,6 +78,24 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 1. **精确替换 WSI**：Wine 底层 win32u 模块只在该环境变量置为 1 时，才会接管并替换底层的 CreateSwapchain、Acquire 和 Present 行为。
 2. **强制注入 Vulkan 扩展**：在应用创建 Vulkan 逻辑设备（`vkCreateDevice`）时，强制向设备注入 `VK_ANDROID_external_memory_android_hardware_buffer` 扩展及其依赖，否则后续导入 AHB 时会因驱动不支持而报错失败（`props=0`）。
 3. **动态链接符号防丢失**：由于 Android 动态链接器的隔离机制，Wine 组件需要通过 `dlopen("wineandroid.so", RTLD_NOLOAD|RTLD_NOW)` 显式定位驱动符号，防止由于 `RTLD_LOCAL` 导致符号解析为 NULL。
+
+### 2.3 交换链与 BufferQueue 的对应（对齐 AOSP `libvulkan/swapchain.cpp`）
+
+| 环节 | 做法 | 原因 |
+|---|---|---|
+| 图像数 | `max(minImageCount, MIN_UNDEQUEUED + 2)`，上限 8；`SET_BUFFER_COUNT` 设成同一个数 | 每个队列槽位都是一张已导入的图像，dequeue 不会拿到陌生 buffer；app 最多持有 `图像数 - minImageCount + 1` 张，Acquire 只会等合成器，不会等自己的 Present |
+| 重建 | 同一窗口再次 CreateSwapchain 前 `API_DISCONNECT` + `API_CONNECT`（EGL），宿主清空 buffer id 并 generation+1 | 队列只在第一次 queue 之前允许把所有槽位 dequeue 出来；重连后旧 buffer 作废，guest 按新 generation 重新导入 |
+| 呈现模式 | FIFO / FIFO_RELAXED → swap interval 1，其余 → 0 | FIFO 由 dequeue 按 vsync 节流；MAILBOX 替换未锁存的帧 |
+| 并发 | `wsi-sc` 每个请求一个线程 | Acquire 可能阻塞在宿主 dequeue，不能卡住其他交换链的 Present / Destroy |
+| 队列配置 | 重连后 `SET_USAGE 0xB00`（TEXTURE / RENDER / COMPOSER）、`SET_BUFFERS_FORMAT`（按交换链格式：R8G8B8A8 → RGBA_8888，A2B10G10R10 → RGBA_1010102，R16G16B16A16_SFLOAT → RGBA_FP16，R5G6B5 → RGB_565）、`SET_BUFFERS_DIMENSIONS` = 交换链 extent、`SCALE_TO_WINDOW` | 断开重连会清掉这些；导入时 VkImage 格式取自 buffer，不设格式时 10-bit 交换链（Adreno 8xx 上 D3D8/9 会选）的像素写进 8888 buffer，画面发白、半透明；AHB 导入要求图像与 buffer 尺寸一致，Surface 尺寸暂时不同（resize 途中）时由合成器缩放 |
+| 宿主视图 | client（Vulkan）层按 `clientRect` 布局、buffer 设成客户区尺寸，建成不透明（`setOpaque(true)`） | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图。Windows 忽略交换链的 alpha，图层标不透明后 SurfaceFlinger 也忽略（之前按 RGBA_8888 半透明合成，vkcube 的 α=0.2 清屏色透出桌面） |
+| 呈现 fence | 每个宿主 device 一个 `VkExportSemaphoreCreateInfo(SYNC_FD)` 信号量，present 提交时 signal、`vkGetSemaphoreFdKHR` 导出（导出即复位）；fd 在 box64 同进程里按整数传给 libamphora_wsi，再 SCM_RIGHTS 给宿主 `queueBuffer(fence)` | 替掉每帧 `vkQueueWaitIdle`，和 AOSP 把 release fence 交给 queueBuffer 一致；只有 q50/q100 回读帧在 guest 侧等 fence |
+
+| Acquire fence | 宿主 `CMD_DEQUEUE_FENCE` 在回复前先发 int32 + release fence（SCM_RIGHTS）；libamphora_wsi 对 app 的信号量 / fence 做 `vkImportSemaphoreFdKHR` / `vkImportFenceFdKHR`（SYNC_FD、TEMPORARY，fd -1 = 已释放），不提交；win32u 开 `VK_KHR_external_fence(_fd)` | 同 AOSP / Mesa。取代原来"记在 win32u 一个全局槽、下次提交补空提交"：那个会被多交换链互相覆盖、可能提交到别的 device 的队列、提交前等 acquire fence 会一直等 |
+
+回退：wsi-sc op 8 回复 `handled` 位，导入失败的那一项仍记进 win32u 的全局槽、由下次提交补 signal，这时 libamphora_wsi 先在 CPU 上等 release fence。旧 Proton（op 4）整条走这个回退。
+
+上线顺序：wsi-sc op 7 / op 8 和宿主 `CMD_QUEUE_FENCE` / `CMD_DEQUEUE_FENCE` 在 APK 里，新 Proton 会发它们，所以 **APK 先于 Proton**；旧 Proton 配新 APK 走 op 4 / op 5。
 
 ### 2.4 guest 的 Vulkan 驱动链
 
@@ -137,26 +119,12 @@ imagefs 的 Khronos loader 是 Linux 构建，没有 Android WSI；wrapper 也�
 
 ---
 
-## 3. 核心技术踩坑与解决历程
+## 3. 仍然有效的约束（来自踩坑历程）
 
-在打通零拷贝渲染的过程中，团队经历了四个关键技术攻坚节点：
-
-1. **废弃旧式 Hook 与内存扫描**：
-   - 早期方案曾尝试通过运行时劫持（Runtime Hook）、Vulkan 隐式层（VkLayer）或扫描底层 GraphicBuffer 内存表来截获帧缓冲；
-   - 实践证明这类方案在不同 Android 版本和厂商 GPU 驱动上极易崩溃且极难维护。现已全面废止，转为源码级标准 CreateSwapchain 介入。现在的 `VK_LAYER_AMPHORA_wsi`（§2.4）是标准 loader 层，只提供 Android surface 扩展和 surface 查询，不截帧、不接管交换链。
-2. **解决显存导入属性为空（`import props=0`）**：
-   - 现象：尝试将 AHB 绑定为 VkImage 时，驱动返回属性全零，显存绑定失败；
-   - 根因：游戏本身并不知道自己运行在 Android 上，创建 Vulkan 设备时未请求 Android 硬件缓冲区扩展；
-   - 解决：在 win32u 设备创建流程中，自动检测并透明追加 Android 硬件显存扩展。
-3. **攻克画面卡死在第 2 帧的同步死锁**：
-   - 现象：第一帧画面能正常渲染（屏幕出现品红色），但程序渲染到第 2 帧时彻底卡死；
-   - 根因一（队列冲突）：此前直接在 IPC 通信线程上调用 `vkQueueSubmit` 提交信号量，导致与 DXVK 自身的渲染队列线程发生并发抢占甚至死锁；
-   - 根因二（状态机损坏）：Present 流程中跳过了部分渲染等待信号量（wait-semaphore），导致 Vulkan 内部的二元信号量状态错乱；
-   - 根因三（栅栏未通知）：DXVK 内部依赖 `SWAPCHAIN_PRESENT_FENCE` 栅栏来确认上一帧是否显示完成。如果我们的呈现逻辑没有适时发出该栅栏信号，DXVK 会在 `vkWaitForFences` 上无限期等待。
-4. **现行最终同步机制（稳定通过 100+ 帧）**：
-   - **IPC 线程绝对不执行 GPU 提交**：IPC 只负责在内存中记录槽位状态；
-   - **推迟刷新 Acquire 信号**：Acquire 成功后仅做标记，推迟到 win32u 下一次在 DXVK 自己的队列线程上执行 `vkQueueSubmit` 或 Present 之前，顺手执行 `amphora_flush_pending_acquire`；
-   - **统一处理 Present 栅栏**：在 DXVK 队列线程上等待渲染信号量，并触发 host 端的 present fence，最后再通知 IPC 释放缓冲槽位，彻底消除线程竞争。
+1. **不做运行时劫持 / 内存扫描截帧**：早期 Runtime Hook、隐式层截帧、扫 GraphicBuffer 内存表的方案在不同驱动上极易崩溃，已废止；现在是源码级 CreateSwapchain 介入。`VK_LAYER_AMPHORA_wsi`（§2.4）是标准 loader 层，只补 Android surface 扩展和查询，不截帧、不接管交换链。
+2. **`import props=0` 的处理仍在**：guest 不请求 AHB 扩展时驱动返回属性全零；win32u 在建 device 时自动追加 `VK_ANDROID_external_memory_android_hardware_buffer`。
+3. **IPC 线程绝对不执行 GPU 提交**：IPC 只记槽位状态；Acquire 标记推迟到 win32u 在 DXVK 队列线程上的下一次提交前刷新；Present 栅栏在 DXVK 队列线程上处理。
+4. **ImageReader / HostVk 中转拷贝已删除，勿回退**：任何形式的中间拷贝（`ImageReader`、CPU copy、host blit）都已被清除，禁止重新引入来假装出画。
 
 ---
 
@@ -164,7 +132,7 @@ imagefs 的 Khronos loader 是 Linux 构建，没有 Android WSI；wrapper 也�
 
 为保证渲染管线的纯粹与高性能，以下行为被严格禁止：
 
-1. **严禁恢复任何形式的中间拷贝**：严禁引入 `ImageReader`、CPU 内存拷贝（如 `AMPHORA_CPU_FILL`）或主机端无谓的纹理复制（HostVk Blit）来假装出画。
+1. **严禁恢复任何形式的中间拷贝**：严禁引入 `ImageReader`、CPU 内存拷贝（如 `AMPHORA_CPU_FILL`）或主机端无谓的纹理复制来假装出画。
 2. **严禁退回 X11 内层渲染**：游戏 3D 渲染必须直接跑在宿主 client 层与 AHB 零拷贝链路上。
 3. **禁止竞态 GPU 提交**：严禁在 IPC 独立线程上直接操作 Vulkan 渲染队列。
 4. **禁止猜测私有驱动布局**：不得依靠硬编码偏移猜测高通/联发科私有 GraphicBuffer 内部结构。

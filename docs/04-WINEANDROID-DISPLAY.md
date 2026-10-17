@@ -1,7 +1,7 @@
 # 04 · WineAndroid 宿主窗口与渲染（架构与显示真源）
 
 > **唯一显示真源**：本文档是 Amphora 宿主窗口、Surface 生命周期、布局及输入的唯一综合真源。  
-> 进度指针见 [`docs/02-TRACKING.md`](02-TRACKING.md) 末节。
+> 进度真源见 [`docs/02-TRACKING.md`](02-TRACKING.md)。
 
 Amphora 的 `:session` 宿主采用 Kotlin 实现的 `WineAndroidDesktop` / `WineAndroidHostBridge` 对齐上游 `dlls/wineandroid.drv/WineActivity.java` 的窗口树与 Surface 生命周期。我们**彻底弃用**了 Winlator 式的 Java XServer / X11 架构，每个 HWND 的 buffer 是一个 `SurfaceControl` 层，由 SurfaceFlinger 直接合成。
 
@@ -10,6 +10,7 @@ Amphora 的 `:session` 宿主采用 Kotlin 实现的 `WineAndroidDesktop` / `Win
 ## 1. 架构总览与宿主原则
 
 - **纯 Kotlin 宿主**：宿主窗口管理由 Kotlin 编写，不移植庞杂的 `WineActivity.java`，也不对齐 Winlator 的 Java XServer / TextureView 合成器。
+- **SurfaceFlinger 每 HWND 一层**：每个 HWND 的 buffer 是一个 `SurfaceControl` 层，由 SurfaceFlinger 硬件合成；层序由宿主显式设置（不依赖 SurfaceView 子层或创建顺序）。
 - **IPC 桥梁**：Wine 运行在独立的 `:session` 进程中（通过 Box64 运行 x86_64 Wine）。Guest 侧的 `wineandroid.drv` 驱动通过 SEQPACKET `\0\Device\WineAndroid` 与宿主通信（`a17810b`），不再依赖传统 JNI 启动。
 - **双轨渲染分工**：
   1. **2D 桌面与普通应用（GDI）**：走 `wineandroid.drv` 原生窗口，通过 `ANativeWindow` 将 CPU buffer 绘制到该 HWND 的 SurfaceControl 层（`api=NATIVE_WINDOW_API_CPU`）。
@@ -107,36 +108,23 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 
 ---
 
-## 7. 与 X11 架构的技术对照（X11 会话链已删除，仅保留对照）
+## 7. 功能缺口（对照 x11-reference）
 
-| 对比维度 | Winlator X11 方案 | Amphora WineAndroid 方案（现行） |
-|---|---|---|
-| **视图架构** | 单一 `TextureView`（XServerSurfaceView） | 每个 HWND 一个 `SurfaceControl` 层（同一容器 SurfaceView 下），布局 / 输入走嵌套 `WindowGroup` |
-| **窗口合成** | Java XServer 遍历窗口树，统一绘制进单张纹理 | 交给 Android 系统的 **SurfaceFlinger** 进行原生硬件多层合成 |
-| **尺寸与注册** | 换尺寸只需换 Drawable，无每窗注册概念 | 必须在尺寸稳定后调用 `nativeRegisterSurface` 重新绑定 |
-| **颜色与通道** | 私有 BGRA AHB + Vulkan 采样 | 保持标准 RGBA，宿主做 R/B 交换，严禁推 BGRA=5 |
-| **系统开销** | 单一视图开销小，但有 XServer 软件中转损耗 | 窗口多时消耗 BufferQueue / SurfaceFlinger 层数，但省去 X 中转，3D 呈现性能更好 |
+X11 会话链删于 `5909b50`，删前最后状态是 tag **`x11-reference`**（= `4e39be3`），取参考用 `git show x11-reference:<路径>`。
 
-**多层评估**：
-对于 Windows 桌面环境（explorer + 少量顶层窗口），SurfaceFlinger 完全能够高效承载每 HWND 一层。层序由我们显式设置，不依赖 SurfaceView 子层或创建顺序。
+### 7.1 功能缺口（对照 x11-reference）
 
-### 7.1 功能对齐表（X11 → wineandroid）
-
-X11 会话链删于 `5909b50`，删前最后状态是 tag **`x11-reference`**（= `4e39be3`），取参考用 `git show x11-reference:<路径>`。下表是删除时 wineandroid 缺的用户可见功能与运行时组件；补一项改一行，全部 ✅ 前不要删 `core/engine/src/main/java` 里对应的 Winlator 组件。
+下表只列 wineandroid 仍缺（非 ✅）的用户可见功能与运行时组件；已对齐项（音频服务 Pulse/ALSA、性能 HUD、返回键退出确认等）的验收记录见 [`docs/02-TRACKING.md`](02-TRACKING.md) §3。
 
 | 功能 | X11 参考（`x11-reference`） | wineandroid 现状 | 备注 |
 |---|---|---|---|
-| 音频服务（Pulse / ALSA） | `core/engine/…/WineEngineImpl.kt` `buildEnvironment` / `buildEnvVars`；`XServerSinks.kt` `XServerAudioSink` | ✅ `WineAndroidLauncher` 按容器驱动起 `PulseAudioComponent` / `ALSAServerComponent` 并设 `PULSE_SERVER` / `ANDROID_ALSA_SERVER`；GPLC 在调用方带 `PULSE_SERVER` 时把 APK nativeLibraryDir 加进 `LD_LIBRARY_PATH`（否则 Box64 找不到 `libpulse.so`，mmdevapi `c0000135`） | 6T 实放 30 s 440 Hz（waveOut）：Pulse 下 pactl 有 `protocol-native` sink-input、`AAudioSink RUNNING`；ALSA 下 `ALSAServerComponent` 起、`AS0` 在、无 pulse 进程，宿主 AudioTrack 送出 1440480 帧（= 30 s × 48 kHz）。两轮 wine `err:` 音频相关 0、无 FATAL |
-| SysV 共享内存 / 网络信息组件 | 同上 `buildEnvironment`（`SysVSharedMemoryComponent`、`NetworkInfoUpdateComponent`） | ❌ 未启动 | SysVShm 原本服务 XServer，wineandroid 是否需要待查；NetworkInfo 影响 guest 网络状态 |
-| 音量 / 静音 | `gamesession/GameSessionViewModel.kt`、`XServerSinks.kt` | ❌ 无 UI、无 sink | 依赖音频服务 |
-| 触控模式：Trackpad / Direct / RTS | `gamesession/input/TouchpadView.kt`、`RtsGestureController.kt`、`TouchpadFingerTracker.kt` | ⚠️ 只有直接触摸（`WineAndroidDesktop`） | RTS：双指平移、长按右键等，见 `RtsGestureController` 顶部注释与测试 |
-| 会话控制抽屉（隐藏控件 / 退出 Windows / 触控模式 / 帧率限制） | `gamesession/GameSessionRuntimeDrawer.kt`、`GameSessionOverlays.kt` `DrawerEdgeHandle` | ❌ | 仅有 IME chip（`WineAndroidImeUi`） |
+| SysV 共享内存 / 网络信息组件 | `SysVSharedMemoryComponent`、`NetworkInfoUpdateComponent`（`buildEnvironment` 启动） | ❌ 组件已在 `c0d3a07` 删除 | 取回：`git show x11-reference:core/engine/src/main/java/com/winlator/cmod/runtime/display/environment/components/SysVSharedMemoryComponent.java` / `…/NetworkInfoUpdateComponent.java`；wineandroid 是否需要仍待查 |
+| 音量 / 静音 | `GameSessionViewModel.kt`、`XServerSinks.kt` | ❌ 无 UI、无 sink | 音频服务（Pulse / ALSA）本身已通，缺的是音量/静音控制面 |
+| 触控模式：Trackpad / Direct / RTS | `gamesession/input/TouchpadView.kt`、`RtsGestureController.kt`、`TouchpadFingerTracker.kt` | ⚠️ 只有直接触摸（`WineAndroidDesktop`） | RTS：双指平移、长按右键等，见 `x11-reference` 的 `RtsGestureController` 顶部注释与测试 |
+| 会话控制抽屉（隐藏控件 / 退出 Windows / 触控模式 / 帧率限制） | `GameSessionRuntimeDrawer.kt`、`GameSessionOverlays.kt` `DrawerEdgeHandle` | ❌ | 仅有 IME chip（`WineAndroidImeUi`） |
 | 退出确认 / 会话结束遮罩 | `GameSessionOverlays.kt` `ExitSessionConfirmationDialog`、`SessionEndingOverlay` | ⚠️ | 返回键弹 AlertDialog 确认（文案同旧版）已补；结束遮罩未做 |
 | 暂停 / 恢复 | `GameSessionCoordinator.kt`、`PendingSessionActions` | ⚠️ 只有 Activity `onPause`/`onResume` | |
 | 帧率限制 | `GameSessionRuntimeDrawer.kt` `sessionFrameLimitHint`、`FPS_LIMITS` | ⚠️ | guest 侧 `DXVK_FRAME_RATE` 已生效（6T 实测 30 fps）；宿主刷新率对齐已接（`WineAndroidSessionActivity` → `RefreshRateUtils`，档位不超过用户的峰值刷新率设置；Y700 限 30 / 60 / 关 实测 30 / 60 / 144 Hz）；会话内切换未做（随会话抽屉） |
-| 性能 HUD（FPS / 帧时间 / CPU 核频率 / GPU / 温度 / 电池 / guest 进程） | `gamesession/HostPerformanceMonitor.kt`、`HostPerformanceParser.kt`、`GameSessionPerformanceHud.kt` | ✅ | 已搬到 `WineAndroidSessionActivity`（ComposeView 叠层，设置开关或 `app.amphora.debug.PERF_HUD`）；FPS / P95 帧时间 / 1% low 来自宿主 `queueBuffer` 时间（`wineandroid_host_anw.c` 的 present 环，取最近 2 s 内 present 最多的那个窗口，`PresentFrameStats`）；合成器 GPU 时间与显示时序仍无来源 |
-
-X11 专有管道（`XServerSessionHandle`、`XServerInputSink`、`GameSessionSurface`、`StubInputSink`、`DisplayBackend`）不需要对齐。
 
 ---
 

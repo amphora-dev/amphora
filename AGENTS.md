@@ -1,6 +1,6 @@
 # Amphora
 
-Android 上的 Wine 模拟器：x86_64 Wine 跑在 Box64 里，窗口经 `wineandroid.drv` 交给 Kotlin 宿主（每 HWND 一个 SurfaceControl 层，挂在同一个容器 SurfaceView 下，层序由宿主显式设置）。模块与启动链见 `docs/01-ARCHITECTURE.md`，文档总览 `docs/README.md`，进度只看 `docs/02-TRACKING.md` 末节「当前状态指针」。新 agent 先读 `.cursor/skills/amphora-from-zero/SKILL.md`。
+Android 上的 Wine 模拟器：x86_64 Wine 跑在 Box64 里，窗口经 `wineandroid.drv` 交给 Kotlin 宿主（每 HWND 一个 SurfaceControl 层，挂在同一个容器 SurfaceView 下，层序由宿主显式设置）。模块与启动链见 `docs/01-ARCHITECTURE.md`，文档总览 `docs/README.md`，进度只看 `docs/02-TRACKING.md`。新 agent 先读 `.cursor/skills/amphora-from-zero/SKILL.md`。
 
 ## 开发阶段：不做兼容
 
@@ -18,7 +18,7 @@ Android 上的 Wine 模拟器：x86_64 Wine 跑在 Box64 里，窗口经 `winean
 
 - 从 `origin/main` 开 `wip/<topic>`，推前 rebase；未推的试错先 squash。
 - 跨仓改动（proton-wine / imagefs）在提交信息里写对方分支和 SHA，两边一起验、一起推。
-- 真机 PASS 并进被验证的提交或该次推送的一条提交里，写进 `docs/02` 当前状态指针，不单独开 "record PASS" 提交。
+- 真机 PASS 并进被验证的提交或该次推送的一条提交里，写进 `docs/02` §3（已验证能力表），不单独开 "record PASS" 提交。
 
 ## 出画不变量（真机踩过，改动前读 `docs/04`）
 
