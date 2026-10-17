@@ -146,7 +146,6 @@ class XServerWineSessionPreparer @Inject constructor(
         DXVKConfigUtils.parseConfig(null)
     private var graphicsDriverConfig: HashMap<String, String> = HashMap()
     private var firstTimeBoot: Boolean = false
-    private var bootExePath: String? = null
     private var startupSelection: String = "0"
     private val envState: EnvVars = EnvVars()
 
@@ -240,7 +239,6 @@ class XServerWineSessionPreparer @Inject constructor(
             firstTimeBoot = false
             startupSelection = c.getStartupSelection().toString()
         }
-        if (spec != null) bootExePath = spec.exePath
     }
 
     // --- setupWineSystemFiles (XSDA L6127) ------------------------------------
@@ -780,9 +778,6 @@ class XServerWineSessionPreparer @Inject constructor(
         }
         return null
     }
-
-    private fun hasSelectedVkd3dVersion(version: String?): Boolean =
-        version != null && version.isNotEmpty() && !version.equals("None", ignoreCase = true)
 
     private fun hasSelectedDxvkWrapper(dxvkWrapper: String?): Boolean {
         if (dxvkWrapper == null) return false
