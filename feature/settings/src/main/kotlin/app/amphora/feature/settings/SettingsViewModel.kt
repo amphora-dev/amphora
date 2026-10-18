@@ -312,6 +312,11 @@ constructor(
                     storedFlavorId = settings.dxvkFlavorId,
                     storedDriverId = settings.graphicsDriverId,
                 ),
+                d3d89Id =
+                graphicsDriverCapabilities.effectiveD3d89DxvkFlavor(
+                    storedFlavorId = settings.dxvkFlavorId,
+                    storedDriverId = settings.graphicsDriverId,
+                ),
                 vulkanMinor = vulkanMinor,
             ),
             openGlBackend =
@@ -539,7 +544,7 @@ constructor(
                 _uiState.update {
                     it.copy(
                         refreshing = false,
-                        components = snapshot.toComponentStatuses().forDxvkFlavor(it.dxvkFlavor.resolved),
+                        components = snapshot.toComponentStatuses().forDxvkFlavor(it.dxvkFlavor),
                         runtimeAssets = snapshot.toRuntimeAssetHealth(),
                         imagefsResidue = snapshot.imageFsResidue,
                         manifestReady = true,
@@ -562,11 +567,16 @@ constructor(
     /**
      * Drops the DXVK build this device will not install. Both are pinned for every
      * device — the manifest cannot know which one a device needs — so listing the
-     * other one would be a permanent, unfixable "missing component".
+     * other one would be a permanent, unfixable "missing component". A split
+     * launch (Qualcomm proprietary + auto → 3.0.2) installs both.
      */
-    private fun List<ComponentStatus>.forDxvkFlavor(resolved: DxvkFlavorSetting): List<ComponentStatus> {
+    private fun List<ComponentStatus>.forDxvkFlavor(flavor: DxvkFlavorStatus): List<ComponentStatus> {
         val unused =
-            if (resolved == DxvkFlavorSetting.SAREK) ContentComponent.DXVK else ContentComponent.DXVK_SAREK
+            when {
+                flavor.d3d89 != null -> null
+                flavor.resolved == DxvkFlavorSetting.SAREK -> ContentComponent.DXVK
+                else -> ContentComponent.DXVK_SAREK
+            }
         return filterNot { it.component == unused }
     }
 
@@ -791,34 +801,55 @@ enum class DxvkFlavorSetting(val id: String, val label: String) {
 data class DxvkFlavorStatus(
     val selected: DxvkFlavorSetting = DxvkFlavorSetting.AUTO,
     val resolved: DxvkFlavorSetting = DxvkFlavorSetting.DXVK,
+    /** Second build d3d8/d3d9 come from when the launch splits them off; null = pure. */
+    val d3d89: DxvkFlavorSetting? = null,
     val impact: String = "",
     val warning: String? = null,
 ) {
     companion object {
-        fun of(selected: DxvkFlavorSetting, resolvedId: String, vulkanMinor: Int?): DxvkFlavorStatus {
+        fun of(
+            selected: DxvkFlavorSetting,
+            resolvedId: String,
+            d3d89Id: String?,
+            vulkanMinor: Int?,
+        ): DxvkFlavorStatus {
             val vulkan = vulkanMinor?.let { "Vulkan 1.$it" }
             val resolved =
                 if (resolvedId == DxvkFlavorIds.SAREK) DxvkFlavorSetting.SAREK else DxvkFlavorSetting.DXVK
+            val d3d89 =
+                d3d89Id?.let {
+                    if (it == DxvkFlavorIds.SAREK) DxvkFlavorSetting.SAREK else DxvkFlavorSetting.DXVK
+                }
             return DxvkFlavorStatus(
                 selected = selected,
                 resolved = resolved,
-                impact = impact(selected, resolved, vulkan),
+                d3d89 = d3d89,
+                impact = impact(selected, resolved, d3d89, vulkan),
                 warning = warning(selected, vulkanMinor, vulkan),
             )
         }
 
-        private fun impact(selected: DxvkFlavorSetting, resolved: DxvkFlavorSetting, vulkan: String?): String {
+        private fun impact(
+            selected: DxvkFlavorSetting,
+            resolved: DxvkFlavorSetting,
+            d3d89: DxvkFlavorSetting?,
+            vulkan: String?,
+        ): String {
             if (selected != DxvkFlavorSetting.AUTO) {
                 return "${selected.label} · Direct3D 8–11 · applies on next launch"
             }
+            val choice =
+                if (d3d89 != null) "${resolved.label} + ${d3d89.label} for Direct3D 8/9" else resolved.label
             val reason =
                 when {
+                    d3d89 != null ->
+                        "this device's Qualcomm driver rejects DXVK's fixed-function shaders"
                     vulkan == null -> "this device did not report a Vulkan version"
                     resolved == DxvkFlavorSetting.SAREK ->
                         "this device reports $vulkan and DXVK 3.0.2 requires Vulkan 1.3"
                     else -> "this device reports $vulkan"
                 }
-            return "Automatic chose ${resolved.label} · $reason"
+            return "Automatic chose $choice · $reason"
         }
 
         private fun warning(selected: DxvkFlavorSetting, vulkanMinor: Int?, vulkan: String?): String? {

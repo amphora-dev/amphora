@@ -179,12 +179,51 @@ class SettingsViewModelTest {
         assertEquals(AudioBackend.PULSEAUDIO, fixture.viewModel.uiState.value.audioBackend)
     }
 
+    @Test
+    fun automaticFlavorOnQualcommProprietaryShowsTheD3d89Split() = runTest(dispatchers.testDispatcher) {
+        val fixture = fixture(adreno = true)
+        runCurrent()
+
+        with(fixture.viewModel.uiState.value.dxvkFlavor) {
+            assertEquals(DxvkFlavorSetting.AUTO, selected)
+            assertEquals(DxvkFlavorSetting.DXVK, resolved)
+            assertEquals(DxvkFlavorSetting.SAREK, d3d89)
+            assertEquals(
+                "Automatic chose DXVK 3.0.2 + DXVK-Sarek 1.11 for Direct3D 8/9 · " +
+                    "this device's Qualcomm driver rejects DXVK's fixed-function shaders",
+                impact,
+            )
+        }
+    }
+
+    @Test
+    fun explicitFlavorAndNonAdrenoStayPure() = runTest(dispatchers.testDispatcher) {
+        val fixture = fixture(adreno = false)
+        runCurrent()
+        assertEquals(null, fixture.viewModel.uiState.value.dxvkFlavor.d3d89)
+
+        val adreno = fixture(adreno = true)
+        runCurrent()
+        adreno.runtimeState.value = LaunchRuntimeSettings(dxvkFlavorId = DxvkFlavorIds.DXVK)
+        runCurrent()
+        with(adreno.viewModel.uiState.value.dxvkFlavor) {
+            assertEquals(DxvkFlavorSetting.DXVK, selected)
+            assertEquals(DxvkFlavorSetting.DXVK, resolved)
+            assertEquals(null, d3d89)
+            assertEquals(
+                "DXVK 3.0.2 · Direct3D 8–11 · applies on next launch",
+                impact,
+            )
+        }
+    }
+
     private fun fixture(
         pulseProbe: PulseAudioProbe =
             PulseAudioProbe(
                 platformSupported = true,
                 wineDriver = PulseAudioProbe.WineDriver.PRESENT,
             ),
+        adreno: Boolean = true,
     ): Fixture {
         val preferences = mockk<SharedPreferences>()
         val editor = mockk<SharedPreferences.Editor>(relaxed = true)
@@ -250,6 +289,14 @@ class SettingsViewModelTest {
         every { graphicsDriverCapabilities.zinkBlockers(any()) } returns emptyList()
         every { graphicsDriverCapabilities.effectiveDxvkFlavor(any(), any()) } answers {
             DxvkFlavorIds.resolve(firstArg(), vulkanMinor = 3, usesLeegao = false)
+        }
+        every { graphicsDriverCapabilities.effectiveD3d89DxvkFlavor(any(), any()) } answers {
+            DxvkFlavorIds.d3d89Flavor(
+                id = firstArg(),
+                resolvedFlavor = DxvkFlavorIds.resolve(firstArg(), vulkanMinor = 3, usesLeegao = false),
+                effectiveDriverId = GraphicsDriverIds.normalize(secondArg()),
+                isAdreno = adreno,
+            )
         }
 
         val pulseAudioCapabilities = mockk<PulseAudioCapabilities>()

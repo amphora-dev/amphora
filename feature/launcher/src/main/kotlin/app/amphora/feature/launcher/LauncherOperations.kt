@@ -98,11 +98,18 @@ constructor(
                 storedFlavorId = settings.dxvkFlavorId,
                 storedDriverId = settings.graphicsDriverId,
             )
+        val split =
+            graphicsDriverCapabilities.effectiveD3d89DxvkFlavor(
+                storedFlavorId = settings.dxvkFlavorId,
+                storedDriverId = settings.graphicsDriverId,
+            )
         val unused =
-            if (DxvkFlavorIds.component(flavor) == ContentComponent.DXVK) {
-                ContentComponent.DXVK_SAREK
-            } else {
-                ContentComponent.DXVK
+            when {
+                // A split launch links d3d8/d3d9 out of the second build — both
+                // installs are required.
+                split != null -> null
+                DxvkFlavorIds.component(flavor) == ContentComponent.DXVK -> ContentComponent.DXVK_SAREK
+                else -> ContentComponent.DXVK
             }
         return copy(components = components.filterNot { it.component == unused })
     }

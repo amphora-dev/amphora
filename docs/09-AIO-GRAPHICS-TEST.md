@@ -25,18 +25,20 @@ scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台
 
 ## 2. 当前结果
 
-组合：APK 自引入 `VK_LAYER_AMPHORA_wsi` 的提交起（guest 走 imagefs Khronos loader + 该层，见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.4），Proton `11.0-2fd246cfc`（发布版）。下表是 AIO 2.1.0（上游版）实测；当前 manifest 已改 pin 到 amphora fork `b8acc49`（含 dx8 修复）；dx8 已于 2026-10-17 在 Y700 复测：设备建成、bench 144.05 fps，但方块不画（Qualcomm FF -13，见 §4）。默认驱动 wrapper（Qualcomm 驱动之上的 ICD）：
+组合：APK 自引入 `VK_LAYER_AMPHORA_wsi` 的提交起（guest 走 imagefs Khronos loader + 该层，见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.4），Proton `11.0-2fd246cfc`（发布版）。下表是 AIO 2.1.0（上游版）实测；当前 manifest 已改 pin 到 amphora fork `b8acc49`（含 dx8 修复）。Y700 的 Qualcomm FF -13 已由 D3D8/9 自动拆分解决（§3 第 6 条）：`auto` + wrapper / System 时 d3d8/d3d9 取拆分构建。默认驱动 wrapper（Qualcomm 驱动之上的 ICD）：
 
 | 后端 | 路径 | Y700 64 | Y700 32 | 6T 64 | 6T 32 |
 |---|---|---|---|---|---|
 | vk | 原生 Vulkan | ✅ | ✅ | ✅ | ✅ |
 | gl | opengl32 → EGL | ❌ 无 GL | ❌ | ❌ | ❌ |
-| dx7 | 64：wined3d(GL)；32：d7vk → DXVK | ❌ 无 GL | ⚠️ 空画面 | ❌ 无 GL | ✅ |
-| ddraw2d | 64：GDI；32：wrapper → DXVK D3D9 | ✅ | ⚠️ 空画面 | ✅ | ✅ |
-| dx8 | DXVK D3D8 | ⚠️ 空画面（fork 已修，设备建成；-13） | ❌ | ❌ | ❌ |
-| dx9 | DXVK D3D9（FF） | ⚠️ 空画面 | ⚠️ 空画面 | ✅ | ✅ |
+| dx7 | 64：wined3d(GL)；32：d7vk → DXVK | ❌ 无 GL | ✅（拆分 Sarek） | ❌ 无 GL | ✅ |
+| ddraw2d | 64：GDI；32：wrapper → DXVK D3D9 | ✅ | ✅（拆分 Sarek） | ✅ | ✅ |
+| dx8 | DXVK D3D8 | ✅（拆分 Sarek） | ✅（拆分 Sarek） | ❌ | ❌ |
+| dx9 | DXVK D3D9（FF） | ✅（拆分 Sarek） | ✅（拆分 Sarek） | ✅ | ✅ |
 | dx10 / dx11 | DXVK | ✅ | ✅ | ✅ | ✅ |
 | dx12 | vkd3d-proton | ✅ | ✅ | ❌ 缺 transform feedback | ❌ |
+
+Y700 的「拆分 Sarek」= `dxvk_flavor=auto` + Qualcomm 官方驱动（wrapper / System）时 d3d8/d3d9 自动取 `DxvkFlavorIds.D3D89_FLAVOR`（当前 Sarek 1.11），dxgi/d3d10core/d3d11 仍 3.0.2；机制与真机数据见 [`02`](02-TRACKING.md) §2。拆分构建经 dev-pin 换 DXVK 2.4 / 2.6.2 / 2.7.1 同样六项全过（推荐 2.6.2，见 §02）。
 
 Turnip（`WN-Turnip-1.06-b`）只测了 vk / dx9 / dx11 / dx12 / ddraw2d：
 - **Y700 全过**，而且 dx9、32-bit ddraw2d 出方块 / 色条（FF 的 -13 是 Qualcomm 驱动的问题，Turnip 上没有）；dx12 同样能跑。
@@ -55,10 +57,10 @@ AIO 2.1.0 与 v1.7.0 的差别：
 3. **10-bit 交换链画面发白**：AHB 交换链没设 buffer 格式，队列按 SurfaceView 默认给 8888，导入时 VkImage 格式又取自 buffer，Y700 上 D3D8/9 选的 A2B10G10R10 像素写进了 8888 buffer（暗背景 (26,26,31) 显示成 (104,160,193)，alpha 字节 0xC7 → 半透明）。现在按交换链格式 `SET_BUFFERS_FORMAT`（`amphora_ahb_sc.inc`，见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.3）。
 4. **D3D12 在创建 instance 时就失败**：vkd3d-proton 把 `vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR` 当必需函数取；Khronos loader 对任何物理设备函数都给跳板，Android loader 在驱动没这个扩展时返回 NULL，winevulkan 照传。现在 `vkGetInstanceProcAddr` 对宿主缺的物理设备函数也返回 thunk（proton-wine `29a3ed5f28d`）。两台现在都过了这一步，卡在下面驱动能力上。
 5. **设置里选的驱动到不了 guest**：wineandroid 会话原来一律把 guest 指到平台 loader（`/system/lib64/libvulkan.so` → Qualcomm 驱动），wrapper / Turnip 设置只影响宿主进程。原因是 imagefs 的 Khronos loader 是 Linux 构建，没有 `VK_KHR_android_surface`，而 wrapper 只带 X11 WSI。现在由 `libamphora_wsi.so` 里的隐式层 `VK_LAYER_AMPHORA_wsi` 提供这个扩展和 surface 查询，guest 用 Khronos loader + wrapper ICD（Turnip 经 adrenotools）；System 驱动仍走平台 loader（[`05`](05-AHB-IMPORT-PRESENT.md) §2.4）。wrapper 默认不再把 adrenotools 指到 `vulkan.adreno.so`：那样 wrapper 取实例扩展时报 `undefined symbol: vkCreateRayTracingPipelinesKHR`，loader 返回 -9。Y700 的 dx12 在 wrapper 下能跑：平台 loader 直连 Qualcomm 驱动时 vkd3d 报 `Lacking support for single texel alignment`，经 wrapper 不再报（wrapper 具体怎么补的没查）。
+6. **Y700 D3D8/9 固定管线不出画（Qualcomm 驱动 -13）**：DXVK 3.0.2-gplasync 的 FF VS/FS 管线在 Qualcomm 0.800.72 上 `vkCreateGraphicsPipelines` 返回 -13，清屏照常、方块不画；32-bit dx7 / ddraw2d 经 wrapper 落 D3D9 FF 同样。修法：`dxvk_flavor=auto` + wrapper / System 时 d3d8/d3d9 自动链接到拆分构建（`DxvkFlavorIds.D3D89_FLAVOR`，当前 Sarek 1.11；机制见 [`02`](02-TRACKING.md) §2），dxgi/d3d10core/d3d11 仍 3.0.2。Y700 全矩阵 PASS、`-13` 0；拆分构建换 DXVK 2.4 / 2.6.2 / 2.7.1 同样全过（推荐 2.6.2）。根因（Qualcomm 编译器拒 DXVK 3.x FF 着色器的哪种写法）未查。
 
 ## 4. 未解决
 
-- **Y700 D3D8/9 固定管线不出画（Qualcomm 驱动）**：DXVK 3.0.2-gplasync 的 FF VS/FS 管线在 Qualcomm 0.800.72 上 `vkCreateGraphicsPipelines` 返回 -13（`Failed to compile pipeline: -13`，每轮 1–2 条），清屏照常、方块不画。32-bit dx7 / ddraw2d 经 wrapper 落到 D3D9 FF，同样。Sarek 1.11 和 Turnip 都没这个问题。可选：Qualcomm 驱动上 D3D8/9 默认走 Sarek 或 Turnip，或者查 DXVK FF 着色器里驱动不收的写法。2026-10-17 Y700 手动实验：只把 `d3d8.dll` / `d3d9.dll` 换成 Sarek、其余留 3.0.2，dx8 / dx9 64+32、32-bit dx7、32-bit ddraw2d 全部出画，D3D10/11/12、vk 不变；实现待办见 [`02`](02-TRACKING.md) §2。
 - **D3D12 在 6T**：wrapper 下仍缺 transform feedback（`Lacking support for transform feedback`）。Turnip 下 vkd3d 能建设备，但 3.0.2 的 dxgi 因缺 16-bit storage 枚举不到适配器，Sarek 的 dxgi 又不认 D3D12 设备，两条都走不通。
 - **Vulkan 窗口不能切后台**：Activity 进后台时容器 SurfaceView 销毁（`layer root destroyed`），宿主那一侧的 buffer serve 退出，guest 下一次 acquire 拿到 -5、重建交换链失败，vkcube 退出，会话随之结束。平台 loader 和层两条路径一样，未修。GDI 窗口不受影响（灭屏再亮屏会重挂层，见 [`02`](02-TRACKING.md) §3 层序行）。
 - **OpenGL**：`wineandroid.drv/opengl.c` 用 `EGL_PLATFORM_ANDROID_KHR` 调 imagefs 的 Mesa libEGL（原生 aarch64，Box64 直接转过去；构建只有 `-Dplatforms=x11`），`eglChooseConfig` 一个 config 都没有（`egldrv_init_pixel_formats Failed to get any configs`）。X11 时同一份 Mesa 走 EGL X11 平台 + zink + kopper（xcb surface 经 wrapper ICD）。wineandroid 上缺的是 Wine 的 GL 驱动这一段和 kopper 的出画目标，方案见 [`02`](02-TRACKING.md) §2「之后」（Phase 3 OpenGL）。64-bit DX7 走 wined3d GL，跟着不可用。
