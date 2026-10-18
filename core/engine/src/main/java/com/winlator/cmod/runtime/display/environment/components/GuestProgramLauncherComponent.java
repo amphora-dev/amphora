@@ -345,15 +345,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     envVars.put("XDG_CONFIG_DIRS", rootDir.getPath() + "/usr/etc/xdg");
     envVars.put("GST_PLUGIN_PATH", rootDir.getPath() + "/usr/lib/gstreamer-1.0");
     envVars.put("FONTCONFIG_PATH", rootDir.getPath() + "/usr/etc/fonts");
-    envVars.put(
-        "VK_LAYER_PATH",
-        rootDir.getPath()
-            + "/usr/share/vulkan/implicit_layer.d"
-            + ":"
-            + rootDir.getPath()
-            + "/usr/share/vulkan/explicit_layer.d");
-    envVars.put("WRAPPER_LAYER_PATH", rootDir.getPath() + "/usr/lib");
-    envVars.put("WRAPPER_CACHE_PATH", rootDir.getPath() + "/usr/var/cache");
+    applyVulkanRuntimePaths(envVars, rootDir.getPath());
     envVars.put("WINE_NO_DUPLICATE_EXPLORER", "1");
     envVars.put("PREFIX", rootDir.getPath() + "/usr");
     // See earlier DISPLAY note — unix: absolute path required for non-chroot imagefs.
@@ -508,11 +500,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       // no Android WSI: VK_LAYER_AMPHORA_wsi adds VK_KHR_android_surface. System keeps
       // the platform loader, which has it.
       boolean guestIcd = envVars.has("VK_ICD_FILENAMES");
-      if (guestIcd) {
-        applyWineAndroidWsiLayer(context, envVars);
-      } else {
-        applyWineAndroidSystemVulkan(context, envVars);
-      }
       Log.i(
           TAG,
           "AMPHORA_WINEANDROID=1: dropped DISPLAY / ANDROID_SYSVSHM_SERVER / "
@@ -521,7 +508,7 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                   ? "imagefs loader + " + envVars.get("VK_ICD_FILENAMES") + " + VK_LAYER_AMPHORA_wsi"
                   : "platform loader /system/lib64/libvulkan.so")
               + "; LD_PRELOAD libamphora_wsi.so");
-      applyWineAndroidWsiHelperPreload(context, envVars);
+      applyWineAndroidVulkanEnv(context, envVars);
     }
     normalizeSyncEnvVars(envVars);
     if (wineInfo == null || !wineInfo.isArm64EC()) {
@@ -777,6 +764,40 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
     applyWineAndroidWsiHelperPreloadEnv(envVars, helper.getAbsolutePath());
     Log.i(TAG, "AMPHORA_WINEANDROID: LD_PRELOAD " + helper.getAbsolutePath());
+  }
+
+  /**
+   * The whole guest-Vulkan slice of a wineandroid launch: guest ICDs get the
+   * WSI implicit layer (manifest + VK_ADD_IMPLICIT_LAYER_PATH + the inst-ext
+   * filter off), System gets the platform-loader LD_LIBRARY_PATH prefix, and
+   * every guest gets the WSI helper LD_PRELOAD. Shared with the headless
+   * {@code GuestVulkanProbe} so the probe sees exactly what a session sees.
+   */
+  public static void applyWineAndroidVulkanEnv(Context context, EnvVars envVars) {
+    boolean guestIcd = envVars.has("VK_ICD_FILENAMES");
+    if (guestIcd) {
+      applyWineAndroidWsiLayer(context, envVars);
+    } else {
+      applyWineAndroidSystemVulkan(context, envVars);
+    }
+    applyWineAndroidWsiHelperPreload(context, envVars);
+  }
+
+  /**
+   * Vulkan runtime paths every wineandroid process needs: the imagefs Khronos
+   * loader layer dirs and the wrapper ICD's runtime dirs. Shared with
+   * {@code GuestVulkanProbe}.
+   */
+  public static void applyVulkanRuntimePaths(EnvVars envVars, String rootDir) {
+    envVars.put(
+        "VK_LAYER_PATH",
+        rootDir
+            + "/usr/share/vulkan/implicit_layer.d"
+            + ":"
+            + rootDir
+            + "/usr/share/vulkan/explicit_layer.d");
+    envVars.put("WRAPPER_LAYER_PATH", rootDir + "/usr/lib");
+    envVars.put("WRAPPER_CACHE_PATH", rootDir + "/usr/var/cache");
   }
 
 

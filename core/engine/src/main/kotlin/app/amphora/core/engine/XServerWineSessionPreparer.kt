@@ -250,6 +250,32 @@ class XServerWineSessionPreparer @Inject constructor(
             extractDXWrapperFilesCore(dxwrapper)
         }
 
+    override suspend fun reapplyDxwrapper(container: AmphoraContainer, dxwrapper: String) =
+        withContext(dispatchers.io) {
+            resolveState(null, container)
+            val c = wnContainer ?: return@withContext
+            val resolved = resolveDxwrapperForExtract(dxwrapper)
+            if (resolved == null) {
+                Log.e(TAG, "DXVK relink aborted: required content profiles missing for '$dxwrapper'")
+                return@withContext
+            }
+            val selection = DxWrapperSelection.parse(resolved)
+            val archKey = if (wineVersion.contains("arm64ec")) "arm64ec" else "x86_64"
+            AppliedMarks.invalidateDxwrapper(c)
+            wipeDxwrapperDllsForReextract()
+            extractDXWrapperFilesCore(resolved)
+            AppliedMarks.markDxwrapper(
+                c,
+                selection?.let { dxwrapperGateKey(it, archKey) } ?: "$resolved|arch=$archKey",
+            )
+            if (resolved != c.getDXWrapper()) {
+                c.setDXWrapper(resolved)
+                this@XServerWineSessionPreparer.dxwrapper = resolved
+                c.saveData()
+            }
+            Log.i(TAG, "DXVK relinked to '$resolved'")
+        }
+
     override suspend fun extractGraphicsDriverFiles(container: AmphoraContainer) = withContext(dispatchers.io) {
         resolveState(null, container)
         extractGraphicsDriverFilesCore()

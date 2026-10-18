@@ -11,10 +11,14 @@ import app.amphora.core.content.update.AppUpdateManifest
 import app.amphora.core.engine.ContentHealthScanner
 import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.DxvkFlavorIds
+import app.amphora.core.engine.DxvkRequirements
 import app.amphora.core.engine.GraphicsDriverCapabilities
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.GuestDriveManager
 import app.amphora.core.engine.GuestDriveMapping
+import app.amphora.core.engine.GuestVulkanDevice
+import app.amphora.core.engine.GuestVulkanProbe
+import app.amphora.core.engine.GuestVulkanProbeReport
 import app.amphora.core.engine.LaunchRuntimeSettings
 import app.amphora.core.engine.PulseAudioCapabilities
 import app.amphora.core.engine.PulseAudioProbe
@@ -277,23 +281,64 @@ class SettingsViewModelTest {
         every { updateController.installedVersionCode() } returns 20_000_000
         every { updateController.installStatus } returns shizukuStatus
 
-        // An Adreno device on Vulkan 1.3: the probes are native, so the fixture
-        // states the hardware instead of pretending to detect it.
+        // An Adreno device whose guest adapter meets every DXVK 3.0.2
+        // requirement: the probe is a guest process, so the fixture states its
+        // verdict instead of pretending to run it.
+        val guestReport = GuestVulkanProbeReport(
+            surfaceInstanceCreate = 0,
+            instanceCreate = 0,
+            instanceExtensions = emptySet(),
+            enumerateDevices = 0,
+            devices = listOf(
+                GuestVulkanDevice(
+                    deviceName = "Wrapper(Adreno (TM) 830)",
+                    apiVersion = GuestVulkanDevice.apiVersion(1, 3),
+                    vendorId = 0x5143,
+                    deviceId = 0,
+                    deviceType = 1,
+                    driverName = "qualcomm",
+                    driverInfo = "",
+                    driverId = 6,
+                    conformance = "1.3.6.0",
+                    features = (
+                        DxvkRequirements.DXVK_3_0_2_GPLASYNC.requiredFeatures +
+                            "extDescriptorHeap.descriptorHeap"
+                        ).associateWith { true },
+                    extensions = DxvkRequirements.DXVK_3_0_2_GPLASYNC.requiredExtensions,
+                    limits = mapOf("maxPushConstantsSize" to 256L),
+                    queueFamilies = listOf(
+                        GuestVulkanDevice.QueueFamily(
+                            flags = GuestVulkanDevice.QUEUE_GRAPHICS_OR_COMPUTE,
+                            count = 1,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val guestVerdict = GuestVulkanProbe.Verdict(
+            key = "fixture",
+            report = guestReport,
+            failure = null,
+            durationMs = 1,
+            fromCache = true,
+            driverId = GraphicsDriverIds.WRAPPER,
+        )
         val graphicsDriverCapabilities = mockk<GraphicsDriverCapabilities>()
         every { graphicsDriverCapabilities.availableDriverIds() } returns
             listOf(GraphicsDriverIds.WRAPPER, GraphicsDriverIds.TURNIP_BALANCED)
         every { graphicsDriverCapabilities.effectiveDriverId(any()) } answers {
             GraphicsDriverIds.normalize(firstArg())
         }
-        every { graphicsDriverCapabilities.vulkanMinorVersion(any()) } returns 3
+        every { graphicsDriverCapabilities.guestProbeVerdict() } returns guestVerdict
+        every { graphicsDriverCapabilities.missingDxvkRequirements(any()) } returns null
         every { graphicsDriverCapabilities.zinkBlockers(any()) } returns emptyList()
         every { graphicsDriverCapabilities.effectiveDxvkFlavor(any(), any()) } answers {
-            DxvkFlavorIds.resolve(firstArg(), vulkanMinor = 3, usesLeegao = false)
+            DxvkFlavorIds.resolve(firstArg(), guestReport)
         }
         every { graphicsDriverCapabilities.effectiveD3d89DxvkFlavor(any(), any()) } answers {
             DxvkFlavorIds.d3d89Flavor(
                 id = firstArg(),
-                resolvedFlavor = DxvkFlavorIds.resolve(firstArg(), vulkanMinor = 3, usesLeegao = false),
+                resolvedFlavor = DxvkFlavorIds.resolve(firstArg(), guestReport),
                 effectiveDriverId = GraphicsDriverIds.normalize(secondArg()),
                 isAdreno = adreno,
             )

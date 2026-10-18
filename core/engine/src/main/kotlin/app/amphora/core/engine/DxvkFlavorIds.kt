@@ -5,25 +5,27 @@ import app.amphora.core.content.model.ContentComponent
 /**
  * Which DXVK build a launch installs, and why.
  *
- * Two are pinned. Stock DXVK 3.0.2 needs a Vulkan 1.3 device and fails
- * enumeration outright below that ("No adapters found ... a Vulkan 1.3 capable
- * setup is required"); DXVK-Sarek is a 1.11-era fork that targets Vulkan 1.1/1.2
- * and runs where 3.0.2 cannot, at the cost of everything DXVK gained since.
+ * Two are pinned. Stock DXVK 3.0.2 (gplasync @6b20f622a) has a large hard
+ * requirement set — Vulkan 1.3, a graphics queue, 51 required features, 2
+ * required extensions, push-data limits — and fails with "No adapters found"
+ * when any one is missing. DXVK-Sarek is a 1.11-era fork that only needs Vulkan 1.1 +
+ * `VK_KHR_swapchain` + a graphics queue and runs where 3.0.2 cannot, at the
+ * cost of everything DXVK gained since.
  *
- * The deciding fact is the device's Vulkan level, not its GPU vendor or driver:
- * a Vulkan 1.3 Mali on the Leegao path wants 3.0.2, and a Vulkan 1.1 Adreno on
- * the wrapper wants Sarek.
+ * The deciding fact is the device's capability *as the guest sees it* — the
+ * adapter enumerated inside Wine through winevulkan → `VK_LAYER_AMPHORA_wsi` →
+ * the session driver stack, checked against each build's full requirement
+ * table in [DxvkRequirements]. A host-side Vulkan version probe cannot see
+ * the wrapper's reported features (e.g. Turnip on Adreno 630 reports 1.3 but
+ * lacks `storageBuffer16BitAccess`).
  */
 object DxvkFlavorIds {
     const val PREFS_KEY_FLAVOR = "dxvk_flavor"
 
-    /** Follow the device's Vulkan level. */
+    /** Follow the guest Vulkan probe. */
     const val AUTO = "auto"
     const val DXVK = "dxvk"
     const val SAREK = "sarek"
-
-    /** Vulkan minor version DXVK 3.0.2 requires. */
-    const val DXVK_MIN_VULKAN_MINOR = 3
 
     /**
      * The flavor [d3d89Flavor] returns — which pinned build supplies d3d8/d3d9
@@ -39,18 +41,28 @@ object DxvkFlavorIds {
     }
 
     /**
-     * The build this launch will use. [vulkanMinor] is null when the Vulkan
-     * version probe failed, which leaves the driver as the only hint: the Leegao
-     * path exists for devices whose vendor Vulkan predates 1.3.
+     * The build this launch will use.
+     *
+     * [report] is the guest probe's adapter data for the driver this launch
+     * will run, or null when the probe itself failed (never ran, timed out,
+     * crashed). `auto` picks the best build whose complete requirement set is
+     * met on some enumerated adapter; with no probe data the safe answer is
+     * [SAREK] — the same floor DXVK itself reaches when it finds no adapter.
+     * Explicit `dxvk`/`sarek` are honoured as-is.
      */
-    fun resolve(id: String?, vulkanMinor: Int?, usesLeegao: Boolean): String = when (normalize(id)) {
+    fun resolve(id: String?, report: GuestVulkanProbeReport?): String = when (normalize(id)) {
         DXVK -> DXVK
         SAREK -> SAREK
-        else -> when {
-            vulkanMinor != null -> if (vulkanMinor >= DXVK_MIN_VULKAN_MINOR) DXVK else SAREK
-            usesLeegao -> SAREK
-            else -> DXVK
-        }
+        else -> resolveAuto(report)
+    }
+
+    /** Best supported build per [DxvkRequirements.AUTO_ORDER], or [SAREK]. */
+    fun resolveAuto(report: GuestVulkanProbeReport?): String {
+        if (report == null) return SAREK
+        return DxvkRequirements.AUTO_ORDER
+            .firstOrNull { set -> report.devices.any { set.missing(it).isEmpty() } }
+            ?.flavorId
+            ?: SAREK
     }
 
     fun component(flavor: String): ContentComponent =
@@ -79,8 +91,4 @@ object DxvkFlavorIds {
     } else {
         null
     }
-
-    /** True when [flavor] cannot enumerate an adapter on a device at [vulkanMinor]. */
-    fun isUnsupported(flavor: String, vulkanMinor: Int?): Boolean =
-        normalize(flavor) == DXVK && vulkanMinor != null && vulkanMinor < DXVK_MIN_VULKAN_MINOR
 }

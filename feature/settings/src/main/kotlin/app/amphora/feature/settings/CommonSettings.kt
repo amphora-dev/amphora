@@ -75,9 +75,9 @@ internal fun CommonSettings(
         ChoiceSetting(
             title = "Direct3D 8–11 translation",
             description =
-            "DXVK 3.0.2 is the current build and needs a Vulkan 1.3 device. DXVK-Sarek is a " +
-                "1.11-era fork that targets Vulkan 1.1/1.2, for GPUs that never got 1.3. " +
-                "Automatic follows what this device reports.",
+            "DXVK 3.0.2 is the current build with the full Direct3D 8–11 feature set. " +
+                "DXVK-Sarek is a 1.11-era fork for adapters that cannot meet its requirements. " +
+                "Automatic picks the best build after probing the adapter inside Wine.",
             impact = state.dxvkFlavor.impact,
             selected = state.dxvkFlavor.selected,
             defaultValue = DxvkFlavorSetting.AUTO,

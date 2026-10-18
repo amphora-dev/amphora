@@ -2,62 +2,76 @@ package app.amphora.core.engine
 
 import app.amphora.core.content.model.ContentComponent
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DxvkFlavorIdsTest {
+    private fun deviceMeeting(requirements: DxvkRequirementSet): GuestVulkanDevice = GuestVulkanDevice(
+        deviceName = "Fixture GPU",
+        apiVersion = requirements.minApiVersion.coerceAtLeast(GuestVulkanDevice.apiVersion(1, 4)),
+        vendorId = 0,
+        deviceId = 0,
+        deviceType = 2,
+        driverName = "fixture",
+        driverInfo = "",
+        driverId = 0,
+        conformance = "",
+        features = (requirements.requiredFeatures + "extDescriptorHeap.descriptorHeap")
+            .associateWith { true },
+        extensions = requirements.requiredExtensions + "VK_KHR_swapchain",
+        limits = mapOf("maxPushConstantsSize" to 256L),
+        queueFamilies = listOf(
+            GuestVulkanDevice.QueueFamily(
+                flags = GuestVulkanDevice.QUEUE_GRAPHICS_OR_COMPUTE,
+                count = 1,
+            ),
+        ),
+    )
+
+    private fun report(vararg devices: GuestVulkanDevice) = GuestVulkanProbeReport(
+        surfaceInstanceCreate = 0,
+        instanceCreate = 0,
+        instanceExtensions = emptySet(),
+        enumerateDevices = 0,
+        devices = devices.toList(),
+    )
+
     @Test
-    fun autoFollowsTheDeviceVulkanLevelRatherThanItsDriver() {
-        assertEquals(
-            DxvkFlavorIds.SAREK,
-            DxvkFlavorIds.resolve(DxvkFlavorIds.AUTO, vulkanMinor = 1, usesLeegao = true),
-        )
-        // A Vulkan 1.3 vendor HAL on the Leegao path has no reason to give up DXVK 3.
+    fun autoPicksTheBestBuildWhoseRequirementsAreAllMet() {
         assertEquals(
             DxvkFlavorIds.DXVK,
-            DxvkFlavorIds.resolve(DxvkFlavorIds.AUTO, vulkanMinor = 3, usesLeegao = true),
-        )
-        // And an Adreno stuck on Vulkan 1.1 needs Sarek just as much as a Mali does.
-        assertEquals(
-            DxvkFlavorIds.SAREK,
-            DxvkFlavorIds.resolve(DxvkFlavorIds.AUTO, vulkanMinor = 1, usesLeegao = false),
+            DxvkFlavorIds.resolve(
+                DxvkFlavorIds.AUTO,
+                report(deviceMeeting(DxvkRequirements.DXVK_3_0_2_GPLASYNC)),
+            ),
         )
     }
 
     @Test
-    fun aFailedProbeFallsBackToWhatTheDriverImplies() {
-        assertEquals(
-            DxvkFlavorIds.SAREK,
-            DxvkFlavorIds.resolve(DxvkFlavorIds.AUTO, vulkanMinor = null, usesLeegao = true),
+    fun autoFallsToSarekWhenDxvkMissesARequirement() {
+        // Turnip on Adreno 630: Vulkan 1.3 but no storageBuffer16BitAccess —
+        // the case the old host version probe could not see.
+        val device = deviceMeeting(DxvkRequirements.DXVK_3_0_2_GPLASYNC).copy(
+            apiVersion = GuestVulkanDevice.apiVersion(1, 3),
+            features = DxvkRequirements.DXVK_3_0_2_GPLASYNC.requiredFeatures
+                .associateWith { it != "vk11.storageBuffer16BitAccess" },
         )
-        assertEquals(
-            DxvkFlavorIds.DXVK,
-            DxvkFlavorIds.resolve(DxvkFlavorIds.AUTO, vulkanMinor = null, usesLeegao = false),
-        )
+        assertEquals(DxvkFlavorIds.SAREK, DxvkFlavorIds.resolve(DxvkFlavorIds.AUTO, report(device)))
+    }
+
+    @Test
+    fun aFailedProbeFallsBackToSarek() {
+        // null report = probe never ran / timed out / crashed — Sarek is the
+        // same floor DXVK itself reaches when it finds no adapter.
+        assertEquals(DxvkFlavorIds.SAREK, DxvkFlavorIds.resolve(DxvkFlavorIds.AUTO, null))
+        assertEquals(DxvkFlavorIds.SAREK, DxvkFlavorIds.resolve(DxvkFlavorIds.AUTO, report()))
     }
 
     @Test
     fun anExplicitPickWinsEvenWhenTheDeviceCannotRunIt() {
-        assertEquals(
-            DxvkFlavorIds.DXVK,
-            DxvkFlavorIds.resolve(DxvkFlavorIds.DXVK, vulkanMinor = 1, usesLeegao = true),
-        )
-        assertEquals(
-            DxvkFlavorIds.SAREK,
-            DxvkFlavorIds.resolve(DxvkFlavorIds.SAREK, vulkanMinor = 3, usesLeegao = false),
-        )
-    }
-
-    @Test
-    fun onlyDxvkOnASubDot3DeviceCountsAsUnsupported() {
-        assertTrue(DxvkFlavorIds.isUnsupported(DxvkFlavorIds.DXVK, vulkanMinor = 2))
-        assertFalse(DxvkFlavorIds.isUnsupported(DxvkFlavorIds.DXVK, vulkanMinor = 3))
-        // An unknown Vulkan level is not evidence of a problem.
-        assertFalse(DxvkFlavorIds.isUnsupported(DxvkFlavorIds.DXVK, vulkanMinor = null))
-        // Sarek runs anywhere; it is only ever a downgrade, never a failure.
-        assertFalse(DxvkFlavorIds.isUnsupported(DxvkFlavorIds.SAREK, vulkanMinor = 3))
+        val weak = report()
+        assertEquals(DxvkFlavorIds.DXVK, DxvkFlavorIds.resolve(DxvkFlavorIds.DXVK, weak))
+        assertEquals(DxvkFlavorIds.SAREK, DxvkFlavorIds.resolve(DxvkFlavorIds.SAREK, weak))
     }
 
     @Test

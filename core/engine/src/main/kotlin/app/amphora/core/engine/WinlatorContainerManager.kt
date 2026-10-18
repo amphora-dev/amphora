@@ -1,6 +1,7 @@
 package app.amphora.core.engine
 
 import android.content.Context
+import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.ContainerManager
 import app.amphora.core.container.model.Container as AmphoraContainer
@@ -77,6 +78,8 @@ constructor(
     private val catalog: ContentCatalog,
     private val turnipProvisioner: TurnipDriverProvisioner,
     private val graphicsDriverCapabilities: GraphicsDriverCapabilities,
+    private val guestVulkanProbe: GuestVulkanProbe,
+    private val sessionPreparer: WineSessionPreparer,
     private val dispatchers: DispatcherProvider,
 ) : ContainerManager {
     // --- kernel singletons (constructed like the session preparer) -------
@@ -86,34 +89,36 @@ constructor(
 
     override suspend fun getOrCreate(id: ContainerId): AmphoraContainer = withContext(dispatchers.io) {
         val manifest = catalog.require()
-        val dxvkComponent = dxvkComponent()
-        val d3d89Component = d3d89Component()
-        // 1. Bundled Wine (Proton) + Box64 + DXVK + VKD3D must be installed
-        //    before a container can be created / launched. Idempotent.
+        // Wine (Proton) + Box64 + VKD3D + *all* pinned DXVK builds must be
+        // installed before launch: the in-session guest probe may relink the
+        // prefix to either DXVK flavor, and a mid-session relink can never
+        // hit the network.
         contentSource.resolve(ContentComponent.WINE.id)
         contentSource.resolve(ContentComponent.BOX64.id)
-        contentSource.resolve(dxvkComponent.id)
-        if (d3d89Component != null && d3d89Component != dxvkComponent) {
-            contentSource.resolve(d3d89Component.id)
-        }
         contentSource.resolve(ContentComponent.VKD3D.id)
-        // 2. Load the installed profiles into this manager's ContentsManager.
+        contentSource.resolve(ContentComponent.DXVK.id)
+        contentSource.resolve(ContentComponent.DXVK_SAREK.id)
         contentsManager.syncContents()
 
         val wineVersion = resolveWineVersion(manifest)
         val box64Version = resolveBox64Version(manifest)
-        val dxwrapper = resolveDxwrapper(manifest, dxvkComponent, d3d89Component)
         val wincomponents = WindowsComponentPreferences.serialized(context)
         val targetId = parseContainerId(id)
 
         wnContainerManager.loadContainers()
         val existing = wnContainerManager.getContainerById(targetId)
+        // Provisional dxwrapper — the last probe verdict if one is cached,
+        // else the default build. On a probe cache miss the in-session
+        // handshake relinks to the decided flavor before the game starts.
+        val dxwrapper = resolveDxwrapper(manifest, dxvkComponent(), d3d89Component())
         val wnContainer =
             existing ?: createDefaultContainer(wineVersion, dxwrapper, wincomponents)
                 ?: throw IllegalStateException(
                     "ContainerManager.createContainer returned null for wineVersion=$wineVersion " +
                         "(see logcat 'ContainerManager'); is the Proton prefixPack installed?",
                 )
+        // Optional adrenotools driver (wrapper default, Turnip when selected).
+        ensureAdrenotoolsDriver(wnContainer)
         // Manifest pin (+ installed disk) is authoritative. Container fields are
         // only a cache — rewrite them whenever reconcile moved the install.
         runtimePinSynchronizer.syncRuntimePins(
@@ -125,9 +130,6 @@ constructor(
             wincomponents = wincomponents,
             newlyCreated = existing == null,
         )
-        // Optional adrenotools driver (wrapper default, Turnip when selected).
-        ensureAdrenotoolsDriver(wnContainer)
-        // 3. Activate: symlink home/xuser -> home/xuser-<id> (Wine HOME target).
         check(wnContainerManager.activateContainer(wnContainer)) {
             "Could not activate Wine container ${wnContainer.id}; guest launch aborted"
         }
@@ -151,6 +153,33 @@ constructor(
     }
 
     // --- helpers --------------------------------------------------------------
+
+    /**
+     * The dxwrapper token the in-session probe handshake should relink to for
+     * a fresh [report]: the same flavor math the provisional dxwrapper used,
+     * but on the new report instead of the cached verdict. All DXVK content
+     * profiles were installed by [getOrCreate], so the relink is file ops
+     * only — never a download.
+     */
+    suspend fun dxwrapperForProbeVerdict(report: GuestVulkanProbeReport?): String = withContext(dispatchers.io) {
+        resolveDxwrapper(
+            catalog.require(),
+            dxvkComponentForReport(report),
+            d3d89ComponentForReport(report),
+        )
+    }
+
+    /**
+     * Apply a probe verdict mid-session: compute the decided dxwrapper and
+     * relink the prefix's DXVK DLLs (shared [WineSessionPreparer.reapplyDxwrapper]
+     * path — wipe, applyContent, d3d8/9 split links, applied-mark + container
+     * field). Logs the decision.
+     */
+    suspend fun applyProbeVerdict(container: AmphoraContainer, report: GuestVulkanProbeReport?) {
+        val dxwrapper = dxwrapperForProbeVerdict(report)
+        Log.i(TAG, "guest probe verdict -> dxwrapper='$dxwrapper' (container ${container.id.value})")
+        sessionPreparer.reapplyDxwrapper(container, dxwrapper)
+    }
 
     /**
      * The container's `wineVersion` = the ContentsManager entry name of the
@@ -210,8 +239,8 @@ constructor(
                 put("dxwrapper", dxwrapper)
                 // graphicsDriverConfig uses ";" delimiter (Container.DEFAULT_GRAPHICSDRIVERCONFIG).
                 // version=wrapper selects the loader-facing wrapper ICD for the guest. The
-                // wrapper has no Android HAL HMI entry point and wraps system Adreno, so the
-                // host compositor resolves this id to System Vulkan. Explicit downloaded
+                // wrapper has no Android HAL HMI entry point and wraps system Adreno, so
+                // host-side probes resolve this id to System Vulkan. Explicit downloaded
                 // Turnip ids remain aligned between host and guest through adrenotools.
                 put(
                     "graphicsDriverConfig",
@@ -287,14 +316,30 @@ constructor(
      * The component whose pin supplies d3d8/d3d9 when the launch splits them
      * off the main DXVK build, or null when there is no split.
      */
-    private fun d3d89Component(): ContentComponent? {
+    private fun d3d89Component(): ContentComponent? = d3d89ComponentForReport(guestVulkanProbe.cached()?.report)
+
+    /**
+     * Same resolution as [dxvkComponent]/[d3d89Component] but on a fresh
+     * probe [report] instead of the cached verdict — used by the in-session
+     * handshake right after the probe JSON lands.
+     */
+    private fun dxvkComponentForReport(report: GuestVulkanProbeReport?): ContentComponent {
         val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
-        val flavor =
-            graphicsDriverCapabilities.effectiveD3d89DxvkFlavor(
-                storedFlavorId = prefs.getString(DxvkFlavorIds.PREFS_KEY_FLAVOR, null),
-                storedDriverId = storedGraphicsDriverId(),
-            ) ?: return null
+        val flavor = DxvkFlavorIds.resolve(prefs.getString(DxvkFlavorIds.PREFS_KEY_FLAVOR, null), report)
         return DxvkFlavorIds.component(flavor)
+    }
+
+    private fun d3d89ComponentForReport(report: GuestVulkanProbeReport?): ContentComponent? {
+        val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+        val flavorId = prefs.getString(DxvkFlavorIds.PREFS_KEY_FLAVOR, null)
+        val split =
+            DxvkFlavorIds.d3d89Flavor(
+                id = flavorId,
+                resolvedFlavor = DxvkFlavorIds.resolve(flavorId, report),
+                effectiveDriverId = effectiveGraphicsDriver(),
+                isAdreno = graphicsDriverCapabilities.isAdrenoDevice(),
+            ) ?: return null
+        return DxvkFlavorIds.component(split)
     }
 
     private fun storedGraphicsDriverId(): String? = context
@@ -360,4 +405,8 @@ constructor(
         // The Wine prefix lives directly under the container root (home/xuser-<id>/.wine).
         winePrefixPath = File(rootDir, ".wine").absolutePath,
     )
+
+    private companion object {
+        const val TAG = "WinlatorContainerMgr"
+    }
 }

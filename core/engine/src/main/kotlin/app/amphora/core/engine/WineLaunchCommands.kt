@@ -28,6 +28,19 @@ fun buildWineProgramCommand(screenInfo: String, wineExePath: String, exeArgs: St
 }
 
 /**
+ * Cache-miss variant of [buildWineProgramCommand]: run `amphora-vkprobe.exe`
+ * as the session's launch target — it writes its Vulkan report into the
+ * prefix, waits for the host's go file, then spawns [wineExePath]. The outer
+ * `wine start` process the session tracks is unchanged.
+ */
+fun buildWineProbeCommand(screenInfo: String, wineExePath: String, exeArgs: String = ""): String {
+    val trimmed = sanitizeWineExeArgs(exeArgs)
+    val args = if (trimmed.isEmpty()) "" else " $trimmed"
+    return "wine start /wait explorer /desktop=shell,$screenInfo " +
+        "\"C:\\${GuestVulkanProbe.PROBE_EXE_NAME}\" --then \"$wineExePath\"$args"
+}
+
+/**
  * Sanitize trailing Wine program CLI args before embedding in a guest shell command.
  *
  * Rejects args containing `"`, `` ` ``, `$`, `|`, `;`, `&`, newline/CR, or unpaired

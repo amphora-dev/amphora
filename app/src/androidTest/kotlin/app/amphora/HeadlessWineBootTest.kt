@@ -9,6 +9,7 @@ import app.amphora.core.common.dispatcher.DefaultDispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.container.model.ContainerId
 import app.amphora.core.engine.GraphicsDriverCapabilities
+import app.amphora.core.engine.GuestVulkanProbe
 import app.amphora.core.engine.WineHeadlessRunner
 import app.amphora.core.engine.XServerWineSessionPreparer
 import com.winlator.cmod.runtime.container.Container as WnContainer
@@ -186,7 +187,13 @@ class HeadlessWineBootTest {
         val preparer = XServerWineSessionPreparer(
             appCtx,
             DefaultDispatcherProvider(),
-            GraphicsDriverCapabilities(appCtx),
+            GraphicsDriverCapabilities(
+                appCtx,
+                GuestVulkanProbe(
+                    appCtx,
+                    DefaultDispatcherProvider(),
+                ),
+            ),
         )
         preparer.ensureLaunchRuntimeFilesReady(amphoraContainer)
         assertTrue(

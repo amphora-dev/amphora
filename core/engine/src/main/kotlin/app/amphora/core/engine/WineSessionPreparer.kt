@@ -60,6 +60,14 @@ interface WineSessionPreparer {
     /** Extract DXVK / d8vk into the prefix (XSDA `extractDXWrapperFiles(String)`, L7970). */
     suspend fun extractDXWrapperFiles(container: Container, dxwrapper: String)
 
+    /**
+     * Re-link the prefix's DXVK DLLs to [dxwrapper] mid-session: wipe the
+     * current links, apply the (already-installed) content profiles, update
+     * the container `dxwrapper` field + applied mark. Used by the guest
+     * Vulkan probe handshake — no downloads, no registry work.
+     */
+    suspend fun reapplyDxwrapper(container: Container, dxwrapper: String)
+
     /** Extract the graphics driver (Turnip) into the prefix (XSDA `extractGraphicsDriverFiles`, L7537). */
     suspend fun extractGraphicsDriverFiles(container: Container)
 }

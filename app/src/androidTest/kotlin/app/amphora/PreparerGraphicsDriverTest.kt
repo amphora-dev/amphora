@@ -77,6 +77,9 @@ class PreparerGraphicsDriverTest {
     @Inject
     lateinit var runtimeAssets: RuntimeAssetProvisioner
 
+    @Inject
+    lateinit var graphicsDriverCapabilities: GraphicsDriverCapabilities
+
     @Before
     fun setUp() = hiltRule.inject()
 
@@ -159,7 +162,7 @@ class PreparerGraphicsDriverTest {
             XServerWineSessionPreparer(
                 appCtx,
                 DefaultDispatcherProvider(),
-                GraphicsDriverCapabilities(appCtx),
+                graphicsDriverCapabilities,
             )
 
         // The preparer owns a private ContentsManager that has not had syncContents()
@@ -216,8 +219,8 @@ class PreparerGraphicsDriverTest {
         // zink is selected through the loader, not GALLIUM_DRIVER: the latter leaves
         // EGL on swrast (blank window) and suppresses Mesa's own zink selection.
         // Both knobs are skipped on a GPU that cannot start zink at all, so the
-        // expectation follows the same probe the preparer used.
-        val zinkBlockers = GraphicsDriverCapabilities(appCtx).zinkBlockers(null)
+        // expectation follows the same host probe the preparer used.
+        val zinkBlockers = graphicsDriverCapabilities.zinkBlockers(null)
         println("ZINK_BLOCKERS=$zinkBlockers")
         if (zinkBlockers.isEmpty()) {
             assertEquals("MESA_LOADER_DRIVER_OVERRIDE", "zink", env["MESA_LOADER_DRIVER_OVERRIDE"])

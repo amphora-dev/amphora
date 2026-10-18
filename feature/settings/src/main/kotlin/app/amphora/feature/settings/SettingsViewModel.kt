@@ -14,6 +14,7 @@ import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.ContentHealthScanner
 import app.amphora.core.engine.DirectDrawWrapperIds
 import app.amphora.core.engine.DxvkFlavorIds
+import app.amphora.core.engine.DxvkRequirements
 import app.amphora.core.engine.GraphicsDriverCapabilities
 import app.amphora.core.engine.GraphicsDriverIds
 import app.amphora.core.engine.GuestDriveManager
@@ -300,10 +301,23 @@ constructor(
     /** Adds the device probes [withRuntimeSettings] cannot do on its own. */
     private fun SettingsUiState.withResolvedRuntimeSettings(settings: LaunchRuntimeSettings): SettingsUiState {
         val selected = DxvkFlavorSetting.fromId(settings.dxvkFlavorId)
-        val vulkanMinor = graphicsDriverCapabilities.vulkanMinorVersion(settings.graphicsDriverId)
+        val effectiveDriverId = graphicsDriverCapabilities.effectiveDriverId(settings.graphicsDriverId)
+        val verdict = graphicsDriverCapabilities.guestProbeVerdict()
+        val device = verdict?.report?.devices?.firstOrNull()
+        val probe =
+            DxvkProbeInfo(
+                deviceName = device?.deviceName,
+                apiLabel = device?.apiLabel,
+                failure = verdict?.failure,
+                missing = graphicsDriverCapabilities.missingDxvkRequirements(settings.dxvkFlavorId).orEmpty(),
+                dxvkSupported = verdict?.report?.let {
+                    DxvkRequirements.missing(DxvkFlavorIds.DXVK, it).isEmpty()
+                },
+                stale = verdict != null && verdict.driverId.isNotEmpty() && verdict.driverId != effectiveDriverId,
+            )
         return withRuntimeSettings(
             settings = settings,
-            effectiveDriverId = graphicsDriverCapabilities.effectiveDriverId(settings.graphicsDriverId),
+            effectiveDriverId = effectiveDriverId,
             dxvkFlavor =
             DxvkFlavorStatus.of(
                 selected = selected,
@@ -317,11 +331,11 @@ constructor(
                     storedFlavorId = settings.dxvkFlavorId,
                     storedDriverId = settings.graphicsDriverId,
                 ),
-                vulkanMinor = vulkanMinor,
+                probe = probe,
             ),
             openGlBackend =
             OpenGlBackendStatus.of(graphicsDriverCapabilities.zinkBlockers(settings.graphicsDriverId)),
-            vulkanVersionLabel = vulkanMinor?.let { "Vulkan 1.$it" },
+            vulkanVersionLabel = probe.apiLabel,
         )
     }
 
@@ -794,8 +808,37 @@ enum class DxvkFlavorSetting(val id: String, val label: String) {
 }
 
 /**
+ * What the guest Vulkan probe already knows — the evidence behind the DXVK
+ * picker's resolved build. Null fields mean the corresponding probe has not
+ * run yet (fresh install, cache miss).
+ *
+ * [missing] is requirement names the probed adapter lacks for the build the
+ * field applies to: for an explicit pick that pick's build, for `auto` the
+ * best build it rejected. [dxvkSupported] is whether the guest adapter meets
+ * DXVK 3.0.2's complete requirement set — used to warn on an explicit Sarek
+ * pick. [stale] means the verdict was probed under a different driver than
+ * the currently selected one; launch re-probes, the display may be off until
+ * then.
+ */
+data class DxvkProbeInfo(
+    val deviceName: String?,
+    val apiLabel: String?,
+    val failure: String?,
+    val missing: List<String>,
+    val dxvkSupported: Boolean?,
+    val stale: Boolean,
+) {
+    /** Requirement names shortened for one-line display. */
+    fun missingSummary(): String = when {
+        missing.isEmpty() -> ""
+        missing.size <= 3 -> missing.joinToString(", ")
+        else -> "${missing.take(3).joinToString(", ")} and ${missing.size - 3} more"
+    }
+}
+
+/**
  * What the DXVK picker says below the chips: which build a launch will really
- * use, and — since the answer depends on a Vulkan probe the user cannot see —
+ * use, and — since the answer depends on a guest probe the user cannot see —
  * what made that call.
  */
 data class DxvkFlavorStatus(
@@ -811,9 +854,8 @@ data class DxvkFlavorStatus(
             selected: DxvkFlavorSetting,
             resolvedId: String,
             d3d89Id: String?,
-            vulkanMinor: Int?,
+            probe: DxvkProbeInfo?,
         ): DxvkFlavorStatus {
-            val vulkan = vulkanMinor?.let { "Vulkan 1.$it" }
             val resolved =
                 if (resolvedId == DxvkFlavorIds.SAREK) DxvkFlavorSetting.SAREK else DxvkFlavorSetting.DXVK
             val d3d89 =
@@ -824,8 +866,8 @@ data class DxvkFlavorStatus(
                 selected = selected,
                 resolved = resolved,
                 d3d89 = d3d89,
-                impact = impact(selected, resolved, d3d89, vulkan),
-                warning = warning(selected, vulkanMinor, vulkan),
+                impact = impact(selected, resolved, d3d89, probe),
+                warning = warning(selected, probe),
             )
         }
 
@@ -833,7 +875,7 @@ data class DxvkFlavorStatus(
             selected: DxvkFlavorSetting,
             resolved: DxvkFlavorSetting,
             d3d89: DxvkFlavorSetting?,
-            vulkan: String?,
+            probe: DxvkProbeInfo?,
         ): String {
             if (selected != DxvkFlavorSetting.AUTO) {
                 return "${selected.label} · Direct3D 8–11 · applies on next launch"
@@ -844,27 +886,35 @@ data class DxvkFlavorStatus(
                 when {
                     d3d89 != null ->
                         "this device's Qualcomm driver rejects DXVK's fixed-function shaders"
-                    vulkan == null -> "this device did not report a Vulkan version"
-                    resolved == DxvkFlavorSetting.SAREK ->
-                        "this device reports $vulkan and DXVK 3.0.2 requires Vulkan 1.3"
-                    else -> "this device reports $vulkan"
+                    probe == null ->
+                        "the GPU is probed inside Wine on the next launch"
+                    probe.failure != null ->
+                        "the guest probe failed (${probe.failure})"
+                    probe.missing.isNotEmpty() ->
+                        "the guest adapter lacks ${probe.missingSummary()}"
+                    resolved == DxvkFlavorSetting.DXVK ->
+                        "the guest probe verified it on ${probe.deviceName ?: "the GPU"}"
+                    else -> "the guest probe could not verify a better build"
                 }
-            return "Automatic chose $choice · $reason"
+            val stale = if (probe?.stale == true) " · probed under another driver, re-probes on launch" else ""
+            return "Automatic chose $choice · $reason$stale"
         }
 
-        private fun warning(selected: DxvkFlavorSetting, vulkanMinor: Int?, vulkan: String?): String? {
-            if (vulkanMinor == null || vulkan == null) return null
-            return when {
-                selected == DxvkFlavorSetting.DXVK && vulkanMinor < DxvkFlavorIds.DXVK_MIN_VULKAN_MINOR ->
-                    "This device reports $vulkan. DXVK 3.0.2 enumerates no adapter below Vulkan 1.3, " +
-                        "so Direct3D 9–11 games will fail to start."
+        private fun warning(selected: DxvkFlavorSetting, probe: DxvkProbeInfo?): String? = when {
+            selected == DxvkFlavorSetting.DXVK && probe?.failure != null ->
+                "The guest probe could not verify this device (${probe.failure}); " +
+                    "DXVK 3.0.2 may find no adapter."
 
-                selected == DxvkFlavorSetting.SAREK && vulkanMinor >= DxvkFlavorIds.DXVK_MIN_VULKAN_MINOR ->
-                    "This device supports $vulkan. DXVK-Sarek is a 1.11-era build without the pipeline " +
-                        "library and Direct3D 11 work DXVK has done since, so it will run slower here."
+            selected == DxvkFlavorSetting.DXVK && !probe?.missing.isNullOrEmpty() ->
+                "The guest probe says this device lacks ${probe?.missingSummary()}. DXVK 3.0.2 will " +
+                    "report no adapter and Direct3D 9–11 games will not start."
 
-                else -> null
-            }
+            selected == DxvkFlavorSetting.SAREK && probe?.dxvkSupported == true ->
+                "The guest probe says this device meets every DXVK 3.0.2 requirement. DXVK-Sarek is " +
+                    "a 1.11-era build without the pipeline library and Direct3D 11 work DXVK has done " +
+                    "since, so it will run slower here."
+
+            else -> null
         }
     }
 }

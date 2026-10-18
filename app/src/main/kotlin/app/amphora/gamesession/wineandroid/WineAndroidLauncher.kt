@@ -5,7 +5,13 @@ import android.util.Log
 import app.amphora.core.common.dispatcher.DispatcherProvider
 import app.amphora.core.container.model.Container as AmphoraContainer
 import app.amphora.core.engine.AdvancedRuntimePreferences
+import app.amphora.core.engine.DxvkFlavorIds
+import app.amphora.core.engine.GraphicsDriverCapabilities
+import app.amphora.core.engine.GraphicsDriverIds
+import app.amphora.core.engine.GuestVulkanProbe
+import app.amphora.core.engine.WinlatorContainerManager
 import app.amphora.core.engine.buildWineExplorerCommand
+import app.amphora.core.engine.buildWineProbeCommand
 import app.amphora.core.engine.buildWineProgramCommand
 import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.core.engine.resolveWineDosPath
@@ -22,11 +28,15 @@ import com.winlator.cmod.runtime.display.environment.components.GuestProgramLaun
 import com.winlator.cmod.runtime.display.environment.components.PulseAudioComponent
 import com.winlator.cmod.runtime.system.ProcessHelper
 import com.winlator.cmod.runtime.wine.EnvVars
+import com.winlator.cmod.runtime.wine.GraphicsDriverConfigUtils
 import com.winlator.cmod.runtime.wine.WineInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -52,8 +62,17 @@ class WineAndroidLauncher
 @Inject
 constructor(
     @ApplicationContext private val context: Context,
+    private val guestVulkanProbe: GuestVulkanProbe,
+    private val graphicsDriverCapabilities: GraphicsDriverCapabilities,
+    private val containerManager: WinlatorContainerManager,
     private val dispatchers: DispatcherProvider,
 ) {
+    /**
+     * Probe verdict handshakes outlive [start] (they run while the session
+     * runs) — a process-lifetime scope is correct for this singleton.
+     */
+    private val handshakeScope = CoroutineScope(SupervisorJob() + dispatchers.io)
+
     data class RunningGuest(
         val pid: Int,
         val guestExecutable: String,
@@ -77,17 +96,33 @@ constructor(
         imageFs.setWinePath(wineInfo.path)
 
         val screenInfo = "${prepared.spec.displaySize.width}x${prepared.spec.displaySize.height}"
+        val envVars = buildWineAndroidEnv(imageFs, prepared)
+        val pulse = applyAudioEnv(imageFs, wnContainer, envVars)
+
+        // Guest Vulkan probe: on a cache miss the launch command runs
+        // amphora-vkprobe.exe --then <game> inside this session (its env, its
+        // wineserver), and the host handshake below relinks DXVK before it
+        // drops the go file. Cache hit / explicit flavor: plain command.
+        val probeInputs =
+            if (prepared.spec.target == LaunchTarget.PROGRAM) {
+                probeInputsOrNull(imageFs, wnContainer, envVars)
+            } else {
+                null
+            }
         val guestExecutable =
             when (prepared.spec.target) {
                 LaunchTarget.EXPLORER -> buildWineExplorerCommand(screenInfo)
                 LaunchTarget.PROGRAM -> {
                     val wineExePath = stageExeIntoPrefix(wnContainer, prepared.spec.exePath)
-                    buildWineProgramCommand(screenInfo, wineExePath, prepared.spec.exeArgs)
+                    if (probeInputs != null && guestVulkanProbe.stageProbeExe(prepared.container)) {
+                        guestVulkanProbe.clearHandshake(prepared.container)
+                        buildWineProbeCommand(screenInfo, wineExePath, prepared.spec.exeArgs)
+                    } else {
+                        buildWineProgramCommand(screenInfo, wineExePath, prepared.spec.exeArgs)
+                    }
                 }
             }
 
-        val envVars = buildWineAndroidEnv(imageFs, prepared)
-        val pulse = applyAudioEnv(imageFs, wnContainer, envVars)
         val wineProfile = contentsManager.getProfileByEntryName(wnContainer.getWineVersion())
         val launcher = GuestProgramLauncherComponent(contentsManager, wineProfile)
         launcher.setContainer(wnContainer)
@@ -106,6 +141,9 @@ constructor(
         val pid = launcher.pid
         check(pid > 0) { "wineandroid guest failed to start (pid=$pid)" }
         Log.i(TAG, "wineandroid guest running pid=$pid")
+        if (probeInputs != null) {
+            runProbeHandshake(prepared.container, probeInputs)
+        }
         RunningGuest(
             pid = pid,
             guestExecutable = guestExecutable,
@@ -186,6 +224,69 @@ constructor(
             "Could not stage executable $src into Wine prefix at $dest"
         }
         return "C:\\$exeName"
+    }
+
+    /**
+     * The probe inputs for this launch when `auto` DXVK resolution needs a
+     * fresh verdict, else null. The cache key is computed from the env the
+     * session actually execs — [envVars] plus the GPLC layer/loader/preload
+     * slice, applied on a scratch copy so the real env is untouched.
+     */
+    private fun probeInputsOrNull(
+        imageFs: ImageFs,
+        wnContainer: WinNativeContainer,
+        envVars: EnvVars,
+    ): GuestVulkanProbe.Inputs? {
+        val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+        val flavorId = prefs.getString(DxvkFlavorIds.PREFS_KEY_FLAVOR, null)
+        if (DxvkFlavorIds.normalize(flavorId) != DxvkFlavorIds.AUTO) return null
+        val env = EnvVars()
+        for (key in envVars) env.put(key, envVars.get(key))
+        GuestProgramLauncherComponent.applyVulkanRuntimePaths(env, imageFs.getRootDir().path)
+        GuestProgramLauncherComponent.applyWineAndroidVulkanEnv(context, env)
+        val envMap = LinkedHashMap<String, String>()
+        for (key in env) envMap[key] = env.get(key)
+        val driverId =
+            graphicsDriverCapabilities.effectiveDriverId(
+                prefs.getString(GraphicsDriverIds.PREFS_KEY_DRIVER_ID, null),
+            )
+        val pkgVersion =
+            GraphicsDriverConfigUtils.parseGraphicsDriverConfig(
+                wnContainer.getGraphicsDriverConfig(),
+            )["version"] ?: driverId
+        val inputs =
+            guestVulkanProbe.buildInputs(
+                effectiveDriverId = driverId,
+                driverPackageVersion = pkgVersion,
+                sessionEnv = envMap,
+                wineVersion = wnContainer.getWineVersion(),
+                box64Version = wnContainer.getBox64Version(),
+            )
+        return inputs.takeIf { guestVulkanProbe.needsProbe(it) }
+    }
+
+    /**
+     * Watch for the probe's `C:\amphora-vkprobe.json`, decide the DXVK flavor,
+     * relink the prefix, then drop `C:\amphora-vkprobe.go`. Runs concurrently
+     * with the session's start; any failure still writes the go file so the
+     * game launches on the provisional links.
+     */
+    private fun runProbeHandshake(container: AmphoraContainer, inputs: GuestVulkanProbe.Inputs) {
+        handshakeScope.launch {
+            val started = System.nanoTime()
+            val verdict = guestVulkanProbe.awaitVerdict(container, inputs)
+            runCatching {
+                containerManager.applyProbeVerdict(container, verdict.report)
+            }.onFailure {
+                Log.w(TAG, "guest probe verdict apply failed; provisional links kept", it)
+            }
+            guestVulkanProbe.writeGoFile(container)
+            Log.i(
+                TAG,
+                "guest probe handshake done in ${(System.nanoTime() - started) / 1_000_000}ms " +
+                    "(failure=${verdict.failure})",
+            )
+        }
     }
 
     companion object {
