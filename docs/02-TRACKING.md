@@ -28,7 +28,7 @@
   - D3D12 选 Sarek 时必然失败（Sarek 的 dxgi 不认 D3D12 设备）。
   - HUD 显示 `GUEST 0%`。
   - content_manifest `f9cfa31` 已把 AIO 改 pin 到 amphora fork `cnb.cool/atowerlight/aio-graphics-test`（fork `b8acc49` = 上游 2.1.0 `582454d` + D3D8 窗口模式 PresentationInterval 修复），dx8 已在 Y700 复测（`5c8f5e1`）：fork 修复生效——D3D8 设备建成、bench 144.05 fps；方块仍不画是 Qualcomm FF -13（上条等用户决定项），非 AIO 问题。
-  - ReDroid CI 仍红：`redroid-ci.sh` 的测试清单已在 `8f7a4aa` 去掉两个不存在的类、断言改 `OK (7 tests)`，是否变绿未验。
+  - ReDroid CI（`redroid-arm64.yml`）已停自动触发，只留手动 `workflow_dispatch`：main 上一直红，`redroid-ci.sh` 的测试清单在 `8f7a4aa` 去掉两个不存在的类、断言改 `OK (7 tests)`，是否变绿未验。修绿后恢复 `workflow_run` 触发。
   - `WineHeadlessRunner` 为 `HeadlessWineBootTest` 与 PrefixPack 生成器共用，Y700 均已验证（§3）。生成器与 `dd99971`（XServer + GPLC 完整 env）同机同 WCP 对比：两棵 `.wine` 树 472 项逐路径一致，仅 `system.reg` 差 10 行，全部在 `Wow6432Node\Interface` 下、为共享 IID 的最后写入者差异（`Picture`/`IPictureDisp`、`Font`/`IFontDisp` 名、PSOAInterface/PSFactoryBuffer 代理 CLSID、wshom/scrrun TypeLib 反向指针）——两边都是合法 Wine 注册、被引用的 CLSID/Typelib 在两树都在场，64 位 Interface 视图逐字节相同，判定为 X 环境下 32 位注册写序差异，非回归。复现注意：`dd99971` 的生成器在 instrument 进程里要先 `ProcessHelper.init`（HiltTestApplication 不走 `AmphoraApplication.onCreate`，Enforcing 设备上 box64 直接 exec 会被 `execute_no_trans` 拒），给 `setUp` 补一行即可；`HeadlessWineBootTest` 的 staged .wcp 文件名与 Entry 常量硬编码，换 pin 需同步。
 
 ## 3. 已验证能力（最近一次真机 PASS）
