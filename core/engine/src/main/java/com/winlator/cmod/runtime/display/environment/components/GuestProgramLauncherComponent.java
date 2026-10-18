@@ -24,20 +24,12 @@ import com.winlator.cmod.runtime.system.ProcessHelper;
 import com.winlator.cmod.runtime.wine.EnvVars;
 import com.winlator.cmod.runtime.wine.WineInfo;
 import com.winlator.cmod.shared.io.FileUtils;
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.InetAddress;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class GuestProgramLauncherComponent extends EnvironmentComponent {
   private static final String TAG = "GuestProgramLauncherComponent";
-  private static final String DEPENDENCY_LOG_TAG = "CurlDeps";
-  private static final long DEPENDENCY_CHECK_TIMEOUT_MS = 1500L;
   private static final Object lock = new Object();
-  private static final AtomicBoolean dependencyCheckScheduled = new AtomicBoolean(false);
   private String guestExecutable;
   private int pid = -1;
   private int launchGeneration = 0;
@@ -94,7 +86,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         extractEmulatorsDlls();
       } else extractBox64Files();
       copyDefaultBox64RCFile();
-      scheduleDependencyCheck();
 
       launchGeneration++;
       pid = execGuestProgram();
@@ -116,111 +107,12 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
     }
   }
 
-  private void scheduleDependencyCheck() {
-    if (!dependencyCheckScheduled.compareAndSet(false, true)) return;
-
-    Thread thread =
-        new Thread(
-            () -> Log.d(DEPENDENCY_LOG_TAG, checkDependencies()),
-            "GuestDependencyCheck");
-    thread.setDaemon(true);
-    thread.start();
-  }
-
   private void copyDefaultBox64RCFile() {
     Context context = environment.getContext();
     ImageFs imageFs = ImageFs.find(context);
     File rootDir = imageFs.getRootDir();
     String assetPath = "box86_64/default.box64rc";
     FileUtils.copy(context, assetPath, new File(rootDir, "/etc/config.box64rc"));
-  }
-
-  private String checkDependencies() {
-    String curlPath = environment.getImageFs().getRootDir().getPath() + "/usr/lib/libXau.so";
-    StringBuilder output = new StringBuilder("Checking Curl dependencies...\n");
-    java.lang.Process process = null;
-    Thread stdoutPump = null;
-    Thread stderrPump = null;
-
-    try {
-      process = Runtime.getRuntime().exec(new String[] {"ldd", curlPath});
-      stdoutPump = createDependencyPump(process.getInputStream(), output);
-      stderrPump = createDependencyPump(process.getErrorStream(), output);
-
-      stdoutPump.start();
-      stderrPump.start();
-
-      long deadline = System.currentTimeMillis() + DEPENDENCY_CHECK_TIMEOUT_MS;
-      while (true) {
-        try {
-          int exitCode = process.exitValue();
-          synchronized (output) {
-            output.append("ldd exit code: ").append(exitCode).append("\n");
-          }
-          break;
-        } catch (IllegalThreadStateException ignored) {
-          if (System.currentTimeMillis() >= deadline) {
-            synchronized (output) {
-              output
-                  .append("Timed out after ")
-                  .append(DEPENDENCY_CHECK_TIMEOUT_MS)
-                  .append("ms; skipping blocking dependency probe\n");
-            }
-            process.destroy();
-            break;
-          }
-
-          try {
-            Thread.sleep(50L);
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            synchronized (output) {
-              output.append("Dependency probe interrupted\n");
-            }
-            process.destroy();
-            break;
-          }
-        }
-      }
-    } catch (Exception e) {
-      output.append("Error running ldd: ").append(e.getMessage());
-    } finally {
-      joinDependencyPump(stdoutPump);
-      joinDependencyPump(stderrPump);
-    }
-
-    return output.toString();
-  }
-
-  private Thread createDependencyPump(InputStream stream, StringBuilder output) {
-    Thread pump =
-        new Thread(
-            () -> {
-              try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                  synchronized (output) {
-                    output.append(line).append("\n");
-                  }
-                }
-              } catch (IOException e) {
-                synchronized (output) {
-                  output.append("Error reading dependency output: ").append(e.getMessage()).append("\n");
-                }
-              }
-            },
-            "GuestDependencyPump");
-    pump.setDaemon(true);
-    return pump;
-  }
-
-  private void joinDependencyPump(Thread pump) {
-    if (pump == null) return;
-    try {
-      pump.join(200L);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
   }
 
   @Override
@@ -233,7 +125,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       } else {
         Log.d("GuestProgramLauncherComponent", "Stop requested with no tracked guest process");
       }
-      dependencyCheckScheduled.set(false);
     }
   }
 
@@ -563,26 +454,18 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
       FileUtils.chmod(box64File, 0755);
     }
 
-    // wineandroid: write a keeper script (no sh -c quoting). Session leader is
-    // the keeper; it waits on $WINEPREFIX/server-* so start.exe exit does not
-    // SIGHUP explorer. Java waitFor is on the keeper.
+    // wineandroid: write a keeper script (no sh -c quoting). The keeper is the
+    // session leader (setsid -w) and waits for the wine launch command, so the
+    // tracked guest pid ends exactly when the program does; the rest of the
+    // Wine tree (explorer, wineserver) follows within about a second and the
+    // termination callback's reap window collects it. Wine's server directory
+    // cannot be used as a liveness signal: its lock and socket files stay
+    // behind after wineserver exits.
     if ("1".equals(envVars.get("AMPHORA_WINEANDROID")) && !command.isEmpty()) {
       File keeper = new File(imageFs.getRootDir(), "tmp/wineandroid-keep.sh");
       File keeperDir = keeper.getParentFile();
       if (keeperDir != null) keeperDir.mkdirs();
-      String script =
-          "#!/system/bin/sh\n"
-              + command
-              + " &\n"
-              + "i=0\n"
-              + "while [ $i -lt 20 ]; do\n"
-              + "  ls \"$WINEPREFIX\"/server-* >/dev/null 2>&1 && break\n"
-              + "  i=$((i+1))\n"
-              + "  /system/bin/sleep 1\n"
-              + "done\n"
-              + "while ls \"$WINEPREFIX\"/server-* >/dev/null 2>&1; do\n"
-              + "  /system/bin/sleep 1\n"
-              + "done\n";
+      String script = "#!/system/bin/sh\n" + command + " &\n" + "wait $!\n";
       if (!FileUtils.writeString(keeper, script)) {
         Log.e(TAG, "failed to write wineandroid keeper " + keeper);
       } else {

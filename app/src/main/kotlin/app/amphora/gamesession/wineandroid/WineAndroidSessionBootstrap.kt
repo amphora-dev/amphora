@@ -9,6 +9,7 @@ import app.amphora.core.content.ContentCatalog
 import app.amphora.core.content.ProvisionProgress
 import app.amphora.core.content.ProvisionProgressBus
 import app.amphora.core.content.RuntimeAssetProvisioner
+import app.amphora.core.engine.AdvancedRuntimePreferences
 import app.amphora.core.engine.WineSessionPreparer
 import app.amphora.core.engine.model.LaunchSpec
 import app.amphora.core.rootfs.RootfsInstaller
@@ -16,6 +17,7 @@ import app.amphora.core.rootfs.model.RootfsSpec
 import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.display.environment.ImageFsInstaller
 import com.winlator.cmod.runtime.system.ProcessHelper
+import com.winlator.cmod.runtime.wine.EnvVars
 import com.winlator.cmod.runtime.wine.WineRegistryEditor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -52,7 +54,9 @@ constructor(
             // Disk-cached pins keep launches off the network; a stale pin whose
             // asset a release already pruned is retried once with fresh pins.
             val container = catalog.provisionWithCurrentPins { provision(spec) }
-            val env = preparer.envVars() + spec.env
+            // Preparer env → persisted Advanced runtime settings → LaunchSpec
+            // (the caller-controlled layer stays last).
+            val env = preparer.envVars() + advancedRuntimeEnv() + spec.env
             Log.i(
                 TAG,
                 "wineandroid prefix ready container=${container.id.value} " +
@@ -68,6 +72,13 @@ constructor(
         } finally {
             progressBus.clear()
         }
+    }
+
+    /** The Advanced runtime settings as env (Wine log level, DXVK HUD, vkd3d, custom env, …). */
+    private fun advancedRuntimeEnv(): Map<String, String> {
+        val env = EnvVars()
+        AdvancedRuntimePreferences.applyEnvOverrides(context, env)
+        return buildMap { for (key in env) put(key, env.get(key)) }
     }
 
     /** Idempotent: re-running after a partial failure re-applies the current pins. */

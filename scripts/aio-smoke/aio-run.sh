@@ -54,6 +54,20 @@ a shell am force-stop "$PKG"
 a shell svc power stayon usb
 a shell input keyevent KEYCODE_WAKEUP
 a shell wm dismiss-keyguard
+# The app's Wine log defaults to off; the verdict below needs wine_stderr.log
+# (err: lines, DXVK version), so set the Advanced "Wine log" setting to
+# Errors (AIO_WINE_LOG=errors|warnings|off) while the app is stopped.
+prefs_script=$(mktemp)
+cat >"$prefs_script" <<PREFS
+f=shared_prefs/amphora_graphics.xml
+mkdir -p shared_prefs
+[ -f \$f ] || printf '%s\\n%s\\n' "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>" '<map>' '</map>' >\$f
+sed -i '/name="advanced_wine_debug"/d' \$f
+sed -i 's#</map>#    <string name="advanced_wine_debug">${AIO_WINE_LOG:-errors}</string>\\n</map>#' \$f
+PREFS
+adb -s "$S" push "$prefs_script" /data/local/tmp/aio-prefs.sh >/dev/null
+rm -f "$prefs_script"
+a shell "run-as $PKG sh /data/local/tmp/aio-prefs.sh"
 # AIO 2.x writes its results under "AIO Results/" in the guest working directory (the imagefs root).
 a shell "run-as $PKG sh -c 'rm -rf \"files/imagefs/AIO Results\"; : > files/wine_stderr.log'" 2>/dev/null
 a shell dumpsys SurfaceFlinger --timestats -disable -clear >/dev/null
