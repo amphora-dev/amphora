@@ -16,11 +16,11 @@ enum class ContentComponent {
     DXVK,
 
     /**
-     * DXVK-Sarek, installed instead of [DXVK] on the Leegao vendor-HAL path.
-     *
-     * [DXVK] needs Vulkan 1.3 and enumerates no adapter on the hardware that path
-     * exists for. Both are pinned because the device only picks between them at
-     * launch, and only the one it picks is ever resolved.
+     * DXVK-Sarek. On the Leegao vendor-HAL path it is installed instead of
+     * [DXVK], which needs Vulkan 1.3 and enumerates no adapter on the hardware
+     * that path exists for. On the Qualcomm proprietary path with the flavor
+     * setting on auto it is installed alongside [DXVK] as the split D3D8/9
+     * build — see [app.amphora.core.engine.DxvkFlavorIds.d3d89Flavor].
      */
     DXVK_SAREK,
     VKD3D,

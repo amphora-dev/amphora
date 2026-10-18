@@ -16,6 +16,7 @@ import com.winlator.cmod.runtime.container.WinComponentSetup
 import com.winlator.cmod.runtime.content.AdrenotoolsManager
 import com.winlator.cmod.runtime.content.ContentProfile
 import com.winlator.cmod.runtime.content.ContentsManager
+import com.winlator.cmod.runtime.content.SharedDllLinker
 import com.winlator.cmod.runtime.display.environment.ImageFs
 import com.winlator.cmod.runtime.display.environment.components.PulseAudioRuntimeSupport
 import com.winlator.cmod.runtime.system.GPUInformation
@@ -80,6 +81,56 @@ internal fun resolveSessionAudioDriver(
     AdvancedRuntimePreferences.AUDIO_DRIVER_PULSEAUDIO
 } else {
     AdvancedRuntimePreferences.AUDIO_DRIVER_ALSA
+}
+
+/** DLLs a DXVK WCP owns and links into both system32 and syswow64. */
+internal val DXVK_SHARED_DLLS = arrayOf("d3d8.dll", "d3d9.dll", "d3d10core.dll", "d3d11.dll", "dxgi.dll")
+
+/** The subset re-pointed at the split install when a [DxWrapperSelection.d3d89] token is armed. */
+internal val D3D89_SPLIT_DLLS = arrayOf("d3d8.dll", "d3d9.dll")
+
+/**
+ * True when a DXVK-owned DLL link is missing, is not a symlink, or points
+ * into the wrong install. d3d10core/d3d11/dxgi must resolve under
+ * [dxvkInstallDir]; d3d8/d3d9 resolve under [d3d89InstallDir] when the split
+ * is armed ([d3d89Armed]), else [dxvkInstallDir].
+ *
+ * A null [dxvkInstallDir] means the main profile could not be resolved —
+ * the extract stage only warns for that, so validity is all that is
+ * required. An armed split with a null [d3d89InstallDir] instead *needs*
+ * refresh: the extract stage either resolves it then or fails loudly, which
+ * beats silently rendering D3D8/9 through the build this split exists to
+ * avoid.
+ *
+ * d3d10/d3d10_1 are Wine front-ends (not in the WCP) — being a valid link is
+ * all that is checked, matching the pre-split behaviour.
+ */
+internal fun dxvkLinksNeedRefresh(
+    system32: File,
+    syswow64: File,
+    dxvkInstallDir: File?,
+    d3d89Armed: Boolean,
+    d3d89InstallDir: File?,
+): Boolean {
+    fun validLink(file: File): Boolean = Files.isSymbolicLink(file.toPath()) && file.isFile
+    fun inside(file: File, installDir: File): Boolean =
+        file.canonicalFile.path.startsWith(installDir.canonicalPath + File.separator)
+    fun linkedTo(file: File, installDir: File?, strict: Boolean): Boolean {
+        if (!validLink(file)) return false
+        if (strict) return installDir != null && inside(file, installDir)
+        return installDir == null || inside(file, installDir)
+    }
+    fun bothLinkedTo(name: String, installDir: File?, strict: Boolean): Boolean =
+        linkedTo(File(system32, name), installDir, strict) &&
+            linkedTo(File(syswow64, name), installDir, strict)
+
+    for (dll in DXVK_SHARED_DLLS) {
+        val split = dll in D3D89_SPLIT_DLLS && d3d89Armed
+        if (!bothLinkedTo(dll, if (split) d3d89InstallDir else dxvkInstallDir, split)) return true
+    }
+    return arrayOf("d3d10.dll", "d3d10_1.dll").any {
+        !validLink(File(system32, it)) || !validLink(File(syswow64, it))
+    }
 }
 
 /**
@@ -284,6 +335,9 @@ class XServerWineSessionPreparer @Inject constructor(
                 "DX 包装: dxvk='${selection.dxvk}' vkd3d='${selection.vkd3d}' ddraw='${selection.ddraw}'",
             )
             localDxwrapper = selection.asDelimited()
+            if (selection.d3d89.isNotEmpty()) {
+                Log.i(TAG, "D3D8/9 split armed: d3d8/d3d9 <- '${selection.d3d89}'")
+            }
         }
 
         val wincomponents = c.getWinComponents()
@@ -537,11 +591,27 @@ class XServerWineSessionPreparer @Inject constructor(
             }
         }
 
+        var resolvedD3d89 = parts.getOrNull(3).orEmpty()
+        if (hasSelectedDxvkWrapper(dxvkToken) && resolvedD3d89.isNotEmpty()) {
+            val profile = resolveD3d89Profile(resolvedD3d89)
+            if (profile == null) {
+                Log.w(TAG, "D3D8/9 split DXVK profile missing for token=$resolvedD3d89")
+                return null
+            }
+            val token = ContentPinResolver.wrapperToken(DxWrapperSelection.D3D89_PREFIX, profile)
+            if (token != resolvedD3d89) {
+                Log.w(TAG, "D3D8/9 split token '$resolvedD3d89' -> installed '$token'")
+                resolvedD3d89 = token
+                changed = true
+            }
+        }
+
         val next =
             buildList {
                 add(resolvedDxvk)
                 if (resolvedVkd3d.isNotEmpty()) add(resolvedVkd3d)
                 if (ddraw.isNotEmpty()) add(ddraw)
+                if (resolvedD3d89.isNotEmpty()) add(resolvedD3d89)
             }.joinToString(";")
         if (changed) {
             c.setDXWrapper(next)
@@ -639,6 +709,10 @@ class XServerWineSessionPreparer @Inject constructor(
                         "d3d10_1.dll",
                     )
                     extractD8VKIfNeeded(dxvkWrapper, windowsDir)
+                    val d3d89Wrapper = parts.getOrNull(3).orEmpty()
+                    if (d3d89Wrapper.isNotEmpty()) {
+                        linkSplitD3d89Dlls(d3d89Wrapper, windowsDir)
+                    }
                 } else {
                     // Match WinNative XSDA: no fake ARCHIVE/Wine-builtin substitute.
                     // Real DXVK must be installed via ContentsManager (amphora bundles
@@ -795,6 +869,50 @@ class XServerWineSessionPreparer @Inject constructor(
         ContentProfile.ContentType.CONTENT_TYPE_DXVK,
         dxvkWrapper,
     )
+
+    /**
+     * Resolve the DXVK [ContentProfile] a `d3d89-<verName>-<verCode>` token
+     * names — the same DXVK-type installs the main token resolves against,
+     * just stripped of its split prefix.
+     */
+    private fun resolveD3d89Profile(d3d89Token: String): ContentProfile? = ContentPinResolver.resolveInstalledProfile(
+        contentsManager,
+        ContentProfile.ContentType.CONTENT_TYPE_DXVK,
+        d3d89Token.removePrefix("${DxWrapperSelection.D3D89_PREFIX}-"),
+    )
+
+    /**
+     * Repoint d3d8/d3d9 at the second DXVK install the [DxWrapperSelection.d3d89]
+     * token names. Runs right after the main profile's applyContent so the
+     * split build wins exactly those four links while dxgi/d3d10core/d3d11
+     * keep pointing at the main one — d3d8 must stay with d3d9 (the private
+     * bridge), dxgi/d3d11/d3d10core must stay together.
+     */
+    private fun linkSplitD3d89Dlls(d3d89Wrapper: String, windowsDir: File) {
+        val profile =
+            requireNotNull(resolveD3d89Profile(d3d89Wrapper)) {
+                "D3D8/9 split DXVK profile not installed: $d3d89Wrapper"
+            }
+        val installDir = ContentsManager.getInstallDir(context, profile)
+        val contentsRoot = ContentsManager.getContentDir(context)
+        for (dll in D3D89_SPLIT_DLLS) {
+            for (subdir in arrayOf("system32", "syswow64")) {
+                val source =
+                    File(
+                        installDir,
+                        profile.fileList.orEmpty()
+                            .firstOrNull { it.target == "\${$subdir}/$dll" }
+                            ?.source
+                            ?: "$subdir/$dll",
+                    )
+                check(source.isFile) { "D3D8/9 split source missing: $source" }
+                check(SharedDllLinker.link(contentsRoot, source, File(windowsDir, "$subdir/$dll"))) {
+                    "D3D8/9 split link failed: $source -> $subdir/$dll"
+                }
+            }
+        }
+        Log.i(TAG, "D3D8/9 split applied: d3d8/d3d9 <- ${ContentsManager.getEntryName(profile)}")
+    }
 
     private fun extractD8VKIfNeeded(dxvkWrapper: String, windowsDir: File) {
         if (compareVersion(dxvkWrapper, "2.4") >= 0) return
@@ -1047,7 +1165,7 @@ class XServerWineSessionPreparer @Inject constructor(
         // falls back to WineD3D because the optional DirectDraw wrappers only
         // ship 32-bit DLLs. Keep that path explicitly on OpenGL → EGL/Zink.
         WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
-        if (dxwrapper.split(";").lastOrNull() == DirectDrawWrapperIds.CNC_DDRAW) {
+        if (dxwrapper.split(";").getOrNull(2) == DirectDrawWrapperIds.CNC_DDRAW) {
             envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
         }
         // Both DirectDraw wrapper assets are PE32 only. native,builtin therefore
@@ -1466,18 +1584,24 @@ class XServerWineSessionPreparer @Inject constructor(
 
         val parts = dxwrapper.split(";")
         if (parts.firstOrNull()?.startsWith("dxvk-") == true) {
-            // DLLs owned by the DXVK WCP (Amphora 3.0.2 / upstream ≥ 2.0).
-            val dxvkDlls =
-                arrayOf(
-                    "d3d8.dll",
-                    "d3d9.dll",
-                    "d3d10core.dll",
-                    "d3d11.dll",
-                    "dxgi.dll",
+            val dxvkInstallDir =
+                resolveDxvkProfile(parts.first())
+                    ?.let { ContentsManager.getInstallDir(context, it) }
+            val d3d89Token = parts.getOrNull(3).orEmpty()
+            val d3d89InstallDir =
+                d3d89Token.takeIf { it.isNotEmpty() }
+                    ?.let { resolveD3d89Profile(it) }
+                    ?.let { ContentsManager.getInstallDir(context, it) }
+            if (dxvkLinksNeedRefresh(
+                    system32,
+                    syswow64,
+                    dxvkInstallDir,
+                    d3d89Armed = d3d89Token.isNotEmpty(),
+                    d3d89InstallDir = d3d89InstallDir,
                 )
-            if (dxvkDlls.any { !bothLinked(it) }) return true
-            // Wine front-ends (not in the DXVK WCP); still must be present links.
-            if (arrayOf("d3d10.dll", "d3d10_1.dll").any { !bothLinked(it) }) return true
+            ) {
+                return true
+            }
         }
         if (parts.getOrNull(1)?.startsWith("vkd3d-") == true &&
             arrayOf("d3d12.dll", "d3d12core.dll").any { !bothLinked(it) }

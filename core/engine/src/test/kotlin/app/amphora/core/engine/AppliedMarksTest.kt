@@ -26,8 +26,25 @@ class AppliedMarksTest {
         assertEquals("dxvk-a", ok!!.dxvk)
         assertEquals("vkd3d-b", ok.vkd3d)
         assertEquals("dd7to9", ok.ddraw)
+        assertEquals("", ok.d3d89)
         assertEquals("dxvk-a;vkd3d-b;dd7to9|arch=x86_64", ok.gateKey("x86_64"))
         assertNull(DxWrapperSelection.parse("dxvk+vkd3d"))
         assertNull(DxWrapperSelection.parse(""))
+    }
+
+    @Test
+    fun dxWrapperSelectionRoundTripsTheD3d89SplitToken() {
+        val split = DxWrapperSelection.parse("dxvk-a;vkd3d-b;dd7to9;d3d89-c")
+        assertEquals("d3d89-c", split!!.d3d89)
+        assertEquals("dxvk-a;vkd3d-b;dd7to9;d3d89-c", split.asDelimited())
+        // Arming and disarming the split must re-gate the apply.
+        assertEquals(
+            "dxvk-a;vkd3d-b;dd7to9;d3d89-c|arch=x86_64",
+            split.gateKey("x86_64"),
+        )
+        assertEquals(
+            "dxvk-a;vkd3d-b;dd7to9",
+            split.copy(d3d89 = "").asDelimited(),
+        )
     }
 }

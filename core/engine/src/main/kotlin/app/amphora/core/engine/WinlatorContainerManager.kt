@@ -87,18 +87,22 @@ constructor(
     override suspend fun getOrCreate(id: ContainerId): AmphoraContainer = withContext(dispatchers.io) {
         val manifest = catalog.require()
         val dxvkComponent = dxvkComponent()
+        val d3d89Component = d3d89Component()
         // 1. Bundled Wine (Proton) + Box64 + DXVK + VKD3D must be installed
         //    before a container can be created / launched. Idempotent.
         contentSource.resolve(ContentComponent.WINE.id)
         contentSource.resolve(ContentComponent.BOX64.id)
         contentSource.resolve(dxvkComponent.id)
+        if (d3d89Component != null && d3d89Component != dxvkComponent) {
+            contentSource.resolve(d3d89Component.id)
+        }
         contentSource.resolve(ContentComponent.VKD3D.id)
         // 2. Load the installed profiles into this manager's ContentsManager.
         contentsManager.syncContents()
 
         val wineVersion = resolveWineVersion(manifest)
         val box64Version = resolveBox64Version(manifest)
-        val dxwrapper = resolveDxwrapper(manifest, dxvkComponent)
+        val dxwrapper = resolveDxwrapper(manifest, dxvkComponent, d3d89Component)
         val wincomponents = WindowsComponentPreferences.serialized(context)
         val targetId = parseContainerId(id)
 
@@ -221,9 +225,14 @@ constructor(
     /**
      * ContentsManager-resolvable DXVK+VKD3D token for the container `dxwrapper`
      * field. Prefers manifest-pinned entries; falls back to any installed
-     * profiles of each type.
+     * profiles of each type. [d3d89Component] adds the optional fourth part —
+     * the DXVK install d3d8/d3d9 link into when the launch splits them off.
      */
-    private fun resolveDxwrapper(manifest: ContentManifest, dxvkComponent: ContentComponent): String {
+    private fun resolveDxwrapper(
+        manifest: ContentManifest,
+        dxvkComponent: ContentComponent,
+        d3d89Component: ContentComponent?,
+    ): String {
         val dxvk =
             resolveWrapperToken(
                 manifest = manifest,
@@ -244,7 +253,16 @@ constructor(
                     .getSharedPreferences(DirectDrawWrapperIds.PREFS_NAME, Context.MODE_PRIVATE)
                     .getString(DirectDrawWrapperIds.PREFS_KEY_WRAPPER_ID, null),
             )
-        return "$dxvk;$vkd3d;$ddraw"
+        val d3d89 =
+            d3d89Component?.let {
+                resolveWrapperToken(
+                    manifest = manifest,
+                    component = it,
+                    type = ContentProfile.ContentType.CONTENT_TYPE_DXVK,
+                    prefix = DxWrapperSelection.D3D89_PREFIX,
+                )
+            }.orEmpty()
+        return DxWrapperSelection(dxvk, vkd3d, ddraw, d3d89).asDelimited()
     }
 
     /**
@@ -262,6 +280,20 @@ constructor(
                 storedFlavorId = prefs.getString(DxvkFlavorIds.PREFS_KEY_FLAVOR, null),
                 storedDriverId = storedGraphicsDriverId(),
             )
+        return DxvkFlavorIds.component(flavor)
+    }
+
+    /**
+     * The component whose pin supplies d3d8/d3d9 when the launch splits them
+     * off the main DXVK build, or null when there is no split.
+     */
+    private fun d3d89Component(): ContentComponent? {
+        val prefs = context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)
+        val flavor =
+            graphicsDriverCapabilities.effectiveD3d89DxvkFlavor(
+                storedFlavorId = prefs.getString(DxvkFlavorIds.PREFS_KEY_FLAVOR, null),
+                storedDriverId = storedGraphicsDriverId(),
+            ) ?: return null
         return DxvkFlavorIds.component(flavor)
     }
 

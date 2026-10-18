@@ -25,6 +25,13 @@ object DxvkFlavorIds {
     /** Vulkan minor version DXVK 3.0.2 requires. */
     const val DXVK_MIN_VULKAN_MINOR = 3
 
+    /**
+     * The flavor [d3d89Flavor] returns — which pinned build supplies d3d8/d3d9
+     * when the Qualcomm split engages. Single point to change once the split
+     * build moves (e.g. to a DXVK 2.x pin).
+     */
+    const val D3D89_FLAVOR = SAREK
+
     fun normalize(id: String?): String = when (id) {
         DXVK -> DXVK
         SAREK -> SAREK
@@ -48,6 +55,30 @@ object DxvkFlavorIds {
 
     fun component(flavor: String): ContentComponent =
         if (normalize(flavor) == SAREK) ContentComponent.DXVK_SAREK else ContentComponent.DXVK
+
+    /**
+     * The build d3d8/d3d9 come from on a launch resolving to [resolvedFlavor]
+     * on [effectiveDriverId], or null when they stay with that build.
+     *
+     * Qualcomm's proprietary Vulkan driver — what the wrapper ICD and the
+     * System loader both reach on Adreno — rejects the fixed-function shaders
+     * DXVK ≥ 2.x emits for D3D8/9 (`vkCreateGraphicsPipelines` fails with -13
+     * and the draw never lands). DXVK-Sarek's compile fine, so on that path
+     * `auto` puts d3d8/d3d9 on whatever [ContentComponent.DXVK_SAREK] pins while
+     * dxgi/d3d10core/d3d11 stay on 3.0.2. Turnip compiles the same shaders
+     * without error, non-Adreno devices never run the Qualcomm stack, and an
+     * explicit flavor pick is meant to be pure — none of those split.
+     */
+    fun d3d89Flavor(id: String?, resolvedFlavor: String, effectiveDriverId: String, isAdreno: Boolean): String? = if (
+        normalize(id) == AUTO &&
+        resolvedFlavor == DXVK &&
+        isAdreno &&
+        (effectiveDriverId == GraphicsDriverIds.WRAPPER || effectiveDriverId == GraphicsDriverIds.SYSTEM)
+    ) {
+        D3D89_FLAVOR
+    } else {
+        null
+    }
 
     /** True when [flavor] cannot enumerate an adapter on a device at [vulkanMinor]. */
     fun isUnsupported(flavor: String, vulkanMinor: Int?): Boolean =

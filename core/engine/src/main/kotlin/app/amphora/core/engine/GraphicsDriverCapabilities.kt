@@ -78,6 +78,18 @@ class GraphicsDriverCapabilities @Inject constructor(@param:ApplicationContext p
         usesLeegao = effectiveDriverId(storedDriverId) == GraphicsDriverIds.LEEGAO,
     )
 
+    /**
+     * The second DXVK build d3d8/d3d9 come from for
+     * [storedFlavorId]/[storedDriverId], or null when the launch is not split.
+     * See [DxvkFlavorIds.d3d89Flavor].
+     */
+    fun effectiveD3d89DxvkFlavor(storedFlavorId: String?, storedDriverId: String?): String? = DxvkFlavorIds.d3d89Flavor(
+        id = storedFlavorId,
+        resolvedFlavor = effectiveDxvkFlavor(storedFlavorId, storedDriverId),
+        effectiveDriverId = effectiveDriverId(storedDriverId),
+        isAdreno = isAdreno,
+    )
+
     private companion object {
         const val TAG = "GraphicsDriverCaps"
     }

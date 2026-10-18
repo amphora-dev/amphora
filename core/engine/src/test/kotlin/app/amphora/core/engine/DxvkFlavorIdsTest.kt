@@ -3,6 +3,7 @@ package app.amphora.core.engine
 import app.amphora.core.content.model.ContentComponent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -57,6 +58,80 @@ class DxvkFlavorIdsTest {
         assertFalse(DxvkFlavorIds.isUnsupported(DxvkFlavorIds.DXVK, vulkanMinor = null))
         // Sarek runs anywhere; it is only ever a downgrade, never a failure.
         assertFalse(DxvkFlavorIds.isUnsupported(DxvkFlavorIds.SAREK, vulkanMinor = 3))
+    }
+
+    @Test
+    fun qualcommProprietaryAutoResolvingToStockSplitsD3d89() {
+        // The Qualcomm stack is what the wrapper ICD wraps and what the System
+        // loader loads on Adreno — both get the split.
+        for (driver in listOf(GraphicsDriverIds.WRAPPER, GraphicsDriverIds.SYSTEM)) {
+            assertEquals(
+                "driver=$driver",
+                DxvkFlavorIds.D3D89_FLAVOR,
+                DxvkFlavorIds.d3d89Flavor(
+                    id = DxvkFlavorIds.AUTO,
+                    resolvedFlavor = DxvkFlavorIds.DXVK,
+                    effectiveDriverId = driver,
+                    isAdreno = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun turnipLeegaoAndExplicitFlavorsNeverSplit() {
+        // Turnip compiles DXVK's fixed-function shaders fine — no split.
+        assertNull(
+            DxvkFlavorIds.d3d89Flavor(
+                id = DxvkFlavorIds.AUTO,
+                resolvedFlavor = DxvkFlavorIds.DXVK,
+                effectiveDriverId = GraphicsDriverIds.TURNIP_BALANCED,
+                isAdreno = true,
+            ),
+        )
+        // Leegao is only ever the non-Adreno path.
+        assertNull(
+            DxvkFlavorIds.d3d89Flavor(
+                id = DxvkFlavorIds.AUTO,
+                resolvedFlavor = DxvkFlavorIds.DXVK,
+                effectiveDriverId = GraphicsDriverIds.LEEGAO,
+                isAdreno = false,
+            ),
+        )
+        // Explicit picks are meant to be pure, broken or not.
+        for (flavor in listOf(DxvkFlavorIds.DXVK, DxvkFlavorIds.SAREK)) {
+            assertNull(
+                "flavor=$flavor",
+                DxvkFlavorIds.d3d89Flavor(
+                    id = flavor,
+                    resolvedFlavor = flavor,
+                    effectiveDriverId = GraphicsDriverIds.WRAPPER,
+                    isAdreno = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun theSplitOnlyArmsOffStockDxvkOnAdreno() {
+        // Auto resolving to Sarek (sub-1.3 device) leaves nothing to split off.
+        assertNull(
+            DxvkFlavorIds.d3d89Flavor(
+                id = DxvkFlavorIds.AUTO,
+                resolvedFlavor = DxvkFlavorIds.SAREK,
+                effectiveDriverId = GraphicsDriverIds.WRAPPER,
+                isAdreno = true,
+            ),
+        )
+        // Non-Adreno hardware never runs the Qualcomm proprietary stack.
+        assertNull(
+            DxvkFlavorIds.d3d89Flavor(
+                id = DxvkFlavorIds.AUTO,
+                resolvedFlavor = DxvkFlavorIds.DXVK,
+                effectiveDriverId = GraphicsDriverIds.WRAPPER,
+                isAdreno = false,
+            ),
+        )
     }
 
     @Test
