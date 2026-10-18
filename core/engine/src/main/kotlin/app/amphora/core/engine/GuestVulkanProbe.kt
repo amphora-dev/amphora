@@ -29,17 +29,19 @@ import org.json.JSONObject
  * anyway on the provisional links, so a dead host path can never hang a
  * launch.
  *
- * The verdict is cached by [Inputs.key]; only a changed key (driver, driver
- * package, wine/box64 build, guest-view env, layer, app build, probe binary)
- * pays the probe launch again.
+ * Caching lives in [CapabilityProbeStore]: the verdict is stored under the
+ * full fingerprint of [Inputs] (named components — driver, driver package,
+ * wine/box64 build, layer, app build, probe binary, guest-view env slice),
+ * multiple fingerprints ride a bounded LRU so driver switching hits old
+ * entries, failures carry a reason and retry a bounded number of launches,
+ * and same-fingerprint callers share one run.
  */
 @Singleton
 class GuestVulkanProbe @Inject constructor(
     @ApplicationContext private val context: Context,
     private val dispatchers: DispatcherProvider,
 ) {
-    private val cacheFile = File(context.filesDir, "amphora_vkprobe.json")
-    private val memoryCache = java.util.concurrent.atomic.AtomicReference<Verdict?>()
+    private val store = CapabilityProbeStore(File(context.filesDir, "amphora_vkprobe.json"))
 
     /**
      * Every input that can change the guest view. Any change re-probes.
@@ -58,39 +60,30 @@ class GuestVulkanProbe @Inject constructor(
         val appVersionCode: Long,
         /** SHA-256 of the staged probe exe asset — a rebuilt binary re-probes. */
         val probeExeHash: String,
-        /** The complete env the session launches with (subset hashed). */
+        /** The complete env the session launches with (subset fingerprinted). */
         val env: Map<String, String>,
     ) {
-        fun key(): String {
-            val digest = MessageDigest.getInstance("SHA-256")
-            fun feed(s: String) = digest.update(s.toByteArray())
-            feed("v$SCHEMA|")
-            feed(effectiveDriverId)
-            feed("|")
-            feed(driverPackageVersion)
-            feed("|")
-            feed(wineVersion)
-            feed("|")
-            feed(box64Version)
-            feed("|")
-            feed(layerName)
-            feed("|")
-            feed(appVersionCode.toString())
-            feed("|")
-            feed(probeExeHash)
-            feed("|")
-            // Only env that can alter what the guest enumerates is keyed; UI
-            // knobs (DXVK_HUD etc.) must not re-probe.
+        /**
+         * The stored fingerprint: named components, persisted so a later miss
+         * can explain *what* changed. Only env that can alter what the guest
+         * enumerates is keyed; UI knobs (DXVK_HUD etc.) must not re-probe.
+         */
+        fun fingerprint(): CapabilityFingerprint {
+            val components = LinkedHashMap<String, String>()
+            components["driver"] = effectiveDriverId
+            components["driverPackage"] = driverPackageVersion
+            components["wine"] = wineVersion
+            components["box64"] = box64Version
+            components["layer"] = layerName
+            components["appVersionCode"] = appVersionCode.toString()
+            components["probeExe"] = probeExeHash
             env.filterKeys { it.isGuestViewEnvKey() }
                 .toSortedMap()
-                .forEach { (k, v) ->
-                    feed(k)
-                    feed("=")
-                    feed(v)
-                    feed("\n")
-                }
-            return digest.digest().joinToString("") { "%02x".format(it) }
+                .forEach { (k, v) -> components["env.$k"] = v }
+            return CapabilityFingerprint(components)
         }
+
+        fun key(): String = fingerprint().key
     }
 
     /** One probe outcome — either a report or the failure that replaced it. */
@@ -131,19 +124,42 @@ class GuestVulkanProbe @Inject constructor(
     )
 
     /**
-     * The last verdict on disk (or in memory). Used by the flavor decision
-     * for the provisional dxwrapper and by settings to render what `auto`
-     * already learned.
+     * The most recent verdict on disk. Used by the flavor decision for the
+     * provisional dxwrapper and by settings to render what `auto` already
+     * learned. Re-reads the file so verdicts written by the `:session`
+     * process are visible here.
      */
-    fun cached(): Verdict? {
-        memoryCache.get()?.let { return it }
-        val verdict = readCache() ?: return null
-        memoryCache.set(verdict)
-        return verdict
-    }
+    fun cached(): Verdict? = store.mru()?.toVerdict()
 
-    /** True when no cached verdict covers [inputs] — the launch must probe. */
-    fun needsProbe(inputs: Inputs): Boolean = cached()?.appliesTo(inputs) != true
+    /** The stored verdict for [inputs] exactly, or null. */
+    fun cachedFor(inputs: Inputs): Verdict? = store.peek(inputs.key())?.toVerdict()
+
+    /** True when no usable verdict covers [inputs] — a probe must run. */
+    fun needsProbe(inputs: Inputs): Boolean = store.needsRun(inputs.fingerprint())
+
+    /**
+     * Why [inputs] can't reuse the most recent verdict — changed component
+     * labels ("graphics driver", "wine", …) or a failure description. For
+     * logs and settings.
+     */
+    fun explainMiss(inputs: Inputs): List<String> = store.explainMiss(inputs.fingerprint())
+
+    /**
+     * Forget [inputs]' verdict — the settings "Re-detect" action. The next
+     * launch (or hidden probe) for this fingerprint pays the probe again.
+     */
+    fun invalidate(inputs: Inputs) = store.invalidate(inputs.fingerprint())
+
+    /**
+     * Forget every verdict probed under [driverId] — the UI process cannot
+     * rebuild a fingerprint (that needs the session env builder), so the
+     * manual "Re-detect" clears by the persisted `driver` component instead.
+     */
+    fun invalidateDriver(driverId: String) {
+        store.entries()
+            .filter { it.components["driver"] == driverId }
+            .forEach { store.invalidate(it.fingerprint) }
+    }
 
     /**
      * Stage the probe exe at `C:\amphora-vkprobe.exe` so the session launch
@@ -175,15 +191,44 @@ class GuestVulkanProbe @Inject constructor(
 
     /**
      * Poll `<prefix>/drive_c/amphora-vkprobe.json` while the session starts;
-     * parse it into a [Verdict] and persist it. Bounded by [timeoutMs] — a
+     * parse it into a [Verdict] and persist it. Single-flight through the
+     * store — a concurrent caller for the same fingerprint gets this result
+     * instead of running its own poll. Bounded by [timeoutMs] — a
      * missing/unreadable file yields a failure verdict, never a hang.
      */
     suspend fun awaitVerdict(
         container: AmphoraContainer,
         inputs: Inputs,
         timeoutMs: Long = REPORT_TIMEOUT_MS,
-    ): Verdict = withContext(dispatchers.io) {
-        val key = inputs.key()
+    ): Verdict {
+        val fingerprint = inputs.fingerprint()
+        val outcome =
+            store.awaitOutcome<GuestVulkanProbeReport?>(
+                kind = KIND,
+                fingerprint = fingerprint,
+                decode = { GuestVulkanProbeReport.parse(it.toString()) },
+            ) {
+                runProbe(container, inputs, timeoutMs)
+            }
+        return Verdict(
+            key = outcome.key,
+            report = outcome.result,
+            failure = outcome.failure,
+            durationMs = outcome.durationMs,
+            fromCache = outcome.fromCache,
+            driverId = outcome.components["driver"] ?: inputs.effectiveDriverId,
+        )
+    }
+
+    /**
+     * The actual probe run: poll the result file, classify the outcome.
+     * Returns the [CapabilityProbeRun] the store records.
+     */
+    private suspend fun runProbe(
+        container: AmphoraContainer,
+        inputs: Inputs,
+        timeoutMs: Long,
+    ): CapabilityProbeRun<GuestVulkanProbeReport?> = withContext(dispatchers.io) {
         val started = System.nanoTime()
         val elapsed = { (System.nanoTime() - started) / 1_000_000 }
         val file = resultFile(container)
@@ -193,41 +238,30 @@ class GuestVulkanProbe @Inject constructor(
             if (report != null) break
             delay(POLL_MS)
         }
-        val verdict =
-            when {
-                report == null -> {
-                    Log.w(TAG, "guest vulkan probe: no JSON within ${timeoutMs}ms")
-                    Verdict(
-                        key,
-                        null,
-                        "no probe output within ${timeoutMs}ms",
-                        elapsed(),
-                        false,
-                        inputs.effectiveDriverId,
-                    )
-                }
-                !report.ok -> {
-                    val reason =
-                        if (report.instanceCreate != 0) {
-                            "vkCreateInstance failed (${report.instanceCreate})"
-                        } else {
-                            "vkEnumeratePhysicalDevices failed (${report.enumerateDevices})"
-                        }
-                    Log.w(TAG, "guest vulkan probe: $reason")
-                    Verdict(key, report, reason, elapsed(), false, inputs.effectiveDriverId)
-                }
-                else -> {
-                    Log.i(
-                        TAG,
-                        "guest vulkan probe: ${report.devices.size} adapter(s) in ${elapsed()}ms: " +
-                            report.devices.joinToString { "${it.deviceName} ${it.apiLabel}" },
-                    )
-                    Verdict(key, report, null, elapsed(), false, inputs.effectiveDriverId)
-                }
+        when {
+            report == null -> {
+                Log.w(TAG, "guest vulkan probe: no JSON within ${timeoutMs}ms")
+                CapabilityProbeRun(null, null, "no probe output within ${timeoutMs}ms", elapsed())
             }
-        writeCache(verdict)
-        memoryCache.set(verdict)
-        verdict
+            !report.ok -> {
+                val reason =
+                    if (report.instanceCreate != 0) {
+                        "vkCreateInstance failed (${report.instanceCreate})"
+                    } else {
+                        "vkEnumeratePhysicalDevices failed (${report.enumerateDevices})"
+                    }
+                Log.w(TAG, "guest vulkan probe: $reason")
+                CapabilityProbeRun(report, reportToJson(report), reason, elapsed())
+            }
+            else -> {
+                Log.i(
+                    TAG,
+                    "guest vulkan probe: ${report.devices.size} adapter(s) in ${elapsed()}ms: " +
+                        report.devices.joinToString { "${it.deviceName} ${it.apiLabel}" },
+                )
+                CapabilityProbeRun(report, reportToJson(report), null, elapsed())
+            }
+        }
     }
 
     /** Tell the probing session the DXVK links are final — launch the game. */
@@ -247,33 +281,14 @@ class GuestVulkanProbe @Inject constructor(
         GuestVulkanProbeReport.extract(file.readText())
     }.getOrNull()
 
-    private fun readCache(): Verdict? = runCatching {
-        val root = JSONObject(cacheFile.readText())
-        val key = root.getString("key")
-        val failure = if (root.isNull("failure")) null else root.getString("failure")
-        val report = root.optJSONObject("report")?.toString()?.let { GuestVulkanProbeReport.parse(it) }
-        Verdict(
-            key = key,
-            report = report,
-            failure = failure,
-            durationMs = root.optLong("durationMs", 0),
-            fromCache = true,
-            driverId = root.optString("driverId", ""),
-        )
-    }.getOrNull()
-
-    private fun writeCache(verdict: Verdict) {
-        runCatching {
-            val root = JSONObject()
-                .put("key", verdict.key)
-                .put("driverId", verdict.driverId)
-                .put("durationMs", verdict.durationMs)
-                .put("failure", verdict.failure)
-                .put("probedAt", System.currentTimeMillis())
-            verdict.report?.let { root.put("report", reportToJson(it)) }
-            cacheFile.writeText(root.toString())
-        }.onFailure { Log.w(TAG, "guest vulkan probe: cache write failed", it) }
-    }
+    private fun CapabilityProbeEntry.toVerdict(): Verdict = Verdict(
+        key = key,
+        report = payload?.let { runCatching { GuestVulkanProbeReport.parse(it.toString()) }.getOrNull() },
+        failure = failure,
+        durationMs = durationMs,
+        fromCache = true,
+        driverId = components["driver"] ?: "",
+    )
 
     /** Round-trip through JSONObject so the persisted report parses identically. */
     private fun reportToJson(report: GuestVulkanProbeReport): JSONObject {
@@ -341,7 +356,9 @@ class GuestVulkanProbe @Inject constructor(
 
     companion object {
         private const val TAG = "GuestVulkanProbe"
-        private const val SCHEMA = 2
+
+        /** Store `kind` tag for vkprobe entries. */
+        const val KIND = "vkprobe"
 
         const val PROBE_ASSET = "vkprobe/amphora-vkprobe.exe"
         const val PROBE_EXE_NAME = "amphora-vkprobe.exe"
@@ -361,7 +378,7 @@ class GuestVulkanProbe @Inject constructor(
     }
 }
 
-/** Env-var prefixes that can change what the guest enumerates (cache-keyed). */
+/** Env-var prefixes that can change what the guest enumerates (fingerprinted). */
 private val GUEST_VIEW_ENV_PREFIXES = listOf(
     "VK_",
     "ADRENOTOOLS_",
