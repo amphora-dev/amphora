@@ -92,8 +92,21 @@ class HostPerformanceParserTest {
     }
 
     @Test
-    fun parsesKernelChildrenPidList() {
-        assertEquals(listOf(120, 121, 2048), HostPerformanceParser.parseChildPids("120 121  2048\n"))
+    fun parsesParentPidPastSpacesAndParensInComm() {
+        assertEquals(
+            8300,
+            HostPerformanceParser.parseParentPid("8357 (wine (x) srv) S 8300 8357 0 0 -1 4194560 10 0 0 0 5 3"),
+        )
+        assertNull(HostPerformanceParser.parseParentPid(""))
+        assertNull(HostPerformanceParser.parseParentPid("8357 (wine"))
+    }
+
+    @Test
+    fun walksDescendantsFromParentPids() {
+        val parents = mapOf(8357 to 8300, 8371 to 8300, 9412 to 8371, 9500 to 9412, 777 to 1, 8300 to 600)
+        assertEquals(setOf(8357, 8371, 9412, 9500), HostPerformanceParser.descendantsOf(8300, parents, limit = 32))
+        assertEquals(setOf(8357, 8371), HostPerformanceParser.descendantsOf(8300, parents, limit = 2))
+        assertEquals(emptySet<Int>(), HostPerformanceParser.descendantsOf(9500, parents, limit = 32))
     }
 
     @Test

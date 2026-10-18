@@ -117,10 +117,26 @@ internal object HostPerformanceParser {
         return userTicks + systemTicks
     }
 
-    fun parseChildPids(raw: String?): List<Int> = raw.orEmpty()
-        .split(Regex("\\s+"))
-        .mapNotNull(String::toIntOrNull)
-        .filter { it > 0 }
+    /** Parent PID from `/proc/<pid>/stat` (the field after the state, past the `)` of comm). */
+    fun parseParentPid(raw: String?): Int? {
+        if (raw.isNullOrBlank()) return null
+        val commandEnd = raw.lastIndexOf(')')
+        if (commandEnd < 0 || commandEnd + 2 >= raw.length) return null
+        return raw.substring(commandEnd + 2).split(' ').getOrNull(1)?.toIntOrNull()
+    }
+
+    /** Every process below [root] in [parentByPid] (pid -> parent pid), breadth first, at most [limit]. */
+    fun descendantsOf(root: Int, parentByPid: Map<Int, Int>, limit: Int): Set<Int> {
+        val childrenByPid = parentByPid.entries.groupBy({ it.value }, { it.key })
+        val pending = ArrayDeque(childrenByPid[root].orEmpty().sorted())
+        val descendants = linkedSetOf<Int>()
+        while (pending.isNotEmpty() && descendants.size < limit) {
+            val pid = pending.removeFirst()
+            if (pid == root || !descendants.add(pid)) continue
+            childrenByPid[pid].orEmpty().sorted().forEach(pending::addLast)
+        }
+        return descendants
+    }
 
     fun selectSessionGuestPids(descendants: Collection<Int>, winePids: Set<Int>, launcherPid: Int?): List<Int> =
         descendants.filter { it in winePids || it == launcherPid }

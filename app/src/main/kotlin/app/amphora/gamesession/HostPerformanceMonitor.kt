@@ -366,18 +366,17 @@ internal class HostPerformanceMonitor(
      * Wine's exec interceptor reparents processes to the Android session host, so the launcher PID
      * is only one sibling rather than the root of the whole guest tree. Walk every descendant of
      * this :session process, then retain ProcessHelper's Wine/Box64 process set.
+     *
+     * The tree comes from each process's `/proc/<pid>/stat` parent PID, not
+     * `/proc/<pid>/task/<tid>/children`: that file needs `CONFIG_PROC_CHILDREN`, which
+     * Android kernels (Y700) leave out, so only the idle launcher was ever sampled.
      */
     private fun collectGuestProcesses(sessionHostPid: Int, launcherPid: Int?): List<Int> {
-        val pending = ArrayDeque<Int>()
-        val descendants = linkedSetOf<Int>()
-        readChildPids(sessionHostPid).forEach(pending::addLast)
-        if (pending.isEmpty() && launcherPid != null && launcherPid > 0) {
-            pending.add(launcherPid)
-        }
-        while (pending.isNotEmpty() && descendants.size < MAX_GUEST_PROCESSES) {
-            val pid = pending.removeFirst()
-            if (!descendants.add(pid)) continue
-            readChildPids(pid).forEach(pending::addLast)
+        val parents = readParentPids()
+        var descendants = HostPerformanceParser.descendantsOf(sessionHostPid, parents, MAX_GUEST_PROCESSES)
+        if (descendants.isEmpty() && launcherPid != null && launcherPid > 0) {
+            descendants =
+                setOf(launcherPid) + HostPerformanceParser.descendantsOf(launcherPid, parents, MAX_GUEST_PROCESSES)
         }
         val winePids =
             ProcessHelper.listRunningWineProcesses()
@@ -386,13 +385,14 @@ internal class HostPerformanceMonitor(
         return HostPerformanceParser.selectSessionGuestPids(descendants, winePids, launcherPid)
     }
 
-    private fun readChildPids(pid: Int): List<Int> = File("/proc/$pid/task")
+    private fun readParentPids(): Map<Int, Int> = File("/proc")
         .listFiles { file -> file.isDirectory && file.name.all(Char::isDigit) }
         .orEmpty()
-        .flatMap { task ->
-            HostPerformanceParser.parseChildPids(readText(File(task, "children").path))
+        .mapNotNull { dir ->
+            val pid = dir.name.toIntOrNull() ?: return@mapNotNull null
+            HostPerformanceParser.parseParentPid(readText(File(dir, "stat").path))?.let { pid to it }
         }
-        .distinct()
+        .toMap()
 
     @RequiresApi(36)
     private fun updateSystemHeadroom(nowWall: Long) {

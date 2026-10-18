@@ -26,7 +26,6 @@
   - Vulkan 窗口切后台后会话结束（[`09`](09-AIO-GRAPHICS-TEST.md) §4，两条 loader 路径都这样）。
   - 层现在如实报 FIFO / MAILBOX，win32u 里“永远广告 IMMEDIATE、宿主没有就改 FIFO”的补丁（proton-wine `dlls/win32u/vulkan.c` `win32u_vkGetPhysicalDeviceSurfacePresentModesKHR` / `win32u_vkCreateSwapchainKHR`）仍在起作用：没有 IMMEDIATE 就退出的 app（AIO `--cube vk`）两条路径都靠它，要删得先决定层是否报 IMMEDIATE（AHB 交换链上它等同 MAILBOX）。
   - D3D12 选 Sarek 时必然失败（Sarek 的 dxgi 不认 D3D12 设备）。
-  - HUD 显示 `GUEST 0%`。
   - content_manifest `f9cfa31` 已把 AIO 改 pin 到 amphora fork `cnb.cool/atowerlight/aio-graphics-test`（fork `b8acc49` = 上游 2.1.0 `582454d` + D3D8 窗口模式 PresentationInterval 修复），dx8 已在 Y700 复测（`5c8f5e1`）：fork 修复生效——D3D8 设备建成、bench 144.05 fps；方块仍不画是 Qualcomm FF -13（上条等用户决定项），非 AIO 问题。
   - ReDroid CI（`redroid-arm64.yml`）已停自动触发，只留手动 `workflow_dispatch`：main 上一直红，`redroid-ci.sh` 的测试清单在 `8f7a4aa` 去掉两个不存在的类、断言改 `OK (7 tests)`，是否变绿未验。修绿后恢复 `workflow_run` 触发。
   - `WineHeadlessRunner` 为 `HeadlessWineBootTest` 与 PrefixPack 生成器共用，Y700 均已验证（§3）。生成器与 `dd99971`（XServer + GPLC 完整 env）同机同 WCP 对比：两棵 `.wine` 树 472 项逐路径一致，仅 `system.reg` 差 10 行，全部在 `Wow6432Node\Interface` 下、为共享 IID 的最后写入者差异（`Picture`/`IPictureDisp`、`Font`/`IFontDisp` 名、PSOAInterface/PSFactoryBuffer 代理 CLSID、wshom/scrrun TypeLib 反向指针）——两边都是合法 Wine 注册、被引用的 CLSID/Typelib 在两树都在场，64 位 Interface 视图逐字节相同，判定为 X 环境下 32 位注册写序差异，非回归。复现注意：`dd99971` 的生成器在 instrument 进程里要先 `ProcessHelper.init`（HiltTestApplication 不走 `AmphoraApplication.onCreate`，Enforcing 设备上 box64 直接 exec 会被 `execute_no_trans` 拒），给 `setUp` 补一行即可；`HeadlessWineBootTest` 的 staged .wcp 文件名与 Entry 常量硬编码，换 pin 需同步。
@@ -55,6 +54,7 @@
 | Headless Wine boot（linker64 app-data exec，无显示） | `5c8f5e1`（exec 路由 + staged-.wcp pin 同步）；Proton `11.0-2fd246cfc`、Box64 `0.4.5-0db8df775` | Y700 | `am instrument` `OK (2 tests)`；`Routing app-private executable through linker64` → `exit=0`（`wine --version` 与 `wineboot --init`，后者产出有效 user.reg） | [`01`](01-ARCHITECTURE.md) |
 | PrefixPack 生成器走 `WineHeadlessRunner` | 同左；对照基线 `dd99971`（XServer + GPLC env） | Y700 | 同 WCP 同机两轮生成确定性 txz（sha256 `da1ed00c…`，各 2 次全同）；与基线 `diff` 仅 `system.reg` 10 行 Wow64 COM 注册序差异（§2 有逐项解释），无回归 | 本文件 §2 |
 | Qualcomm 驱动 D3D8/9 自动拆分 DXVK（auto → d3d8/9 取拆分构建，dxgi/d3d10/11 留 3.0.2） | `8cb146f` + 本提交；Proton `11.0-2fd246cfc`、wrapper 驱动 | Y700 | dx8/dx9 64+32、32-bit dx7、ddraw2d 全出画 143.6–144.5 fps、wine log `-13` 0；dx10/dx11 64+32、dx12、vk 仍 3.0.2/vkd3d 不受影响；多次开会话拆分链接保持；dev-pin 换 2.4/2.6.2/2.7.1 六项同样全过 | 本文件 §2 |
+| HUD 展开项 GUEST CPU / RSS / 进程数 | 本提交（进程树改按 `/proc/<pid>/stat` 父 PID 建，不再读 `task/*/children`：Y700 内核无 `CONFIG_PROC_CHILDREN`，原先只采到空闲的 launcher，恒为 0%） | Y700 | AIO dx11 64 运行中展开 HUD：`GUEST 4%`、`10 guest · 69 threads`、`GUEST RSS 926 MB`（8 核平均，修前 `GUEST 0%`） | — |
 
 > 失效行已剔除：2026-09-26 的「3D 冒烟」当时只按回读判 PASS（SF 层只有 4 帧），判据无效，已由 `2a70f95` 的逐帧送显取代。
 
