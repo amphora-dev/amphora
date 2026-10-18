@@ -21,7 +21,7 @@ object GraphicsDriverIds {
     /**
      * Leegao's guest wrapper around the vendor Vulkan HAL (non-Adreno default).
      *
-     * The Android host compositor still uses [SYSTEM]. The guest wrapper opens the
+     * Host-side probes still open [SYSTEM] for it: the guest wrapper opens the
      * HAL itself through an isolated adrenotools namespace so imagefs libraries
      * cannot shadow vendor dependencies — the collision that made plain [SYSTEM]
      * unusable on Huawei, where the vendor layer picked up imagefs' OpenSSL.
@@ -92,13 +92,18 @@ object GraphicsDriverIds {
     }
 
     /**
-     * Resolves the Vulkan backend used by the Android host compositor.
+     * Resolves the Vulkan backend a host-side probe must open to see the driver
+     * [id]'s guest stack wraps.
      *
      * The bundled wrapper and Leegao are both loader-facing ICDs
      * (`vk_icdGetInstanceProcAddr`), not Android HALs (`HMI`), and they wrap a
      * driver the host already reaches on its own — so the host opens the platform
      * loader. Downloaded Turnip packages are HALs and can go through adrenotools,
      * but only on Adreno devices.
+     *
+     * Used by the `WRAPPER_VK_VERSION` clamp and the zink blocker probe. The
+     * DXVK flavor decision reads the guest probe instead — host results do not
+     * reflect what the wrapper reports inside Wine.
      */
     fun resolveHostDriver(id: String?, isAdreno: Boolean, hasVendorHal: Boolean): String =
         when (resolveEffectiveDriver(id, isAdreno, hasVendorHal)) {
