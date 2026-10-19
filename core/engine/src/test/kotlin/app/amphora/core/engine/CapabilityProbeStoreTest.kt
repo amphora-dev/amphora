@@ -179,6 +179,51 @@ class CapabilityProbeStoreTest {
     }
 
     @Test
+    fun latestPicksTheNewestEntryOfThatDriverNotTheNewestOverall() = runBlocking {
+        val s = store()
+        run(s, fp(driver = "turnip"), "turnip-old")
+        run(s, fp(driver = "wrapper"), "wrapper")
+        // A same-fingerprint cache hit must not reorder anything: the newest
+        // entry overall stays the wrapper one, yet turnip still answers turnip.
+        run(s, fp(driver = "turnip"), "ignored")
+        assertEquals("wrapper", s.mru()?.payload?.getString("tag"))
+        assertEquals("turnip-old", s.latest { it.components["driver"] == "turnip" }?.payload?.getString("tag"))
+        assertEquals("wrapper", s.latest { it.components["driver"] == "wrapper" }?.payload?.getString("tag"))
+        assertNull(s.latest { it.components["driver"] == "system" })
+    }
+
+    @Test
+    fun readsNeverRewriteTheFile() = runBlocking {
+        val s = store()
+        run(s, fp(), "a")
+        val file = File(tmp.root, "probes.json")
+        val before = file.readText()
+        file.setLastModified(1_000L)
+        s.peek(fp().key)
+        s.latest { true }
+        s.needsRun(fp())
+        assertEquals(1_000L, file.lastModified())
+        assertEquals(before, file.readText())
+    }
+
+    @Test
+    fun aSecondInstanceSeesAndKeepsTheOthersWrites() = runBlocking {
+        // Two processes = two store instances on one file.
+        val settings = store()
+        val session = store()
+        assertNull(settings.peek(fp().key))
+        run(session, fp(driver = "wrapper"), "from-session")
+        assertEquals("from-session", settings.peek(fp(driver = "wrapper").key)?.payload?.getString("tag"))
+        run(settings, fp(driver = "turnip"), "from-settings")
+        // The session instance's cached parse must not drop the settings write.
+        run(session, fp(driver = "system"), "from-session-2")
+        val fresh = store()
+        assertNotNull(fresh.peek(fp(driver = "wrapper").key))
+        assertNotNull(fresh.peek(fp(driver = "turnip").key))
+        assertNotNull(fresh.peek(fp(driver = "system").key))
+    }
+
+    @Test
     fun singleFlightSharesOneRun() = runBlocking {
         val s = store()
         val f = fp()

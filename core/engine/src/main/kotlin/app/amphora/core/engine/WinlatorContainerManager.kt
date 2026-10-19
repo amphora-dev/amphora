@@ -78,7 +78,6 @@ constructor(
     private val catalog: ContentCatalog,
     private val turnipProvisioner: TurnipDriverProvisioner,
     private val graphicsDriverCapabilities: GraphicsDriverCapabilities,
-    private val guestVulkanProbe: GuestVulkanProbe,
     private val sessionPreparer: WineSessionPreparer,
     private val dispatchers: DispatcherProvider,
 ) : ContainerManager {
@@ -316,7 +315,8 @@ constructor(
      * The component whose pin supplies d3d8/d3d9 when the launch splits them
      * off the main DXVK build, or null when there is no split.
      */
-    private fun d3d89Component(): ContentComponent? = d3d89ComponentForReport(guestVulkanProbe.cached()?.report)
+    private fun d3d89Component(): ContentComponent? =
+        d3d89ComponentForReport(graphicsDriverCapabilities.guestProbeVerdict(storedGraphicsDriverId())?.report)
 
     /**
      * Same resolution as [dxvkComponent]/[d3d89Component] but on a fresh

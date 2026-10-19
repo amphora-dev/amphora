@@ -57,6 +57,9 @@ SessionLaunch.program / explorer(...)
   │
   └─► 启动独立进程 :session 的 WineAndroidSessionActivity（唯一会话宿主）
 
+GPU 能力探测只在这里发生：当前驱动没有 verdict 时，游戏 / 桌面启动命令先跑
+amphora-vkprobe.exe 再 --then 原程序；设置页只读结果。见 docs/02 §2。
+
 WineAndroidSessionActivity 启动时序：
   1. WineAndroidSessionBootstrap.prepare(...)
      - 确保 Rootfs (imagefs.txz) 与容器 Prefix 已安装就绪；

@@ -8,8 +8,11 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
+/** What the desktop launch opens inside the virtual desktop. */
+private const val DESKTOP_PROGRAM = "winefile.exe"
+
 fun buildWineExplorerCommand(screenInfo: String): String =
-    "wine start /wait explorer /desktop=shell,$screenInfo winefile.exe"
+    "wine start /wait explorer /desktop=shell,$screenInfo $DESKTOP_PROGRAM"
 
 /**
  * Build the guest Wine PROGRAM launch command.
@@ -39,6 +42,12 @@ fun buildWineProbeCommand(screenInfo: String, wineExePath: String, exeArgs: Stri
     return "wine start /wait explorer /desktop=shell,$screenInfo " +
         "\"C:\\${GuestVulkanProbe.PROBE_EXE_NAME}\" --then \"$wineExePath\"$args"
 }
+
+/**
+ * Cache-miss variant of [buildWineExplorerCommand]: the probe chains the
+ * desktop's program (found on Wine's search path) instead of a game.
+ */
+fun buildWineExplorerProbeCommand(screenInfo: String): String = buildWineProbeCommand(screenInfo, DESKTOP_PROGRAM)
 
 /**
  * Sanitize trailing Wine program CLI args before embedding in a guest shell command.

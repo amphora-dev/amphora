@@ -302,19 +302,23 @@ constructor(
     private fun SettingsUiState.withResolvedRuntimeSettings(settings: LaunchRuntimeSettings): SettingsUiState {
         val selected = DxvkFlavorSetting.fromId(settings.dxvkFlavorId)
         val effectiveDriverId = graphicsDriverCapabilities.effectiveDriverId(settings.graphicsDriverId)
-        val verdict = graphicsDriverCapabilities.guestProbeVerdict()
+        val verdict = graphicsDriverCapabilities.guestProbeVerdict(settings.graphicsDriverId)
         val device = verdict?.report?.devices?.firstOrNull()
         val probe =
             DxvkProbeInfo(
                 deviceName = device?.deviceName,
                 apiLabel = device?.apiLabel,
                 failure = verdict?.failure,
-                missing = graphicsDriverCapabilities.missingDxvkRequirements(settings.dxvkFlavorId).orEmpty(),
+                missing =
+                graphicsDriverCapabilities.missingDxvkRequirements(
+                    settings.dxvkFlavorId,
+                    settings.graphicsDriverId,
+                ).orEmpty(),
                 dxvkSupported = verdict?.report?.let {
                     DxvkRequirements.missing(DxvkFlavorIds.DXVK, it).isEmpty()
                 },
-                stale = verdict != null && verdict.driverId.isNotEmpty() && verdict.driverId != effectiveDriverId,
             )
+        val probedForDriver = device != null
         return withRuntimeSettings(
             settings = settings,
             effectiveDriverId = effectiveDriverId,
@@ -334,9 +338,29 @@ constructor(
                 probe = probe,
             ),
             openGlBackend =
-            OpenGlBackendStatus.of(graphicsDriverCapabilities.zinkBlockers(settings.graphicsDriverId)),
+            OpenGlBackendStatus.of(
+                zinkBlockers = graphicsDriverCapabilities.zinkBlockers(settings.graphicsDriverId),
+                probed = probedForDriver,
+            ),
+            d3d12Backend =
+            D3d12BackendStatus.of(
+                missing = graphicsDriverCapabilities.vkd3dMissing(
+                    storedDriverId = settings.graphicsDriverId,
+                    storedFlavorId = settings.dxvkFlavorId,
+                ),
+            ),
+            bcnNative = graphicsDriverCapabilities.guestNativeBcn(settings.graphicsDriverId),
             vulkanVersionLabel = probe.apiLabel,
         )
+    }
+
+    /**
+     * Manual "Re-detect": drop the driver's verdicts; the next Wine start
+     * probes again.
+     */
+    fun redetectCapabilities() {
+        graphicsDriverCapabilities.invalidateProbeVerdicts(runtimeSettings.settings.value.graphicsDriverId)
+        _uiState.update { it.withResolvedRuntimeSettings(runtimeSettings.settings.value) }
     }
 
     private fun wineLocaleImpact(option: WineLocaleOption): String =
@@ -558,7 +582,7 @@ constructor(
                 _uiState.update {
                     it.copy(
                         refreshing = false,
-                        components = snapshot.toComponentStatuses().forDxvkFlavor(it.dxvkFlavor),
+                        components = snapshot.toComponentStatuses(),
                         runtimeAssets = snapshot.toRuntimeAssetHealth(),
                         imagefsResidue = snapshot.imageFsResidue,
                         manifestReady = true,
@@ -576,22 +600,6 @@ constructor(
                 }
             }
         }
-    }
-
-    /**
-     * Drops the DXVK build this device will not install. Both are pinned for every
-     * device — the manifest cannot know which one a device needs — so listing the
-     * other one would be a permanent, unfixable "missing component". A split
-     * launch (Qualcomm proprietary + auto → 3.0.2) installs both.
-     */
-    private fun List<ComponentStatus>.forDxvkFlavor(flavor: DxvkFlavorStatus): List<ComponentStatus> {
-        val unused =
-            when {
-                flavor.d3d89 != null -> null
-                flavor.resolved == DxvkFlavorSetting.SAREK -> ContentComponent.DXVK
-                else -> ContentComponent.DXVK_SAREK
-            }
-        return filterNot { it.component == unused }
     }
 
     fun checkForUpdate() {
@@ -686,6 +694,9 @@ data class SettingsUiState(
     val graphicsDriverOptions: List<GraphicsDriverSetting> = listOf(GraphicsDriverSetting.WRAPPER),
     val dxvkFlavor: DxvkFlavorStatus = DxvkFlavorStatus(),
     val openGlBackend: OpenGlBackendStatus = OpenGlBackendStatus(),
+    val d3d12Backend: D3d12BackendStatus = D3d12BackendStatus(),
+    /** Guest `core.textureCompressionBC` per the last probe — null until probed. */
+    val bcnNative: Boolean? = null,
     val directDrawWrapper: DirectDrawSetting = DirectDrawSetting.DXWRAPPER,
     val wineLocale: WineLocaleOption = WineLocaleOption.AUTO,
     val wineLocaleImpact: String = WineLocaleOption.AUTO.impact("en_US.UTF-8"),
@@ -746,6 +757,8 @@ internal fun SettingsUiState.withRuntimeSettings(
     effectiveDriverId: String,
     dxvkFlavor: DxvkFlavorStatus,
     openGlBackend: OpenGlBackendStatus,
+    d3d12Backend: D3d12BackendStatus,
+    bcnNative: Boolean?,
     vulkanVersionLabel: String?,
 ): SettingsUiState = copy(
     resolution = DisplayResolution.fromPreference(settings.resolutionName),
@@ -753,6 +766,8 @@ internal fun SettingsUiState.withRuntimeSettings(
     directDrawWrapper = DirectDrawSetting.fromId(settings.directDrawWrapperId),
     dxvkFlavor = dxvkFlavor,
     openGlBackend = openGlBackend,
+    d3d12Backend = d3d12Backend,
+    bcnNative = bcnNative,
     vulkanVersionLabel = vulkanVersionLabel,
 )
 
@@ -816,9 +831,7 @@ enum class DxvkFlavorSetting(val id: String, val label: String) {
  * field applies to: for an explicit pick that pick's build, for `auto` the
  * best build it rejected. [dxvkSupported] is whether the guest adapter meets
  * DXVK 3.0.2's complete requirement set — used to warn on an explicit Sarek
- * pick. [stale] means the verdict was probed under a different driver than
- * the currently selected one; launch re-probes, the display may be off until
- * then.
+ * pick. The verdict is always the selected driver's own.
  */
 data class DxvkProbeInfo(
     val deviceName: String?,
@@ -826,7 +839,6 @@ data class DxvkProbeInfo(
     val failure: String?,
     val missing: List<String>,
     val dxvkSupported: Boolean?,
-    val stale: Boolean,
 ) {
     /** Requirement names shortened for one-line display. */
     fun missingSummary(): String = when {
@@ -880,14 +892,16 @@ data class DxvkFlavorStatus(
             if (selected != DxvkFlavorSetting.AUTO) {
                 return "${selected.label} · Direct3D 8–11 · applies on next launch"
             }
+            // No verdict yet: `resolved` is only the no-report fallback.
+            if (probe == null || (probe.deviceName == null && probe.failure == null)) {
+                return "Automatic · decided when a game or the desktop first starts on this driver"
+            }
             val choice =
                 if (d3d89 != null) "${resolved.label} + ${d3d89.label} for Direct3D 8/9" else resolved.label
             val reason =
                 when {
                     d3d89 != null ->
                         "this device's Qualcomm driver rejects DXVK's fixed-function shaders"
-                    probe == null ->
-                        "the GPU is probed inside Wine on the next launch"
                     probe.failure != null ->
                         "the guest probe failed (${probe.failure})"
                     probe.missing.isNotEmpty() ->
@@ -896,8 +910,7 @@ data class DxvkFlavorStatus(
                         "the guest probe verified it on ${probe.deviceName ?: "the GPU"}"
                     else -> "the guest probe could not verify a better build"
                 }
-            val stale = if (probe?.stale == true) " · probed under another driver, re-probes on launch" else ""
-            return "Automatic chose $choice · $reason$stale"
+            return "Automatic chose $choice · $reason"
         }
 
         private fun warning(selected: DxvkFlavorSetting, probe: DxvkProbeInfo?): String? = when {
@@ -930,7 +943,17 @@ data class DxvkFlavorStatus(
  */
 data class OpenGlBackendStatus(val accelerated: Boolean = true, val detail: String = "") {
     companion object {
-        fun of(zinkBlockers: List<String>): OpenGlBackendStatus {
+        /**
+         * [probed] = a guest verdict exists for the selected driver (so empty
+         * blockers mean "supported", not "unknown").
+         */
+        fun of(zinkBlockers: List<String>, probed: Boolean): OpenGlBackendStatus {
+            if (!probed) {
+                return OpenGlBackendStatus(
+                    accelerated = true,
+                    detail = "OpenGL acceleration is checked when a game or the desktop first starts on this driver.",
+                )
+            }
             if (zinkBlockers.isEmpty()) {
                 return OpenGlBackendStatus(
                     accelerated = true,
@@ -944,6 +967,35 @@ data class OpenGlBackendStatus(val accelerated: Boolean = true, val detail: Stri
                     "${zinkBlockers.joinToString(", ")}, which Zink requires. Direct3D is " +
                     "unaffected — it goes through DXVK and VKD3D.",
             )
+        }
+    }
+}
+
+/**
+ * Whether the guest adapter can run Direct3D 12 through the pinned
+ * vkd3d-proton build (VKD3D-3.0.1-3b10bd7a7), per
+ * [app.amphora.core.engine.Vkd3dRequirements]. [supported] is null until the
+ * guest probe has produced a verdict for the selected driver.
+ */
+data class D3d12BackendStatus(val supported: Boolean? = null, val detail: String = "") {
+    companion object {
+        fun of(missing: List<String>?): D3d12BackendStatus = when {
+            missing == null ->
+                D3d12BackendStatus(
+                    supported = null,
+                    detail = "Direct3D 12 support is checked when a game or the desktop first starts on this driver.",
+                )
+            missing.isEmpty() ->
+                D3d12BackendStatus(
+                    supported = true,
+                    detail = "Direct3D 12 is supported: the guest adapter meets every VKD3D 3.0.1 device requirement.",
+                )
+            else ->
+                D3d12BackendStatus(
+                    supported = false,
+                    detail =
+                    "Direct3D 12 cannot work here: ${missing.joinToString(", ")}.",
+                )
         }
     }
 }

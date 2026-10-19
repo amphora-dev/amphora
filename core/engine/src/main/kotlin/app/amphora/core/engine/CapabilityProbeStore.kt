@@ -99,12 +99,12 @@ data class CapabilityProbeOutcome<T>(
 )
 
 /**
- * File-backed, multi-fingerprint LRU cache for "detect only when the
+ * File-backed, multi-fingerprint cache for "detect only when the
  * environment changed" probes.
  *
  * - **Multi-slot**: results are keyed by [CapabilityFingerprint.key]; switching
  *   between known configurations hits the existing entry instead of
- *   re-probing. Bounded to [maxEntries] (LRU eviction past it).
+ *   re-probing. Bounded to [maxEntries] (the oldest probe is evicted).
  * - **Atomic**: writes go through a temp file + rename; a torn/corrupt file
  *   or unknown `"store"` schema reads as empty (a miss), never a crash.
  * - **Failure policy**: a failed run is cached with its reason. A fingerprint
@@ -113,28 +113,29 @@ data class CapabilityProbeOutcome<T>(
  *   fingerprint change or [invalidate] (the manual "Re-detect") probes again.
  * - **Single-flight**: [awaitOutcome] serializes same-key callers on a Mutex;
  *   the second caller sees the first's fresh result instead of re-running.
- *   The map is per-process — cross-process dedup is the caller's job (the
- *   hidden-probe path is guarded against an active game session).
- * - **Re-reads the file per call** so a verdict written by the `:session`
- *   process is visible to the settings process immediately.
+ *   The map is per-process; only the one `:session` process ever runs a probe.
+ * - **Cross-process**: `:session` records verdicts; the settings process reads
+ *   them and drops them on "Re-detect".
+ *   Reads never write; every read-modify-write holds an exclusive lock on a
+ *   sibling `.lock` file, so one process cannot drop the other's verdict.
+ *   Reads re-parse only when the file's mtime/size changed, so a verdict
+ *   written by `:session` is visible to settings on its next read.
  */
 class CapabilityProbeStore(private val file: File, private val maxEntries: Int = MAX_ENTRIES) {
     private val lock = Any()
     private val flights = ConcurrentHashMap<String, Mutex>()
+    private val lockFile = File(file.path + ".lock")
+    private var parsedStamp: Pair<Long, Long>? = null
+    private var parsed: List<CapabilityProbeEntry> = emptyList()
 
-    /** The most recently used entry, or null — what `cached()` reports. */
+    /** The most recently probed entry, or null. */
     fun mru(): CapabilityProbeEntry? = synchronized(lock) {
         readEntries().lastOrNull()
     }
 
-    /** Exact-key hit, or null. Touches LRU order. */
-    fun lookup(key: String): CapabilityProbeEntry? = synchronized(lock) {
-        val entries = readEntries()
-        val hit = entries.firstOrNull { it.key == key } ?: return null
-        entries.remove(hit)
-        entries.add(hit)
-        writeEntries(entries)
-        hit
+    /** The most recently probed entry matching [predicate], or null. */
+    fun latest(predicate: (CapabilityProbeEntry) -> Boolean): CapabilityProbeEntry? = synchronized(lock) {
+        readEntries().lastOrNull(predicate)
     }
 
     /**
@@ -147,12 +148,12 @@ class CapabilityProbeStore(private val file: File, private val maxEntries: Int =
         return !entry.succeeded && entry.failureCount < MAX_FAILURE_ATTEMPTS
     }
 
-    /** The stored entry for [fingerprint] without touching LRU order. */
+    /** The stored entry for [key], or null. */
     fun peek(key: String): CapabilityProbeEntry? = synchronized(lock) {
         readEntries().firstOrNull { it.key == key }
     }
 
-    /** All stored entries, LRU first. */
+    /** All stored entries, oldest probe first. */
     fun entries(): List<CapabilityProbeEntry> = synchronized(lock) { readEntries() }
 
     /**
@@ -178,7 +179,7 @@ class CapabilityProbeStore(private val file: File, private val maxEntries: Int =
 
     /**
      * Record an outcome for [fingerprint]. Upserts the entry, marks it MRU,
-     * evicts the LRU past [maxEntries]. Consecutive failures accumulate
+     * evicts the oldest past [maxEntries]. Consecutive failures accumulate
      * [CapabilityProbeEntry.failureCount]; a success resets it.
      */
     fun record(
@@ -187,8 +188,7 @@ class CapabilityProbeStore(private val file: File, private val maxEntries: Int =
         payload: JSONObject?,
         failure: String?,
         durationMs: Long,
-    ): CapabilityProbeEntry = synchronized(lock) {
-        val entries = readEntries()
+    ): CapabilityProbeEntry = mutate { entries ->
         val previous = entries.firstOrNull { it.key == fingerprint.key }
         val entry =
             CapabilityProbeEntry(
@@ -205,14 +205,30 @@ class CapabilityProbeStore(private val file: File, private val maxEntries: Int =
         entries.removeAll { it.key == entry.key }
         entries.add(entry)
         while (entries.size > maxEntries) entries.removeAt(0)
-        writeEntries(entries)
         entry
     }
 
     /** Drop [fingerprint]'s entry — the manual "Re-detect" path. */
-    fun invalidate(fingerprint: CapabilityFingerprint) = synchronized(lock) {
-        val entries = readEntries()
-        if (entries.removeAll { it.key == fingerprint.key }) writeEntries(entries)
+    fun invalidate(fingerprint: CapabilityFingerprint) {
+        mutate { entries -> entries.removeAll { it.key == fingerprint.key } }
+    }
+
+    /**
+     * Read-modify-write under this process's lock and an exclusive lock on
+     * [lockFile], so a concurrent writer in the other process cannot be lost.
+     */
+    private fun <R> mutate(block: (MutableList<CapabilityProbeEntry>) -> R): R = synchronized(lock) {
+        lockFile.parentFile?.mkdirs()
+        java.io.RandomAccessFile(lockFile, "rw").use { raf ->
+            raf.channel.lock().use {
+                // Always the file as it is now: the mtime-keyed parse can
+                // miss another process's same-millisecond, same-size write.
+                val entries = parseFile().toMutableList()
+                val result = block(entries)
+                writeEntries(entries)
+                result
+            }
+        }
     }
 
     /**
@@ -232,7 +248,6 @@ class CapabilityProbeStore(private val file: File, private val maxEntries: Int =
             }
         }
         val mutex = flights.getOrPut("$kind:${fingerprint.key}") { Mutex() }
-        if (flights.size > MAX_FLIGHTS) flights.clear()
         mutex.withLock {
             val stored = peek(fingerprint.key)
             if (stored != null && !needsRun(fingerprint)) {
@@ -258,17 +273,32 @@ class CapabilityProbeStore(private val file: File, private val maxEntries: Int =
         durationMs = durationMs,
     )
 
-    /** Entries LRU-first. Corrupt root / unknown schema → empty list. */
-    private fun readEntries(): MutableList<CapabilityProbeEntry> {
-        if (!file.isFile) return mutableListOf()
-        val root = runCatching { JSONObject(file.readText()) }.getOrNull() ?: return mutableListOf()
-        if (root.optInt("store") != STORE_SCHEMA) return mutableListOf()
-        val arr = root.optJSONArray("entries") ?: return mutableListOf()
+    /**
+     * Entries oldest-probed first. Corrupt root / unknown schema → empty list.
+     * Re-parsed only when the file's mtime or size changed.
+     */
+    private fun readEntries(): List<CapabilityProbeEntry> {
+        if (!file.isFile) {
+            parsedStamp = null
+            parsed = emptyList()
+            return parsed
+        }
+        val stamp = file.lastModified() to file.length()
+        if (stamp == parsedStamp) return parsed
+        parsed = parseFile()
+        parsedStamp = stamp
+        return parsed
+    }
+
+    private fun parseFile(): List<CapabilityProbeEntry> {
+        val root = runCatching { JSONObject(file.readText()) }.getOrNull() ?: return emptyList()
+        if (root.optInt("store") != STORE_SCHEMA) return emptyList()
+        val arr = root.optJSONArray("entries") ?: return emptyList()
         val out = mutableListOf<CapabilityProbeEntry>()
         for (i in 0 until arr.length()) {
             runCatching { parseEntry(arr.getJSONObject(i)) }.getOrNull()?.let { out.add(it) }
         }
-        return out
+        return out.sortedBy { it.probedAtMs }
     }
 
     private fun parseEntry(o: JSONObject): CapabilityProbeEntry {
@@ -307,6 +337,8 @@ class CapabilityProbeStore(private val file: File, private val maxEntries: Int =
             }
             val root = JSONObject().put("store", STORE_SCHEMA).put("entries", arr)
             writeAtomic(root.toString())
+            parsed = entries.toList()
+            parsedStamp = file.lastModified() to file.length()
         }.onFailure { Log.w(TAG, "probe store write failed", it) }
     }
 
@@ -348,8 +380,5 @@ class CapabilityProbeStore(private val file: File, private val maxEntries: Int =
 
         /** Stored fingerprints — comfortably above #drivers × recent builds. */
         const val MAX_ENTRIES = 8
-
-        /** Bounded single-flight map; probes run rarely so this never grows. */
-        private const val MAX_FLIGHTS = 64
     }
 }

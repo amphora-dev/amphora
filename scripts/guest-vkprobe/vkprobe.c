@@ -479,6 +479,7 @@ static void emit_device(VkPhysicalDevice dev)
     StructDef defs[64];
     uint32_t ndef = 0;
 #define CHAIN(nm, st, stype) do { \
+        if (ndef >= COUNT(defs)) break; \
         CHAIN_ST(s_##nm, stype); \
         defs[ndef].tag = #nm; defs[ndef].s = &s_##nm; \
         defs[ndef].fields = f_##nm; defs[ndef].nfields = COUNT(f_##nm); \
@@ -492,7 +493,7 @@ static void emit_device(VkPhysicalDevice dev)
     CHAIN(vk11, s_vk11, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES);
 
 #define CHAIN_EXT(nm, extname, stype) do { \
-        if (has_ext(exts, extCount, extname)) { \
+        if (ndef < COUNT(defs) && has_ext(exts, extCount, extname)) { \
             CHAIN_ST(s_##nm, stype); \
             defs[ndef].tag = #nm; defs[ndef].s = &s_##nm; \
             defs[ndef].fields = f_##nm; defs[ndef].nfields = COUNT(f_##nm); \

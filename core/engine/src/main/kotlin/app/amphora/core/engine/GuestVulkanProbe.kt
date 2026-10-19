@@ -120,16 +120,26 @@ class GuestVulkanProbe @Inject constructor(
         layerName = LAYER_NAME,
         appVersionCode = appVersionCode(),
         probeExeHash = probeExeHash(),
-        env = sessionEnv,
+        env = sessionEnv.mapValues { (_, v) -> withoutInstallDir(v) },
     )
 
     /**
-     * The most recent verdict on disk. Used by the flavor decision for the
-     * provisional dxwrapper and by settings to render what `auto` already
-     * learned. Re-reads the file so verdicts written by the `:session`
-     * process are visible here.
+     * Android renames the APK install directory (`/data/app/~~…==/…`) on every
+     * install, and that path reaches the env through `LD_PRELOAD`. The app
+     * build is already a fingerprint component, so the path itself must not
+     * force a re-probe after a same-version reinstall.
      */
-    fun cached(): Verdict? = store.mru()?.toVerdict()
+    private fun withoutInstallDir(value: String): String {
+        val installDir = File(context.applicationInfo.sourceDir).parent ?: return value
+        return value.replace(installDir, "<apk>")
+    }
+
+    /**
+     * The most recent verdict probed under [driverId]. Every per-driver
+     * decision (DXVK flavor, zink, D3D12, BCn) reads this: with one entry per
+     * fingerprint, the newest entry overall can belong to another driver.
+     */
+    fun latestFor(driverId: String): Verdict? = store.latest { it.components["driver"] == driverId }?.toVerdict()
 
     /** The stored verdict for [inputs] exactly, or null. */
     fun cachedFor(inputs: Inputs): Verdict? = store.peek(inputs.key())?.toVerdict()
@@ -146,7 +156,7 @@ class GuestVulkanProbe @Inject constructor(
 
     /**
      * Forget [inputs]' verdict — the settings "Re-detect" action. The next
-     * launch (or hidden probe) for this fingerprint pays the probe again.
+     * launch for this fingerprint pays the probe again.
      */
     fun invalidate(inputs: Inputs) = store.invalidate(inputs.fingerprint())
 

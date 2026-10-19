@@ -1,10 +1,8 @@
 package app.amphora.core.engine
 
 import android.content.Context
-import android.util.Log
 import com.winlator.cmod.runtime.system.GPUInformation
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -13,14 +11,10 @@ import javax.inject.Singleton
  *
  * DXVK flavor resolution is decided by the guest probe ([GuestVulkanProbe]):
  * the adapter enumerated inside Wine through the session's own Vulkan stack,
- * matched against each build's full requirement table. Host-side Vulkan
- * probing remains only for the things that genuinely are host-side — the
- * platform driver the wrapper will talk to (zink blockers) and the
- * `WRAPPER_VK_VERSION` clamp inside the preparer.
- *
- * Everything is cached for the process — neither the host probe nor the probe
- * verdict can change while the app runs, and the settings screen asks on every
- * recomposition.
+ * matched against each build's full requirement table. The same guest report
+ * answers zink, D3D12 (vkd3d-proton) and BCn questions — the device the guest
+ * sees is the device those runtimes run on. Host-side Vulkan probing remains
+ * only for the `WRAPPER_VK_VERSION` clamp inside the preparer.
  */
 @Singleton
 class GraphicsDriverCapabilities @Inject constructor(
@@ -29,7 +23,6 @@ class GraphicsDriverCapabilities @Inject constructor(
 ) {
     private val isAdreno: Boolean by lazy { GPUInformation.isAdrenoGPU(context) }
     private val hasVendorHal: Boolean by lazy { VendorVulkanHal.isAvailable() }
-    private val zinkBlockersByHostDriver = ConcurrentHashMap<String, List<String>>()
 
     /** Driver ids worth offering here, best first. */
     fun availableDriverIds(): List<String> = GraphicsDriverIds.availableDrivers(isAdreno, hasVendorHal)
@@ -42,42 +35,71 @@ class GraphicsDriverCapabilities @Inject constructor(
         GraphicsDriverIds.resolveEffectiveDriver(storedDriverId, isAdreno, hasVendorHal)
 
     /**
-     * [ZinkRequirements] this device cannot meet on the backend [storedDriverId]
-     * runs on. Empty means guest OpenGL reaches the GPU through zink; anything
-     * else means Mesa falls back to its software rasterizer.
+     * The guest adapter of the newest verdict probed under the driver
+     * [storedDriverId] resolves to — what every guest-side capability
+     * question (zink, vkd3d, BCn) is answered from. Null until that driver
+     * has been probed.
+     */
+    private fun guestDeviceFor(storedDriverId: String?): GuestVulkanDevice? =
+        guestProbeVerdict(storedDriverId)?.report?.devices?.firstOrNull()
+
+    /**
+     * [ZinkRequirements] the guest-visible adapter cannot meet, per the last
+     * probe verdict. Empty means guest OpenGL reaches the GPU through zink —
+     * or that no verdict exists yet (same "assume it works until proven"
+     * posture the old host probe took on a failed enumeration).
      */
     fun zinkBlockers(storedDriverId: String?): List<String> {
-        val hostDriver = GraphicsDriverIds.resolveHostDriver(storedDriverId, isAdreno, hasVendorHal)
-        zinkBlockersByHostDriver[hostDriver]?.let { return it }
-        val extensions =
-            runCatching { GPUInformation.enumerateExtensions(hostDriver, context).orEmpty().toList() }
-                .onFailure { Log.w(TAG, "Device extension probe failed for '$hostDriver'", it) }
-                .getOrDefault(emptyList())
-        if (extensions.isEmpty()) {
-            Log.w(TAG, "No device extensions reported by '$hostDriver'; assuming zink can start")
-        }
-        val blockers = ZinkRequirements.missingExtensions(extensions)
-        zinkBlockersByHostDriver[hostDriver] = blockers
-        return blockers
+        val device = guestDeviceFor(storedDriverId) ?: return emptyList()
+        return ZinkRequirements.missingExtensions(device.extensions)
     }
 
     /**
-     * The last guest-probe verdict, or null before the first probe (no
-     * container prepared yet). The verdict carries the driver id it was
-     * probed under — a verdict for another driver is stale context for
-     * display, not evidence.
+     * What the guest report says about D3D12 through the pinned
+     * vkd3d-proton build: null until probed, else the missing requirement
+     * names (empty = supported). Sarek's dxgi additionally blocks D3D12
+     * regardless of the adapter — see [Vkd3dRequirements.dxgiBlocksD3d12].
      */
-    fun guestProbeVerdict(): GuestVulkanProbe.Verdict? = guestVulkanProbe.cached()
+    fun vkd3dMissing(storedDriverId: String?, storedFlavorId: String?): List<String>? {
+        val device = guestDeviceFor(storedDriverId)
+        // Unprobed `auto` resolves to its no-report fallback, not a decision.
+        if (device == null && DxvkFlavorIds.normalize(storedFlavorId) == DxvkFlavorIds.AUTO) return null
+        val resolved = effectiveDxvkFlavor(storedFlavorId, storedDriverId)
+        if (Vkd3dRequirements.dxgiBlocksD3d12(resolved)) {
+            return listOf("dxgi: resolved DXVK '$resolved' rejects D3D12 devices")
+        }
+        return device?.let { Vkd3dRequirements.missing(it) }
+    }
+
+    /** Native BCn (`core.textureCompressionBC`) on the guest adapter, if known. */
+    fun guestNativeBcn(storedDriverId: String?): Boolean? =
+        guestDeviceFor(storedDriverId)?.feature("core.textureCompressionBC")
 
     /**
-     * The DXVK build [storedFlavorId] resolves to for [storedDriverId]. When
-     * the cached verdict was probed under a different driver its report still
-     * applies only if the same stack would run; a stale verdict is better
-     * than none (the container manager re-probes whenever the key changes).
+     * Manual "Re-detect": drop every verdict probed under the driver
+     * [storedDriverId] resolves to, so the next launch probes fresh
+     * regardless of the failure-retry budget.
+     */
+    fun invalidateProbeVerdicts(storedDriverId: String?) =
+        guestVulkanProbe.invalidateDriver(effectiveDriverId(storedDriverId))
+
+    /**
+     * The newest guest-probe verdict for the driver [storedDriverId] resolves
+     * to, or null when that driver has not been probed yet.
+     */
+    fun guestProbeVerdict(storedDriverId: String?): GuestVulkanProbe.Verdict? =
+        guestVulkanProbe.latestFor(effectiveDriverId(storedDriverId))
+
+    /**
+     * The DXVK build [storedFlavorId] resolves to for [storedDriverId], from
+     * that driver's own verdict. Another driver's report never decides: Turnip
+     * and the Qualcomm driver expose different features on the same GPU.
+     * Before the first probe for the driver this is the no-report answer;
+     * the launch then probes and relinks.
      */
     fun effectiveDxvkFlavor(storedFlavorId: String?, storedDriverId: String?): String = DxvkFlavorIds.resolve(
         id = storedFlavorId,
-        report = guestVulkanProbe.cached()?.report,
+        report = guestProbeVerdict(storedDriverId)?.report,
     )
 
     /**
@@ -89,8 +111,8 @@ class GraphicsDriverCapabilities @Inject constructor(
      * or when no probe has run (callers should report the probe verdict's
      * failure instead).
      */
-    fun missingDxvkRequirements(storedFlavorId: String?): List<String>? {
-        val report = guestVulkanProbe.cached()?.report ?: return null
+    fun missingDxvkRequirements(storedFlavorId: String?, storedDriverId: String?): List<String>? {
+        val report = guestProbeVerdict(storedDriverId)?.report ?: return null
         val flavor = when (DxvkFlavorIds.normalize(storedFlavorId)) {
             DxvkFlavorIds.AUTO -> {
                 if (DxvkFlavorIds.resolveAuto(report) == DxvkRequirements.AUTO_ORDER.first().flavorId) {

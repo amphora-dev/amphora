@@ -297,7 +297,7 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                 description =
                 "Controls fallback emulation when the selected GPU driver lacks BC texture " +
                     "support. Full emulation improves compatibility at a performance cost.",
-                impact = bcnModeImpact(state.bcnMode),
+                impact = bcnModeImpact(state.bcnMode, state.bcnNative),
                 selected = state.bcnMode,
                 defaultValue = BcnMode.DEFAULT,
                 values = BcnMode.entries,
@@ -507,14 +507,22 @@ private fun presentModeImpact(selected: PresentMode): String = when (selected) {
         "${selected.label} · Environment: MESA_VK_WSI_PRESENT_MODE · all Vulkan renderers · next launch"
 }
 
-private fun bcnModeImpact(selected: BcnMode): String = when (selected) {
-    BcnMode.DEFAULT ->
-        "Driver default keeps automatic BC emulation. The wrapper fills in missing BC " +
-            "formats; a background Wine start would not change this."
-    BcnMode.AUTO ->
-        "Automatic emulation · WRAPPER_EMULATE_BCN=3 · next launch"
-    BcnMode.FULL ->
-        "Full emulation · WRAPPER_EMULATE_BCN=2 · next launch"
-    BcnMode.NONE ->
-        "Disabled · WRAPPER_EMULATE_BCN=0 · next launch"
+private fun bcnModeImpact(selected: BcnMode, bcnNative: Boolean?): String {
+    val native =
+        when (bcnNative) {
+            true -> " Guest device reports native BC texture support."
+            false -> " Guest device reports no native BC texture support."
+            null -> ""
+        }
+    return when (selected) {
+        BcnMode.DEFAULT ->
+            "Driver default keeps automatic BC emulation. The wrapper fills in missing BC " +
+                "formats; a background Wine start would not change this.$native"
+        BcnMode.AUTO ->
+            "Automatic emulation · WRAPPER_EMULATE_BCN=3 · next launch$native"
+        BcnMode.FULL ->
+            "Full emulation · WRAPPER_EMULATE_BCN=2 · next launch$native"
+        BcnMode.NONE ->
+            "Disabled · WRAPPER_EMULATE_BCN=0 · next launch$native"
+    }
 }

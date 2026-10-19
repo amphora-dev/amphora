@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import app.amphora.core.engine.WineLocaleOption
@@ -72,12 +73,25 @@ internal fun CommonSettings(
                 MaterialTheme.colorScheme.error
             },
         )
+        Text(
+            state.d3d12Backend.detail,
+            style = MaterialTheme.typography.bodySmall,
+            color =
+            if (state.d3d12Backend.supported != false) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+        )
+        TextButton(onClick = viewModel::redetectCapabilities) {
+            Text("Re-detect GPU capabilities")
+        }
         ChoiceSetting(
             title = "Direct3D 8–11 translation",
             description =
             "DXVK 3.0.2 is the current build with the full Direct3D 8–11 feature set. " +
                 "DXVK-Sarek is a 1.11-era fork for adapters that cannot meet its requirements. " +
-                "Automatic picks the best build after probing the adapter inside Wine.",
+                "Automatic picks the best build after probing the adapter inside Wine on the first start.",
             impact = state.dxvkFlavor.impact,
             selected = state.dxvkFlavor.selected,
             defaultValue = DxvkFlavorSetting.AUTO,

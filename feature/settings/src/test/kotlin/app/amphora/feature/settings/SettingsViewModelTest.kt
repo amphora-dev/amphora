@@ -329,9 +329,12 @@ class SettingsViewModelTest {
         every { graphicsDriverCapabilities.effectiveDriverId(any()) } answers {
             GraphicsDriverIds.normalize(firstArg())
         }
-        every { graphicsDriverCapabilities.guestProbeVerdict() } returns guestVerdict
-        every { graphicsDriverCapabilities.missingDxvkRequirements(any()) } returns null
+        every { graphicsDriverCapabilities.guestProbeVerdict(any()) } returns guestVerdict
+        every { graphicsDriverCapabilities.missingDxvkRequirements(any(), any()) } returns null
         every { graphicsDriverCapabilities.zinkBlockers(any()) } returns emptyList()
+        every { graphicsDriverCapabilities.vkd3dMissing(any(), any()) } returns emptyList()
+        every { graphicsDriverCapabilities.guestNativeBcn(any()) } returns true
+        every { graphicsDriverCapabilities.invalidateProbeVerdicts(any()) } returns Unit
         every { graphicsDriverCapabilities.effectiveDxvkFlavor(any(), any()) } answers {
             DxvkFlavorIds.resolve(firstArg(), guestReport)
         }
