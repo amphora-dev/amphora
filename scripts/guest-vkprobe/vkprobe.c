@@ -738,9 +738,11 @@ int main(int argc, char **argv)
 
     /* --then <exe> [args...]: the probe ran as the session's launch command.
      * Hand the report window back to the host (it decides the DXVK build and
-     * relinks the prefix), then spawn the real game and forward its exit
-     * code. The gate is bounded — if the host never writes the go file the
-     * game still starts on the provisional links. */
+     * relinks the prefix), then spawn the real game and exit: the session
+     * lives on through the explorer desktop the game is attached to, and
+     * nothing reads this process's exit code. The gate is bounded — if the
+     * host never writes the go file the game still starts on the provisional
+     * links. */
     int then = -1;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--then") && i + 1 < argc) {
@@ -781,9 +783,7 @@ int main(int argc, char **argv)
         return (int)code;
     }
     free(cmd);
-    WaitForSingleObject(pi.hProcess, INFINITE);
-    GetExitCodeProcess(pi.hProcess, &code);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-    return (int)code;
+    return 0;
 }
