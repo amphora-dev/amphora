@@ -110,6 +110,9 @@ struct wine_native_window {
 struct native_win_data {
     struct wine_native_window *parent;
     struct wine_native_buffer *buffers[NB_CACHED_BUFFERS];
+    /* What each cached buffer was when Wine got it; see register_buffer. */
+    const int *buffer_handles[NB_CACHED_BUFFERS];
+    int buffer_widths[NB_CACHED_BUFFERS], buffer_heights[NB_CACHED_BUFFERS];
     int32_t hwnd;
     int opengl;
     int generation;
@@ -392,6 +395,21 @@ static void free_native_win_data(struct native_win_data *data)
     if (g_data_map[idx] == data) g_data_map[idx] = NULL;
 }
 
+static void remember_buffer(struct native_win_data *win, int i, struct wine_native_buffer *buffer)
+{
+    win->buffers[i] = buffer;
+    win->buffer_handles[i] = buffer->handle;
+    win->buffer_widths[i] = buffer->width;
+    win->buffer_heights[i] = buffer->height;
+}
+
+/*
+ * Map a dequeued buffer to the id Wine caches its AHB under. A buffer the
+ * queue reallocated (after a size-only setBufferSize) can come back at the
+ * same address; matching on the pointer alone left Wine drawing into the
+ * old buffer while the new, blank one was queued. A changed handle or size
+ * makes it new, so Wine gets the real AHB under the same id.
+ */
 static int register_buffer(struct native_win_data *win, struct wine_native_buffer *buffer,
                            int *is_new)
 {
@@ -399,6 +417,11 @@ static int register_buffer(struct native_win_data *win, struct wine_native_buffe
     *is_new = 0;
     for (i = 0; i < NB_CACHED_BUFFERS; i++) {
         if (win->buffers[i] == buffer) {
+            if (win->buffer_handles[i] != buffer->handle || win->buffer_widths[i] != buffer->width ||
+                win->buffer_heights[i] != buffer->height) {
+                remember_buffer(win, i, buffer);
+                *is_new = 1;
+            }
             /* bump LRU */
             int j;
             for (j = 0; j < NB_CACHED_BUFFERS; j++)
@@ -421,7 +444,7 @@ static int register_buffer(struct native_win_data *win, struct wine_native_buffe
         win->buffers[lru] = NULL;
         free_idx = lru;
     }
-    win->buffers[free_idx] = buffer;
+    remember_buffer(win, free_idx, buffer);
     *is_new = 1;
     memmove(win->buffer_lru + 1, win->buffer_lru, (NB_CACHED_BUFFERS - 1) * sizeof(int));
     win->buffer_lru[0] = free_idx;

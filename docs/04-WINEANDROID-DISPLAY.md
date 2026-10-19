@@ -50,6 +50,7 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
   1. `WINDOW_POS` → `updateHwndRects` → `Transaction.setBufferSize(layer, visibleW, visibleH)`（guest 像素）；
   2. 随后再调一次 `nativeRegisterSurface`。层的 `Surface` 不变，native 发现是同一个 ANativeWindow 时只发 `SURFACE_CHANGED`（新尺寸），不重连。
 - **历史 Bug 解决**：过去任务栏先以 1×1 注册，随后尺寸变为 1280×46 时只改了 fixedSize 却没重新 register，导致任务栏扭曲。当前必须在尺寸改变后重新 bind。
+- **尺寸变化后的 buffer 缓存**：宿主按 dequeue 出来的 buffer 指针给 Wine 分配 id，Wine 按 id 缓存 AHB，只在宿主说「新的」时才换。改尺寸后 BufferQueue 会按新尺寸重分配 buffer，新 buffer 可能落在同一地址；只比指针会让 Wine 继续往旧 AHB 里画、真正入队的新 buffer 是空的（透明）。`register_buffer` 现在同时比 handle 和宽高，不同就当新 buffer 发给 Wine（同一 id）。症状：AIO 的 FPS 浮条（每 500 ms 改一次文字和宽度）每隔一次更新消失半秒。
 
 ### 3.2 首次注册延迟（Defer Initial Register）
 - 在窗口刚创建时，生命周期往往早于真实的 `WINDOW_POS`。
