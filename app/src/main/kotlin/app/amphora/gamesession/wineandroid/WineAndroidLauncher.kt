@@ -36,6 +36,7 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,6 +80,8 @@ constructor(
         val guestExecutable: String,
         private val launcher: GuestProgramLauncherComponent,
         private val environment: XEnvironment,
+        /** The guest GPU probe handshake when this launch probes; done once the program may start. */
+        val probe: Job? = null,
     ) {
         fun stop() {
             runCatching { launcher.stop() }
@@ -145,14 +148,13 @@ constructor(
         val pid = launcher.pid
         check(pid > 0) { "wineandroid guest failed to start (pid=$pid)" }
         Log.i(TAG, "wineandroid guest running pid=$pid")
-        if (probeInputs != null) {
-            runProbeHandshake(prepared.container, wnContainer, probeInputs)
-        }
+        val probe = probeInputs?.let { runProbeHandshake(prepared.container, wnContainer, it) }
         RunningGuest(
             pid = pid,
             guestExecutable = guestExecutable,
             launcher = launcher,
             environment = environment,
+            probe = probe,
         )
     }
 
@@ -297,22 +299,20 @@ constructor(
         container: AmphoraContainer,
         wnContainer: WinNativeContainer,
         inputs: GuestVulkanProbe.Inputs,
-    ) {
-        handshakeScope.launch {
-            val started = System.nanoTime()
-            val verdict = guestVulkanProbe.awaitVerdict(container, inputs)
-            runCatching {
-                relinkIfDecisionDiffers(container, wnContainer, verdict.report)
-            }.onFailure {
-                Log.w(TAG, "guest probe verdict apply failed; provisional links kept", it)
-            }
-            guestVulkanProbe.writeGoFile(container)
-            Log.i(
-                TAG,
-                "guest probe handshake done in ${(System.nanoTime() - started) / 1_000_000}ms " +
-                    "(failure=${verdict.failure})",
-            )
+    ): Job = handshakeScope.launch {
+        val started = System.nanoTime()
+        val verdict = guestVulkanProbe.awaitVerdict(container, inputs)
+        runCatching {
+            relinkIfDecisionDiffers(container, wnContainer, verdict.report)
+        }.onFailure {
+            Log.w(TAG, "guest probe verdict apply failed; provisional links kept", it)
         }
+        guestVulkanProbe.writeGoFile(container)
+        Log.i(
+            TAG,
+            "guest probe handshake done in ${(System.nanoTime() - started) / 1_000_000}ms " +
+                "(failure=${verdict.failure})",
+        )
     }
 
     companion object {

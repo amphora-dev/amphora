@@ -10,6 +10,10 @@
 # not depend on a mingw toolchain. Re-run this script whenever vkprobe.c or the
 # feature-struct set changes, and commit the result together with the source.
 #
+# Windows (GUI) subsystem, still entered through main(): a console program
+# started from the shell desktop gets its own conhost window, which shows as a
+# taskbar button for as long as the probe waits on the game it chained.
+#
 #   ./scripts/guest-vkprobe/build.sh
 set -eu
 
@@ -36,6 +40,7 @@ mkdir -p "$(dirname "$OUT")"
     -Os -s -Wall -Wextra -Wno-unused-parameter \
     -Wno-missing-field-initializers -Wno-cast-function-type \
     -I"$VULKAN_INCLUDE" \
+    -Wl,--subsystem,windows \
     -o "$OUT" \
     "$DIR/vkprobe.c"
 echo "built $OUT"

@@ -15,8 +15,12 @@ import androidx.activity.ComponentActivity
  * Layout follows upstream: nested WindowGroups, parent-relative visible_rect,
  * re-register on buffer size change.
  */
-class WineAndroidHostBridge(private val activity: ComponentActivity, private val desktop: WineAndroidDesktop) :
-    WineAndroidIpcCallbacks {
+class WineAndroidHostBridge(
+    private val activity: ComponentActivity,
+    private val desktop: WineAndroidDesktop,
+    /** Called once, when the guest's first window surface is registered. */
+    private val onFirstSurface: () -> Unit = {},
+) : WineAndroidIpcCallbacks {
     private val windows = LinkedHashMap<Pair<Int, Boolean>, WineAndroidWindow>()
 
     @Volatile private var desktopWidth: Int = 0
@@ -26,6 +30,8 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
     @Volatile private var desktopDpi: Int = 0
 
     @Volatile private var serverStarted: Boolean = false
+
+    @Volatile private var surfaceSeen: Boolean = false
 
     fun startServer() {
         if (serverStarted) return
@@ -211,6 +217,10 @@ class WineAndroidHostBridge(private val activity: ComponentActivity, private val
         }
         val ok = WineAndroidNative.nativeRegisterSurface(hwnd, surface, opengl)
         Log.i(TAG, "registerSurface hwnd=$hwnd opengl=$opengl ok=$ok")
+        if (ok && !surfaceSeen) {
+            surfaceSeen = true
+            onFirstSurface()
+        }
     }
 
     private fun maybeNotifyDesktop() {

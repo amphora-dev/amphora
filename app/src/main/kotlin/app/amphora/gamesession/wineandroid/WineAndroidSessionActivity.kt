@@ -41,6 +41,8 @@ import com.winlator.cmod.shared.android.RefreshRateUtils
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -64,6 +66,8 @@ class WineAndroidSessionActivity : ComponentActivity() {
     @Inject lateinit var hostEnvironment: GameSessionHostEnvironment
 
     private lateinit var desktop: WineAndroidDesktop
+
+    /** Startup status chip; hidden once the guest draws and any GPU probe is done. */
     private lateinit var statusView: TextView
 
     /** Host-local CJK composing chip (cleared on IME commit/finish). */
@@ -75,6 +79,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
     private var runningGuest: WineAndroidLauncher.RunningGuest? = null
     private val processExitScheduled = AtomicBoolean(false)
     private val guestPid = MutableStateFlow<Int?>(null)
+    private val firstSurface = CompletableDeferred<Unit>()
     private var exitConfirmDialog: AlertDialog? = null
     private val displayListener =
         object : DisplayManager.DisplayListener {
@@ -94,11 +99,11 @@ class WineAndroidSessionActivity : ComponentActivity() {
         desktop = WineAndroidDesktop(this).apply { setBackgroundColor(Color.BLACK) }
         statusView =
             TextView(this).apply {
-                setTextColor(Color.LTGRAY)
+                setTextColor(Color.WHITE)
+                setBackgroundColor(0xC7000000.toInt())
                 textSize = 14f
-                gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
-                setPadding(32, 32, 32, 64)
-                text = "wineandroid: preparing prefix…"
+                setPadding(28, 16, 28, 16)
+                text = "Preparing Windows…"
                 // Do not steal KEYCODE_* from the desktop / GDI WindowGroup.
                 isFocusable = false
                 isFocusableInTouchMode = false
@@ -145,9 +150,9 @@ class WineAndroidSessionActivity : ComponentActivity() {
                 addView(
                     statusView,
                     FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.WRAP_CONTENT,
-                        Gravity.BOTTOM,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        Gravity.CENTER,
                     ),
                 )
                 addView(
@@ -211,6 +216,7 @@ class WineAndroidSessionActivity : ComponentActivity() {
             WineAndroidHostBridge(
                 activity = this,
                 desktop = desktop,
+                onFirstSurface = { firstSurface.complete(Unit) },
             )
 
         // Desktop size is LaunchSpec / explorer /desktop=shell,WxH — not the
@@ -266,21 +272,22 @@ class WineAndroidSessionActivity : ComponentActivity() {
                     height,
                     wineDpi,
                 )
-                statusView.text =
-                    "wineandroid: prefix ready\n" +
-                    "starting box64 wine explorer /desktop=shell…\n" +
-                    "IPC abstract \\0\\Device\\WineAndroid"
+                statusView.text = "Starting Windows…"
                 val guest = launcher.start(prepared)
                 runningGuest = guest
                 guestPid.value = guest.pid
-                statusView.text =
-                    "wineandroid: guest pid=${guest.pid}\n" +
-                    "${guest.guestExecutable}\n" +
-                    "IPC \\0\\Device\\WineAndroid (upstream)"
                 Log.i(TAG, "wineandroid guest pid=${guest.pid}")
+                guest.probe?.let { probe ->
+                    statusView.text = "Checking GPU capabilities (first start on this driver)…"
+                    probe.join()
+                }
+                firstSurface.await()
+                statusView.visibility = View.GONE
+            } catch (c: CancellationException) {
+                throw c
             } catch (t: Throwable) {
                 Log.e(TAG, "wineandroid prepare failed", t)
-                statusView.text = "wineandroid prepare failed: ${t.message ?: t.javaClass.simpleName}"
+                statusView.text = "Could not start Windows: ${t.message ?: t.javaClass.simpleName}"
             }
         }
     }
