@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.concurrent.TimeUnit;
 
 /**
  * PulseAudio server management.
@@ -163,8 +164,8 @@ public class PulseAudioComponent extends EnvironmentComponent {
       PulseAudioRuntimeSupport.ensureInstalled(environment.getContext());
       if (!isSinkReady()) {
         killAllPulseAudioProcesses();
-        startPulseAudio();
-        if (!waitForSinkReady()) {
+        Process daemon = startPulseAudio();
+        if (!waitForSinkReady(daemon)) {
           killAllPulseAudioProcesses();
           File daemonLog =
               new File(environment.getContext().getFilesDir(), "pulseaudio/daemon.log");
@@ -254,8 +255,15 @@ public class PulseAudioComponent extends EnvironmentComponent {
     return false;
   }
 
-  private boolean waitForSinkReady() {
+  private boolean waitForSinkReady(Process daemon) {
     long deadline = System.nanoTime() + START_TIMEOUT_MILLIS * 1_000_000L;
+    try {
+      // --daemonize: the parent exits only after default.pa (incl. module-aaudio-sink) loaded.
+      daemon.waitFor(Math.max(0, deadline - System.nanoTime()), TimeUnit.MILLISECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return false;
+    }
     do {
       if (isSinkReady()) return true;
       try {
@@ -319,7 +327,7 @@ public class PulseAudioComponent extends EnvironmentComponent {
     return bytes != null ? new String(bytes, StandardCharsets.UTF_8).replace('\0', ' ') : "";
   }
 
-  private void startPulseAudio() {
+  private Process startPulseAudio() {
     Context context = environment.getContext();
     String nativeLibraryDir = context.getApplicationInfo().nativeLibraryDir;
 
@@ -370,7 +378,7 @@ public class PulseAudioComponent extends EnvironmentComponent {
     processBuilder.redirectErrorStream(true);
     processBuilder.redirectOutput(daemonLog);
     try {
-      processBuilder.start();
+      return processBuilder.start();
     } catch (IOException e) {
       throw new IllegalStateException("Cannot start PulseAudio daemon", e);
     }
