@@ -6,7 +6,7 @@
 
 ## 怎么读当前 pin
 
-- `components`（rootfs / wine / box64 / dxvk / dxvk_sarek / vkd3d …）与
+- `components`（rootfs / wine / box64 / dxvk / dxvk_sarek / dxvk_d3d89 / vkd3d …）与
   `runtimeAssets`（wrapper / fonts / wincomponents / ddraw 包装器 / adrenotools /
   metadata / AIO …）里的每一项都带 `remoteUrl` + `sha256` + `size`；文件名、大小、
   SHA 和 URL 都以 manifest 为准，发布流程可以在不修改本文的情况下更新 pin。

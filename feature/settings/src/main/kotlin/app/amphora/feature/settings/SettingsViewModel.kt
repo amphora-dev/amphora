@@ -856,8 +856,8 @@ data class DxvkProbeInfo(
 data class DxvkFlavorStatus(
     val selected: DxvkFlavorSetting = DxvkFlavorSetting.AUTO,
     val resolved: DxvkFlavorSetting = DxvkFlavorSetting.DXVK,
-    /** Second build d3d8/d3d9 come from when the launch splits them off; null = pure. */
-    val d3d89: DxvkFlavorSetting? = null,
+    /** Label of the second build d3d8/d3d9 come from when the launch splits them off; null = pure. */
+    val d3d89: String? = null,
     val impact: String = "",
     val warning: String? = null,
 ) {
@@ -870,10 +870,7 @@ data class DxvkFlavorStatus(
         ): DxvkFlavorStatus {
             val resolved =
                 if (resolvedId == DxvkFlavorIds.SAREK) DxvkFlavorSetting.SAREK else DxvkFlavorSetting.DXVK
-            val d3d89 =
-                d3d89Id?.let {
-                    if (it == DxvkFlavorIds.SAREK) DxvkFlavorSetting.SAREK else DxvkFlavorSetting.DXVK
-                }
+            val d3d89 = d3d89Id?.let(::buildLabel)
             return DxvkFlavorStatus(
                 selected = selected,
                 resolved = resolved,
@@ -886,7 +883,7 @@ data class DxvkFlavorStatus(
         private fun impact(
             selected: DxvkFlavorSetting,
             resolved: DxvkFlavorSetting,
-            d3d89: DxvkFlavorSetting?,
+            d3d89: String?,
             probe: DxvkProbeInfo?,
         ): String {
             if (selected != DxvkFlavorSetting.AUTO) {
@@ -897,7 +894,7 @@ data class DxvkFlavorStatus(
                 return "Automatic · decided when a game or the desktop first starts on this driver"
             }
             val choice =
-                if (d3d89 != null) "${resolved.label} + ${d3d89.label} for Direct3D 8/9" else resolved.label
+                if (d3d89 != null) "${resolved.label} + $d3d89 for Direct3D 8/9" else resolved.label
             val reason =
                 when {
                     d3d89 != null ->
@@ -912,6 +909,16 @@ data class DxvkFlavorStatus(
                 }
             return "Automatic chose $choice · $reason"
         }
+
+        /** Display name of a resolved build id, including the internal d3d8/9 split build. */
+        private fun buildLabel(id: String): String = when (id) {
+            DxvkFlavorIds.D3D89 -> D3D89_BUILD_LABEL
+            else -> DxvkFlavorSetting.fromId(id).takeIf { it != DxvkFlavorSetting.AUTO }?.label
+                ?: DxvkFlavorSetting.DXVK.label
+        }
+
+        /** What [app.amphora.core.content.model.ContentComponent.DXVK_D3D89] pins. */
+        private const val D3D89_BUILD_LABEL = "DXVK 2.6.2"
 
         private fun warning(selected: DxvkFlavorSetting, probe: DxvkProbeInfo?): String? = when {
             selected == DxvkFlavorSetting.DXVK && probe?.failure != null ->

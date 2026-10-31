@@ -97,6 +97,7 @@ constructor(
         contentSource.resolve(ContentComponent.VKD3D.id)
         contentSource.resolve(ContentComponent.DXVK.id)
         contentSource.resolve(ContentComponent.DXVK_SAREK.id)
+        contentSource.resolve(ContentComponent.DXVK_D3D89.id)
         contentsManager.syncContents()
 
         val wineVersion = resolveWineVersion(manifest)

@@ -191,9 +191,9 @@ class SettingsViewModelTest {
         with(fixture.viewModel.uiState.value.dxvkFlavor) {
             assertEquals(DxvkFlavorSetting.AUTO, selected)
             assertEquals(DxvkFlavorSetting.DXVK, resolved)
-            assertEquals(DxvkFlavorSetting.SAREK, d3d89)
+            assertEquals("DXVK 2.6.2", d3d89)
             assertEquals(
-                "Automatic chose DXVK 3.0.2 + DXVK-Sarek 1.11 for Direct3D 8/9 · " +
+                "Automatic chose DXVK 3.0.2 + DXVK 2.6.2 for Direct3D 8/9 · " +
                     "this device's Qualcomm driver rejects DXVK's fixed-function shaders",
                 impact,
             )

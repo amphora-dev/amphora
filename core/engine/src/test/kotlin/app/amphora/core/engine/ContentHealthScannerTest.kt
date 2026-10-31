@@ -262,6 +262,16 @@ class ContentHealthScannerTest {
                   "verCode": 0,
                   "remoteUrl": "https://example.com/dxvk-sarek.wcp"
                 },
+                "dxvk_d3d89": {
+                  "kind": "WCP",
+                  "assetPath": "dxvk-d3d89.wcp",
+                  "sha256": "$COMPONENT_SHA",
+                  "version": "DXVK-2.6.2-0",
+                  "contentType": "DXVK",
+                  "verName": "2.6.2",
+                  "verCode": 0,
+                  "remoteUrl": "https://example.com/dxvk-d3d89.wcp"
+                },
                 "vkd3d": {
                   "kind": "WCP",
                   "assetPath": "vkd3d.wcp",

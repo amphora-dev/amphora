@@ -28,11 +28,17 @@ object DxvkFlavorIds {
     const val SAREK = "sarek"
 
     /**
-     * The flavor [d3d89Flavor] returns — which pinned build supplies d3d8/d3d9
-     * when the Qualcomm split engages. Single point to change once the split
-     * build moves (e.g. to a DXVK 2.x pin).
+     * The build behind [ContentComponent.DXVK_D3D89] (DXVK 2.6.2). Never a
+     * stored preference — [normalize] maps it to [AUTO] — only what
+     * [d3d89Flavor] returns.
      */
-    const val D3D89_FLAVOR = SAREK
+    const val D3D89 = "d3d89"
+
+    /**
+     * The flavor [d3d89Flavor] returns — which pinned build supplies d3d8/d3d9
+     * when the Qualcomm split engages.
+     */
+    const val D3D89_FLAVOR = D3D89
 
     fun normalize(id: String?): String = when (id) {
         DXVK -> DXVK
@@ -65,8 +71,11 @@ object DxvkFlavorIds {
             ?: SAREK
     }
 
-    fun component(flavor: String): ContentComponent =
-        if (normalize(flavor) == SAREK) ContentComponent.DXVK_SAREK else ContentComponent.DXVK
+    fun component(flavor: String): ContentComponent = when {
+        flavor == D3D89 -> ContentComponent.DXVK_D3D89
+        normalize(flavor) == SAREK -> ContentComponent.DXVK_SAREK
+        else -> ContentComponent.DXVK
+    }
 
     /**
      * The build d3d8/d3d9 come from on a launch resolving to [resolvedFlavor]
@@ -75,9 +84,11 @@ object DxvkFlavorIds {
      * Qualcomm's proprietary Vulkan driver — what the wrapper ICD and the
      * System loader both reach on Adreno — rejects the fixed-function shaders
      * DXVK ≥ 2.x emits for D3D8/9 (`vkCreateGraphicsPipelines` fails with -13
-     * and the draw never lands). DXVK-Sarek's compile fine, so on that path
-     * `auto` puts d3d8/d3d9 on whatever [ContentComponent.DXVK_SAREK] pins while
-     * dxgi/d3d10core/d3d11 stay on 3.0.2. Turnip compiles the same shaders
+     * and the draw never lands). DXVK 2.6.2's compile fine, so on that path
+     * `auto` puts d3d8/d3d9 on whatever [ContentComponent.DXVK_D3D89] pins while
+     * dxgi/d3d10core/d3d11 stay on 3.0.2. 2.6.2 needs Vulkan 1.3 +
+     * `VK_EXT_robustness2` plus a feature set 3.0.2's own table covers, so the
+     * split only engages where 3.0.2 already passed. Turnip compiles the same shaders
      * without error, non-Adreno devices never run the Qualcomm stack, and an
      * explicit flavor pick is meant to be pure — none of those split.
      */

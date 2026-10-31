@@ -154,6 +154,9 @@ class DxvkFlavorIdsTest {
         assertEquals(DxvkFlavorIds.AUTO, DxvkFlavorIds.normalize("something-else"))
         assertEquals(DxvkFlavorIds.SAREK, DxvkFlavorIds.normalize(DxvkFlavorIds.SAREK))
         assertEquals(ContentComponent.DXVK_SAREK, DxvkFlavorIds.component(DxvkFlavorIds.SAREK))
+        assertEquals(ContentComponent.DXVK_D3D89, DxvkFlavorIds.component(DxvkFlavorIds.D3D89))
+        // The split build is never a stored choice.
+        assertEquals(DxvkFlavorIds.AUTO, DxvkFlavorIds.normalize(DxvkFlavorIds.D3D89))
         assertEquals(ContentComponent.DXVK, DxvkFlavorIds.component(DxvkFlavorIds.DXVK))
         assertEquals(ContentComponent.DXVK, DxvkFlavorIds.component(DxvkFlavorIds.AUTO))
     }

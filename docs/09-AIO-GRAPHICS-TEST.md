@@ -31,14 +31,14 @@ scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台
 |---|---|---|---|---|---|
 | vk | 原生 Vulkan | ✅ | ✅ | ✅ | ✅ |
 | gl | opengl32 → EGL | ❌ 无 GL | ❌ | ❌ | ❌ |
-| dx7 | 64：wined3d(GL)；32：d7vk → DXVK | ❌ 无 GL | ✅（拆分 Sarek） | ❌ 无 GL | ✅ |
-| ddraw2d | 64：GDI；32：wrapper → DXVK D3D9 | ✅ | ✅（拆分 Sarek） | ✅ | ✅ |
-| dx8 | DXVK D3D8 | ✅（拆分 Sarek） | ✅（拆分 Sarek） | ✅ | ✅ |
-| dx9 | DXVK D3D9（FF） | ✅（拆分 Sarek） | ✅（拆分 Sarek） | ✅ | ✅ |
+| dx7 | 64：wined3d(GL)；32：d7vk → DXVK | ❌ 无 GL | ✅（拆分 2.6.2） | ❌ 无 GL | ✅ |
+| ddraw2d | 64：GDI；32：wrapper → DXVK D3D9 | ✅ | ✅（拆分 2.6.2） | ✅ | ✅ |
+| dx8 | DXVK D3D8 | ✅（拆分 2.6.2） | ✅（拆分 2.6.2） | ✅ | ✅ |
+| dx9 | DXVK D3D9（FF） | ✅（拆分 2.6.2） | ✅（拆分 2.6.2） | ✅ | ✅ |
 | dx10 / dx11 | DXVK | ✅ | ✅ | ✅ | ✅ |
 | dx12 | vkd3d-proton | ✅ | ✅ | ❌ 缺 transform feedback | ❌ |
 
-Y700 的「拆分 Sarek」= `dxvk_flavor=auto` + Qualcomm 官方驱动（wrapper / System）时 d3d8/d3d9 自动取 `DxvkFlavorIds.D3D89_FLAVOR`（当前 Sarek 1.11），dxgi/d3d10core/d3d11 仍 3.0.2；机制与真机数据见 [`02`](02-TRACKING.md) §2。拆分构建经 dev-pin 换 DXVK 2.4 / 2.6.2 / 2.7.1 同样六项全过（推荐 2.6.2，见 §02）。
+Y700 的「拆分 2.6.2」= `dxvk_flavor=auto` + Qualcomm 官方驱动（wrapper / System）时 d3d8/d3d9 自动取 `DxvkFlavorIds.D3D89_FLAVOR`（当前 DXVK 2.6.2，manifest `dxvk_d3d89`），dxgi/d3d10core/d3d11 仍 3.0.2；机制与真机数据见 [`02`](02-TRACKING.md) §2。拆分构建经 dev-pin 换 DXVK 2.4 / 2.6.2 / 2.7.1 同样六项全过（推荐 2.6.2，见 §02）。
 
 Turnip（`WN-Turnip-1.06-b`）只测了 vk / dx9 / dx11 / dx12 / ddraw2d：
 - **Y700 全过**，而且 dx9、32-bit ddraw2d 出方块 / 色条（FF 的 -13 是 Qualcomm 驱动的问题，Turnip 上没有）；dx12 同样能跑。

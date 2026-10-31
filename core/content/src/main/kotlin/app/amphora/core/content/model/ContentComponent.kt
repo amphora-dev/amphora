@@ -18,11 +18,16 @@ enum class ContentComponent {
     /**
      * DXVK-Sarek. Installed instead of [DXVK] whenever the guest Vulkan probe
      * finds the adapter cannot meet 3.0.2's requirement set (Vulkan 1.3,
-     * required features/extensions, queue/limits). On the Qualcomm proprietary
-     * path with the flavor setting on auto it is installed alongside [DXVK] as
-     * the split D3D8/9 build — see [app.amphora.core.engine.DxvkFlavorIds.d3d89Flavor].
+     * required features/extensions, queue/limits), or when the user picks it.
      */
     DXVK_SAREK,
+
+    /**
+     * DXVK 2.6.2, used only for d3d8/d3d9: on the Qualcomm proprietary path
+     * with the flavor setting on auto it is installed alongside [DXVK] as the
+     * split D3D8/9 build — see [app.amphora.core.engine.DxvkFlavorIds.d3d89Flavor].
+     */
+    DXVK_D3D89,
     VKD3D,
 }
 

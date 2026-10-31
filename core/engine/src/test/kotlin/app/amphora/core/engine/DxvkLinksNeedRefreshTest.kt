@@ -23,7 +23,7 @@ class DxvkLinksNeedRefreshTest {
      */
     private fun fixture(): Pair<File, File> {
         mainInstall = temporaryFolder.newFolder("DXVK-3.0.2-0")
-        splitInstall = temporaryFolder.newFolder("DXVK-1.11.0-async-sarek-0")
+        splitInstall = temporaryFolder.newFolder("DXVK-2.6.2-9d6f54a1a-0")
         system32 = temporaryFolder.newFolder("system32")
         syswow64 = temporaryFolder.newFolder("syswow64")
         return mainInstall to splitInstall
