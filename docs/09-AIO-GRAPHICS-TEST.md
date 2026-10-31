@@ -25,6 +25,9 @@ MODE=power|home scripts/aio-smoke/background-check.sh <serial> <api|desktop> [64
 - 有 `bench` 也不等于有画面（见 §4 FF 那条：帧照常提交，方块没画），要看截图。
 - FPS 看 Frame rate 设置（`AIO_FRAME_RATE`，写进 `advanced_frame_rate_mode`，默认 `sync`；RESULT 里 `rate= mode= swap= hz=`）：`sync` 卡在屏幕刷新率（`swap=1`），这时数字不代表性能；`uncapped`（`swap=0`）和 `game` 下 AIO 的 vk（请求 IMMEDIATE，`mode=0`）可以超过刷新率，bench / `presents` 数的是提交的帧，上屏的是 SF `sf=`（≈ 刷新率 × 时长）；固定上限 30–120 是 `min(N, 刷新率)`。呈现模式和 swap interval 的规则见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.3。
 - `AIO_DRIVER` 设 `adrenotools_driver_id`（`System`、`wrapper`、`WN-Turnip-1.06-b`），文件名后缀带上它；`AIO_FRAME_RATE` 和 `AIO_DRIVER` 跑完不还原，测完自己改回。
+- `AIO_VSYNC=1` 给 AIO 加 `--vsync`：app 请求 FIFO（`mode=2`），文件名后缀 `-vsync`。查 `game` 是否跟随 app 的 vsync 时用：`game` + vsync → `swap=1`，`uncapped` + vsync 仍是 `swap=0`。
+- 不改设置、只让 DXVK 选 MAILBOX（interval 0）：imagefs 根（AIO 工作目录 `Z:\`）放 `dxvk.conf`，DXVK-Sarek 1.x 写 `dxgi.tearFree = True`，DXVK 2.x / 3.x 写 `dxvk.tearFree = True`（3.0.2 认 `dxgi.tearFree` 但不用它）。
+- `background-check.sh` 的 `BENCH`（默认 60）要比灭屏前后加起来长：bench 先结束的话 AIO 弹结果框、`--autoclose` 退出，回来后没有帧可数，看起来像没恢复。`BENCH=10` 时就这样误判过；灭屏 8 s 至少 `BENCH=35`。
 - 换驱动：先 `am force-stop app.amphora`，在 `shared_prefs/amphora_graphics.xml` 加 `<string name="adrenotools_driver_id">WN-Turnip-1.06-b</string>`（或 `System`），测完还原原文件；会话日志 `Launch graphics driver: configured=…`、DXVK 的 `Found device: … (Wrapper driver <版本>)` 确认实际驱动（Turnip 是 `26.2.99`，Qualcomm 是 `0.800.72`）。DXVK 版本同一文件的 `dxvk_flavor`（`dxvk` / `sarek`，不设 = auto），wine 日志 `DXVK: 3.0.2` 或 `DXVK-Sarek: v1.11.0-async` 确认。
 
 ## 2. 当前结果
