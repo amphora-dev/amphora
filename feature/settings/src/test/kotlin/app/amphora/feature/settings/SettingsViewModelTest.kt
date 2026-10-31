@@ -222,14 +222,21 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun openGlLineSaysNotAvailableAndShowsZinkReadinessSeparately() = runTest(dispatchers.testDispatcher) {
+    fun openGlLineNamesMesaWglAndShowsZinkReadiness() = runTest(dispatchers.testDispatcher) {
         val fixture = fixture()
         runCurrent()
 
         with(fixture.viewModel.uiState.value.openGlBackend) {
-            assertEquals("OpenGL for Windows programs is not available yet.", availability)
+            assertEquals(
+                "OpenGL for Windows programs uses Mesa 26.2.0: Zink on the GPU, or the softpipe software " +
+                    "renderer when Zink cannot run on this driver.",
+                availability,
+            )
             assertEquals(true, zinkReady)
-            assertEquals("This device's guest Vulkan meets every Zink (Mesa 26.2.0) requirement.", zinkDetail)
+            assertEquals(
+                "This driver's guest Vulkan meets every Zink requirement, so OpenGL runs on the GPU.",
+                zinkDetail,
+            )
         }
     }
 

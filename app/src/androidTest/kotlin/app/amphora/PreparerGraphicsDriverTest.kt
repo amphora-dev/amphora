@@ -54,7 +54,7 @@ import org.junit.runner.RunWith
  *     extracts the Wine prefix from the Proton `prefixPack.txz`.
  *  4. [XServerWineSessionPreparer]: `ensureWinePrefixReady` (repair →
  *     `firstTimeBoot=true`) + `extractGraphicsDriverFiles` → populates
- *     `envVars()` (`WRAPPER_VK_VERSION`, `MESA_LOADER_DRIVER_OVERRIDE=zink`, …).
+ *     `envVars()` (`WRAPPER_VK_VERSION`, `WINEDLLOVERRIDES` with `opengl32=n,b`, …).
  *  5. Verify `envVars()` (unconditional). Conditionally verify `wrapper.tzst`
  *     extraction (needs the app APK to bundle `graphics_driver/wrapper.tzst`).
  *
@@ -217,22 +217,26 @@ class PreparerGraphicsDriverTest {
         println("ENVVARS (${env.size}, firstTimeBoot=$firstTimeBoot):")
         env.toSortedMap().forEach { (k, v) -> println("  $k=$v") }
 
-        // zink is selected through the loader, not GALLIUM_DRIVER: the latter leaves
-        // EGL on swrast (blank window) and suppresses Mesa's own zink selection.
-        // Both knobs are skipped on a GPU that cannot start zink at all, so the
-        // expectation follows the same host probe the preparer used.
-        val zinkBlockers = graphicsDriverCapabilities.zinkBlockers(null)
-        println("ZINK_BLOCKERS=$zinkBlockers")
-        if (zinkBlockers.isEmpty()) {
-            assertEquals("MESA_LOADER_DRIVER_OVERRIDE", "zink", env["MESA_LOADER_DRIVER_OVERRIDE"])
-            // Our X server answers DRI3Open with zero FDs, so kopper has to be forced.
-            assertEquals("LIBGL_KOPPER_DRI2", "1", env["LIBGL_KOPPER_DRI2"])
-        } else {
-            assertNull("zink override must stay unset", env["MESA_LOADER_DRIVER_OVERRIDE"])
-            assertNull("kopper must stay unset without zink", env["LIBGL_KOPPER_DRI2"])
-        }
+        // OpenGL goes through Mesa WGL's opengl32.dll in the prefix. GALLIUM_DRIVER
+        // stays unset so Mesa can fall back from zink to softpipe; the X11-era
+        // loader/kopper/EGL knobs are gone.
+        assertNull("MESA_LOADER_DRIVER_OVERRIDE must stay unset", env["MESA_LOADER_DRIVER_OVERRIDE"])
+        assertNull("LIBGL_KOPPER_DRI2 must stay unset", env["LIBGL_KOPPER_DRI2"])
+        assertNull("WINE_USE_EGL must stay unset", env["WINE_USE_EGL"])
         assertNull("GALLIUM_DRIVER must stay unset", env["GALLIUM_DRIVER"])
         assertNull("LIBGL_KOPPER_DISABLE must stay unset", env["LIBGL_KOPPER_DISABLE"])
+        assertTrue(
+            "WINEDLLOVERRIDES must load Mesa WGL: ${env["WINEDLLOVERRIDES"]}",
+            env["WINEDLLOVERRIDES"].orEmpty().split(';').contains("opengl32=n,b"),
+        )
+        // wined3d leaves GL (softpipe) for its GDI path exactly when zink is blocked.
+        val zinkBlockers = graphicsDriverCapabilities.zinkBlockers(null)
+        println("ZINK_BLOCKERS=$zinkBlockers")
+        assertEquals(
+            "WINE_D3D_CONFIG renderer: ${env["WINE_D3D_CONFIG"]}",
+            zinkBlockers.isNotEmpty(),
+            env["WINE_D3D_CONFIG"].orEmpty().split(',').contains("renderer=gdi"),
+        )
         assertNotNull("WRAPPER_VK_VERSION missing", env["WRAPPER_VK_VERSION"])
         val selectedDriver =
             GraphicsDriverIds.normalize(

@@ -4,8 +4,13 @@ package app.amphora.core.engine
  * What makes Mesa 26.2.0's zink refuse a physical device, checked against the
  * [GuestVulkanDevice] the guest probe captured inside Wine.
  *
- * Pinned to the Mesa that imagefs builds zink from:
- * `buildstream/elements/graphics/mesa-gl.bst` (`mesa-26.2.0.tar.xz`). Source,
+ * Pinned to the Mesa that imagefs builds zink from. Two builds share
+ * `mesa-26.2.0.tar.xz`: `buildstream/elements/graphics/mesa-gl.bst` (the
+ * native Bionic/Linux Mesa) and `buildstream/elements/l1/mesa-wgl.bst` (the
+ * Windows `opengl32.dll` that Windows programs use, see [MesaWglRuntime]).
+ * This list feeds the Settings text and the wined3d renderer choice
+ * ([MesaWglRuntime.wined3dConfig]); Mesa WGL itself decides between zink and
+ * softpipe when it creates its screen. Source,
  * tag `mesa-26.2.0`, `src/gallium/drivers/zink/`:
  *
  * - `zink_device_info.py` `EXTENSIONS`: five entries carry `required=True` —

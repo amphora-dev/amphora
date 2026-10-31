@@ -15,31 +15,34 @@ class GuestCapabilityStatusTest {
     @Test
     fun openGlUnknownUntilProbed() {
         val s = OpenGlBackendStatus.of(zinkBlockers = emptyList(), probed = false)
-        assertEquals(OpenGlBackendStatus.NOT_AVAILABLE, s.availability)
+        assertEquals(OpenGlBackendStatus.AVAILABILITY, s.availability)
+        assertTrue(s.availability.contains("Mesa 26.2.0"))
+        assertTrue(s.availability.contains("softpipe"))
         assertNull(s.zinkReady)
         assertTrue(s.zinkDetail.contains("first starts"))
     }
 
     @Test
-    fun openGlNotAvailableEvenWhenZinkRequirementsAreMet() {
+    fun openGlRunsOnZinkWhenRequirementsAreMet() {
         val s = OpenGlBackendStatus.of(zinkBlockers = emptyList(), probed = true)
-        assertTrue(s.availability.contains("not available yet"))
+        assertEquals(OpenGlBackendStatus.AVAILABILITY, s.availability)
         assertEquals(true, s.zinkReady)
-        assertTrue(s.zinkDetail.contains("Mesa 26.2.0"))
         assertTrue(s.zinkDetail.contains("meets every"))
+        assertTrue(s.zinkDetail.contains("on the GPU"))
     }
 
     @Test
-    fun openGlZinkBlockedNamesMissingItems() {
+    fun openGlZinkBlockedNamesMissingItemsAndSoftpipe() {
         val s =
             OpenGlBackendStatus.of(
                 zinkBlockers = listOf("extension VK_KHR_dynamic_rendering", "feature extRobustness2.nullDescriptor"),
                 probed = true,
             )
-        assertEquals(OpenGlBackendStatus.NOT_AVAILABLE, s.availability)
+        assertEquals(OpenGlBackendStatus.AVAILABILITY, s.availability)
         assertEquals(false, s.zinkReady)
         assertTrue(s.zinkDetail.contains("VK_KHR_dynamic_rendering"))
         assertTrue(s.zinkDetail.contains("extRobustness2.nullDescriptor"))
+        assertTrue(s.zinkDetail.contains("softpipe"))
     }
 
     @Test

@@ -39,6 +39,7 @@ rootfs 是 **Bionic libc**（`libc.so -> /system/lib64/libc.so`，无 glibc 标�
 | `wincomponents/*.tzst` | `contents/WINCOMPONENTS/<id>-<sha>/`，prefix 只软链 | `TarCompressorUtils` | 微软 redist；按 `wincomponents.json` `FALLBACK` 选装；保持 tzst，不改 WCP |
 | `ddrawrapper/{dd7to9,cnc-ddraw}.tzst` + `d7vk.zip` + `nglide.tzst` | `contents/DDRAW/<id>-<sha>/` → 容器 `syswow64` | 同上 | DirectDraw 三选一 + nGlide 独立；**互斥**，UI/安装器只落一份；均只部署 PE32 `syswow64/ddraw.dll`，64-bit ddraw 回退 Proton builtin → WineD3D |
 | `fonts.tzst` | `contents/FONTS/<sha>/`（全局共享一份） | 同上 | Source Han CN+JP 回退 + 真实 Windows 字体优先 |
+| `graphics_driver/mesa-wgl.tzst` | `contents/MESAWGL/mesa-wgl-<sha>/` → 每个 prefix 的 `system32`/`syswow64` `opengl32.dll` + `libgallium_wgl.dll` 软链 | `MesaWglRuntime`（`RuntimeAssetDllCache`） | Mesa 的 Windows OpenGL（zink + softpipe，x86_64 + i686 PE），`WINEDLLOVERRIDES` 带 `opengl32=n,b`；zink 起不来时 Mesa 自己回退 softpipe。imagefs `build-mesa-wgl` 构建，Release `mesa-wgl` |
 | `WN-Turnip-*.zip` | `contents/adrenotools/<id>/` | `TurnipDriverProvisioner` | 可选完整 Turnip，单选，见 §4 |
 | `gpu_cards.json` / `startmenu.json` / `wincomponents.json` / `default.box64rc` | 各处 | 直接拷 | 裸元数据 |
 | `pulseaudio.tzst` + PA13 `jniLibs` | `filesDir/pulseaudio-runtime` / `nativeLibraryDir` | `PulseAudioRuntimeSupport` | APK 固定交付，见上文「例外」 |
@@ -55,7 +56,8 @@ OpenGL 的调试覆盖包，不进发布默认集。
    字段布局错配即崩；任何一侧升级都要重新比对构造签名。
    hooks 全局只留一份（随 wrapper → `imagefs/usr/lib`）；`vulkan.c` 经
    `ImageFs.find(context).getLibDir()` 取 hooks 并校验 `libhook_impl.so` 存在。
-3. **Mesa GL 不单独拆包**（OpenGL 无插拔需求，私有部分只有 `libglapi`）。
+3. **imagefs 原生 Mesa GL 不单独拆包**（Linux 侧 OpenGL 无插拔需求，私有部分只有 `libglapi`）。
+   Windows 程序的 OpenGL 是另一份：`graphics_driver/mesa-wgl.tzst`（见 §1）。
 4. **Turnip** 只有可选 zip 一条路径；`ADRENOTOOLS_DRIVER_NAME` 仅在用户点选时设置。
 5. **字体** 全局一份；多容器不重复。
 6. **发布面**：默认 pin / 产物走公开 GitHub Release（`amphora-dev/*`）+

@@ -17,6 +17,7 @@ object AppliedMarks {
     private const val APP = "appliedAppVersion"
     private const val IMG = "appliedImgVersion"
     private const val DXWRAPPER = "appliedDxwrapper"
+    private const val OPENGL = "appliedOpenGl"
     private const val WINCOMPONENTS = "appliedWincomponents"
     private const val SERVICES = "appliedServices"
     private const val AUDIO = "appliedAudio"
@@ -35,7 +36,7 @@ object AppliedMarks {
     /** 前缀里的配置；重建后必须清空（Box64/FEX 装在 imagefs/别路径的另算）。 */
     val prefixOwnedKeys: List<String> =
         listOf(
-            APP, IMG, DXWRAPPER, WINCOMPONENTS, SERVICES,
+            APP, IMG, DXWRAPPER, OPENGL, WINCOMPONENTS, SERVICES,
             AUDIO, INPUT, DRIVES, WINEBUS, FONTS, START_MENU,
             PREFIX_NEEDS_UPDATE,
         )
@@ -62,6 +63,14 @@ object AppliedMarks {
 
     fun invalidateDxwrapper(container: Container) {
         container.putExtra(DXWRAPPER, null)
+    }
+
+    // --- OpenGL (Mesa WGL) ---
+
+    fun needsOpenGl(container: Container, desired: String): Boolean = container.getExtra(OPENGL) != desired
+
+    fun markOpenGl(container: Container, desired: String) {
+        container.putExtra(OPENGL, desired)
     }
 
     // --- Windows 组件 ---

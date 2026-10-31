@@ -931,23 +931,23 @@ data class DxvkFlavorStatus(
 /**
  * The OpenGL lines under the GPU driver picker.
  *
- * Windows programs cannot use OpenGL in the wineandroid session yet. Wine's
- * builtin `opengl32` goes through win32u's EGL driver, and the imagefs Mesa is
- * built for X11 only (`-Dplatforms=x11 -Dgles2=disabled`), so Wine gets no EGL
- * configs and therefore no pixel formats. [availability] says that on every
- * device. [zinkReady]/[zinkDetail] answer a separate question: whether this
- * driver's guest Vulkan meets Mesa zink's requirements (`ZinkRequirements`),
- * which decides whether zink could drive OpenGL here once it is wired up.
+ * Windows programs get OpenGL from Mesa's WGL `opengl32.dll`, which the engine
+ * links into every prefix (imagefs `l1/mesa-wgl.bst`, zink + softpipe).
+ * [availability] says that on every device. Mesa itself picks the driver when
+ * it creates its screen: zink on the guest Vulkan driver, or softpipe on the
+ * CPU when zink cannot start. [zinkReady]/[zinkDetail] predict that choice from
+ * the guest probe (`ZinkRequirements`).
  */
 data class OpenGlBackendStatus(
-    val availability: String = NOT_AVAILABLE,
+    val availability: String = AVAILABILITY,
     /** Null until the guest probe has produced a verdict for the selected driver. */
     val zinkReady: Boolean? = null,
     val zinkDetail: String = "",
 ) {
     companion object {
-        const val NOT_AVAILABLE = "OpenGL for Windows programs is not available yet."
-        private val ZINK = "Zink (Mesa ${ZinkRequirements.MESA_VERSION})"
+        val AVAILABILITY =
+            "OpenGL for Windows programs uses Mesa ${ZinkRequirements.MESA_VERSION}: Zink on the GPU, " +
+                "or the softpipe software renderer when Zink cannot run on this driver."
 
         /**
          * [probed] = a guest verdict exists for the selected driver (so empty
@@ -958,17 +958,20 @@ data class OpenGlBackendStatus(
                 OpenGlBackendStatus(
                     zinkReady = null,
                     zinkDetail =
-                    "$ZINK requirements are checked when a game or the desktop first starts on this driver.",
+                    "Whether OpenGL gets Zink or softpipe is checked when a game or the desktop first " +
+                        "starts on this driver.",
                 )
             zinkBlockers.isEmpty() ->
                 OpenGlBackendStatus(
                     zinkReady = true,
-                    zinkDetail = "This device's guest Vulkan meets every $ZINK requirement.",
+                    zinkDetail = "This driver's guest Vulkan meets every Zink requirement, so OpenGL runs on the GPU.",
                 )
             else ->
                 OpenGlBackendStatus(
                     zinkReady = false,
-                    zinkDetail = "$ZINK cannot run here: ${zinkBlockers.joinToString(", ")}.",
+                    zinkDetail =
+                    "Zink cannot run on this driver (missing ${zinkBlockers.joinToString(", ")}), so OpenGL " +
+                        "falls back to softpipe on the CPU, which is slow.",
                 )
         }
     }

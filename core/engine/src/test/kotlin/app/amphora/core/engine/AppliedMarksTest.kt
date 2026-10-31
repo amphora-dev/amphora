@@ -12,6 +12,7 @@ class AppliedMarksTest {
         val keys = AppliedMarks.prefixOwnedKeys
         assertTrue(keys.contains("appliedAudio"))
         assertTrue(keys.contains("appliedDxwrapper"))
+        assertTrue(keys.contains("appliedOpenGl"))
         assertTrue(keys.contains("appliedServices"))
         assertTrue(keys.contains("appliedInput"))
         assertTrue(keys.contains("appliedFonts"))

@@ -22,6 +22,7 @@ MODE=power|home scripts/aio-smoke/background-check.sh <serial> <api|desktop> [64
 
 判读：
 - `bench=none`：后端没起来，看截图里 AIO 的报错框和 `err=`。
+- OpenGL / 64-bit dx7 / 64-bit ddraw2d 走前缀里的 Mesa WGL `opengl32.dll`：`egldrv_init_pixel_formats` 不应再出现；zink 时 logcat 有 `Engine Name : mesa zink`（Qualcomm 新驱动才打这行）、wine 日志有 `ANDROID_vulkan_surface_create … (client/opengl`；softpipe 时两者都没有，帧走 GDI（`presents=0`）。会话日志 `zink cannot run on '<driver>'` 表示 wined3d 被设成 `renderer=gdi`。
 - 有 `bench` 也不等于有画面（见 §4 FF 那条：帧照常提交，方块没画），要看截图。
 - FPS 看 Frame rate 设置（`AIO_FRAME_RATE`，写进 `advanced_frame_rate_mode`，默认 `sync`；RESULT 里 `rate= mode= swap= hz=`）：`sync` 卡在屏幕刷新率（`swap=1`），这时数字不代表性能；`uncapped`（`swap=0`）和 `game` 下 AIO 的 vk（请求 IMMEDIATE，`mode=0`）可以超过刷新率，bench / `presents` 数的是提交的帧，上屏的是 SF `sf=`（≈ 刷新率 × 时长）；固定上限 30–120 是 `min(N, 刷新率)`。呈现模式和 swap interval 的规则见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.3。
 - `AIO_DRIVER` 设 `adrenotools_driver_id`（`System`、`wrapper`、`WN-Turnip-1.06-b`），文件名后缀带上它；`AIO_FRAME_RATE` 和 `AIO_DRIVER` 跑完不还原，测完自己改回。
@@ -37,15 +38,17 @@ MODE=power|home scripts/aio-smoke/background-check.sh <serial> <api|desktop> [64
 | 后端 | 路径 | Y700 64 | Y700 32 | 6T 64 | 6T 32 |
 |---|---|---|---|---|---|
 | vk | 原生 Vulkan | ✅ | ✅ | ✅ | ✅ |
-| gl | opengl32 → EGL | ❌ 无 GL | ❌ | ❌ | ❌ |
-| dx7 | 64：wined3d(GL)；32：d7vk → DXVK | ❌ 无 GL | ✅（拆分 2.6.2） | ❌ 无 GL | ✅ |
-| ddraw2d | 64：GDI；32：wrapper → DXVK D3D9 | ✅ | ✅（拆分 2.6.2） | ✅ | ✅ |
+| gl | opengl32 → Mesa WGL zink → winevulkan（zink 跑不了时 softpipe） | ✅ zink 144 | ✅ zink 144 | ✅ softpipe 32 | ✅ softpipe 31 |
+| dx7 | 64：wined3d(GL → Mesa WGL)；32：d7vk → DXVK | ✅ zink 144 | ✅（拆分 2.6.2） | ❌ wined3d 为 GDI，无 D3D7 设备 | ✅ 35 |
+| ddraw2d | 64：wined3d(GL → Mesa WGL zink；zink 跑不了时 GDI)；32：wrapper → DXVK D3D9 | ✅ zink 144 | ✅（拆分 2.6.2） | ✅ GDI 60 | ✅ 24 |
 | dx8 | DXVK D3D8 | ✅（拆分 2.6.2） | ✅（拆分 2.6.2） | ✅ | ✅ |
 | dx9 | DXVK D3D9（FF） | ✅（拆分 2.6.2） | ✅（拆分 2.6.2） | ✅ | ✅ |
 | dx10 / dx11 | DXVK | ✅ | ✅ | ✅ | ✅ |
 | dx12 | vkd3d-proton | ✅ | ✅ | ❌ 缺 transform feedback | ❌ |
 
 Y700 的「拆分 2.6.2」= `dxvk_flavor=auto` + Qualcomm 官方驱动（wrapper / System）时 d3d8/d3d9 自动取 `DxvkFlavorIds.D3D89_FLAVOR`（当前 DXVK 2.6.2，manifest `dxvk_d3d89`），dxgi/d3d10core/d3d11 仍 3.0.2；机制与真机数据见 [`02`](02-TRACKING.md) §2。拆分构建经 dev-pin 换 DXVK 2.4 / 2.6.2 / 2.7.1 同样六项全过（推荐 2.6.2，见 §02）。
+
+gl / dx7 / 64-bit ddraw2d 三行是 2026-10-31 `wip/mesa-wgl`（Mesa WGL 26.2.0 zink + softpipe，见 [`02`](02-TRACKING.md) §3）实测：Y700 gl 64/32 144.02 / 143.78、dx7 64/32 144.24 / 143.64、ddraw2d 64 144.01；6T（wrapper，Vulkan 1.1，缺 zink 必需扩展）gl 64 32.09、gl 32 31.14、dx7 32 34.88、ddraw2d 64 60.00。6T 若让 wined3d 也走 softpipe，64-bit ddraw2d 只有 5.6 fps、64-bit dx7 5.4 fps，所以 `ZinkRequirements` 有 blocker 时 wined3d 用 `renderer=gdi`。
 
 Turnip（`WN-Turnip-1.06-b`）只测了 vk / dx9 / dx11 / dx12 / ddraw2d：
 - **Y700 全过**，而且 dx9、32-bit ddraw2d 出方块 / 色条（FF 的 -13 是 Qualcomm 驱动的问题，Turnip 上没有）；dx12 同样能跑。
@@ -69,6 +72,6 @@ AIO 2.1.0 与 v1.7.0 的差别：
 ## 4. 未解决
 
 - **D3D12 在 6T**：wrapper 下仍缺 transform feedback（`Lacking support for transform feedback`）。Turnip 下 vkd3d 能建设备，但 3.0.2 的 dxgi 因缺 16-bit storage 枚举不到适配器，Sarek 的 dxgi 又不认 D3D12 设备，两条都走不通。
-- **OpenGL**：`wineandroid.drv/opengl.c` 用 `EGL_PLATFORM_ANDROID_KHR` 调 imagefs 的 Mesa libEGL（原生 aarch64，Box64 直接转过去；构建只有 `-Dplatforms=x11`），`eglChooseConfig` 一个 config 都没有（`egldrv_init_pixel_formats Failed to get any configs`）。X11 时同一份 Mesa 走 EGL X11 平台 + zink + kopper（xcb surface 经 wrapper ICD）。wineandroid 上缺的是 Wine 的 GL 驱动这一段和 kopper 的出画目标，方案见 [`02`](02-TRACKING.md) §2「之后」（Phase 3 OpenGL）。64-bit DX7 走 wined3d GL，跟着不可用。
+- **OpenGL 在缺 zink 必需扩展的驱动上是 softpipe**：6T wrapper（Qualcomm A630，Vulkan 1.1.128）没有 `VK_KHR_maintenance5` / `VK_KHR_dynamic_rendering` / `nullDescriptor` / timeline semaphore，Mesa WGL 的 zink 建不了 screen，落到 softpipe（AIO gl ~32 fps，出画）；wined3d 在这类驱动上走 GDI，64-bit dx7 因此仍不可用。自建 Turnip 上 zink 能否跑另行验证。Mesa WGL 是 PE DLL，在 Box64 里模拟执行，Y700 gl 64 guest CPU 比 vk 高（step 0 实测一核 29.7% 对 23.5%）。
 - **Vulkan 窗口在后台超过 60 s，AIO 会自己退出**：client 层 park 期间（[`04`](04-WINEANDROID-DISPLAY.md) §3.4）DEQUEUE 阻塞整个后台时长，guest 收不到任何窗口消息或状态变化（探针：灭屏 17 s 里前台 / iconic / visible / rect 都不变），所以看门狗分不清 park 和真卡死。AIO fork `9bff1e3` 起 `src/watchdog.h` 的 `AIO_WATCHDOG_TIMEOUT_S` 是 60 s，到点 `ExitProcess(3)`（各后端都开）。`background-check.sh` 默认后台 15 s。
 - **6T 64-bit dx11 偶发卡首帧**：第二个交换链第一次 acquire 之后再没有 present，AIO 没写 bench（2026-09-28 dev 构建 4 轮里 1 次；发布组合那一轮正常），未查。

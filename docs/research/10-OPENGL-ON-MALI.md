@@ -1,7 +1,7 @@
 # 10 - Mali 上的 OpenGL：问题与方案
 
 > 给不熟悉图形栈的人讲清楚：Mali 上 OpenGL 为什么慢、为什么"补 GLX"不是答案、VirGL 怎么解决。
-> 最后更新: 2026-08-14
+> 最后更新: 2026-10-31（§3 / §9 换成 Mesa WGL 链路；§4.5、§7 起是 X11 时代的历史）
 
 ---
 
@@ -94,20 +94,34 @@ DRI3 是 X11 的一个 extension，让客户端和 X Server 之间共享图形�
 
 ## 3. Windows 游戏的 OpenGL 怎么到 GPU
 
-完整链路：
+当前链路（wineandroid 会话，Mesa WGL）：
 
 ```
 Windows 游戏 (WGL/桌面 OpenGL)
-  → Wine opengl32          (把 WGL 翻译成宿主 GL/EGL 调用)
-  → Wine EGL 后端           (WINE_USE_EGL=1, 不走 GLX)
-  → Mesa libEGL            (EGL 接口层)
-  → Zink                   (桌面 GL → Vulkan 翻译)
-  → Kopper                 (把 Vulkan swapchain 接到 X11)
+  → Mesa WGL opengl32.dll + libgallium_wgl.dll
+                           (PE，跑在 Box64 里；app 把 graphics_driver/mesa-wgl.tzst
+                            链进每个 prefix 的 system32/syswow64，opengl32=n,b)
+  → Zink                   (桌面 GL → Vulkan 翻译，PE 侧)
+  → winevulkan             (Windows Vulkan → 宿主 Vulkan)
+  → wineandroid VK_KHR_android_surface
+  → VK_LAYER_AMPHORA_wsi   (AHB import swapchain，见 docs/05)
   → Vulkan wrapper/Leegao  (Vulkan ICD)
-  → Mali GPU
+  → GPU
 ```
 
+zink 建不起 screen（驱动缺 zink 必需的扩展/特性，如 Mali）时，Mesa WGL 自己回退到
+softpipe（CPU 光栅化），画面经 GDI 交给 wineandroid。`GALLIUM_DRIVER` 不设，否则
+Mesa 只试一个驱动、没有回退。`ZinkRequirements`（guest 探针报告）判定有 blocker 时，
+app 把 wined3d 设成 `renderer=gdi`（`MesaWglRuntime.wined3dConfig`），64-bit DirectDraw
+不经 softpipe。
+
 每个环节都要对上。任意一环断了，就是黑屏或软件渲染。
+
+X11 时代的旧链路（tag `x11-reference`，amphora `5909b50` 删除 X11 链；对应的
+`MESA_LOADER_DRIVER_OVERRIDE` / `LIBGL_KOPPER_DRI2` / `WINE_USE_EGL` 开关已在 Mesa WGL
+这次改动里删掉）是：Wine opengl32 → Wine EGL 后端（`WINE_USE_EGL=1`）→ Mesa libEGL →
+Zink → Kopper（Vulkan swapchain 接到 X11）→ Vulkan ICD。wineandroid 下 Wine 的 EGL
+驱动拿不到任何 config（imagefs Mesa 只编了 `-Dplatforms=x11`），所以这条链不再可用。
 
 ---
 
@@ -155,6 +169,9 @@ zink 已经**删除了 renderpass 路径**（Mesa 25.2 的 `zink_render_pass.c` 
 也就是说，这不是"zink 选择性地要求这个扩展"，而是"zink 的代码里已经没有不使用这个扩展的路径了"。
 
 ### 4.5 当前做了什么
+
+> X11 时代的历史：下面的环境变量开关已删除。现在 `ZinkRequirements` 只给设置页
+> 预告「zink 还是 softpipe」，真正的选择由 Mesa WGL 建 screen 时自己做（§3）。
 
 新增了 `ZinkRequirements.kt` 和 `GraphicsDriverCapabilities.zinkBlockers()`：启动前枚举设备全部 Vulkan 扩展，逐条比对 zink 需求。
 
@@ -364,6 +381,9 @@ Mali GLES image → AHardwareBuffer → Vulkan compositor
 
 ## 7. 环境变量怎么配合的
 
+> X11 时代的历史（tag `x11-reference`）。本节的变量在 Mesa WGL 链路（§3）里都不再设置，
+> 对应代码已删除；留着解释当时为什么这么配。
+
 几个变量处于不同层级，不能互换。
 
 ### 7.1 每个变量管什么
@@ -514,11 +534,12 @@ Amphora 在这之上的改动：删掉了 GPUImage 里原来的 EGL/GLES interop
 
 | 路径 | 状态 | 性能 |
 |---|---|---|
-| EGL + Zink（Adreno/Turnip） | 正式可用 | GPU 加速，零拷贝 |
-| EGL + softpipe（Mali） | 正式可用 | ~30 fps，CPU 渲染 |
-| EGL + VirGL 阶段 0（Mali） | 真机验证通过 | 100+ fps（下限） |
+| Mesa WGL zink（Adreno wrapper，Qualcomm 新驱动） | Y700 真机 PASS（2026-10-31） | AIO gl 64/32 144.02 / 143.78、64-bit dx7 144.24（wined3d → GL），卡在 144 Hz 刷新率；guest CPU 比 vk 高（一核 29.7% 对 23.5%，step 0） |
+| Mesa WGL softpipe（zink 起不来的驱动：6T Qualcomm A630 Vulkan 1.1，预计 Mali/Leegao 同） | 6T 真机 PASS（2026-10-31） | AIO gl 64/32 32.09 / 31.14（出画）。这类驱动上 wined3d 用 `renderer=gdi`（softpipe 上 64-bit ddraw2d 只有 5.6 fps，GDI 60）：OpenGL 走 softpipe、64-bit ddraw2d 走 GDI、64-bit dx7 不可用 |
+| EGL + Zink / EGL + softpipe（X11 时代） | 已删除 | — |
+| EGL + VirGL 阶段 0（Mali，X11 时代） | 真机验证通过（历史） | 100+ fps（下限） |
 | VirGL 阶段 1 集成 | 待开工 | 预期 ≥ 阶段 0 |
 | VirGL 阶段 2 零拷贝 | 规划中 | 去掉 readback/传输 |
 | GLX / Indirect GLX | 不适用 | 不解决桌面 GL → GLES 翻译问题 |
 
-**下一步**：把 virglrenderer 生命周期、vtest socket 和 OpenGL 后端三态选择（zink / virpipe / 不设）集成进 app，替换当前的手工 env 下发。
+**下一步**：自建 Turnip 上 6T 能否走 zink 另行验证；Mali/Leegao 真机数据待测。VirGL 仍是 Mali 硬件加速的计划，要在 Mesa WGL 链路上重新设计（原方案依赖 X11 时代的 EGL 链路）。

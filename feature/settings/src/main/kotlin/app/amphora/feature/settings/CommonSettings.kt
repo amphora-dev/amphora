@@ -36,7 +36,7 @@ internal fun CommonSettings(
     }
     SettingSection(
         title = "Graphics",
-        subtitle = "Native Vulkan backend used by DXVK, VKD3D and Zink",
+        subtitle = "Guest Vulkan driver for DXVK, VKD3D and Mesa Zink (OpenGL)",
     ) {
         val driverDefault = state.graphicsDriverOptions.first()
         ChoiceSetting(
@@ -46,7 +46,7 @@ internal fun CommonSettings(
                 "Mesa Freedreno and is downloaded when first selected. Leegao opens the " +
                 "vendor Vulkan HAL in an isolated loader namespace, which is how Mali, " +
                 "Xclipse and PowerVR devices get a working guest driver.",
-            impact = "Global default · Direct3D 9–12 and OpenGL/Zink · next launch",
+            impact = "Global default · Direct3D 8–12 and OpenGL · next launch",
             selected = state.graphicsDriver,
             defaultValue = driverDefault,
             values = state.graphicsDriverOptions,

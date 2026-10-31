@@ -426,6 +426,21 @@ class XServerWineSessionPreparer @Inject constructor(
             }
         }
 
+        // Mesa WGL is every prefix's opengl32, whatever the dxwrapper selection.
+        val windowsDir = File(imageFs.getRootDir(), ImageFs.WINEPREFIX + "/drive_c/windows")
+        val openGlKey = "mesa-wgl|assets=${runtimeFingerprint(listOf(MesaWglRuntime.ASSET_PATH))}"
+        val openGlLinksStale = MesaWglRuntime.linksNeedRefresh(windowsDir)
+        if (AppliedMarks.needsOpenGl(c, openGlKey) || firstTimeBoot || openGlLinksStale) {
+            Log.i(
+                TAG,
+                "Linking Mesa WGL opengl32 (key='$openGlKey' firstTimeBoot=$firstTimeBoot " +
+                    "linksStale=$openGlLinksStale)",
+            )
+            MesaWglRuntime.link(context, windowsDir)
+            AppliedMarks.markOpenGl(c, openGlKey)
+            containerDataChanged = true
+        }
+
         startupSelection = c.getStartupSelection().toString()
         if (AppliedMarks.needsServices(c, startupSelection) || firstTimeBoot) {
             WineUtils.applyServiceStartupProfile(c, startupSelection)
@@ -1189,8 +1204,21 @@ class XServerWineSessionPreparer @Inject constructor(
         }
         // DXVK replaces D3D8-11, but Wine's x86_64 builtin DirectDraw still
         // falls back to WineD3D because the optional DirectDraw wrappers only
-        // ship 32-bit DLLs. Keep that path explicitly on OpenGL → EGL/Zink.
+        // ship 32-bit DLLs. That WineD3D runs on OpenGL through Mesa WGL, or on
+        // its GDI path when zink cannot run here (softpipe would be ~10x slower).
         WineD3DConfigUtils.setEnvVars(context, dxwrapperConfig, envState)
+        val zinkBlockers = graphicsDriverCapabilities.zinkBlockers(configuredDriverId)
+        if (zinkBlockers.isNotEmpty()) {
+            Log.i(
+                TAG,
+                "zink cannot run on '$effectiveDriverId' (missing ${zinkBlockers.joinToString(", ")}): " +
+                    "OpenGL uses softpipe, wined3d renderer=${MesaWglRuntime.WINED3D_RENDERER_WITHOUT_ZINK}",
+            )
+            envState.put(
+                "WINE_D3D_CONFIG",
+                MesaWglRuntime.wined3dConfig(envState.get("WINE_D3D_CONFIG").orEmpty(), zinkBlockers),
+            )
+        }
         if (dxwrapper.split(";").getOrNull(2) == DirectDrawWrapperIds.CNC_DDRAW) {
             envState.put("CNC_DDRAW_CONFIG_FILE", "C:\\windows\\syswow64\\ddraw.ini")
         }
@@ -1198,16 +1226,10 @@ class XServerWineSessionPreparer @Inject constructor(
         // selects syswow64/ddraw.dll for 32-bit games, while a 64-bit process
         // (with no system32 native ddraw.dll) falls through to Proton's builtin
         // x86_64 ddraw/WineD3D. D3D9 stays native-only so wrapper output always
-        // enters DXVK.
-        envState.put("WINEDLLOVERRIDES", "ddraw=n,b;d3d9=n")
-
-        applyGalliumDriver(rootDir, configuredDriverId)
-        applyWineEglBackend(rootDir)
-        // LIBGL_KOPPER_DISABLE is deliberately not set. Winlator ships it, but it only
-        // exists in Mesa's DRI GLX/EGL paths (src/glx, src/egl) — the xlib GLX frontend
-        // never reads it, which is why it looked harmless. Now that imagefs builds the
-        // DRI frontend it would really turn kopper off, and kopper is exactly how zink
-        // presents through DRI3 + Present.
+        // enters DXVK. opengl32=n,b loads Mesa's PE ICD that MesaWglRuntime links
+        // into system32/syswow64; Wine's builtin has no working backend under
+        // wineandroid because its EGL driver gets zero configs.
+        envState.put("WINEDLLOVERRIDES", "ddraw=n,b;d3d9=n;${MesaWglRuntime.WINE_DLL_OVERRIDE}")
 
         // The Adreno wrapper ICD and the Leegao build install the same imagefs
         // paths, so their applied pins cannot say which of the two is live.
@@ -1441,86 +1463,6 @@ class XServerWineSessionPreparer @Inject constructor(
         WineUtils.applySystemTweaks(context, wineInfo)
     }
 
-    /**
-     * Select zink through the *loader*, and let kopper present, when the imagefs
-     * Mesa build actually carries zink (the [LIBGL_ZINK_MARKER] sidecar).
-     *
-     * `GALLIUM_DRIVER=zink` is the wrong knob here even though it does produce a
-     * zink context. It only overrides the gallium screen; EGL still believes it
-     * is on swrast, so it presents with `drisw` put-image — and zink's
-     * `flush_frontbuffer` only knows how to present kopper displaytargets. The
-     * result renders on the GPU but shows a blank window. Worse, Mesa skips its
-     * own zink selection entirely whenever `GALLIUM_DRIVER` is set
-     * (`eglapi.c: !getenv("GALLIUM_DRIVER")`), so setting it is what kept kopper
-     * off in the first place. `MESA_LOADER_DRIVER_OVERRIDE` is the loader-level
-     * knob that sets `Options.Zink`, which is what selects the kopper path.
-     *
-     * [KOPPER_DRI2] then makes that path survive our X server. Kopper normally
-     * qualifies the server first — a DRI3 render-device FD plus DRI3 multibuffer
-     * support — and Amphora's X server answers `DRI3Open` with zero FDs on
-     * purpose, because an unprivileged Android app cannot open `/dev/dri/render*`.
-     * That check is upstream's "force zink even if the X server is missing a
-     * bunch of features" escape hatch. Presentation does not need the DRM device:
-     * kopper creates a `VkSurfaceKHR` through the wrapper ICD's
-     * `VK_KHR_xcb_surface`, which is the same AHardwareBuffer + DRI3
-     * `PixmapFromBuffers` + Present route DXVK already presents through.
-     *
-     * Without zink there is no accelerated path at all, so leave every knob unset
-     * and let Mesa pick its software rasterizer — slow, but it draws. The knobs
-     * also stay unset when the GPU cannot meet [ZinkRequirements]: zink would
-     * fail its screen creation and Mesa would reach the same rasterizer anyway,
-     * but silently, and the log would blame nothing.
-     */
-    private fun applyGalliumDriver(rootDir: File, configuredDriverId: String) {
-        if (!File(rootDir, LIBGL_ZINK_MARKER).isFile) {
-            Log.w(
-                TAG,
-                "imagefs Mesa has no zink ($LIBGL_ZINK_MARKER missing); leaving the zink/kopper " +
-                    "knobs unset so Mesa falls back to software rasterization for OpenGL/DirectDraw",
-            )
-            return
-        }
-        val blockers = graphicsDriverCapabilities.zinkBlockers(configuredDriverId)
-        if (blockers.isNotEmpty()) {
-            Log.w(
-                TAG,
-                "GPU is missing ${blockers.joinToString(", ")}, which zink requires; leaving the " +
-                    "zink/kopper knobs unset so OpenGL/DirectDraw run on Mesa's software rasterizer",
-            )
-            return
-        }
-        envState.put("MESA_LOADER_DRIVER_OVERRIDE", "zink")
-        envState.put(KOPPER_DRI2, "1")
-    }
-
-    /**
-     * Opt into Wine's EGL OpenGL backend when the imagefs Mesa build ships
-     * [LIBEGL_SONAME].
-     *
-     * The GLX backend cannot work here: Amphora's X server is a Java
-     * implementation with no GLX extension, and Mesa's xlib GLX frontend has no
-     * way to present a zink surface. Mesa's EGL X11 platform never queries GLX —
-     * it goes straight to DRI3/Present — so EGL is the only path that reaches
-     * the GPU. Proton keeps that backend behind `WINE_USE_EGL` (upstream Wine 11
-     * enables it by default on X11; this build does not), and without the
-     * variable `egl_init` bails with "EGL support is disabled" and falls back to
-     * `dlopen`ing libGL for GLX.
-     *
-     * Gated on the library actually being present so an older imagefs, whose
-     * Mesa was built with the xlib GLX frontend and ships no libEGL, keeps its
-     * existing behaviour instead of losing OpenGL entirely.
-     */
-    private fun applyWineEglBackend(rootDir: File) {
-        if (File(rootDir, LIBEGL_SONAME).exists()) {
-            envState.put("WINE_USE_EGL", "1")
-            return
-        }
-        Log.w(
-            TAG,
-            "imagefs has no $LIBEGL_SONAME; leaving WINE_USE_EGL unset so Wine keeps the GLX backend",
-        )
-    }
-
     /** wipeDxwrapperDllsForReextract (XSDA L7950). */
     private fun wipeDxwrapperDllsForReextract() {
         val rootDir = imageFs.getRootDir()
@@ -1746,15 +1688,7 @@ class XServerWineSessionPreparer @Inject constructor(
                 "ddrawrapper/d7vk.zip",
             )
 
-        /** Written by the imagefs mesa-gl package when the megadriver links zink. */
-        private const val LIBGL_ZINK_MARKER = "usr/lib/.libgl-zink"
-
-        /** Wine dlopens this SONAME; present only once mesa-gl builds the EGL frontend. */
-        private const val LIBEGL_SONAME = "usr/lib/libEGL.so.1"
         private const val CNC_DDRAW_CONFIG_ASSET = "cnc-ddraw/ddraw.ini"
-
-        /** Mesa's opt-in to kopper on an X server without a DRI3 render device. */
-        private const val KOPPER_DRI2 = "LIBGL_KOPPER_DRI2"
         private val GRAPHICS_TEST_ASSETS = arrayOf(
             "aio-graphics-test/Graphics-Test-32bit.exe",
             "aio-graphics-test/Graphics-Test-64bit.exe",
