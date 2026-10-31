@@ -128,7 +128,10 @@ class WineAndroidHostBridge(
                 window.visible = true
             }
             windows[hwnd to useOpengl] = window
-            desktop.attachWindow(window) { attachedHwnd, surface ->
+            desktop.attachWindow(
+                window,
+                onParked = { parkedHwnd -> WineAndroidNative.nativeParkSurface(parkedHwnd, useOpengl) },
+            ) { attachedHwnd, surface ->
                 onSurface(attachedHwnd, surface, useOpengl)
             }
         }

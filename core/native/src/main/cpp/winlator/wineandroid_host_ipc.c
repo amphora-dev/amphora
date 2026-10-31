@@ -273,6 +273,7 @@ static void ensure_ahb(void) { pthread_once(&g_ahb_once, resolve_ahb); }
 extern void *amphora_host_anw_start_serve(ANativeWindow *win, int hwnd, int sock_fd);
 extern void amphora_host_anw_stop_serve(void *serve_ptr);
 extern void amphora_host_anw_bump_generation(void *serve_ptr);
+extern void amphora_host_anw_set_parked(void *serve_ptr, int on);
 
 static void stop_anw_buf_serve(struct native_win_data *data)
 {
@@ -1891,8 +1892,10 @@ Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeRegisterSurface
     }
     if (data->parent == (struct wine_native_window *)win) {
         /* Same Surface (our SurfaceControl layers keep theirs): only the buffer
-         * size moved. Tell Wine the new size without reconnecting. */
+         * size moved, or a parked client layer is back on screen. Tell Wine the
+         * size without reconnecting. */
         ANativeWindow_release(win);
+        amphora_host_anw_set_parked(data->anw_serve, 0);
         data->parent->query(data->parent, 0, &w); /* NATIVE_WINDOW_WIDTH */
         data->parent->query(data->parent, 1, &h); /* NATIVE_WINDOW_HEIGHT */
         send_surface_changed_event(hwnd, opengl ? 1 : 0, (unsigned)w, (unsigned)h);
@@ -1941,6 +1944,29 @@ Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeUnregisterSurfa
         send_surface_changed_event(hwnd, opengl ? 1 : 0, 0, 0);
     }
     pthread_mutex_unlock(&g_lock);
+}
+
+/*
+ * The layer root is gone but the client (Vulkan) layer and its Surface stay.
+ * Keep the ANativeWindow and the guest's buffer socket; the serve thread holds
+ * DEQUEUE until nativeRegisterSurface sees the same Surface again (docs/04 §3).
+ */
+JNIEXPORT void JNICALL
+Java_app_amphora_gamesession_wineandroid_WineAndroidNative_nativeParkSurface(
+    JNIEnv *env, jclass clazz, jint hwnd, jboolean opengl)
+{
+    struct native_win_data *data;
+    int serving = 0;
+    (void)env;
+    (void)clazz;
+    pthread_mutex_lock(&g_lock);
+    data = get_native_win_data(hwnd, opengl ? 1 : 0);
+    if (data && data->anw_serve) {
+        amphora_host_anw_set_parked(data->anw_serve, 1);
+        serving = 1;
+    }
+    pthread_mutex_unlock(&g_lock);
+    LOGI("parkSurface hwnd=%08x opengl=%d serve=%d", hwnd, (int)opengl, serving);
 }
 
 JNIEXPORT void JNICALL

@@ -28,6 +28,13 @@ object WineAndroidNative {
 
     external fun nativeUnregisterSurface(hwnd: Int, opengl: Boolean)
 
+    /**
+     * The layer root is gone but this client window's layer and Surface stay:
+     * keep the ANativeWindow and the guest's buffer socket, hold its DEQUEUEs
+     * and cancel its QUEUEs until [nativeRegisterSurface] gets the same Surface.
+     */
+    external fun nativeParkSurface(hwnd: Int, opengl: Boolean)
+
     external fun nativeNotifyDesktopChanged(width: Int, height: Int)
 
     external fun nativeNotifyConfigChanged(dpi: Int)

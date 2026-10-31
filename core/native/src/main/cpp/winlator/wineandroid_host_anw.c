@@ -103,7 +103,73 @@ struct serve_ctx {
     unsigned release_fences;     /* real release fences handed to the guest */
     struct wine_native_buffer *buffers[NB_BUFFERS];
     int buffer_lru[NB_BUFFERS];
+    /* lock guards sock (after start), parked, stopping and refs. The serve
+     * thread and the owner (wineandroid_host_ipc.c) hold one ref each; the
+     * last unref frees. While parked (layer root gone, docs/04 §3) DEQUEUE
+     * waits on cond and QUEUE cancels, so the guest's swapchain survives. */
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    int parked, stopping, refs;
+    unsigned parked_drops; /* QUEUEs turned into cancelBuffer while parked */
 };
+
+static void serve_unref(struct serve_ctx *ctx)
+{
+    int left;
+    pthread_mutex_lock(&ctx->lock);
+    left = --ctx->refs;
+    pthread_mutex_unlock(&ctx->lock);
+    if (left) return;
+    pthread_cond_destroy(&ctx->cond);
+    pthread_mutex_destroy(&ctx->lock);
+    free(ctx);
+}
+
+static int64_t mono_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/* Block until the window is unparked or the serve is stopping. Returns 1 when
+ * stopping. Re-checks every 100 ms (cond is CLOCK_MONOTONIC). */
+static int serve_wait_unparked(struct serve_ctx *ctx)
+{
+    int64_t start = 0;
+    int stopping;
+    pthread_mutex_lock(&ctx->lock);
+    if (ctx->parked && !ctx->stopping) {
+        start = mono_ms();
+        LOGI("serve DEQUEUE hwnd=%08x parked; waiting for the layer to return", ctx->hwnd);
+    }
+    while (ctx->parked && !ctx->stopping) {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        ts.tv_nsec += 100 * 1000000L;
+        if (ts.tv_nsec >= 1000000000L) {
+            ts.tv_sec++;
+            ts.tv_nsec -= 1000000000L;
+        }
+        pthread_cond_timedwait(&ctx->cond, &ctx->lock, &ts);
+    }
+    stopping = ctx->stopping;
+    if (start)
+        LOGI("serve DEQUEUE hwnd=%08x %s after %lld ms drops=%u", ctx->hwnd,
+             stopping ? "stopped while parked" : "unparked", (long long)(mono_ms() - start),
+             ctx->parked_drops);
+    pthread_mutex_unlock(&ctx->lock);
+    return stopping;
+}
+
+static int serve_is_parked(struct serve_ctx *ctx)
+{
+    int parked;
+    pthread_mutex_lock(&ctx->lock);
+    parked = ctx->parked;
+    pthread_mutex_unlock(&ctx->lock);
+    return parked;
+}
 
 /* Present timeline for the HUD: CLOCK_MONOTONIC of every successful QUEUE on
  * any window (the same clock as Java's System.nanoTime). A ring of the last
@@ -731,8 +797,16 @@ static void *serve_thread(void *arg)
         if (cmd == CMD_DEQUEUE || cmd == CMD_DEQUEUE_FENCE) {
             struct wine_native_buffer *buffer = NULL;
             int fence = -1;
-            int ret = ctx->win->dequeueBuffer(ctx->win, &buffer, &fence);
-            int id = -1;
+            int ret, id = -1;
+            if (serve_wait_unparked(ctx)) {
+                /* Stopped while parked: the window or the session is going away
+                 * and stop_serve already shut the socket down, so a reply could
+                 * not reach the guest; it reads EOF. */
+                last_op_ret = -ENODEV;
+                exit_why = "stopped-while-parked";
+                break;
+            }
+            ret = ctx->win->dequeueBuffer(ctx->win, &buffer, &fence);
             last_op_ret = ret;
             if (cmd == CMD_DEQUEUE_FENCE) {
                 /* Hand the release fence to the guest ahead of the reply; it
@@ -792,6 +866,27 @@ static void *serve_thread(void *arg)
             }
             if (generation == ctx->generation && buffer_id >= 0 && buffer_id < NB_BUFFERS &&
                 ctx->buffers[buffer_id]) {
+                if (queue && serve_is_parked(ctx)) {
+                    /* Nothing shows the layer while the root is gone; hand the
+                     * buffer back (cancelBuffer owns the fence) instead of
+                     * filling a queue no compositor drains. */
+                    ret = ctx->win->cancelBuffer(ctx->win, ctx->buffers[buffer_id], fence);
+                    if (!ret) {
+                        pthread_mutex_lock(&ctx->lock);
+                        ctx->parked_drops++;
+                        pthread_mutex_unlock(&ctx->lock);
+                    }
+                    LOGI("serve QUEUE hwnd=%08x id=%d parked: cancelBuffer ret=%d", ctx->hwnd,
+                         buffer_id, ret);
+                    ret = 0;
+                    last_op_ret = ret;
+                    if (write_full(ctx->sock, &ret, sizeof(ret))) {
+                        exit_errno = errno;
+                        exit_why = (exit_errno == 0) ? "queue-write-ret-EOF" : "queue-write-ret-err";
+                        break;
+                    }
+                    continue;
+                }
                 if (queue) {
                     /* Sample after Present wrote pixels (QUEUE n=50/100); polls the fence. */
                     anw_dump_client_queue_pixels(ctx->buffers[buffer_id], ctx->hwnd, buffer_id, fence);
@@ -957,9 +1052,12 @@ static void *serve_thread(void *arg)
     LOGI("buffer serve exit hwnd=%08x why=%s errno=%d(%s) last_cmd=%d last_op_ret=%d queue_seen=%d queue_ret=%d",
          ctx->hwnd, exit_why, exit_errno, exit_errno ? strerror(exit_errno) : "ok",
          last_cmd, last_op_ret, saw_queue, queue_ret);
+    pthread_mutex_lock(&ctx->lock);
     close(ctx->sock);
+    ctx->sock = -1;
+    pthread_mutex_unlock(&ctx->lock);
     ANativeWindow_release((ANativeWindow *)ctx->win);
-    free(ctx);
+    serve_unref(ctx);
     return NULL;
 }
 
@@ -968,6 +1066,7 @@ static void *serve_thread(void *arg)
 void *amphora_host_anw_start_serve(ANativeWindow *win, int hwnd, int sock_fd)
 {
     struct serve_ctx *ctx;
+    pthread_condattr_t cattr;
     pthread_t th;
     int i;
 
@@ -983,6 +1082,12 @@ void *amphora_host_anw_start_serve(ANativeWindow *win, int hwnd, int sock_fd)
     ctx->hwnd = hwnd;
     ctx->generation = 1;
     for (i = 0; i < NB_BUFFERS; i++) ctx->buffer_lru[i] = -1;
+    pthread_mutex_init(&ctx->lock, NULL);
+    pthread_condattr_init(&cattr);
+    pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC);
+    pthread_cond_init(&ctx->cond, &cattr);
+    pthread_condattr_destroy(&cattr);
+    ctx->refs = 2; /* serve thread + owner (amphora_host_anw_stop_serve) */
 
     /* serve thread owns one ref; caller may release its copy */
     ANativeWindow_acquire(win);
@@ -991,6 +1096,8 @@ void *amphora_host_anw_start_serve(ANativeWindow *win, int hwnd, int sock_fd)
         LOGE("pthread_create failed for hwnd=%08x", hwnd);
         ANativeWindow_release(win);
         close(sock_fd);
+        pthread_cond_destroy(&ctx->cond);
+        pthread_mutex_destroy(&ctx->lock);
         free(ctx);
         return NULL;
     }
@@ -1005,19 +1112,35 @@ void amphora_host_anw_bump_generation(void *serve_ptr)
     if (ctx) ctx->generation++;
 }
 
+/* Park (on=1) while the layer root is gone, unpark (on=0) when it is back. */
+void amphora_host_anw_set_parked(void *serve_ptr, int on)
+{
+    struct serve_ctx *ctx = serve_ptr;
+    int was;
+    if (!ctx) return;
+    pthread_mutex_lock(&ctx->lock);
+    was = ctx->parked;
+    ctx->parked = on ? 1 : 0;
+    if (!on) pthread_cond_broadcast(&ctx->cond);
+    pthread_mutex_unlock(&ctx->lock);
+    if (was != (on ? 1 : 0))
+        LOGI("buffer serve hwnd=%08x %s", ctx->hwnd, on ? "parked" : "unparked");
+}
+
+/* Drops the owner's ref; ctx must not be used afterwards. The serve thread
+ * sees EOF (or stopping, if it waits while parked), exits and drops its ref. */
 void amphora_host_anw_stop_serve(void *serve_ptr)
 {
     struct serve_ctx *ctx = serve_ptr;
-    int32_t cmd = CMD_STOP;
-    int fd;
 
     if (!ctx) return;
-    fd = ctx->sock;
-    if (fd >= 0) {
-        write_full(fd, &cmd, sizeof(cmd));
-        /* serve thread closes ctx->sock on exit; shutdown to unblock read */
-        shutdown(fd, SHUT_RDWR);
-    }
+    pthread_mutex_lock(&ctx->lock);
+    ctx->stopping = 1;
+    pthread_cond_broadcast(&ctx->cond);
+    /* The serve thread closes sock (under lock) on exit; shutdown unblocks its read. */
+    if (ctx->sock >= 0) shutdown(ctx->sock, SHUT_RDWR);
+    pthread_mutex_unlock(&ctx->lock);
+    serve_unref(ctx);
 }
 
 /* Present times (CLOCK_MONOTONIC ns, ascending) at or after sinceNs for the

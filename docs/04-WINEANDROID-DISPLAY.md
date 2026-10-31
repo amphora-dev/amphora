@@ -62,6 +62,11 @@ Amphora 借用了上游 WineActivity 的窗口树管理模型（提交 `8a494cc`
 - 绝不能将上游 TextureView 假设的 BGRA 盲目照搬到我们的层上。
 - 以上只管 GDI 层。client（Vulkan）层建成不透明（`SurfaceControl.Builder.setOpaque(true)`），buffer 格式由 AHB 交换链按交换链格式设（[`05`](05-AHB-IMPORT-PRESENT.md) §2.3）。
 
+### 3.4 容器 SurfaceView 销毁（灭屏 / 切后台）
+- `layerHost` 的 `surfaceDestroyed` 后，各 HWND 的层保留（`reparent` 回来，不重建）。
+- **GDI 层**：照旧 `nativeUnregisterSurface`（Wine 那一侧 `parent=NULL`，dequeue 返回 `-EWOULDBLOCK`，这一帧不画），根回来后完整 `nativeRegisterSurface` 重挂，`SURFACE_CHANGED` 触发重画。
+- **client（Vulkan）层**：不注销，改 `nativeParkSurface`。guest 的 Vulkan surface 在创建时就绑死了这个 HWND 的 buffer socket，注销会关掉它，guest 没有重连（下一次 acquire 拿到 -5，app 退出）。park 期间 ANativeWindow、buffer socket、交换链都保留；宿主 serve 线程让 DEQUEUE 一直等到恢复或会话关闭（日志 `serve DEQUEUE … parked` / `unparked after <ms>`），QUEUE 改成 `cancelBuffer`。根回来后同一个 Surface 走 `registerSurface … same surface` 分支解除 park。后台不跑 GPU，代价是游戏渲染线程卡在 acquire 里。
+
 ---
 
 ## 4. 叠窗、可见性与层级同步（z-order）

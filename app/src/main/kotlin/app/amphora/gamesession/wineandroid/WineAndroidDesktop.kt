@@ -577,7 +577,11 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         imeUiStateListener?.invoke(updated)
     }
 
-    fun attachWindow(window: WineAndroidWindow, onSurface: (hwnd: Int, surface: Surface?) -> Unit) {
+    fun attachWindow(
+        window: WineAndroidWindow,
+        onParked: (hwnd: Int) -> Unit,
+        onSurface: (hwnd: Int, surface: Surface?) -> Unit,
+    ) {
         val key = Key(window.hwnd, window.isClient)
         groups.remove(key)?.let {
             detachGroupView(it)
@@ -590,7 +594,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         // Non-desktop windows may start at 0×0 until WINDOW_POS; buffers use min 2×2
         // but first nativeRegisterSurface is deferred until rects have real w×h.
 
-        val group = WindowGroup(context, window, onSurface)
+        val group = WindowGroup(context, window, onSurface, onParked)
         groups[key] = group
         trackSibling(window)
         layoutGroup(group)
@@ -630,8 +634,9 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
     private fun onLayerRootDestroyed() {
         layerRoot = null
         Log.i(TAG, "layer root destroyed; ${groups.size} window layers offscreen")
-        // Same contract as a destroyed SurfaceView: Wine sees the surface go
-        // away until the root returns and the layers are reattached.
+        // GDI windows: same contract as a destroyed SurfaceView, Wine sees the
+        // surface go away until the root returns and the layers are reattached.
+        // Client windows park instead (WindowGroup.onLayerRootLost).
         groups.values.forEach { it.onLayerRootLost() }
     }
 
@@ -991,6 +996,7 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
         context: Context,
         var window: WineAndroidWindow,
         private val onSurface: (hwnd: Int, surface: Surface?) -> Unit,
+        private val onParked: (hwnd: Int) -> Unit,
     ) : FrameLayout(context) {
         private var lastBufferW: Int = -1
         private var lastBufferH: Int = -1
@@ -1047,8 +1053,18 @@ class WineAndroidDesktop(context: Context) : FrameLayout(context) {
             tryEmitSurface(surface, if (existing == null) "layerCreated" else "layerReattached")
         }
 
-        /** The root SurfaceView is gone: Wine loses the surface, the layer is kept for reattach. */
+        /**
+         * The root SurfaceView is gone; the layer is kept for reattach. A GDI
+         * window loses its surface until then. A client (Vulkan) window keeps
+         * it: the guest's swapchain is bound to this ANativeWindow's buffer
+         * socket for good, so native only parks it and the reattach
+         * re-registers the same Surface, which unparks.
+         */
         fun onLayerRootLost() {
+            if (window.isClient) {
+                onParked(window.hwnd)
+                return
+            }
             firstRegisterDone = false
             window.surface = null
             onSurface(window.hwnd, null)
