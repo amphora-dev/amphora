@@ -1,5 +1,6 @@
 package app.amphora
 
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.util.Log
@@ -22,6 +23,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (isLauncherRelaunchOnTop()) {
+            // The launcher intent only brings an existing task forward when it
+            // equals the task's root intent. A task started any other way (am
+            // start -n with extras, …) gets a fresh MainActivity pushed on top
+            // of whatever runs there, such as a Wine session. Drop it so the
+            // icon returns to the task as it was, like Recents does.
+            Log.i(TAG, "launcher intent over a running task; returning to it")
+            finish()
+            return
+        }
         val isDebuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         val openSettings = intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)
         setContent {
@@ -109,6 +120,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun isLauncherRelaunchOnTop(): Boolean = isLauncherRelaunchOnTop(
+        isTaskRoot = isTaskRoot,
+        action = intent.action,
+        categories = intent.categories.orEmpty(),
+        flags = intent.flags,
+    )
+
     private fun debugExePath(): String = intent
         .getStringExtra(EXTRA_DEBUG_WINE_EXE)
         ?.takeIf { it.isNotBlank() }
@@ -118,6 +136,22 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+
+        /**
+         * The launcher's MAIN/LAUNCHER intent landed on top of an existing task.
+         * NEW_TASK is required too: without it the activity was started into the
+         * caller's task, and finishing would leave the user there with nothing
+         * opened.
+         */
+        internal fun isLauncherRelaunchOnTop(
+            isTaskRoot: Boolean,
+            action: String?,
+            categories: Set<String>,
+            flags: Int,
+        ): Boolean = !isTaskRoot &&
+            action == Intent.ACTION_MAIN &&
+            Intent.CATEGORY_LAUNCHER in categories &&
+            flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0
 
         const val EXTRA_OPEN_SETTINGS = "app.amphora.desktop.OPEN_SETTINGS"
         private const val EXTRA_DEBUG_WINE_SMOKE = "app.amphora.debug.WINE_SMOKE"

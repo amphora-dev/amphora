@@ -1,40 +1,48 @@
 #!/usr/bin/env bash
-# background-check.sh <serial> <api> [64|32]
+# background-check.sh <serial> <api|desktop> [64|32]
 #
-# Sends a running AIO Graphics Test session to the background and back, and
-# checks that the guest survives and its swapchain keeps presenting (docs/04
-# §3: client layers park while the layer root is gone). AIO runs as
+# Sends a running session to the background and back, and checks that the
+# guest survives and draws again (docs/04 §3.4: client layers park while the
+# layer root is gone, GDI layers unregister and re-register).
+#
+# <api> runs AIO Graphics Test as
 #   --cube <api> --no-menu --bench $BENCH --autoclose 2
 # with the same preparation as aio-run.sh (stay-on, unlock, Wine log =
-# errors, cleared logcat / timestats / AIO results).
+# errors, cleared logcat / timestats / AIO results). `desktop` opens the
+# Windows desktop (Explorer, GDI only) from the launcher UI instead: launcher
+# intent, then "Windows Desktop" and its open button, found with uiautomator.
 #
-# Steps: wait for the guest pid and the first AHB swapchain, +5 s, read the
-# game layer's SurfaceFlinger totalFrames (T0); screen off (KEYCODE_SLEEP);
-# $BG_S s with a per-second guest pid check; screen on (WAKEUP +
-# dismiss-keyguard); +10 s, screenshot, totalFrames (T1); wait for AIO to
-# finish its benchmark and exit. Files: $OUT_DIR/<serial>-<bits>-<api>-power.*
-# (default .tmp/background-check/ in the repo root).
+# MODE (env) picks how the session leaves and comes back:
+#   power  screen off (KEYCODE_SLEEP), then WAKEUP + dismiss-keyguard
+#   home   KEYCODE_HOME, then the launcher intent (what tapping the icon
+#          sends: MAIN/LAUNCHER, flags 0x10200000)
 #
-# Only screen off/on: after HOME, the launcher intent resumes MainActivity's
-# task, not the session's (WineAndroidSessionActivity is singleTask,
-# excludeFromRecents and not exported, so it cannot be started directly).
+# Steps: wait for the guest pid and the first AHB swapchain (desktop: the
+# first registerSurface), +5 s, read the game layer's SurfaceFlinger
+# totalFrames (T0); leave for $BG_S s with a per-second guest pid check;
+# come back; +10 s, screenshot, totalFrames (T1); wait for AIO to finish its
+# benchmark and exit (desktop: force-stop). logcat is streamed to a file from
+# the start, because Wine fills a 256 KiB ring buffer (Y700) within seconds.
+# Files: $OUT_DIR/<serial>-<bits>-<api>-<mode>.* (default
+# .tmp/background-check/ in the repo root).
 #
 # The last line is the verdict:
-#   RESULT <serial> <bits> <api> power alive=<yes|no> acq_err=<n> parked=<n>
-#     unparked_ms=<ms|none> dframes=<T1-T0>/<need> bench=<fps|none> fatal=<n>
-#     tombstones=<new> verdict=<PASS|FAIL>
-# need = 5 s × $REFRESH Hz × 0.9 (REFRESH defaults to 60, the 6T).
+#   RESULT <serial> <bits> <api> <mode> alive=<yes|no> returned=<yes|no>
+#     acq_err=<n> parked=<n> unparked_ms=<ms|none> dframes=<T1-T0>/<need>
+#     rereg=<n> bench=<fps|none> fatal=<n> tombstones=<new> verdict=<PASS|FAIL>
+# need = 5 s × $REFRESH Hz × 0.9 (REFRESH defaults to 60, the 6T). rereg is
+# the GDI `registerSurface … ok=true` count after coming back (desktop only).
 set -uo pipefail
 
-S=${1:?usage: background-check.sh <serial> <api> [64|32]}
-API=${2:?usage: background-check.sh <serial> <api> [64|32]}
+S=${1:?usage: background-check.sh <serial> <api|desktop> [64|32]}
+API=${2:?usage: background-check.sh <serial> <api|desktop> [64|32]}
 BITS=${3:-64}
-MODE=power
+MODE=${MODE:-power}
 BENCH=${BENCH:-60}
 REFRESH=${REFRESH:-60}
-# AIO exits on its own after 12 s without a new frame (src/watchdog.c,
-# ExitProcess(3)), and a parked swapchain renders nothing, so stay below it.
-BG_S=${BG_S:-8}
+# A parked swapchain renders nothing, so AIO's watchdog (src/watchdog.c,
+# 60 s without a frame since the fork's wip/watchdog-background) bounds this.
+BG_S=${BG_S:-15}
 PKG=app.amphora
 EXE="C:/ProgramData/Microsoft/Windows/Graphics-Test-${BITS}bit.exe"
 ARGS="--cube $API --no-menu --bench $BENCH --autoclose 2"
@@ -44,9 +52,9 @@ OUT=$OUT_DIR/$S-$BITS-$API-$MODE
 NEED=$((5 * REFRESH * 9 / 10))
 
 case $API in
-  vk | gl | dx7 | ddraw2d | dx8 | dx9 | dx10 | dx11 | dx12) ;;
+  vk | gl | dx7 | ddraw2d | dx8 | dx9 | dx10 | dx11 | dx12 | desktop) ;;
   *)
-    echo "api must be one of vk gl dx7 ddraw2d dx8 dx9 dx10 dx11 dx12" >&2
+    echo "api must be one of vk gl dx7 ddraw2d dx8 dx9 dx10 dx11 dx12 desktop" >&2
     exit 2
     ;;
 esac
@@ -54,6 +62,13 @@ case $BITS in
   64 | 32) ;;
   *)
     echo "bits must be 64 or 32" >&2
+    exit 2
+    ;;
+esac
+case $MODE in
+  power | home) ;;
+  *)
+    echo "MODE must be power or home" >&2
     exit 2
     ;;
 esac
@@ -70,7 +85,28 @@ client_frames() {
 wait_log() { # <regex> <seconds>
   local i
   for i in $(seq 1 "$2"); do
-    a logcat -d | grep -qE "$1" && return 0
+    grep -qaE "$1" "$OUT.log" && return 0
+    sleep 1
+  done
+  return 1
+}
+launcher_intent() {
+  a shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER \
+    -f 0x10200000 -n "$PKG/.MainActivity" >/dev/null
+}
+# Tap the centre of the first view whose text matches <regex> (uiautomator).
+tap_text() {
+  local i b
+  for i in $(seq 1 20); do
+    b=$(a exec-out uiautomator dump /dev/tty 2>/dev/null | tr '>' '\n' |
+      grep -E "text=\"($1)\"" | head -1 | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' |
+      grep -oE '[0-9]+' | paste -sd ' ' -)
+    if [[ -n $b ]]; then
+      # shellcheck disable=SC2086
+      set -- $b
+      a shell input tap $((($1 + $3) / 2)) $((($2 + $4) / 2))
+      return 0
+    fi
     sleep 1
   done
   return 1
@@ -98,38 +134,61 @@ a shell "run-as $PKG sh /data/local/tmp/aio-prefs.sh"
 a shell "run-as $PKG sh -c 'rm -rf \"files/imagefs/AIO Results\"; : > files/wine_stderr.log'" 2>/dev/null
 a shell dumpsys SurfaceFlinger --timestats -disable -clear >/dev/null
 a logcat -c
+# Not through a(): $! must be adb itself so the kill below stops the stream.
+adb -s "$S" logcat >"$OUT.log" 2>&1 </dev/null &
+logcat_pid=$!
+trap 'kill $logcat_pid 2>/dev/null' EXIT
 a shell dumpsys SurfaceFlinger --timestats -enable -clear >/dev/null
-a shell am start -n "$PKG/.MainActivity" \
-  --ez app.amphora.debug.WINEANDROID true \
-  --es app.amphora.debug.WINE_EXE "$EXE" \
-  --es app.amphora.debug.WINE_ARGS "'$ARGS'" >/dev/null
+if [[ $API == desktop ]]; then
+  launcher_intent
+  tap_text 'Windows Desktop' || log "no 'Windows Desktop' entry"
+  tap_text 'Open desktop|Prepare and open desktop' || log "no open-desktop button"
+else
+  a shell am start -n "$PKG/.MainActivity" \
+    --ez app.amphora.debug.WINEANDROID true \
+    --es app.amphora.debug.WINE_EXE "$EXE" \
+    --es app.amphora.debug.WINE_ARGS "'$ARGS'" >/dev/null
+fi
 # --- end of aio-run.sh preparation ---
 
 pid=
-for _ in $(seq 1 120); do
-  pid=$(a logcat -d -s WineAndroidLauncher:I | grep -oE 'guest running pid=[0-9]+' | tail -1 | cut -d= -f2)
+for _ in $(seq 1 180); do
+  pid=$(grep -aoE 'guest running pid=[0-9]+' "$OUT.log" | tail -1 | cut -d= -f2)
   [[ -n $pid ]] && break
-  a logcat -d | grep -qE 'prepare failed|FATAL EXCEPTION' && break
+  grep -qaE 'prepare failed|FATAL EXCEPTION' "$OUT.log" && break
   sleep 1
 done
 alive() { a shell "ps -A -o PID" | grep -qw "$pid"; }
+finish_logs() {
+  sleep 1
+  kill "$logcat_pid" 2>/dev/null
+  wait "$logcat_pid" 2>/dev/null
+  a shell "run-as $PKG cat files/wine_stderr.log" >"$OUT.wine.log" 2>/dev/null
+}
 fail_early() {
   log "$1"
-  a logcat -d >"$OUT.log"
-  a shell "run-as $PKG cat files/wine_stderr.log" >"$OUT.wine.log" 2>/dev/null
+  finish_logs
   a shell am force-stop "$PKG"
-  echo "RESULT $S $BITS $API $MODE alive=no acq_err=- parked=- unparked_ms=none dframes=0/$NEED bench=none fatal=- tombstones=- verdict=FAIL ($1)"
+  echo "RESULT $S $BITS $API $MODE alive=no returned=no acq_err=- parked=- unparked_ms=none dframes=0/$NEED rereg=- bench=none fatal=- tombstones=- verdict=FAIL ($1)"
   exit 1
 }
 [[ -n $pid ]] || fail_early "no guest pid"
 log "guest pid=$pid"
-wait_log 'AHB_SC create images=' 60 || fail_early "no AHB swapchain"
+if [[ $API == desktop ]]; then
+  wait_log 'registerSurface hwnd=.* opengl=false ok=true' 90 || fail_early "no GDI registerSurface"
+else
+  wait_log 'AHB_SC create images=' 60 || fail_early "no AHB swapchain"
+fi
 sleep 5
 a exec-out screencap -p >"$OUT-before.png"
 t0=$(client_frames "$OUT-t0.ts")
 log "T0 totalFrames=${t0:-none}"
 
-a shell input keyevent KEYCODE_SLEEP
+if [[ $MODE == home ]]; then
+  a shell input keyevent KEYCODE_HOME
+else
+  a shell input keyevent KEYCODE_SLEEP
+fi
 t_bg=$(now)
 if wait_log 'WineAndroidDesktop: layer root destroyed' 5; then
   log "layer root destroyed after $(($(now) - t_bg)) s"
@@ -147,8 +206,13 @@ for i in $(seq 1 "$BG_S"); do
 done
 if [[ -n $died_at ]]; then log "guest gone after ${died_at} s in background"; else log "guest alive for ${BG_S} s in background"; fi
 
-a shell input keyevent KEYCODE_WAKEUP
-a shell wm dismiss-keyguard
+log_mark=$(($(wc -l <"$OUT.log") + 1))
+if [[ $MODE == home ]]; then
+  launcher_intent
+else
+  a shell input keyevent KEYCODE_WAKEUP
+  a shell wm dismiss-keyguard
+fi
 t_fg=$(now)
 sleep 2
 a shell dumpsys activity activities | tr -d '\r' |
@@ -156,7 +220,7 @@ a shell dumpsys activity activities | tr -d '\r' |
 returned=no
 # The session start already logged one "layer root created".
 for _ in $(seq 1 10); do
-  if [[ $(a logcat -d | grep -c 'WineAndroidDesktop: layer root created') -ge 2 ]]; then
+  if [[ $(grep -ac 'WineAndroidDesktop: layer root created' "$OUT.log") -ge 2 ]]; then
     returned=yes
     break
   fi
@@ -173,43 +237,47 @@ t1=$(client_frames "$OUT-t1.ts")
 log "T1 totalFrames=${t1:-none}"
 
 exited=
-for _ in $(seq 1 $((BENCH + 120))); do
-  if ! alive; then
-    exited=1
-    break
-  fi
-  sleep 1
-done
-sleep 1
+if [[ $API != desktop ]]; then
+  for _ in $(seq 1 $((BENCH + 120))); do
+    if ! alive; then
+      exited=1
+      break
+    fi
+    sleep 1
+  done
+fi
 a shell dumpsys SurfaceFlinger --timestats -disable >/dev/null
-a logcat -d >"$OUT.log"
-a shell "run-as $PKG cat files/wine_stderr.log" >"$OUT.wine.log" 2>/dev/null
+finish_logs
 a shell "run-as $PKG cat 'files/imagefs/AIO Results/Benchmark/AIO-Graphics-Test_bench.csv'" 2>/dev/null | tr -d '\r' >"$OUT.csv"
 a shell am force-stop "$PKG"
 tomb_after=$(a shell "ls -l /data/tombstones" 2>/dev/null | tr -d '\r' | sort)
 tombs=$(comm -13 <(printf '%s\n' "$tomb_before") <(printf '%s\n' "$tomb_after") | grep -c tombstone)
 
 echo "== $S $BITS-bit $API $MODE pid=$pid exited=${exited:-no} returned=$returned (files $OUT*)"
-grep -E 'layer root (destroyed|created)|parkSurface|parked|unparked|AHB_SC acquire dequeue ret=|buffer serve exit|registerSurface hwnd=.*same surface' "$OUT.log" |
+grep -aE 'layer root (destroyed|created)|parkSurface|parked|unparked|AHB_SC acquire dequeue ret=|buffer serve exit|registerSurface hwnd=.*same surface|launcher intent over a running task' "$OUT.log" |
   sed -E 's/^[0-9-]+ //' | cut -c1-200 | head -30
-grep -oE 'AHB_SC destroy .*' "$OUT.log" | sed -E 's/ sc=0x[0-9a-f]+//' | tail -2
+grep -aoE 'AHB_SC destroy .*' "$OUT.log" | sed -E 's/ sc=0x[0-9a-f]+//' | tail -2
 grep -E '^# (AIO|frames|avg)' "$OUT.csv" | sed 's/^# //' | paste -sd ' ' -
 
-acq_err=$(grep -c 'AHB_SC acquire dequeue ret=' "$OUT.log")
-parked=$(grep -cE 'serve DEQUEUE .*parked' "$OUT.log")
-unparked_ms=$(grep -oE 'unparked after [0-9]+' "$OUT.log" | awk '{print $3}' | sort -rn | head -1)
+acq_err=$(grep -ac 'AHB_SC acquire dequeue ret=' "$OUT.log")
+parked=$(grep -acE 'serve DEQUEUE .*parked' "$OUT.log")
+unparked_ms=$(grep -aoE 'unparked after [0-9]+' "$OUT.log" | awk '{print $3}' | sort -rn | head -1)
+rereg=$(tail -n +"$log_mark" "$OUT.log" | grep -acE 'registerSurface hwnd=.* opengl=false ok=true')
 no_anw=$(grep -c 'no client ANW after wait' "$OUT.wine.log")
 bridges=$(grep -c 'amphora PE WSI bridge' "$OUT.wine.log")
-fatal=$(grep -cE 'FATAL EXCEPTION|Fatal signal' "$OUT.log")
+fatal=$(grep -acE 'FATAL EXCEPTION|Fatal signal' "$OUT.log")
 bench=$(grep -oE 'avg_fps,[0-9.]+' "$OUT.csv" | cut -d, -f2)
 dframes=$((${t1:-0} - ${t0:-0}))
 echo "wine log: 'no client ANW after wait'=$no_anw 'amphora PE WSI bridge'=$bridges"
 
 verdict=PASS
-[[ -z $died_at ]] || verdict=FAIL
-[[ $acq_err -eq 0 && $parked -ge 1 && -n $unparked_ms ]] || verdict=FAIL
-[[ $returned == yes && $dframes -ge $NEED ]] || verdict=FAIL
-[[ -n $bench && $fatal -eq 0 && $tombs -eq 0 && $no_anw -eq 0 ]] || verdict=FAIL
+[[ -z $died_at && $returned == yes && $fatal -eq 0 && $tombs -eq 0 ]] || verdict=FAIL
+if [[ $API == desktop ]]; then
+  [[ $rereg -ge 1 ]] || verdict=FAIL
+else
+  [[ $acq_err -eq 0 && $parked -ge 1 && -n $unparked_ms ]] || verdict=FAIL
+  [[ $dframes -ge $NEED && -n $bench && $no_anw -eq 0 ]] || verdict=FAIL
+fi
 echo "RESULT $S $BITS $API $MODE alive=$([[ -z $died_at ]] && echo yes || echo "no@${died_at}s")" \
-  "acq_err=$acq_err parked=$parked unparked_ms=${unparked_ms:-none} dframes=$dframes/$NEED" \
-  "bench=${bench:-none} fatal=$fatal tombstones=$tombs verdict=$verdict"
+  "returned=$returned acq_err=$acq_err parked=$parked unparked_ms=${unparked_ms:-none}" \
+  "dframes=$dframes/$NEED rereg=$rereg bench=${bench:-none} fatal=$fatal tombstones=$tombs verdict=$verdict"

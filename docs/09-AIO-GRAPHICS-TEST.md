@@ -13,7 +13,7 @@
 ```bash
 scripts/aio-smoke/aio-run.sh <serial> <vk|gl|dx7|ddraw2d|dx8|dx9|dx10|dx11|dx12> [bench_s] [64|32]
 scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台并行，末尾打 RESULT 表
-scripts/aio-smoke/background-check.sh <serial> <api> [64|32]   # 运行中灭屏 8 s 再亮屏，查 park / 恢复出帧（04 §3.4）
+MODE=power|home scripts/aio-smoke/background-check.sh <serial> <api|desktop> [64|32]   # 运行中灭屏或 HOME 15 s 再回来（HOME 走 launcher 意图），查 park / 恢复出帧（04 §3.4）
 ```
 
 产物在 `.tmp/aio-smoke/`：截图（第一个 AHB 交换链出现后 3 s）、logcat、SF timestats、`wine_stderr.log`、AIO 的 `AIO-Graphics-Test_bench.csv`（写在 guest 工作目录 = imagefs 根下的 `AIO Results/Benchmark/`）。
@@ -64,5 +64,5 @@ AIO 2.1.0 与 v1.7.0 的差别：
 
 - **D3D12 在 6T**：wrapper 下仍缺 transform feedback（`Lacking support for transform feedback`）。Turnip 下 vkd3d 能建设备，但 3.0.2 的 dxgi 因缺 16-bit storage 枚举不到适配器，Sarek 的 dxgi 又不认 D3D12 设备，两条都走不通。
 - **OpenGL**：`wineandroid.drv/opengl.c` 用 `EGL_PLATFORM_ANDROID_KHR` 调 imagefs 的 Mesa libEGL（原生 aarch64，Box64 直接转过去；构建只有 `-Dplatforms=x11`），`eglChooseConfig` 一个 config 都没有（`egldrv_init_pixel_formats Failed to get any configs`）。X11 时同一份 Mesa 走 EGL X11 平台 + zink + kopper（xcb surface 经 wrapper ICD）。wineandroid 上缺的是 Wine 的 GL 驱动这一段和 kopper 的出画目标，方案见 [`02`](02-TRACKING.md) §2「之后」（Phase 3 OpenGL）。64-bit DX7 走 wined3d GL，跟着不可用。
-- **Vulkan 窗口在后台超过 12 s，AIO 会自己退出**：client 层 park 期间（[`04`](04-WINEANDROID-DISPLAY.md) §3.4），DEQUEUE 会阻塞整个后台时长。带「无新帧就退出」看门狗的 app 会在超时后退出：AIO 的 `src/watchdog.c` 12 s 没有新帧就 `ExitProcess(3)`（`cube.c` / `cube_d3d*.c` 都开）。6T vk 64 灭屏 15 s，AIO 在第 12.7 s 退出，宿主侧 park / unpark 正常（`unparked after 17184 ms`、acquire 报错 0）。产物在 `.tmp/vkpark/fix/`（worktree `amphora-vkpark`）。所以 `scripts/aio-smoke/background-check.sh` 默认只灭屏 8 s。
+- **Vulkan 窗口在后台超过 60 s，AIO 会自己退出**：client 层 park 期间（[`04`](04-WINEANDROID-DISPLAY.md) §3.4）DEQUEUE 阻塞整个后台时长，guest 收不到任何窗口消息或状态变化（探针：灭屏 17 s 里前台 / iconic / visible / rect 都不变），所以看门狗分不清 park 和真卡死。AIO fork `9bff1e3` 起 `src/watchdog.h` 的 `AIO_WATCHDOG_TIMEOUT_S` 是 60 s，到点 `ExitProcess(3)`（各后端都开）。`background-check.sh` 默认后台 15 s。
 - **6T 64-bit dx11 偶发卡首帧**：第二个交换链第一次 acquire 之后再没有 present，AIO 没写 bench（2026-09-28 dev 构建 4 轮里 1 次；发布组合那一轮正常），未查。
