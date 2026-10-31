@@ -15,27 +15,31 @@ class GuestCapabilityStatusTest {
     @Test
     fun openGlUnknownUntilProbed() {
         val s = OpenGlBackendStatus.of(zinkBlockers = emptyList(), probed = false)
-        assertTrue(s.accelerated)
-        assertTrue(s.detail.contains("first starts"))
+        assertEquals(OpenGlBackendStatus.NOT_AVAILABLE, s.availability)
+        assertNull(s.zinkReady)
+        assertTrue(s.zinkDetail.contains("first starts"))
     }
 
     @Test
-    fun openGlAccelerated() {
+    fun openGlNotAvailableEvenWhenZinkRequirementsAreMet() {
         val s = OpenGlBackendStatus.of(zinkBlockers = emptyList(), probed = true)
-        assertTrue(s.accelerated)
-        assertTrue(s.detail.contains("Zink"))
+        assertTrue(s.availability.contains("not available yet"))
+        assertEquals(true, s.zinkReady)
+        assertTrue(s.zinkDetail.contains("Mesa 26.2.0"))
+        assertTrue(s.zinkDetail.contains("meets every"))
     }
 
     @Test
-    fun openGlBlockedNamesExtensions() {
+    fun openGlZinkBlockedNamesMissingItems() {
         val s =
             OpenGlBackendStatus.of(
-                zinkBlockers = listOf("VK_KHR_dynamic_rendering", "VK_EXT_robustness2"),
+                zinkBlockers = listOf("extension VK_KHR_dynamic_rendering", "feature extRobustness2.nullDescriptor"),
                 probed = true,
             )
-        assertFalse(s.accelerated)
-        assertTrue(s.detail.contains("VK_KHR_dynamic_rendering"))
-        assertTrue(s.detail.contains("VK_EXT_robustness2"))
+        assertEquals(OpenGlBackendStatus.NOT_AVAILABLE, s.availability)
+        assertEquals(false, s.zinkReady)
+        assertTrue(s.zinkDetail.contains("VK_KHR_dynamic_rendering"))
+        assertTrue(s.zinkDetail.contains("extRobustness2.nullDescriptor"))
     }
 
     @Test

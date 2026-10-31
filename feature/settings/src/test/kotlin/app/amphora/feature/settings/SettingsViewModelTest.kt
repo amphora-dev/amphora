@@ -221,6 +221,18 @@ class SettingsViewModelTest {
         }
     }
 
+    @Test
+    fun openGlLineSaysNotAvailableAndShowsZinkReadinessSeparately() = runTest(dispatchers.testDispatcher) {
+        val fixture = fixture()
+        runCurrent()
+
+        with(fixture.viewModel.uiState.value.openGlBackend) {
+            assertEquals("OpenGL for Windows programs is not available yet.", availability)
+            assertEquals(true, zinkReady)
+            assertEquals("This device's guest Vulkan meets every Zink (Mesa 26.2.0) requirement.", zinkDetail)
+        }
+    }
+
     private fun fixture(
         pulseProbe: PulseAudioProbe =
             PulseAudioProbe(

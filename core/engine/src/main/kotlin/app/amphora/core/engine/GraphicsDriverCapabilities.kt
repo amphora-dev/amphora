@@ -44,14 +44,15 @@ class GraphicsDriverCapabilities @Inject constructor(
         guestProbeVerdict(storedDriverId)?.report?.devices?.firstOrNull()
 
     /**
-     * [ZinkRequirements] the guest-visible adapter cannot meet, per the last
-     * probe verdict. Empty means guest OpenGL reaches the GPU through zink —
-     * or that no verdict exists yet (same "assume it works until proven"
-     * posture the old host probe took on a failed enumeration).
+     * [ZinkRequirements] (Mesa 26.2.0 extensions and features) the
+     * guest-visible adapter cannot meet, per the last probe verdict. Empty
+     * means zink can create a screen there — or that no verdict exists yet
+     * (same "assume it works until proven" posture the old host probe took on
+     * a failed enumeration).
      */
     fun zinkBlockers(storedDriverId: String?): List<String> {
         val device = guestDeviceFor(storedDriverId) ?: return emptyList()
-        return ZinkRequirements.missingExtensions(device.extensions)
+        return ZinkRequirements.missing(device)
     }
 
     /**

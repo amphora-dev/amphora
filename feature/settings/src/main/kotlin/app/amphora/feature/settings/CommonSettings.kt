@@ -64,10 +64,15 @@ internal fun CommonSettings(
             )
         }
         Text(
-            state.openGlBackend.detail,
+            state.openGlBackend.availability,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            state.openGlBackend.zinkDetail,
             style = MaterialTheme.typography.bodySmall,
             color =
-            if (state.openGlBackend.accelerated) {
+            if (state.openGlBackend.zinkReady != false) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
                 MaterialTheme.colorScheme.error

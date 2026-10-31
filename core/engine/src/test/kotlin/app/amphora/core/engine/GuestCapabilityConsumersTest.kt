@@ -12,8 +12,8 @@ import org.junit.Test
  * - [Vkd3dRequirements] — the device checks that make vkd3d-proton 3.0.1
  *   refuse a device (`E_INVALIDARG`/api floor), plus the Sarek-dxgi D3D12
  *   block.
- * - [ZinkRequirements] — blockers must come from the *guest* extension list,
- *   not a host-side enumeration.
+ * - [ZinkRequirements] — blockers must come from the *guest* report
+ *   (extensions and features), not a host-side enumeration.
  * - `core.textureCompressionBC` — the BCn "auto" status source.
  */
 class GuestCapabilityConsumersTest {
@@ -76,19 +76,28 @@ class GuestCapabilityConsumersTest {
     fun zinkHasNoBlockersOnAllThreeY700Adapters() {
         for (name in listOf("wrapper", "turnip", "system")) {
             assertEquals(
-                "$name: guest extension list must satisfy zink",
+                "$name: guest adapter must satisfy Mesa 26.2.0 zink",
                 emptyList<String>(),
-                ZinkRequirements.missingExtensions(device(name).extensions),
+                ZinkRequirements.missing(device(name)),
             )
         }
     }
 
     @Test
-    fun zinkBlockersComeFromGuestExtensions() {
+    fun zinkBlockersComeFromGuestReport() {
         // A device whose guest-visible list lacks the zink must-haves is
         // blocked even if the host driver would pass — the guest is what runs.
-        val guestMissing = device("wrapper").extensions - "VK_KHR_dynamic_rendering"
-        assertEquals(listOf("VK_KHR_dynamic_rendering"), ZinkRequirements.missingExtensions(guestMissing))
+        // The Y700 adapters are Vulkan 1.3, so maintenance5 is not waived.
+        val d = device("wrapper")
+        val guestMissing =
+            d.copy(
+                extensions = d.extensions - "VK_KHR_maintenance5",
+                features = d.features - "extRobustness2.nullDescriptor",
+            )
+        assertEquals(
+            listOf("extension VK_KHR_maintenance5", "feature extRobustness2.nullDescriptor"),
+            ZinkRequirements.missing(guestMissing),
+        )
     }
 
     // -- BCn ----------------------------------------------------------------

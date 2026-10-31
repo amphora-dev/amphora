@@ -30,6 +30,7 @@ import app.amphora.core.engine.WindowsComponentPreferences
 import app.amphora.core.engine.WineAndroidGuestResolution
 import app.amphora.core.engine.WineLocaleOption
 import app.amphora.core.engine.WineLocalePreferences
+import app.amphora.core.engine.ZinkRequirements
 import app.amphora.core.engine.model.ContentComponentHealth
 import app.amphora.core.engine.model.ContentHealthSnapshot
 import com.winlator.cmod.runtime.compat.box64.Box64Preset
@@ -940,40 +941,47 @@ data class DxvkFlavorStatus(
 }
 
 /**
- * Whether guest OpenGL reaches the GPU.
+ * The OpenGL lines under the GPU driver picker.
  *
- * Zink is the only accelerated OpenGL path, and when the GPU cannot meet its
- * requirements Mesa drops to a software rasterizer without reporting anything —
- * see `ZinkRequirements`. Direct3D keeps working through DXVK/VKD3D either way,
- * so the difference only shows up in OpenGL and DirectDraw titles, where it is
- * otherwise indistinguishable from the device just being slow.
+ * Windows programs cannot use OpenGL in the wineandroid session yet. Wine's
+ * builtin `opengl32` goes through win32u's EGL driver, and the imagefs Mesa is
+ * built for X11 only (`-Dplatforms=x11 -Dgles2=disabled`), so Wine gets no EGL
+ * configs and therefore no pixel formats. [availability] says that on every
+ * device. [zinkReady]/[zinkDetail] answer a separate question: whether this
+ * driver's guest Vulkan meets Mesa zink's requirements (`ZinkRequirements`),
+ * which decides whether zink could drive OpenGL here once it is wired up.
  */
-data class OpenGlBackendStatus(val accelerated: Boolean = true, val detail: String = "") {
+data class OpenGlBackendStatus(
+    val availability: String = NOT_AVAILABLE,
+    /** Null until the guest probe has produced a verdict for the selected driver. */
+    val zinkReady: Boolean? = null,
+    val zinkDetail: String = "",
+) {
     companion object {
+        const val NOT_AVAILABLE = "OpenGL for Windows programs is not available yet."
+        private val ZINK = "Zink (Mesa ${ZinkRequirements.MESA_VERSION})"
+
         /**
          * [probed] = a guest verdict exists for the selected driver (so empty
          * blockers mean "supported", not "unknown").
          */
-        fun of(zinkBlockers: List<String>, probed: Boolean): OpenGlBackendStatus {
-            if (!probed) {
-                return OpenGlBackendStatus(
-                    accelerated = true,
-                    detail = "OpenGL acceleration is checked when a game or the desktop first starts on this driver.",
+        fun of(zinkBlockers: List<String>, probed: Boolean): OpenGlBackendStatus = when {
+            !probed ->
+                OpenGlBackendStatus(
+                    zinkReady = null,
+                    zinkDetail =
+                    "$ZINK requirements are checked when a game or the desktop first starts on this driver.",
                 )
-            }
-            if (zinkBlockers.isEmpty()) {
-                return OpenGlBackendStatus(
-                    accelerated = true,
-                    detail = "OpenGL and DirectDraw reach the GPU through Zink.",
+            zinkBlockers.isEmpty() ->
+                OpenGlBackendStatus(
+                    zinkReady = true,
+                    zinkDetail = "This device's guest Vulkan meets every $ZINK requirement.",
                 )
-            }
-            return OpenGlBackendStatus(
-                accelerated = false,
-                detail =
-                "OpenGL and DirectDraw run on Mesa's software rasterizer: this GPU has no " +
-                    "${zinkBlockers.joinToString(", ")}, which Zink requires. Direct3D is " +
-                    "unaffected — it goes through DXVK and VKD3D.",
-            )
+            else ->
+                OpenGlBackendStatus(
+                    zinkReady = false,
+                    zinkDetail = "$ZINK cannot run here: ${zinkBlockers.joinToString(", ")}.",
+                )
         }
     }
 }
