@@ -14,7 +14,9 @@
 # Env: AIO_FRAME_RATE = the Advanced "Frame rate" setting for this run, one of
 #      sync (default) game uncapped 30 45 60 90 120 (pref advanced_frame_rate_mode);
 #      AIO_DRIVER = adrenotools_driver_id for this run (e.g. System, wrapper;
-#      unset keeps the device's); AIO_WINE_LOG = errors (default) | warnings | off.
+#      unset keeps the device's); AIO_VSYNC=1 adds AIO's --vsync (the app asks
+#      for vsync: FIFO / sync interval 1; default is uncapped: IMMEDIATE /
+#      sync interval 0); AIO_WINE_LOG = errors (default) | warnings | off.
 #      The prefs stay as set after the run.
 #
 # The last line is a one-line verdict (aio-matrix.sh collects these):
@@ -34,12 +36,12 @@ BENCH=${3:-8}
 BITS=${4:-64}
 PKG=app.amphora
 EXE="C:/ProgramData/Microsoft/Windows/Graphics-Test-${BITS}bit.exe"
-ARGS="--cube $API --no-menu --bench $BENCH --autoclose 2"
+ARGS="--cube $API --no-menu --bench $BENCH --autoclose 2${AIO_VSYNC:+ --vsync}"
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 OUT_DIR=${OUT_DIR:-$ROOT/.tmp/aio-smoke}
 AIO_FRAME_RATE=${AIO_FRAME_RATE:-sync}
 AIO_DRIVER=${AIO_DRIVER:-}
-OUT=$OUT_DIR/$S-$BITS-$API-$AIO_FRAME_RATE${AIO_DRIVER:+-$AIO_DRIVER}
+OUT=$OUT_DIR/$S-$BITS-$API-$AIO_FRAME_RATE${AIO_DRIVER:+-$AIO_DRIVER}${AIO_VSYNC:+-vsync}
 SHOT_DELAY=${SHOT_DELAY:-15}
 
 case $API in
