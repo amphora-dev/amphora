@@ -6,7 +6,8 @@
 
 ## 1. 当前版本与暂停点
 
-- main `4229aaa`（`app_update 0.1.0+266.4229aaa6`），Proton pin `11.0-2fd246cfc`（`Proton-11.0-2fd246cfc-x86_64.wcp`）。2026-09-28 用户要求先停，当时所有仓库已推送、无未提交改动。
+- Proton pin `11.0-a177c89b7`（`Proton-11.0-a177c89b7-x86_64.wcp`，sha256 `76ca21b9…`）：proton-wine `wip/execmod-order` @ `a177c89b75b`，imagefs PR #25 → main `60910ae`，content_manifest `9466c02`，2026-10-28 发布，旧 `2fd246cfc` 资产已删。APK 以 `wip/cleanup` 落 main 后 CI 发布的版本为准（此前 main `4229aaa`，`app_update 0.1.0+266.4229aaa6`）。
+- 2026-09-28 的暂停点：main `4229aaa`、Proton `2fd246cfc`，当时所有仓库已推送。
 - 阶段进度（当时与用户定的顺序）：
   - ✅ Phase 0：PR 合并、AIO 2.1.0、HUD FPS
   - ✅ Phase 1a：SurfaceControl 层序、Vulkan 窗口保留边框
@@ -52,7 +53,7 @@
 | AIO 全矩阵（32-bit DXVK / alpha / 10-bit / D3D12 instance） | `53ddda5` + proton-wine `6512f18bd02`；发布 pin `Proton-11.0-6512f18bd` | Y700 + 6T | 32-bit DXVK 由 `VK_ERROR_FEATURE_NOT_PRESENT` 变为 142–144 fps；vkcube 背景 (51,51,51) = 清屏色；矩阵见 09 | [`09`](09-AIO-GRAPHICS-TEST.md) §3 |
 | AIO 2.1.0 换源 + 旧资产清理 | `b89d083` | Y700 | `Removed unpinned runtime asset` 4 行 + `Staged` 两条；vk/dx11 64 位 143.96–144.01 fps | [`09`](09-AIO-GRAPHICS-TEST.md) §1 |
 | HUD FPS / P95 / 1% low | 同 09-28 提交（`nativeRecentPresentTimes`） | Y700 | HUD `144 FPS 6.9 ms` 与 AIO bench 143.96 一致；`P95 9.4 ms`（CSV 9.3） | [`04`](04-WINEANDROID-DISPLAY.md) |
-| SurfaceControl 显式层序 + Vulkan 窗口边框 | `10d5079` + proton-wine `2fd246cfc`；发布 pin `Proton-11.0-2fd246cfc`（当前 pin） | Y700 + 6T | bench 弹窗在 3D 之上且可点；窗口有标题栏；灭屏亮屏层重挂恢复；发布组合复验 vk/dx11/ddraw2d × 32/64 PASS | [`04`](04-WINEANDROID-DISPLAY.md) §2 |
+| SurfaceControl 显式层序 + Vulkan 窗口边框 | `10d5079` + proton-wine `2fd246cfc`；发布 pin `Proton-11.0-2fd246cfc` | Y700 + 6T | bench 弹窗在 3D 之上且可点；窗口有标题栏；灭屏亮屏层重挂恢复；发布组合复验 vk/dx11/ddraw2d × 32/64 PASS | [`04`](04-WINEANDROID-DISPLAY.md) §2 |
 | `VK_LAYER_AMPHORA_wsi` 驱动链（wrapper / Turnip / System） | 同 09-28（只改 APK） | Y700 + 6T | wrapper 下 DXVK 见 `Wrapper(Adreno 830) driver 0.800.72`；Y700 dx12 新可跑；6T Turnip 缺 `storageBuffer16BitAccess` 仅 vk | [`05`](05-AHB-IMPORT-PRESENT.md) §2.4 |
 | Headless Wine boot（linker64 app-data exec，无显示） | `5c8f5e1`（exec 路由 + staged-.wcp pin 同步）；Proton `11.0-2fd246cfc`、Box64 `0.4.5-0db8df775` | Y700 | `am instrument` `OK (2 tests)`；`Routing app-private executable through linker64` → `exit=0`（`wine --version` 与 `wineboot --init`，后者产出有效 user.reg） | [`01`](01-ARCHITECTURE.md) |
 | PrefixPack 生成器走 `WineHeadlessRunner` | 同左；对照基线 `dd99971`（XServer + GPLC env） | Y700 | 同 WCP 同机两轮生成确定性 txz（sha256 `da1ed00c…`，各 2 次全同）；与基线 `diff` 仅 `system.reg` 10 行 Wow64 COM 注册序差异（§2 有逐项解释），无回归 | 本文件 §2 |
@@ -64,6 +65,7 @@
 | HUD 展开项 GUEST CPU / RSS / 进程数 | 本提交（进程树改按 `/proc/<pid>/stat` 父 PID 建，不再读 `task/*/children`：Y700 内核无 `CONFIG_PROC_CHILDREN`，原先只采到空闲的 launcher，恒为 0%） | Y700 | AIO dx11 64 运行中展开 HUD：`GUEST 4%`、`10 guest · 69 threads`、`GUEST RSS 926 MB`（8 核平均，修前 `GUEST 0%`） | — |
 | Advanced 运行时设置生效 + 每次启动的多余步骤 | 本提交（`wip/cleanup`）；Proton `11.0-2fd246cfc` | Y700 | Advanced「Wine log」=Errors → 会话 env `WINEDEBUG=+err`（`5909b50` 起 `AdvancedRuntimePreferences.applyEnvOverrides` 无人调用，Advanced 页 Wine log / DXVK HUD / vkd3d / 自定义 env 等全是空操作，现由 `WineAndroidSessionBootstrap` 叠在 preparer env 与 LaunchSpec env 之间）；默认 `WINEDEBUG=-all`（原强制 `+err,+android`），`trace:android` 0 行；删掉每次启动对 `libXau.so` 跑 `ldd` 的 CurlDeps 检查；keeper 改为 `<cmd> & wait $!`——原脚本找 `$WINEPREFIX/server-*`（实际在 `.wineserver/`）永远找不到，20 s 后无条件退出，宿主把会话当成已结束；修后 AIO dx11 64 `pid->end` 13 s（= bench 8 s + autoclose + 退出），144 fps；dx8/dx9/dx12 64 ~144 fps | — |
 | PulseAudio 启动等 daemon 退出，不再固定吃 100 ms 轮询 | 本提交（`wip/cleanup`） | Y700 + 6T | 冷 `:session` 开桌面，`PulseAudioComponent.start()` 耗时：Y700 142/137/143/142 → 146/134/129/137 ms（等待段 ~126→105 ms，daemon 父进程 ~90 ms 退出后一次 pactl 即中）；6T 168/164/116/182 → 154/153/150/150 ms。会话内 pactl 见 `AAudioSink`（s16le 2ch 48kHz），后台→前台后 sink 仍在，无 FATAL | — |
+| Wine 映射 DLL 时代码段先给最终保护，不再 anon-remap 复制（execmod） | proton-wine `a177c89b75b`；发布 pin `Proton-11.0-a177c89b7`（当前 pin）；APK 本提交（`wip/cleanup`） | Y700 + 6T（均 Enforcing） | `map_image_into_view` 打重定位前先给没有重定位落点的 `MEM_EXECUTE` 段设最终 vprot（Android 拒绝对写过的映射 `mprotect(PROT_EXEC)`，原来走复制兜底）。`anon-remap success` 行数：Y700 dx11 64 212 → 0（56.9 MiB → 0），桌面 208 → 0，dx9 32 213 → 27（剩下的全在 32 位 guest 进程，32 位 DLL 的 `.text` 本身有重定位，属预期）；6T 64 位 9 项全 0，32 位 26–35。发布资产与 dev 构建字节相同。发布矩阵：Y700 18 项与 09 表一致（gl、64-bit dx7 无 GL 照旧失败），其余 143.2–144.5 fps；6T 18 项 57.7–60.0 fps（32-bit dx7 35、ddraw2d 24，同以前），dx8 64/32 现在出画（09 表原为 ❌，是 AIO fork 修 dx8 之后 6T 一直没复测），dx12 仍缺 transform feedback；fatal 0。`HeadlessWineBootTest`（pin 改到 `a177c89b7`）6T `OK (2 tests)` | 本文件 §2 |
 
 > 失效行已剔除：2026-09-26 的「3D 冒烟」当时只按回读判 PASS（SF 层只有 4 帧），判据无效，已由 `2a70f95` 的逐帧送显取代。
 
@@ -71,7 +73,8 @@
 
 - **测试分层（用户认可）**：UI 改动 → 一台 vk 64；Present / 窗口改动 → 两台 vk / dx11 / ddraw2d 64 + 相关场景；驱动链改动 → 受影响后端 32 + 64 两台；全矩阵只在发 Proton / Box64 / 驱动 pin 时跑。脚本 `scripts/aio-smoke/`，换驱动 / flavor 见 [`09`](09-AIO-GRAPHICS-TEST.md) §1。
 - **设备现状**：两台装的都是与 `4229aaa` 同源的 debug APK，dev pin 已清，prefs 已还原（Y700 只有 `display_resolution=R1024x768`，6T 只有 `advanced_audio_driver=pulseaudio`）；6T 首次选 Turnip 时下载安装了驱动包，留在 `files/contents/adrenotools/`。
-- **6T 是 SELinux Permissive**（非官方 Android 15 ROM，bootloader 解锁，开机即如此，不是我们改的；用户看到过一次“SELinux 已关闭”警告，来源未查到），它上面的 PASS 不代表 Enforcing 设备；Y700 的 enforce 状态未确认。
+- **SELinux**：Y700 Enforcing。6T（非官方 Android 15 ROM，bootloader 解锁）以前开机即 Permissive，2026-10-31 `getenforce` 为 Enforcing，原因未查；看它上面的 PASS 时先确认当时的状态。
+- **6T 网络与时钟**：Wi-Fi 关着时拉不到 manifest，会话一直用磁盘缓存里的旧 pin（2026-10-28 的发布矩阵在 6T 上因此测的是旧 Proton，已作废重跑）；时钟也会落后一个月。测发版前 `adb shell svc wifi enable`，并确认 `files/contents/Proton/` 下是新版本。
 - 已停项：第二台真机 / 分屏 / hostScale 双机。
 
 ## 5. 发布与上线顺序

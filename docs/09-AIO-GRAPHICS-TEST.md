@@ -25,7 +25,7 @@ scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台
 
 ## 2. 当前结果
 
-组合：APK 自引入 `VK_LAYER_AMPHORA_wsi` 的提交起（guest 走 imagefs Khronos loader + 该层，见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.4），Proton `11.0-2fd246cfc`（发布版）。下表是 AIO 2.1.0（上游版）实测；当前 manifest 已改 pin 到 amphora fork `b8acc49`（含 dx8 修复）。Y700 的 Qualcomm FF -13 已由 D3D8/9 自动拆分解决（§3 第 6 条）：`auto` + wrapper / System 时 d3d8/d3d9 取拆分构建。默认驱动 wrapper（Qualcomm 驱动之上的 ICD）：
+组合：APK 自引入 `VK_LAYER_AMPHORA_wsi` 的提交起（guest 走 imagefs Khronos loader + 该层，见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.4），Proton `11.0-2fd246cfc`（发布版）。下表是 AIO 2.1.0（上游版）实测；当前 manifest 已改 pin 到 amphora fork `b8acc49`（含 dx8 修复）。2026-10-31 以 Proton `11.0-a177c89b7` 两台全矩阵复测，与下表一致；6T dx8 两列由 ❌ 改 ✅（fork 构建出画，58–59 fps）。Y700 的 Qualcomm FF -13 已由 D3D8/9 自动拆分解决（§3 第 6 条）：`auto` + wrapper / System 时 d3d8/d3d9 取拆分构建。默认驱动 wrapper（Qualcomm 驱动之上的 ICD）：
 
 | 后端 | 路径 | Y700 64 | Y700 32 | 6T 64 | 6T 32 |
 |---|---|---|---|---|---|
@@ -33,7 +33,7 @@ scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台
 | gl | opengl32 → EGL | ❌ 无 GL | ❌ | ❌ | ❌ |
 | dx7 | 64：wined3d(GL)；32：d7vk → DXVK | ❌ 无 GL | ✅（拆分 Sarek） | ❌ 无 GL | ✅ |
 | ddraw2d | 64：GDI；32：wrapper → DXVK D3D9 | ✅ | ✅（拆分 Sarek） | ✅ | ✅ |
-| dx8 | DXVK D3D8 | ✅（拆分 Sarek） | ✅（拆分 Sarek） | ❌ | ❌ |
+| dx8 | DXVK D3D8 | ✅（拆分 Sarek） | ✅（拆分 Sarek） | ✅ | ✅ |
 | dx9 | DXVK D3D9（FF） | ✅（拆分 Sarek） | ✅（拆分 Sarek） | ✅ | ✅ |
 | dx10 / dx11 | DXVK | ✅ | ✅ | ✅ | ✅ |
 | dx12 | vkd3d-proton | ✅ | ✅ | ❌ 缺 transform feedback | ❌ |

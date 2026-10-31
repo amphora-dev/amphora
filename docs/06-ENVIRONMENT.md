@@ -142,7 +142,7 @@ adb -s HA262AAH shell am force-stop app.amphora
 | Device | adb serial | Role |
 |---|---|---|
 | Lenovo Y700 (TB322FC, Adreno 830, Android 16) | `HA262AAH` | daily baseline |
-| OnePlus 6T (Adreno 630, Android 15) | `5b1736c7` | old GPU / old OS regression; **SELinux Permissive** (unofficial ROM, see `docs/02` §4) |
+| OnePlus 6T (Adreno 630, Android 15) | `5b1736c7` | old GPU / old OS regression; unofficial ROM, SELinux was Permissive, Enforcing as of 2026-10-31 (see `docs/02` §4) |
 
 One device is owned by one agent at a time for installs and smoke runs.
 

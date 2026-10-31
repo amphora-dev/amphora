@@ -51,10 +51,10 @@ import org.junit.runner.RunWith
  *    FUSE blocks adb push to /sdcard/Android/data/<pkg>/). The .wcp come from
  *    `nicholasx417/WinNative-Components` releases (or `./gradlew :app:stageBundledContent`):
  *    ```
- *    adb push Proton-11.0-2fd246cfc-x86_64.wcp        /data/local/tmp/
+ *    adb push Proton-11.0-a177c89b7-x86_64.wcp        /data/local/tmp/
  *    adb push Box64-0.4.5-0db8df775-p07e67ded.wcp /data/local/tmp/
  *    adb shell "run-as app.amphora mkdir -p /data/data/app.amphora/files"
- *    adb shell "cat /data/local/tmp/Proton-11.0-2fd246cfc-x86_64.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/Proton-11.0-2fd246cfc-x86_64.wcp'"
+ *    adb shell "cat /data/local/tmp/Proton-11.0-a177c89b7-x86_64.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/Proton-11.0-a177c89b7-x86_64.wcp'"
  *    adb shell "cat /data/local/tmp/Box64-0.4.5-0db8df775-p07e67ded.wcp | run-as app.amphora sh -c 'cat > /data/data/app.amphora/files/Box64-0.4.5-0db8df775-p07e67ded.wcp'"
  *    ```
  * 2. **SELinux permissive** -- the AOSP emulator's strict `untrusted_app` policy
@@ -138,7 +138,7 @@ class HeadlessWineBootTest {
         // into filesDir via `adb shell "cat /data/local/tmp/x.wcp | run-as app.amphora sh -c
         // 'cat > /data/data/app.amphora/files/x.wcp'"` (see docs/02-TRACKING.md §P4-followup).
         val wcpDir = appCtx.filesDir
-        val protonWcp = File(wcpDir, "Proton-11.0-2fd246cfc-x86_64.wcp")
+        val protonWcp = File(wcpDir, "Proton-11.0-a177c89b7-x86_64.wcp")
         val box64Wcp = File(wcpDir, "Box64-0.4.5-0db8df775-p07e67ded.wcp")
         assumeTrue("Proton .wcp not staged in app filesDir ($wcpDir)", protonWcp.exists())
         assumeTrue("Box64 .wcp not staged in app filesDir ($wcpDir)", box64Wcp.exists())
@@ -267,7 +267,7 @@ class HeadlessWineBootTest {
 
     private companion object {
         // Entry names = type-verName-verCode (versionCode=0 in both .wcp profile.json).
-        private const val PROTON_ENTRY = "Proton-11.0-2fd246cfc-x86_64-0"
+        private const val PROTON_ENTRY = "Proton-11.0-a177c89b7-x86_64-0"
         private const val BOX64_ENTRY = "Box64-0.4.5-0db8df775-p07e67ded-0"
     }
 }
