@@ -384,7 +384,9 @@ class GuestVulkanProbe @Inject constructor(
         /** Host-side wait for the JSON — longer than the guest's 20 s go-wait
          *  so a slow probe still gets its verdict applied to the cache. */
         const val REPORT_TIMEOUT_MS = 30_000L
-        private const val POLL_MS = 200L
+
+        /** A missing-file check is one stat; every interval of slack is launch latency. */
+        private const val POLL_MS = 10L
     }
 }
 

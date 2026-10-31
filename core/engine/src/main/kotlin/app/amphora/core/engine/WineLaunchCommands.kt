@@ -1,7 +1,6 @@
 package app.amphora.core.engine
 
 import android.util.Log
-import com.winlator.cmod.shared.io.FileUtils
 import java.io.File
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
@@ -81,47 +80,38 @@ fun resolveWineDosPath(path: String): String? {
 }
 
 /**
- * Publishes a changed executable through a same-directory temporary file so a
- * failed copy never truncates the last usable destination.
+ * Makes [destination] (inside the prefix's `drive_c`) a symlink to [source]
+ * so Wine runs the staged program as `C:\<name>.exe` without a second copy.
+ * Wine opens the image through the link, so the module path the program sees
+ * stays on `C:`. An existing link to [source] is kept; a regular file or a
+ * link elsewhere is replaced through a same-directory temporary link, so a
+ * failure never removes the last usable destination.
  */
-fun stageExecutable(source: File, destination: File): Boolean {
+fun linkExecutable(source: File, destination: File): Boolean {
     if (!source.isFile) return false
-    if (destination.isFile && FileUtils.contentEquals(source, destination)) return true
+    val target = source.absoluteFile.toPath()
+    val path = destination.toPath()
+    if (Files.isSymbolicLink(path) && runCatching { Files.readSymbolicLink(path) }.getOrNull() == target) {
+        return true
+    }
     val parent = destination.parentFile ?: return false
     if (!parent.isDirectory && !parent.mkdirs()) return false
-    val temporary =
-        try {
-            File.createTempFile(".${destination.name}.", ".tmp", parent)
-        } catch (_: IOException) {
-            return false
-        } catch (_: SecurityException) {
-            return false
-        }
+    val temporary = File(parent, ".${destination.name}.${System.nanoTime()}.lnk").toPath()
     return try {
-        if (!FileUtils.copy(source, temporary) || !FileUtils.contentEquals(source, temporary)) {
-            false
-        } else {
-            try {
-                Files.move(
-                    temporary.toPath(),
-                    destination.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(
-                    temporary.toPath(),
-                    destination.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            }
-            true
+        Files.createSymbolicLink(temporary, target)
+        try {
+            Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING)
         }
+        true
     } catch (_: IOException) {
         false
     } catch (_: SecurityException) {
         false
+    } catch (_: UnsupportedOperationException) {
+        false
     } finally {
-        if (temporary.exists()) temporary.delete()
+        runCatching { Files.deleteIfExists(temporary) }
     }
 }

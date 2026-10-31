@@ -44,7 +44,9 @@ static PFN_vkGetInstanceProcAddr gipa;
  * DXVK links are in place. Bounded wait — missing go still launches. */
 #define GO_PATH "C:\\amphora-vkprobe.go"
 #define GO_TIMEOUT_MS 20000
-#define GO_POLL_MS 200
+/* Checking for a missing file costs one stat; a coarse interval only adds
+ * waiting between the host writing go and the game starting. */
+#define GO_POLL_MS 10
 
 #define VKFUNC(name) static PFN_##name p##name
 VKFUNC(vkCreateInstance);

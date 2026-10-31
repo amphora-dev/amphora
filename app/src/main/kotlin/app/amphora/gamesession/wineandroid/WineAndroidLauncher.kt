@@ -14,9 +14,9 @@ import app.amphora.core.engine.buildWineExplorerCommand
 import app.amphora.core.engine.buildWineExplorerProbeCommand
 import app.amphora.core.engine.buildWineProbeCommand
 import app.amphora.core.engine.buildWineProgramCommand
+import app.amphora.core.engine.linkExecutable
 import app.amphora.core.engine.model.LaunchTarget
 import app.amphora.core.engine.resolveWineDosPath
-import app.amphora.core.engine.stageExecutable
 import com.winlator.cmod.runtime.audio.alsaserver.ALSAClient
 import com.winlator.cmod.runtime.container.Container as WinNativeContainer
 import com.winlator.cmod.runtime.container.ContainerManager as WinNativeContainerManager
@@ -228,8 +228,8 @@ constructor(
         val exeName = src.name.ifEmpty { "amphora-game.exe" }
         val driveC = File(container.getRootDir(), ".wine/drive_c").apply { mkdirs() }
         val dest = File(driveC, exeName)
-        check(stageExecutable(src, dest)) {
-            "Could not stage executable $src into Wine prefix at $dest"
+        check(linkExecutable(src, dest)) {
+            "Could not link executable $src into Wine prefix at $dest"
         }
         return "C:\\$exeName"
     }
