@@ -17,8 +17,7 @@ object AdvancedRuntimePreferences {
     const val KEY_BOX64_PRESET = "advanced_box64_preset"
     const val KEY_AUDIO_DRIVER = "advanced_audio_driver"
     const val KEY_DXVK_ASYNC = "advanced_dxvk_async"
-    const val KEY_FRAME_RATE = "advanced_frame_rate"
-    const val KEY_PRESENT_MODE = "advanced_present_mode"
+    const val KEY_FRAME_RATE_MODE = "advanced_frame_rate_mode"
     const val KEY_BCN_MODE = "advanced_bcn_mode"
     const val KEY_WINE_DEBUG = "advanced_wine_debug"
     const val KEY_HOST_PERF_HUD = "advanced_host_perf_hud"
@@ -29,6 +28,15 @@ object AdvancedRuntimePreferences {
     const val KEY_VKD3D_SHADER_MODEL = "advanced_vkd3d_shader_model"
     const val KEY_VKD3D_DXR = "advanced_vkd3d_dxr"
     const val KEY_CUSTOM_ENV = "advanced_custom_env"
+
+    /** Frame rate setting values; a cap is its fps as a string ("30" … "120"). */
+    const val FRAME_RATE_SYNC = "sync"
+    const val FRAME_RATE_GAME = "game"
+    const val FRAME_RATE_UNCAPPED = "uncapped"
+    val FRAME_RATE_CAPS = listOf(30, 45, 60, 90, 120)
+
+    /** Read by the AHB swapchain (libamphora_wsi) to pick the swap interval and the cap. */
+    const val ENV_FRAME_RATE = "AMPHORA_FRAME_RATE"
 
     private val validEnvName = Regex("[A-Z_][A-Z0-9_]*")
     private val protectedVariables =
@@ -77,13 +85,8 @@ object AdvancedRuntimePreferences {
             env.put("DXVK_GPLASYNCCACHE", enabled)
         }
 
-        env.put("DXVK_FRAME_RATE", frameRateLimit(prefs.getString(KEY_FRAME_RATE, "off")).toString())
-
-        when (val mode = prefs.getString(KEY_PRESENT_MODE, "auto")) {
-            "mailbox", "fifo", "immediate" -> {
-                env.put("MESA_VK_WSI_PRESENT_MODE", mode)
-                if (mode == "immediate") env.put("WRAPPER_MAX_IMAGE_COUNT", "1")
-            }
+        frameRateEnv(prefs.getString(KEY_FRAME_RATE_MODE, FRAME_RATE_SYNC)).forEach { (key, value) ->
+            env.put(key, value)
         }
 
         when (prefs.getString(KEY_BCN_MODE, "default")) {
@@ -154,10 +157,28 @@ object AdvancedRuntimePreferences {
 
     fun hostPerformanceHudEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_HOST_PERF_HUD, false)
 
-    fun frameRateLimit(context: Context): Int = frameRateLimit(prefs(context).getString(KEY_FRAME_RATE, "off"))
+    /** The fixed cap in fps, or 0 for Sync to display / Follow the game / Uncapped. */
+    fun frameRateLimit(context: Context): Int =
+        frameRateLimit(prefs(context).getString(KEY_FRAME_RATE_MODE, FRAME_RATE_SYNC))
 
-    internal fun frameRateLimit(value: String?): Int =
-        value?.toIntOrNull()?.takeIf { it in setOf(30, 45, 60, 90, 120) } ?: 0
+    internal fun frameRateLimit(value: String?): Int = value?.toIntOrNull()?.takeIf { it in FRAME_RATE_CAPS } ?: 0
+
+    /**
+     * AMPHORA_FRAME_RATE for the AHB swapchain (sync | game | uncapped | fps) and
+     * DXVK_FRAME_RATE, which the DXVK and VKD3D-Proton limiters read (0 = no cap).
+     * Unknown values fall back to Sync to display.
+     */
+    internal fun frameRateEnv(value: String?): Map<String, String> {
+        val cap = frameRateLimit(value)
+        val mode =
+            when {
+                cap > 0 -> cap.toString()
+                value == FRAME_RATE_GAME -> FRAME_RATE_GAME
+                value == FRAME_RATE_UNCAPPED -> FRAME_RATE_UNCAPPED
+                else -> FRAME_RATE_SYNC
+            }
+        return mapOf(ENV_FRAME_RATE to mode, "DXVK_FRAME_RATE" to cap.toString())
+    }
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(GraphicsDriverIds.PREFS_NAME, Context.MODE_PRIVATE)

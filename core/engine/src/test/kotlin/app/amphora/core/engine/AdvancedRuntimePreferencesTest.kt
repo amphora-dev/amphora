@@ -11,6 +11,30 @@ class AdvancedRuntimePreferencesTest {
         assertEquals(0, AdvancedRuntimePreferences.frameRateLimit("off"))
         assertEquals(0, AdvancedRuntimePreferences.frameRateLimit("144"))
         assertEquals(0, AdvancedRuntimePreferences.frameRateLimit(null))
+        assertEquals(0, AdvancedRuntimePreferences.frameRateLimit("sync"))
+        assertEquals(0, AdvancedRuntimePreferences.frameRateLimit("game"))
+        assertEquals(0, AdvancedRuntimePreferences.frameRateLimit("uncapped"))
+    }
+
+    @Test
+    fun frameRateEnvCoversEveryOption() {
+        val sync = mapOf("AMPHORA_FRAME_RATE" to "sync", "DXVK_FRAME_RATE" to "0")
+        assertEquals(sync, AdvancedRuntimePreferences.frameRateEnv("sync"))
+        assertEquals(sync, AdvancedRuntimePreferences.frameRateEnv(null))
+        assertEquals(sync, AdvancedRuntimePreferences.frameRateEnv("off"))
+        assertEquals(sync, AdvancedRuntimePreferences.frameRateEnv("144"))
+        assertEquals(
+            mapOf("AMPHORA_FRAME_RATE" to "game", "DXVK_FRAME_RATE" to "0"),
+            AdvancedRuntimePreferences.frameRateEnv("game"),
+        )
+        assertEquals(
+            mapOf("AMPHORA_FRAME_RATE" to "uncapped", "DXVK_FRAME_RATE" to "0"),
+            AdvancedRuntimePreferences.frameRateEnv("uncapped"),
+        )
+        assertEquals(
+            mapOf("AMPHORA_FRAME_RATE" to "45", "DXVK_FRAME_RATE" to "45"),
+            AdvancedRuntimePreferences.frameRateEnv("45"),
+        )
     }
 
     @Test

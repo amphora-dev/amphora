@@ -85,7 +85,7 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 |---|---|---|
 | 图像数 | `max(minImageCount, MIN_UNDEQUEUED + 2)`，上限 8；`SET_BUFFER_COUNT` 设成同一个数 | 每个队列槽位都是一张已导入的图像，dequeue 不会拿到陌生 buffer；app 最多持有 `图像数 - minImageCount + 1` 张，Acquire 只会等合成器，不会等自己的 Present |
 | 重建 | 同一窗口再次 CreateSwapchain 前 `API_DISCONNECT` + `API_CONNECT`（EGL），宿主清空 buffer id 并 generation+1 | 队列只在第一次 queue 之前允许把所有槽位 dequeue 出来；重连后旧 buffer 作废，guest 按新 generation 重新导入 |
-| 呈现模式 | FIFO / FIFO_RELAXED → swap interval 1，其余 → 0 | FIFO 由 dequeue 按 vsync 节流；MAILBOX 替换未锁存的帧 |
+| 呈现模式 | 交换链实现的列表只有一份：`amphora_ahb_sc.inc` 的 `g_ahb_sc_present_modes` = FIFO / MAILBOX / IMMEDIATE。swap interval 由设置 Frame rate（env `AMPHORA_FRAME_RATE`）定：`sync`（默认）一律 1；`game` 时 FIFO / FIFO_RELAXED → 1、MAILBOX / IMMEDIATE → 0；`uncapped` 一律 0；固定上限 N 一律 1，`ahb_sc_queue_present` 再把 present 按 1/N 秒节拍（`ahb_sc_pace`，日志 `AHB_SC frame cap=N fps`）。`SET_BUFFER_COUNT` 行带 `present_mode= swap= frame_rate=` | interval 1 由 dequeue 按 vsync 节流；interval 0 时 queue 替换未锁存的帧。SurfaceFlinger 只锁存整帧，所以 IMMEDIATE 和 MAILBOX 行为相同、不撕裂。裸 Vulkan 没有别的限帧器，屏幕也未必有 N Hz 的模式（6T 只有 60），所以上限要在交换链里做；DXVK / VKD3D 自己也按 `DXVK_FRAME_RATE` 限，这里几乎不睡 |
 | 并发 | `wsi-sc` 每个请求一个线程 | Acquire 可能阻塞在宿主 dequeue，不能卡住其他交换链的 Present / Destroy |
 | 队列配置 | 重连后 `SET_USAGE 0xB00`（TEXTURE / RENDER / COMPOSER）、`SET_BUFFERS_FORMAT`（按交换链格式：R8G8B8A8 → RGBA_8888，A2B10G10R10 → RGBA_1010102，R16G16B16A16_SFLOAT → RGBA_FP16，R5G6B5 → RGB_565）、`SET_BUFFERS_DIMENSIONS` = 交换链 extent、`SCALE_TO_WINDOW` | 断开重连会清掉这些；导入时 VkImage 格式取自 buffer，不设格式时 10-bit 交换链（Adreno 8xx 上 D3D8/9 会选）的像素写进 8888 buffer，画面发白、半透明；AHB 导入要求图像与 buffer 尺寸一致，Surface 尺寸暂时不同（resize 途中）时由合成器缩放 |
 | 宿主视图 | client（Vulkan）层按 `clientRect` 布局、buffer 设成客户区尺寸，建成不透明（`setOpaque(true)`） | 同上游 `client_group`；标题栏和边框留在下面的 GDI 视图。Windows 忽略交换链的 alpha，图层标不透明后 SurfaceFlinger 也忽略（之前按 RGBA_8888 半透明合成，vkcube 的 α=0.2 清屏色透出桌面） |
@@ -95,7 +95,9 @@ Guest 模拟环境 (Box64 + Wine + wineandroid.drv + win32u)
 
 回退：wsi-sc op 8 回复 `handled` 位，导入失败的那一项仍记进 win32u 的全局槽、由下次提交补 signal，这时 libamphora_wsi 先在 CPU 上等 release fence。旧 Proton（op 4）整条走这个回退。
 
-上线顺序：wsi-sc op 7 / op 8 和宿主 `CMD_QUEUE_FENCE` / `CMD_DEQUEUE_FENCE` 在 APK 里，新 Proton 会发它们，所以 **APK 先于 Proton**；旧 Proton 配新 APK 走 op 4 / op 5。
+上线顺序：wsi-sc op 7 / op 8 / op 9 和宿主 `CMD_QUEUE_FENCE` / `CMD_DEQUEUE_FENCE` 在 APK 里，新 Proton 会发它们，所以 **APK 先于 Proton**；旧 Proton 配新 APK 走 op 4 / op 5；新 Proton 配旧 APK 时 op 9 得到 `wsi-sc unknown op=9`、连接被关，win32u 改用宿主 loader 的回答。
+
+wsi-sc op 9 `PRESENT_MODES`：请求 `int32 op=9, uint64 host_surface`；回复 `int32 ret`（0 = AHB 交换链的 surface，`VK_ERROR_SURFACE_LOST_KHR` = 没登记），`uint32 count`，`count × uint32 mode`。
 
 ### 2.4 guest 的 Vulkan 驱动链
 
@@ -113,7 +115,8 @@ imagefs 的 Khronos loader 是 Linux 构建，没有 Android WSI；wrapper 也�
 - **加载**：宿主每次开会话把 manifest 写到 `filesDir/wineandroid/vklayer/amphora_wsi.json`（`library_path` = 本次安装的 `nativeLibraryDir/libamphora_wsi.so`，`instance_extensions` 只有 `VK_KHR_android_surface`，`disable_environment` = `AMPHORA_WSI_LAYER_DISABLE`），`VK_ADD_IMPLICIT_LAYER_PATH` 指过去。loader dlopen 的就是 LD_PRELOAD 进 box64 的那份 so，层和 WSI helper 共用全局状态。
 - **`VK_LOADER_DISABLE_INST_EXT_FILTER=1`**：这版 loader 在 vkCreateInstance 时只收它编译进去的已知扩展名，Linux 构建的表里没有 `VK_KHR_android_surface`，即使层提供了也报 `not found in list of known instance extensions`（AIO 弹 `vkCreateInstance Failure`）。
 - **建 surface**：loader 也没有 `vkCreateAndroidSurfaceKHR` 的分发槽，所以不经 loader。wineandroid 照旧把宿主 instance 和 client 窗口的 socket 发到 `wsi-<pid>.sock`；helper 看到是层记录过的 instance，就在代理 ANW 上 `API_CONNECT(EGL)`（同 AOSP `CreateAndroidSurfaceKHR`，不连的话第一次 dequeue 报 `BufferQueue has no connected producer`），surface 句柄就是代理窗口指针，登记进 AHB 交换链的表。`vkDestroySurfaceKHR` 时 `API_DISCONNECT` 并放掉窗口。
-- **查询**：层拦 `vkGetPhysicalDeviceSurface{Support,Capabilities,Capabilities2,Formats,Formats2,PresentModes}KHR`、`vkGetPhysicalDevicePresentRectanglesKHR`、`vkGetDeviceGroupSurfacePresentModesKHR`，只回答自己的 surface，别的原样往下传。回答照 AOSP `swapchain.cpp`：`minImageCount = min(MAX_BUFFER_COUNT, MIN_UNDEQUEUED + 2)`，`maxImageCount` 不超过 AHB 交换链的 8；变换只有 IDENTITY；格式 RGBA8 UNORM / SRGB，外加 gralloc 能分配的 565 / FP16 / 1010102；呈现模式 FIFO、MAILBOX；窗口查询失败回 `VK_ERROR_SURFACE_LOST_KHR`。win32u 之后再把 extent 改成客户区。
+- **查询**：层拦 `vkGetPhysicalDeviceSurface{Support,Capabilities,Capabilities2,Formats,Formats2,PresentModes}KHR`、`vkGetPhysicalDevicePresentRectanglesKHR`、`vkGetDeviceGroupSurfacePresentModesKHR`，只回答自己的 surface，别的原样往下传。回答照 AOSP `swapchain.cpp`：`minImageCount = min(MAX_BUFFER_COUNT, MIN_UNDEQUEUED + 2)`，`maxImageCount` 不超过 AHB 交换链的 8；变换只有 IDENTITY；格式 RGBA8 UNORM / SRGB，外加 gralloc 能分配的 565 / FP16 / 1010102；呈现模式取 `g_ahb_sc_present_modes`（§2.3，层自己不另列）；窗口查询失败回 `VK_ERROR_SURFACE_LOST_KHR`。win32u 之后再把 extent 改成客户区。
+- **呈现模式的唯一来源**：两种 surface（层的、System 下平台 loader 的）都登记在 AHB 交换链的表里，CreateSwapchain 都走 AHB 导入，所以每条驱动路径上交换链实现的都是 `g_ahb_sc_present_modes`。Amphora 会话里 win32u 的 `vkGetPhysicalDeviceSurfacePresentModesKHR` 经 wsi-sc op 9 拿这份列表（System 下平台 loader 回答的是平台交换链的列表，不算数）；op 9 失败（不是 AHB 的 surface、IPC 出错）才原样返回宿主的回答。win32u 不再总是补报 IMMEDIATE，也不再把 IMMEDIATE / MAILBOX 改成 FIFO；vsync 与否由 Frame rate 设置在 AHB 交换链里决定。
 - **交换链**：不变，仍是 wsi-sc 上的 AHB 导入（§2.3）。层 surface 导入失败时不退回 ICD 的 `vkCreateSwapchainKHR`（loader 认不出这个句柄）。helper 取 loader 用 SONAME `libvulkan.so.1`，即 box64 给 win32u 加载的那份；不能用 `libvulkan.so`，那是平台 loader 的 soname，wrapper 也把它加载进同一进程。
 - wrapper 默认不设 adrenotools PATH/NAME：指到 `vulkan.adreno.so` 时 wrapper 取实例扩展报 `undefined symbol: vkCreateRayTracingPipelinesKHR`，loader 返回 -9。
 
@@ -145,7 +148,7 @@ imagefs 的 Khronos loader 是 Linux 构建，没有 Android WSI；wrapper 也�
 
 冒烟程序源码在 [`scripts/dxvk-smoke/amphora-dxvk-smoke.c`](../scripts/dxvk-smoke/amphora-dxvk-smoke.c)，文件头有 mingw 构建和推送命令。
 
-[`scripts/dxvk-smoke/present-check.sh`](../scripts/dxvk-smoke/present-check.sh) `<serial> [30|45|60|90|120|off]` 跑完下面这些步骤，打印下列判据要看的计数，一轮 10–25 秒。限帧写进 `advanced_frame_rate`，退出时还原原来的 prefs。手动步骤：
+[`scripts/dxvk-smoke/present-check.sh`](../scripts/dxvk-smoke/present-check.sh) `<serial> [sync|game|uncapped|30|45|60|90|120]` 跑完下面这些步骤，打印下列判据要看的计数，一轮 10–25 秒。Frame rate 选项写进 `advanced_frame_rate_mode`（`sync` 即不写），退出时还原原来的 prefs。手动步骤：
 
 ```bash
 # 屏幕须亮着、已解锁，否则 Activity 没有 Surface（no client ANW after wait）
@@ -165,5 +168,5 @@ adb shell dumpsys SurfaceFlinger --timestats -disable
 - [x] 日志中必须输出 `AHB_SC create images=<N> import=ok`（N 见 §2.3，6T 为 3，Y700 为 6）；
 - [x] 日志必须连续输出 `Present frame=... hr=0x00000000` 且帧数稳定超过 **50** 帧；
 - [x] 显存回读采样（guest readback）必须持续为纯正品红色（`CLASS=MAGENTA`）；
-- [x] **帧真的送到屏幕**：跑前 `dumpsys SurfaceFlinger --timestats -enable -clear`，跑完 `--timestats -dump`，游戏窗口那层 `[BBQ] amphora-client-<hwnd>` 的 `totalFrames` 应接近 `AHB_SC destroy … presents=<n>`（修复前是 4 / 175，修复后 173 / 175）。只看回读和静态品红画面发现不了帧没上屏。同一行的 `fenced=<m>` 在支持 op 7 的 Proton 上应等于 `presents`，为 0 说明退回了 QueueWaitIdle；`imported=` 在支持 op 8 的 Proton 上应等于 `acquires`，为 0 说明 acquire 走了延迟空提交；
+- [x] **帧真的送到屏幕**：跑前 `dumpsys SurfaceFlinger --timestats -enable -clear`，跑完 `--timestats -dump`，游戏窗口那层 `[BBQ] amphora-client-<hwnd>` 的 `totalFrames` 应接近 `AHB_SC destroy … presents=<n>`（修复前是 4 / 175，修复后 173 / 175）。这条只在 swap interval 1（Sync to display、固定上限）时成立；interval 0（Uncapped、Follow the game 且游戏关 vsync）时被替换的帧不上屏，`totalFrames ≈ 刷新率 × 时长` 且 ≤ `presents`。只看回读和静态品红画面发现不了帧没上屏。同一行的 `fenced=<m>` 在支持 op 7 的 Proton 上应等于 `presents`，为 0 说明退回了 QueueWaitIdle；`imported=` 在支持 op 8 的 Proton 上应等于 `acquires`，为 0 说明 acquire 走了延迟空提交；
 - [x] 手机屏幕左上角窗口必须肉眼可见品红色矩形，画面无闪烁、无撕裂、无无响应崩溃（ANR）。

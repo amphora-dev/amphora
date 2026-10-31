@@ -222,13 +222,6 @@ static uint32_t vkl_surface_formats(VkSurfaceFormatKHR *out)
     return n;
 }
 
-/* AOSP lists FIFO and MAILBOX; the AHB swapchain maps any non-FIFO mode to swap
- * interval 0 (the queue replaces the pending buffer), which is MAILBOX. */
-static const VkPresentModeKHR g_vkl_present_modes[] = {
-    VK_PRESENT_MODE_FIFO_KHR,
-    VK_PRESENT_MODE_MAILBOX_KHR,
-};
-
 static VkResult vkl_fill(uint32_t *count, void *out, const void *src, uint32_t n, size_t elem)
 {
     uint32_t c;
@@ -390,10 +383,10 @@ static VKAPI_ATTR VkResult VKAPI_CALL vkl_GetPhysicalDeviceSurfacePresentModesKH
     VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, uint32_t *pCount, VkPresentModeKHR *pModes)
 {
     struct vkl_instance *inst;
+    /* The AHB swapchain's list (g_ahb_sc_present_modes), the one source. */
     if (vkl_surface_win(surface))
-        return vkl_fill(pCount, pModes, g_vkl_present_modes,
-                        (uint32_t)(sizeof(g_vkl_present_modes) / sizeof(g_vkl_present_modes[0])),
-                        sizeof(g_vkl_present_modes[0]));
+        return vkl_fill(pCount, pModes, g_ahb_sc_present_modes, AHB_SC_PRESENT_MODE_COUNT,
+                        sizeof(g_ahb_sc_present_modes[0]));
     inst = vkl_instance_get(physicalDevice);
     if (!inst || !inst->GetPhysicalDeviceSurfacePresentModesKHR) return VK_ERROR_SURFACE_LOST_KHR;
     return inst->GetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, pCount, pModes);

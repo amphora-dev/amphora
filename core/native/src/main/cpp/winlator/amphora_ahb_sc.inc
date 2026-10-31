@@ -144,7 +144,117 @@ struct ahb_sc {
     unsigned acquires;        /* successful acquires */
     unsigned release_fences;  /* of those, with a real compositor release fence */
     unsigned imported_sems;   /* acquire semaphores signalled by SYNC_FD import */
+    uint64_t pace_next_ns;    /* frame cap: CLOCK_MONOTONIC slot of the next present */
 };
+
+/* The present modes this swapchain implements. The layer
+ * (vkGetPhysicalDeviceSurfacePresentModesKHR) and wsi-sc op 9 (win32u, every
+ * driver path including System) report exactly this list. FIFO is swap
+ * interval 1 (the queue blocks on vsync); MAILBOX and IMMEDIATE are swap
+ * interval 0 (a queue replaces the pending buffer). SurfaceFlinger latches
+ * whole buffers, so IMMEDIATE behaves like MAILBOX and does not tear. The
+ * interval actually used comes from the Frame rate setting
+ * (ahb_sc_swap_interval). */
+static const VkPresentModeKHR g_ahb_sc_present_modes[] = {
+    VK_PRESENT_MODE_FIFO_KHR,
+    VK_PRESENT_MODE_MAILBOX_KHR,
+    VK_PRESENT_MODE_IMMEDIATE_KHR,
+};
+#define AHB_SC_PRESENT_MODE_COUNT \
+    ((uint32_t)(sizeof(g_ahb_sc_present_modes) / sizeof(g_ahb_sc_present_modes[0])))
+
+/* Frame rate setting (AMPHORA_FRAME_RATE, from the host): sync | game |
+ * uncapped | <fps>. Unset = sync. */
+enum { AHB_SC_RATE_SYNC, AHB_SC_RATE_GAME, AHB_SC_RATE_UNCAPPED, AHB_SC_RATE_CAP };
+static struct {
+    int kind;
+    int cap_fps;
+    char name[16];
+} g_ahb_sc_rate;
+static pthread_once_t g_ahb_sc_rate_once = PTHREAD_ONCE_INIT;
+
+static void ahb_sc_rate_parse(void)
+{
+    const char *v = getenv("AMPHORA_FRAME_RATE");
+    char *end = NULL;
+    long n;
+    g_ahb_sc_rate.kind = AHB_SC_RATE_SYNC;
+    if (!v || !*v || !strcmp(v, "sync")) {
+        /* default */
+    } else if (!strcmp(v, "game")) {
+        g_ahb_sc_rate.kind = AHB_SC_RATE_GAME;
+    } else if (!strcmp(v, "uncapped")) {
+        g_ahb_sc_rate.kind = AHB_SC_RATE_UNCAPPED;
+    } else {
+        n = strtol(v, &end, 10);
+        if (end != v && !*end && n >= 1 && n <= 1000) {
+            g_ahb_sc_rate.kind = AHB_SC_RATE_CAP;
+            g_ahb_sc_rate.cap_fps = (int)n;
+        } else {
+            LOGW("AHB_SC AMPHORA_FRAME_RATE=%s unknown, using sync", v);
+        }
+    }
+    switch (g_ahb_sc_rate.kind) {
+    case AHB_SC_RATE_GAME: snprintf(g_ahb_sc_rate.name, sizeof(g_ahb_sc_rate.name), "game"); break;
+    case AHB_SC_RATE_UNCAPPED: snprintf(g_ahb_sc_rate.name, sizeof(g_ahb_sc_rate.name), "uncapped"); break;
+    case AHB_SC_RATE_CAP: snprintf(g_ahb_sc_rate.name, sizeof(g_ahb_sc_rate.name), "%d", g_ahb_sc_rate.cap_fps); break;
+    default: snprintf(g_ahb_sc_rate.name, sizeof(g_ahb_sc_rate.name), "sync"); break;
+    }
+}
+
+static int ahb_sc_rate_kind(void)
+{
+    pthread_once(&g_ahb_sc_rate_once, ahb_sc_rate_parse);
+    return g_ahb_sc_rate.kind;
+}
+
+/* sync: always wait for vsync (1). game: FIFO / FIFO_RELAXED wait (1), MAILBOX
+ * / IMMEDIATE do not (0). uncapped: never wait (0). cap: wait (1) and pace
+ * presents to the cap in ahb_sc_pace. */
+static int ahb_sc_swap_interval(VkPresentModeKHR mode)
+{
+    switch (ahb_sc_rate_kind()) {
+    case AHB_SC_RATE_GAME:
+        return (mode == VK_PRESENT_MODE_FIFO_KHR || mode == VK_PRESENT_MODE_FIFO_RELAXED_KHR) ? 1 : 0;
+    case AHB_SC_RATE_UNCAPPED:
+        return 0;
+    default:
+        return 1;
+    }
+}
+
+static uint64_t ahb_sc_now_ns(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+/* Frame cap: sleep until this swapchain's next slot, then advance the slot by
+ * one period (restart from now when more than one period late). Raw Vulkan
+ * has no other limiter, and the display may have no mode at the cap; DXVK /
+ * VKD3D already pace to the same period, so for them this rarely sleeps. */
+static void ahb_sc_pace(struct ahb_sc *sc)
+{
+    uint64_t period, now;
+    if (ahb_sc_rate_kind() != AHB_SC_RATE_CAP) return;
+    period = 1000000000ull / (uint64_t)g_ahb_sc_rate.cap_fps;
+    now = ahb_sc_now_ns();
+    if (!sc->pace_next_ns) {
+        LOGI("AHB_SC frame cap=%d fps sc=%p", g_ahb_sc_rate.cap_fps, (void *)sc);
+    } else if (sc->pace_next_ns > now) {
+        struct timespec ts;
+        ts.tv_sec = (time_t)(sc->pace_next_ns / 1000000000ull);
+        ts.tv_nsec = (long)(sc->pace_next_ns % 1000000000ull);
+        while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL) == EINTR) {
+        }
+        now = sc->pace_next_ns;
+    } else if (now - sc->pace_next_ns < period) {
+        now = sc->pace_next_ns;
+    }
+    sc->pace_next_ns = now + period;
+}
+
 
 static struct ahb_sc_surface g_ahb_surfaces[AHB_SC_MAX_SURFACES];
 static int g_ahb_surface_n;
@@ -235,6 +345,18 @@ static struct amphora_win *ahb_sc_win_for_surface(VkSurfaceKHR surface, int *lay
     }
     pthread_mutex_unlock(&g_ahb_sc_lock);
     return w;
+}
+
+/* 0 and the full list (up to *count) for a surface this swapchain serves;
+ * -ENOENT otherwise. */
+static int ahb_sc_surface_present_modes(VkSurfaceKHR surface, uint32_t *count, VkPresentModeKHR *modes)
+{
+    uint32_t i, n;
+    if (!ahb_sc_win_for_surface(surface, NULL)) return -ENOENT;
+    n = *count < AHB_SC_PRESENT_MODE_COUNT ? *count : AHB_SC_PRESENT_MODE_COUNT;
+    for (i = 0; i < n; i++) modes[i] = g_ahb_sc_present_modes[i];
+    *count = n;
+    return 0;
 }
 
 /* Forget a layer surface; returns its window so the caller drops the layer's ref. */
@@ -548,10 +670,10 @@ static VkResult amphora_vkCreateSwapchainKHR(
     }
     win->sc_used = 1;
 
-    /* FIFO blocks on the queue (vsync); MAILBOX/IMMEDIATE replace the pending
-     * buffer. Set before querying MIN_UNDEQUEUED: async mode needs one more. */
-    swap_interval = (pCreateInfo->presentMode == VK_PRESENT_MODE_FIFO_KHR ||
-                     pCreateInfo->presentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR) ? 1 : 0;
+    /* Interval 1 blocks on the queue (vsync); 0 replaces the pending buffer.
+     * The Frame rate setting picks it (ahb_sc_swap_interval). Set before
+     * querying MIN_UNDEQUEUED: async mode needs one more. */
+    swap_interval = ahb_sc_swap_interval(pCreateInfo->presentMode);
     {
         int sret = win_set_swap(&win->win, swap_interval);
         if (sret != 0)
@@ -598,9 +720,10 @@ static VkResult amphora_vkCreateSwapchainKHR(
 
     {
         int set_ret = win_perform(&win->win, NATIVE_WINDOW_SET_BUFFER_COUNT, (int)want);
-        LOGI("AHB_SC SET_BUFFER_COUNT images=%u (app min=%u min_undeq=%d present_mode=%d swap=%d) ret=%d",
+        LOGI("AHB_SC SET_BUFFER_COUNT images=%u (app min=%u min_undeq=%d present_mode=%d swap=%d) ret=%d"
+             " frame_rate=%s",
              want, pCreateInfo->minImageCount, min_undequeued, (int)pCreateInfo->presentMode,
-             swap_interval, set_ret);
+             swap_interval, set_ret, g_ahb_sc_rate.name);
     }
 
     sc = calloc(1, sizeof(*sc));
@@ -879,7 +1002,7 @@ static VkResult ahb_sc_wait_present_semaphores(VkQueue queue, const VkPresentInf
 static VkResult ahb_sc_queue_present(VkQueue queue, const VkPresentInfoKHR *pPresentInfo, int fence)
 {
     uint32_t i;
-    int any_ours = 0, any_theirs = 0;
+    int any_ours = 0, any_theirs = 0, paced = 0;
     VkResult last = VK_SUCCESS;
 
     if (!pPresentInfo) {
@@ -932,6 +1055,10 @@ static VkResult ahb_sc_queue_present(VkQueue queue, const VkPresentInfoKHR *pPre
         }
         /* win_queue takes its own copy of the fence to the host (queueBuffer
          * waits on it) and runs the q50/q100 readback sampler. */
+        if (!paced) {
+            ahb_sc_pace(sc); /* once per present call */
+            paced = 1;
+        }
         qret = win_queue(&sc->win->win, &sc->bufs[idx]->buffer, fence >= 0 ? dup(fence) : -1);
         sc->state[idx] = AHB_SC_IN_QUEUE;
         if (qret != 0) {

@@ -126,7 +126,7 @@ X11 会话链删于 `5909b50`，删前最后状态是 tag **`x11-reference`**（
 | 会话控制抽屉（隐藏控件 / 退出 Windows / 触控模式 / 帧率限制） | `GameSessionRuntimeDrawer.kt`、`GameSessionOverlays.kt` `DrawerEdgeHandle` | ❌ | 仅有 IME chip（`WineAndroidImeUi`） |
 | 退出确认 / 会话结束遮罩 | `GameSessionOverlays.kt` `ExitSessionConfirmationDialog`、`SessionEndingOverlay` | ⚠️ | 返回键弹 AlertDialog 确认（文案同旧版）已补；结束遮罩未做 |
 | 暂停 / 恢复 | `GameSessionCoordinator.kt`、`PendingSessionActions` | ⚠️ 只有 Activity `onPause`/`onResume` | |
-| 帧率限制 | `GameSessionRuntimeDrawer.kt` `sessionFrameLimitHint`、`FPS_LIMITS` | ⚠️ | guest 侧 `DXVK_FRAME_RATE` 已生效（6T 实测 30 fps）；宿主刷新率对齐已接（`WineAndroidSessionActivity` → `RefreshRateUtils`，档位不超过用户的峰值刷新率设置；Y700 限 30 / 60 / 关 实测 30 / 60 / 144 Hz）；会话内切换未做（随会话抽屉） |
+| 帧率限制 | `GameSessionRuntimeDrawer.kt` `sessionFrameLimitHint`、`FPS_LIMITS` | ⚠ | 设置里一个 **Frame rate**（pref `advanced_frame_rate_mode`：Sync to display（默认）/ Follow the game / Uncapped / 30–120 fps），取代原来的 Frame limit 和 Vulkan present mode。每次启动写 env `AMPHORA_FRAME_RATE`（AHB 交换链据此定 swap interval，见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.3）和 `DXVK_FRAME_RATE`（上限值，否则 0；DXVK 与 VKD3D-Proton 的限帧器都读它），上限时 preparer 另写 `DXVK_CONFIG` 的 `maxFrameRate`；裸 Vulkan 的上限由 `ahb_sc_pace` 做。宿主刷新率对齐已接（`WineAndroidSessionActivity` → `RefreshRateUtils`，只有固定上限会选对应档位，其余选峰值，档位不超过用户的峰值刷新率设置；Y700 限 30 / 60 / 关 实测 30 / 60 / 144 Hz）。宿主 HUD FPS（`nativeRecentPresentTimes`，宿主 QUEUE 时间戳）和 AIO bench 数的是 present；swap interval 0（Uncapped、Follow the game 且游戏关 vsync）时会超过上屏帧数，上屏以 SF `totalFrames` 为准。会话内切换未做（随会话抽屉） |
 
 ---
 

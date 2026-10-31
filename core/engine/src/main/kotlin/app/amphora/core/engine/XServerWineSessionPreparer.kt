@@ -1352,11 +1352,6 @@ class XServerWineSessionPreparer @Inject constructor(
             envState.put("WRAPPER_VMEM_MAX_SIZE", maxDeviceMemory)
         }
 
-        var presentMode = graphicsDriverConfig["presentMode"]
-        if (presentMode.isNullOrEmpty()) presentMode = "mailbox"
-        if (presentMode.contains("immediate")) envState.put("WRAPPER_MAX_IMAGE_COUNT", "1")
-        envState.put("MESA_VK_WSI_PRESENT_MODE", presentMode)
-
         val resourceType = graphicsDriverConfig["resourceType"] ?: ""
         envState.put("WRAPPER_RESOURCE_TYPE", resourceType)
 

@@ -233,6 +233,21 @@ class SettingsViewModelTest {
         }
     }
 
+    @Test
+    fun frameRateDefaultsToSyncAndPersistsTheChoice() = runTest(dispatchers.testDispatcher) {
+        val fixture = fixture()
+        runCurrent()
+        assertEquals(FrameRate.SYNC, fixture.viewModel.uiState.value.frameRate)
+
+        fixture.viewModel.selectFrameRate(FrameRate.UNCAPPED)
+        verify { fixture.editor.putString("advanced_frame_rate_mode", "uncapped") }
+        assertEquals(FrameRate.UNCAPPED, fixture.viewModel.uiState.value.frameRate)
+
+        fixture.viewModel.resetPreferences()
+        verify { fixture.editor.remove("advanced_frame_rate_mode") }
+        assertEquals(FrameRate.SYNC, fixture.viewModel.uiState.value.frameRate)
+    }
+
     private fun fixture(
         pulseProbe: PulseAudioProbe =
             PulseAudioProbe(
@@ -389,6 +404,7 @@ class SettingsViewModelTest {
             guestDriveManager = guestDriveManager,
             drives = drives,
             updateController = updateController,
+            editor = editor,
         )
     }
 
@@ -404,6 +420,7 @@ class SettingsViewModelTest {
         val guestDriveManager: GuestDriveManager,
         val drives: List<GuestDriveMapping>,
         val updateController: SettingsUpdateController,
+        val editor: SharedPreferences.Editor,
     )
 
     private class FakeStorageBackend {

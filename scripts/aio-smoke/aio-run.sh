@@ -11,8 +11,18 @@
 # wine_stderr.log and AIO's benchmark CSV under $OUT_DIR
 # (default: .tmp/aio-smoke/ in the repo root).
 #
+# Env: AIO_FRAME_RATE = the Advanced "Frame rate" setting for this run, one of
+#      sync (default) game uncapped 30 45 60 90 120 (pref advanced_frame_rate_mode);
+#      AIO_DRIVER = adrenotools_driver_id for this run (e.g. System, wrapper;
+#      unset keeps the device's); AIO_WINE_LOG = errors (default) | warnings | off.
+#      The prefs stay as set after the run.
+#
 # The last line is a one-line verdict (aio-matrix.sh collects these):
-#   RESULT <serial> <bits> <api> bench=<avg fps|none> presents=<n> sf=<frames> fatal=<n> err=<first wine err>
+#   RESULT <serial> <bits> <api> bench=<avg fps|none> presents=<n> sf=<frames> fatal=<n>
+#          rate=<option> driver=<id|default> mode=<present mode> swap=<interval> hz=<display hz>
+#          err=<first wine err>
+# mode/swap come from the last AHB_SC SET_BUFFER_COUNT line, hz from the
+# host's "refresh align" line; err= is last because it contains spaces.
 # bench=none means AIO never finished its benchmark: the backend failed to
 # start (look at the screenshot for its error dialog and at err=). A bench
 # number alone is not proof of a picture; check the screenshot.
@@ -27,7 +37,9 @@ EXE="C:/ProgramData/Microsoft/Windows/Graphics-Test-${BITS}bit.exe"
 ARGS="--cube $API --no-menu --bench $BENCH --autoclose 2"
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 OUT_DIR=${OUT_DIR:-$ROOT/.tmp/aio-smoke}
-OUT=$OUT_DIR/$S-$BITS-$API
+AIO_FRAME_RATE=${AIO_FRAME_RATE:-sync}
+AIO_DRIVER=${AIO_DRIVER:-}
+OUT=$OUT_DIR/$S-$BITS-$API-$AIO_FRAME_RATE${AIO_DRIVER:+-$AIO_DRIVER}
 SHOT_DELAY=${SHOT_DELAY:-15}
 
 case $API in
@@ -44,6 +56,13 @@ case $BITS in
     exit 2
     ;;
 esac
+case $AIO_FRAME_RATE in
+  sync | game | uncapped | 30 | 45 | 60 | 90 | 120) ;;
+  *)
+    echo "AIO_FRAME_RATE must be one of sync game uncapped 30 45 60 90 120" >&2
+    exit 2
+    ;;
+esac
 
 a() { adb -s "$S" "$@" </dev/null; }
 now() { date +%s; }
@@ -56,7 +75,8 @@ a shell input keyevent KEYCODE_WAKEUP
 a shell wm dismiss-keyguard
 # The app's Wine log defaults to off; the verdict below needs wine_stderr.log
 # (err: lines, DXVK version), so set the Advanced "Wine log" setting to
-# Errors (AIO_WINE_LOG=errors|warnings|off) while the app is stopped.
+# Errors (AIO_WINE_LOG=errors|warnings|off) while the app is stopped. The
+# Frame rate setting (absent = sync) and the driver go in the same way.
 prefs_script=$(mktemp)
 cat >"$prefs_script" <<PREFS
 f=shared_prefs/amphora_graphics.xml
@@ -64,6 +84,12 @@ mkdir -p shared_prefs
 [ -f \$f ] || printf '%s\\n%s\\n' "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>" '<map>' '</map>' >\$f
 sed -i '/name="advanced_wine_debug"/d' \$f
 sed -i 's#</map>#    <string name="advanced_wine_debug">${AIO_WINE_LOG:-errors}</string>\\n</map>#' \$f
+sed -i '/name="advanced_frame_rate_mode"/d' \$f
+[ "$AIO_FRAME_RATE" = sync ] || sed -i 's#</map>#    <string name="advanced_frame_rate_mode">$AIO_FRAME_RATE</string>\\n</map>#' \$f
+if [ -n "$AIO_DRIVER" ]; then
+  sed -i '/name="adrenotools_driver_id"/d' \$f
+  sed -i 's#</map>#    <string name="adrenotools_driver_id">$AIO_DRIVER</string>\\n</map>#' \$f
+fi
 PREFS
 adb -s "$S" push "$prefs_script" /data/local/tmp/aio-prefs.sh >/dev/null
 rm -f "$prefs_script"
@@ -131,4 +157,10 @@ errs=$(grep -aE 'err:|FAILED|Failed to|Lacking' "$OUT.wine.log" |
   sed -E 's/^[0-9.]+:[0-9a-f]{4}:[0-9a-f]{4}://; s/^[0-9a-f]{4}://')
 printf '%s\n' "$errs" | grep -v '^$' | sort | uniq -c | sort -rn | head -4 | cut -c1-170
 first_err=$(printf '%s\n' "$errs" | grep -v '^$' | head -1 | tr -s ' ' | cut -c1-120)
-echo "RESULT $S $BITS $API bench=${bench:-none} presents=${presents:-0} sf=${sf:-0} fatal=$fatal err=${first_err:--}"
+sbc=$(grep -oE 'AHB_SC SET_BUFFER_COUNT .*' "$OUT.log" | tail -1)
+mode=$(printf '%s\n' "$sbc" | grep -oE 'present_mode=[0-9]+' | cut -d= -f2)
+swap=$(printf '%s\n' "$sbc" | grep -oE 'swap=[0-9]+' | cut -d= -f2)
+hz=$(grep -oE 'refresh align fpsLimit=[0-9]+ hz=[0-9.]+' "$OUT.log" | tail -1 | grep -oE 'hz=[0-9.]+' | cut -d= -f2)
+echo "RESULT $S $BITS $API bench=${bench:-none} presents=${presents:-0} sf=${sf:-0} fatal=$fatal" \
+  "rate=$AIO_FRAME_RATE driver=${AIO_DRIVER:-default} mode=${mode:--} swap=${swap:--} hz=${hz:--}" \
+  "err=${first_err:--}"

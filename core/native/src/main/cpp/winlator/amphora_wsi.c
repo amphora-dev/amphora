@@ -33,6 +33,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <stdio.h>
+#include <time.h>
 #include <vulkan/vulkan.h>
 
 #ifndef VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR
@@ -1400,6 +1401,11 @@ enum {
      * fence; reply adds uint32 handled (1 = semaphore, 2 = fence) so the Wine
      * side only defers the signal for what is left. */
     AHB_SC_OP_ACQUIRE_IMPORT = 8,
+    /* Present modes of a surface, from g_ahb_sc_present_modes (win32u asks on
+     * every driver path, System included). Request: uint64 host surface.
+     * Reply: int32 ret (0, or VK_ERROR_SURFACE_LOST_KHR when the surface is
+     * not an AHB-swapchain surface), uint32 count, count x uint32 mode. */
+    AHB_SC_OP_PRESENT_MODES = 9,
 };
 
 static void wsi_sc_handle(int c)
@@ -1573,6 +1579,25 @@ static void wsi_sc_handle(int c)
             int32_t rr = (int32_t)results[i];
             (void)write_full(c, &rr, sizeof(rr));
         }
+        return;
+    }
+    if (op == AHB_SC_OP_PRESENT_MODES) {
+        uint64_t surface = 0;
+        VkPresentModeKHR modes[AHB_SC_PRESENT_MODE_COUNT];
+        uint32_t count = AHB_SC_PRESENT_MODE_COUNT, i;
+        int32_t ret = 0;
+        if (read_full(c, &surface, sizeof(surface))) return;
+        if (ahb_sc_surface_present_modes((VkSurfaceKHR)(uintptr_t)surface, &count, modes) != 0) {
+            ret = (int32_t)VK_ERROR_SURFACE_LOST_KHR;
+            count = 0;
+        }
+        (void)write_full(c, &ret, sizeof(ret));
+        (void)write_full(c, &count, sizeof(count));
+        for (i = 0; i < count; i++) {
+            uint32_t m = (uint32_t)modes[i];
+            (void)write_full(c, &m, sizeof(m));
+        }
+        LOGI("wsi-sc PRESENT_MODES surface=0x%llx ret=%d n=%u", (unsigned long long)surface, ret, count);
         return;
     }
     LOGW("wsi-sc unknown op=%d", op);

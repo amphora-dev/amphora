@@ -13,6 +13,8 @@
 ```bash
 scripts/aio-smoke/aio-run.sh <serial> <vk|gl|dx7|ddraw2d|dx8|dx9|dx10|dx11|dx12> [bench_s] [64|32]
 scripts/aio-smoke/aio-matrix.sh <serial>...     # 全部后端 × 64/32，多台并行，末尾打 RESULT 表
+AIO_FRAME_RATE=uncapped AIO_DRIVER=System scripts/aio-smoke/aio-run.sh <serial> vk   # 单次换 Frame rate / 驱动
+FRAME_RATES="sync uncapped 30" APIS="vk dx11" BITS=64 scripts/aio-smoke/aio-matrix.sh <serial>   # Frame rate 在最外层循环
 MODE=power|home scripts/aio-smoke/background-check.sh <serial> <api|desktop> [64|32]   # 运行中灭屏或 HOME 15 s 再回来（HOME 走 launcher 意图），查 park / 恢复出帧（04 §3.4）
 ```
 
@@ -21,7 +23,8 @@ MODE=power|home scripts/aio-smoke/background-check.sh <serial> <api|desktop> [64
 判读：
 - `bench=none`：后端没起来，看截图里 AIO 的报错框和 `err=`。
 - 有 `bench` 也不等于有画面（见 §4 FF 那条：帧照常提交，方块没画），要看截图。
-- FPS 都卡在屏幕刷新率：交换链只有 FIFO / MAILBOX，win32u 把 IMMEDIATE 改成 FIFO，这些数字不代表性能。
+- FPS 看 Frame rate 设置（`AIO_FRAME_RATE`，写进 `advanced_frame_rate_mode`，默认 `sync`；RESULT 里 `rate= mode= swap= hz=`）：`sync` 卡在屏幕刷新率（`swap=1`），这时数字不代表性能；`uncapped`（`swap=0`）和 `game` 下 AIO 的 vk（请求 IMMEDIATE，`mode=0`）可以超过刷新率，bench / `presents` 数的是提交的帧，上屏的是 SF `sf=`（≈ 刷新率 × 时长）；固定上限 30–120 是 `min(N, 刷新率)`。呈现模式和 swap interval 的规则见 [`05`](05-AHB-IMPORT-PRESENT.md) §2.3。
+- `AIO_DRIVER` 设 `adrenotools_driver_id`（`System`、`wrapper`、`WN-Turnip-1.06-b`），文件名后缀带上它；`AIO_FRAME_RATE` 和 `AIO_DRIVER` 跑完不还原，测完自己改回。
 - 换驱动：先 `am force-stop app.amphora`，在 `shared_prefs/amphora_graphics.xml` 加 `<string name="adrenotools_driver_id">WN-Turnip-1.06-b</string>`（或 `System`），测完还原原文件；会话日志 `Launch graphics driver: configured=…`、DXVK 的 `Found device: … (Wrapper driver <版本>)` 确认实际驱动（Turnip 是 `26.2.99`，Qualcomm 是 `0.800.72`）。DXVK 版本同一文件的 `dxvk_flavor`（`dxvk` / `sarek`，不设 = auto），wine 日志 `DXVK: 3.0.2` 或 `DXVK-Sarek: v1.11.0-async` 确认。
 
 ## 2. 当前结果

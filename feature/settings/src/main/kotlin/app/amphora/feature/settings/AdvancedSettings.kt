@@ -166,7 +166,7 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                     )
                     Text(
                         "DXVK async ${if (state.dxvkAsync) "on" else "off"} · " +
-                            "limit ${state.frameLimit.label}",
+                            state.frameRate.label,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -224,19 +224,15 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                 onReset = { viewModel.setDxvkAsync(false) },
             )
             ChoiceSetting(
-                title = "Frame limit",
-                description =
-                "Caps presentation for Direct3D 8–11 (DXVK) and Direct3D 12 (VKD3D uses " +
-                    "DXVK's DXGI). WineD3D and OpenGL are not limited here — use the in-session " +
-                    "panel for the compositor cap that applies to every API.",
-                impact =
-                "Environment: DXVK_FRAME_RATE and dxgi.maxFrameRate · Direct3D 8–12 · next launch",
-                selected = state.frameLimit,
-                defaultValue = FrameLimit.OFF,
-                values = FrameLimit.entries,
+                title = "Frame rate",
+                description = "How often games may show a new frame.",
+                impact = frameRateImpact(state.frameRate),
+                selected = state.frameRate,
+                defaultValue = FrameRate.SYNC,
+                values = FrameRate.entries,
                 label = { it.label },
-                onSelect = viewModel::selectFrameLimit,
-                onReset = { viewModel.selectFrameLimit(FrameLimit.OFF) },
+                onSelect = viewModel::selectFrameRate,
+                onReset = { viewModel.selectFrameRate(FrameRate.SYNC) },
             )
             HorizontalDivider()
             ChoiceSetting(
@@ -279,19 +275,6 @@ internal fun AdvancedRuntimeSection(state: SettingsUiState, viewModel: SettingsV
                 onReset = { viewModel.selectVkd3dDxr(Vkd3dDxrMode.AUTO) },
             )
             HorizontalDivider()
-            ChoiceSetting(
-                title = "Vulkan present mode",
-                description =
-                "Mailbox favors low-latency tear-free output; VSync is conservative; " +
-                    "Immediate may tear.",
-                impact = presentModeImpact(state.presentMode),
-                selected = state.presentMode,
-                defaultValue = PresentMode.AUTO,
-                values = PresentMode.entries,
-                label = { it.label },
-                onSelect = viewModel::selectPresentMode,
-                onReset = { viewModel.selectPresentMode(PresentMode.AUTO) },
-            )
             ChoiceSetting(
                 title = "BC texture handling",
                 description =
@@ -499,13 +482,8 @@ private fun vkd3dDxrImpact(selected: Vkd3dDxrMode, vulkan: String?): String {
     }
 }
 
-private fun presentModeImpact(selected: PresentMode): String = when (selected) {
-    PresentMode.AUTO ->
-        "Automatic keeps Mailbox, the session compositor default. This is applied before " +
-            "Wine starts — a background Wine launch would not report a different mode."
-    else ->
-        "${selected.label} · Environment: MESA_VK_WSI_PRESENT_MODE · all Vulkan renderers · next launch"
-}
+private fun frameRateImpact(selected: FrameRate): String =
+    "${selected.description} · Vulkan and Direct3D 8–12 · next launch"
 
 private fun bcnModeImpact(selected: BcnMode, bcnNative: Boolean?): String {
     val native =

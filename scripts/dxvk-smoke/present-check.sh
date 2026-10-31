@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# present-check.sh <serial> [30|45|60|90|120|off]
+# present-check.sh <serial> [sync|game|uncapped|30|45|60|90|120]
 #
 # Runs amphora-dxvk-smoke.exe (build and push: see amphora-dxvk-smoke.c) in a
 # wineandroid session with SurfaceFlinger timestats enabled, waits until the
@@ -8,14 +8,15 @@
 # acquires / imported), the game layer's SF totalFrames, FATAL and
 # prepare-failed counts, and the Proton build seen in the log.
 #
-# The limit goes into shared_prefs/amphora_graphics.xml as advanced_frame_rate
-# ("off" removes it); the other prefs are kept and the original file is put
-# back on exit. Full logcat and timestats land in $OUT_DIR
+# The Frame rate option (default sync) goes into shared_prefs/amphora_graphics.xml
+# as advanced_frame_rate_mode ("sync" removes it, as does any stale
+# advanced_frame_rate line); the other prefs are kept and the original file is
+# put back on exit. Full logcat and timestats land in $OUT_DIR
 # (default: .tmp/present-check/ in the repo root).
 set -uo pipefail
 
-S=${1:?usage: present-check.sh <serial> [30|45|60|90|120|off]}
-LIMIT=${2:-off}
+S=${1:?usage: present-check.sh <serial> [sync|game|uncapped|30|45|60|90|120]}
+LIMIT=${2:-sync}
 PKG=app.amphora
 PREFS=shared_prefs/amphora_graphics.xml
 EXE=/data/user/0/$PKG/files/exe/amphora-dxvk-smoke.exe
@@ -28,9 +29,9 @@ DONE_RE='AHB_SC destroy .*presents=[1-9]|prepare failed|FATAL EXCEPTION|Fatal si
 WAIT_S=240
 
 case $LIMIT in
-  off | 30 | 45 | 60 | 90 | 120) ;;
+  sync | game | uncapped | 30 | 45 | 60 | 90 | 120) ;;
   *)
-    echo "limit must be one of 30 45 60 90 120 off" >&2
+    echo "frame rate must be one of sync game uncapped 30 45 60 90 120" >&2
     exit 2
     ;;
 esac
@@ -59,9 +60,9 @@ a shell am force-stop "$PKG"
   echo "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>"
   echo "<map>"
   if [[ -n $ORIG ]]; then
-    printf '%s\n' "$ORIG" | grep -vE '^<\?xml|^ *<map|^ *</map>|name="advanced_frame_rate"'
+    printf '%s\n' "$ORIG" | grep -vE '^<\?xml|^ *<map|^ *</map>|name="advanced_frame_rate(_mode)?"'
   fi
-  if [[ $LIMIT != off ]]; then echo "    <string name=\"advanced_frame_rate\">$LIMIT</string>"; fi
+  if [[ $LIMIT != sync ]]; then echo "    <string name=\"advanced_frame_rate_mode\">$LIMIT</string>"; fi
   echo "</map>"
 } | write_prefs
 trap restore_prefs EXIT
@@ -95,7 +96,7 @@ a shell dumpsys SurfaceFlinger --timestats -dump | tr -d '\r' >"$OUT.ts"
 a shell dumpsys SurfaceFlinger --timestats -disable >/dev/null
 a logcat -d >"$OUT"
 
-echo "== $S limit=$LIMIT (${SECONDS}s, log $OUT)"
+echo "== $S frame_rate=$LIMIT (${SECONDS}s, log $OUT)"
 grep -E 'guest-readback' "$OUT" | grep -oE '^[0-9-]+ [0-9:.]+|queue_n=[0-9]+|CLASS=[A-Z]+' | paste - - - | head -2
 grep -oE 'AHB_SC destroy .*' "$OUT" | tail -1
 grep -oE 'AHB_SC acquire: .*' "$OUT" | sort -u | head -2

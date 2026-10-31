@@ -63,8 +63,14 @@ class GuestVulkanProbeKeyTest {
     fun inertEnvDoesNotInvalidate() {
         assertEquals(
             inputs().key(),
-            inputs(env = inputs().env + mapOf("DXVK_HUD" to "full", "MESA_LOADER_DRIVER_OVERRIDE" to "zink"))
-                .key(),
+            inputs(
+                env = inputs().env + mapOf(
+                    "DXVK_HUD" to "full",
+                    "MESA_LOADER_DRIVER_OVERRIDE" to "zink",
+                    "AMPHORA_FRAME_RATE" to "uncapped",
+                    "DXVK_FRAME_RATE" to "60",
+                ),
+            ).key(),
         )
     }
 }

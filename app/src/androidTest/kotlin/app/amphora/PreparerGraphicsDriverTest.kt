@@ -31,6 +31,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -246,7 +247,7 @@ class PreparerGraphicsDriverTest {
                 env["VK_ICD_FILENAMES"]?.contains("wrapper_icd.aarch64.json") == true,
             )
         }
-        assertTrue("MESA_VK_WSI_PRESENT_MODE missing", env.containsKey("MESA_VK_WSI_PRESENT_MODE"))
+        assertFalse("MESA_VK_WSI_PRESENT_MODE must not be set", env.containsKey("MESA_VK_WSI_PRESENT_MODE"))
         assertTrue("WRAPPER_EMULATE_BCN missing", env.containsKey("WRAPPER_EMULATE_BCN"))
         assertTrue("WRAPPER_EXTENSION_BLACKLIST missing", env.containsKey("WRAPPER_EXTENSION_BLACKLIST"))
         assertEquals(

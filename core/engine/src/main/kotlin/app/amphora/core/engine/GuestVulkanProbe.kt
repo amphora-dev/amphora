@@ -403,4 +403,8 @@ private val GUEST_VIEW_ENV_PREFIXES = listOf(
     "VKD3D_",
 )
 
-private fun String.isGuestViewEnvKey(): Boolean = GUEST_VIEW_ENV_PREFIXES.any { startsWith(it) }
+/** Under a fingerprinted prefix but only presentation pacing, not what the guest enumerates. */
+private val GUEST_VIEW_ENV_EXCLUDED = setOf("AMPHORA_FRAME_RATE")
+
+private fun String.isGuestViewEnvKey(): Boolean =
+    this !in GUEST_VIEW_ENV_EXCLUDED && GUEST_VIEW_ENV_PREFIXES.any { startsWith(it) }

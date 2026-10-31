@@ -94,13 +94,9 @@ constructor(
                 audioBackend = initialAudioBackend,
                 audioStatus = AudioBackendStatus.of(initialAudioBackend, pulseAudioCapabilities.probe()),
                 dxvkAsync = prefs.getBoolean(AdvancedRuntimePreferences.KEY_DXVK_ASYNC, true),
-                frameLimit =
-                FrameLimit.fromValue(
-                    prefs.getString(AdvancedRuntimePreferences.KEY_FRAME_RATE, null),
-                ),
-                presentMode =
-                PresentMode.fromValue(
-                    prefs.getString(AdvancedRuntimePreferences.KEY_PRESENT_MODE, null),
+                frameRate =
+                FrameRate.fromValue(
+                    prefs.getString(AdvancedRuntimePreferences.KEY_FRAME_RATE_MODE, null),
                 ),
                 bcnMode =
                 BcnMode.fromValue(
@@ -393,8 +389,7 @@ constructor(
             remove(AdvancedRuntimePreferences.KEY_BOX64_PRESET)
             remove(AdvancedRuntimePreferences.KEY_AUDIO_DRIVER)
             remove(AdvancedRuntimePreferences.KEY_DXVK_ASYNC)
-            remove(AdvancedRuntimePreferences.KEY_FRAME_RATE)
-            remove(AdvancedRuntimePreferences.KEY_PRESENT_MODE)
+            remove(AdvancedRuntimePreferences.KEY_FRAME_RATE_MODE)
             remove(AdvancedRuntimePreferences.KEY_BCN_MODE)
             remove(AdvancedRuntimePreferences.KEY_WINE_DEBUG)
             remove(AdvancedRuntimePreferences.KEY_HOST_PERF_HUD)
@@ -418,8 +413,7 @@ constructor(
                 audioStatus = audioStatus(AudioBackend.PULSEAUDIO),
                 audioFallbackDialog = null,
                 dxvkAsync = true,
-                frameLimit = FrameLimit.OFF,
-                presentMode = PresentMode.AUTO,
+                frameRate = FrameRate.SYNC,
                 bcnMode = BcnMode.DEFAULT,
                 wineLog = WineLogMode.OFF,
                 hostPerformanceHud = false,
@@ -467,14 +461,9 @@ constructor(
         _uiState.update { it.copy(dxvkAsync = enabled) }
     }
 
-    fun selectFrameLimit(value: FrameLimit) {
-        prefs.edit { putString(AdvancedRuntimePreferences.KEY_FRAME_RATE, value.value) }
-        _uiState.update { it.copy(frameLimit = value) }
-    }
-
-    fun selectPresentMode(value: PresentMode) {
-        prefs.edit { putString(AdvancedRuntimePreferences.KEY_PRESENT_MODE, value.value) }
-        _uiState.update { it.copy(presentMode = value) }
+    fun selectFrameRate(value: FrameRate) {
+        prefs.edit { putString(AdvancedRuntimePreferences.KEY_FRAME_RATE_MODE, value.value) }
+        _uiState.update { it.copy(frameRate = value) }
     }
 
     fun selectBcnMode(value: BcnMode) {
@@ -706,8 +695,7 @@ data class SettingsUiState(
     val audioStatus: AudioBackendStatus = AudioBackendStatus(),
     val audioFallbackDialog: String? = null,
     val dxvkAsync: Boolean = true,
-    val frameLimit: FrameLimit = FrameLimit.OFF,
-    val presentMode: PresentMode = PresentMode.AUTO,
+    val frameRate: FrameRate = FrameRate.SYNC,
     val bcnMode: BcnMode = BcnMode.DEFAULT,
     val wineLog: WineLogMode = WineLogMode.OFF,
     val hostPerformanceHud: Boolean = false,
@@ -1115,29 +1103,41 @@ data class AudioBackendStatus(
     }
 }
 
-enum class FrameLimit(val value: String, val label: String) {
-    OFF("off", "Off"),
-    FPS30("30", "30"),
-    FPS45("45", "45"),
-    FPS60("60", "60"),
-    FPS90("90", "90"),
-    FPS120("120", "120"),
+/** The one Frame rate setting: how the AHB swapchain waits for vsync and whether presents are capped. */
+enum class FrameRate(val value: String, val label: String, val description: String) {
+    SYNC(
+        AdvancedRuntimePreferences.FRAME_RATE_SYNC,
+        "Sync to display",
+        "Waits for each screen refresh, so games run at most at the display rate (60–144 Hz). " +
+            "No tearing. Default.",
+    ),
+    GAME(
+        AdvancedRuntimePreferences.FRAME_RATE_GAME,
+        "Follow the game",
+        "Uses the game's own V-Sync choice: on matches the display, off runs as fast as it can.",
+    ),
+    UNCAPPED(
+        AdvancedRuntimePreferences.FRAME_RATE_UNCAPPED,
+        "Uncapped",
+        "Never waits for the screen and runs as fast as the GPU allows, without tearing. Uses more " +
+            "power; frames beyond the refresh rate are not shown.",
+    ),
+    FPS30("30"),
+    FPS45("45"),
+    FPS60("60"),
+    FPS90("90"),
+    FPS120("120"),
     ;
 
-    companion object {
-        fun fromValue(value: String?): FrameLimit = entries.firstOrNull { it.value == value } ?: OFF
-    }
-}
-
-enum class PresentMode(val value: String, val label: String) {
-    AUTO("auto", "Automatic"),
-    MAILBOX("mailbox", "Mailbox"),
-    FIFO("fifo", "VSync"),
-    IMMEDIATE("immediate", "Immediate"),
-    ;
+    constructor(fps: String) : this(
+        fps,
+        "$fps fps",
+        "Caps at $fps fps and waits for the screen refresh. A cap above the display's refresh rate " +
+            "gives the refresh rate.",
+    )
 
     companion object {
-        fun fromValue(value: String?): PresentMode = entries.firstOrNull { it.value == value } ?: AUTO
+        fun fromValue(value: String?): FrameRate = entries.firstOrNull { it.value == value } ?: SYNC
     }
 }
 
