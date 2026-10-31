@@ -31,6 +31,7 @@
 - [`09-FRAME-GENERATION-RESEARCH.md`](research/09-FRAME-GENERATION-RESEARCH.md)：移动端超分辨率与插帧技术调研
 - [`09-VIRGL-PLAN.md`](research/09-VIRGL-PLAN.md)：基于 VirGL 的 Mali 硬件 OpenGL 方案
 - [`10-OPENGL-ON-MALI.md`](research/10-OPENGL-ON-MALI.md)：Mali 芯片上的 OpenGL 运行方案研究
+- [`11-STEAM-ENGINE-PLAN.md`](research/11-STEAM-ENGINE-PLAN.md)：Steam 引擎（glibc Linux 会话）立项计划草案
 - [`RESEARCH-proton-wine-selfbuild.md`](research/RESEARCH-proton-wine-selfbuild.md)：Proton Wine (x86_64 Android Bionic) 自编译构建调研
 
 被删除的调研文档（00/02/11/12/14/17/18、WRAPPER-BUILD 等）与其余清理前文档状态，经 `git show dd99971:docs/<file>` 取回。
