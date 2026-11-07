@@ -1,1 +1,7 @@
 docs/conversations/
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+*.exe

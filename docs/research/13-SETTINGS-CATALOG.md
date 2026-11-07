@@ -108,7 +108,7 @@ FEX 代码缓存见 §3.7。按游戏的 FEX 修正用 FEX 自己的按应用配
 | Windows 版本 | Windows 10 / 7 / XP | Windows 10 | 和 Proton 一致；老游戏个别需要 XP / 7 | 游 | 前缀注册表 |
 | Windows 语言（区域） | 自动 / 日语 / 简体中文 / 繁体中文 / 英语 | 自动：跟随系统语言，不在列表里的用英语 | 决定老游戏 ANSI 文本的代码页和字体替换，日文、中文老游戏乱码多半是它。Bionic 的 `setlocale` 总是返回 `C.UTF-8`，所以要写注册表（旧仓库同款，保留） | 全 / 游 | `LC_ALL`；注册表 ACP / OEMCP / LCID、`Control Panel\International`；字体替换 |
 | Windows 组件（高级） | 每个组件：内置 / 原生（Direct3D 辅助库、DirectSound、DirectMusic、DirectShow、DirectPlay、XAudio、DirectInput 8、VC++ 2010） | 全部内置（待验证） | 和 Proton 一致：Proton 用 Wine 自己的实现，游戏需要原生运行库时由它自己的安装程序装。旧仓库默认把 Direct3D 辅助库、DirectInput 8、VC++ 2010 设成原生（WinNative 带来的做法，属于 Cursor 对话里说要逐个决定的偏离）。M3 用游戏验证后定 | 游 | 前缀里的原生 DLL + `DllOverrides` |
-| 同步方式（高级） | 自动 / wineserver | 自动（待验证） | Valve 的 Wine（Experimental `7b3ceaf8644b`）有 `/dev/ntsync` 就用 ntsync，否则用 fsync（需要 `futex_waitv`），都没有就走 wineserver（esync 已删）。Y700 的 GKI 6.6 内核没有 ntsync；Android 应用的 seccomp 是否放行 `futex_waitv` 要在 M1 实测，决定"自动"实际落在哪一种 | 全 / 游 | `WINEFSYNC` |
+| 同步方式（高级） | 自动 / wineserver | 自动（待验证） | M1 实测（Y700，Android 16）：内核没有 `/dev/ntsync`，`futex_waitv` 被 Android app 的 seccomp 直接杀掉，所以 Valve Wine 的 ntsync 和 fsync 在 Android app 里都用不了，现在只有 wineserver 同步（慢）。可选的是 esync（eventfd，WinNative 重新加回了它，要改服务端协议）。M3 用游戏帧率决定要不要带 esync | 全 / 游 | `WINEESYNC` |
 | 大地址感知（高级） | 自动 / 强制开 | 自动 | 只给 32 位、内存吃紧会崩的游戏强制开（Proton 的 `forcelgadd`） | 游 | `WINE_LARGE_ADDRESS_AWARE` |
 | 堆调试开关（高级） | 延迟释放、清零分配、自顶向下 | 全关 | 只给有内存使用错误的游戏开（Proton 的 `heapdelayfree` / `heapzeromemory` / `heaptopdown`） | 游 | `WINE_HEAP_DELAY_FREE` 等 |
 | 隐藏 D3D11 / D3D10（高级） | 开 / 关 | 关 | 让游戏退回 D3D9 路径（Proton 的 `nod3d11` / `nod3d10`） | 游 | DLL 覆盖 |

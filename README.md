@@ -1,6 +1,6 @@
 # Amphora
 
-> 状态：从零重写，设计阶段（2026-11-08）。还没有代码；里程碑 1 未开始。
+> 状态：里程碑 1 进行中（2026-11-08）：Valve Experimental 的 Wine 已在 Bionic 上构建，Y700 上记事本出画，前缀写时复制通过。进度见 [`docs/TRACKING.md`](docs/TRACKING.md)。
 > 设计依据：[`docs/research/12-REWRITE-DESIGN.md`](docs/research/12-REWRITE-DESIGN.md)（已定决策 D1–D15）；设置清单：[`docs/research/13-SETTINGS-CATALOG.md`](docs/research/13-SETTINGS-CATALOG.md)。
 > 旧实现（x86_64 Wine + Box64）在 [`amphora-dev/amphora_old`](https://github.com/amphora-dev/amphora_old)，不再开发，只作参考。
 
@@ -37,12 +37,14 @@ App：只依赖 SDK 公开 API 的薄壳
 
 ## 仓库
 
-- 本仓库：SDK 与 App（APK 模块）、设计文档。
+- 本仓库：SDK 与 App（APK 模块）、设计文档、设备上的测试工具（`tools/`）。现在的 `app/` 是里程碑 1 的宿主（Wine 自带的 `WineActivity`），里程碑 4 换成 SDK。
+- Wine：`amphora-dev/proton-wine` 的 `amphora/exp-11.0-20261027b` 分支（Valve Experimental + 我们的补丁，构建脚本在分支的 `amphora/` 下）。
 - 继续使用的配套仓库：[`proton-wine`](https://github.com/amphora-dev/proton-wine)（Wine 补丁）、[`imagefs`](https://github.com/amphora-dev/imagefs)（构建与发布）、[`content_manifest`](https://github.com/amphora-dev/content_manifest)（组件 pin 与 SHA）。它们按新设计改，不再兼容旧仓库。
 - 测试设备：Y700 `HA262AAH`（Adreno 830）。开发期只保证这一台。
 
 ## 文档
 
+- [`docs/TRACKING.md`](docs/TRACKING.md)：当前进度和证据。
 - [`docs/research/12-REWRITE-DESIGN.md`](docs/research/12-REWRITE-DESIGN.md)：决策、配方、SDK 边界、出画 / 版本 / 前缀三项结论。
 - [`docs/research/13-SETTINGS-CATALOG.md`](docs/research/13-SETTINGS-CATALOG.md)：设置目录、覆盖层级、每项默认值与理由。
 

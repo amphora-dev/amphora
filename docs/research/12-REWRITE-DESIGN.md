@@ -186,7 +186,12 @@ files/
 
 没选的方案：所有游戏共用一个前缀（Winlator / GameNative 的做法，最省空间，但游戏之间的注册表和运行库会互相影响，也不能单独重置一个游戏）；照抄 Proton 的布局（每个前缀约 400 MiB）。
 
-**要在 M1 验证的**：写一个测试程序，对链接过去的文件分别做 `DeleteFile`、`MoveFileEx`、`CreateFile(CREATE_ALWAYS)`、`SetFileAttributes`、可写映射，确认仓库文件不变、前缀里变成实体文件。顺带确认上面读代码得出的"删除作用在链接目标上"。
+**M1 验证结果（2026-11-08，Y700，`tools/cowtest/`）**：
+
+- 不做写时复制、仓库可写时，读代码的判断成立，而且更糟：`DeleteFile` 删掉了仓库文件（前缀里留下断链），`MoveFileEx` 把仓库文件搬进了前缀，`CREATE_ALWAYS`、截断、覆盖写、可写映射都直接改了仓库文件。
+- 仓库只读（文件 0444、目录 0555）时仓库保住了，但这些操作全部 `ACCESS_DENIED`，游戏会坏。所以兜底不能代替写时复制。
+- 加上 wineserver 写时复制（`WINE_COW_STORE`）后，8 种操作全部成功，仓库文件内容、权限、xattr 都不变，前缀里的结果符合 Windows 语义（覆盖写保留尾部、删除和改名作用在前缀自己的副本上），只读访问的文件仍是链接。
+- 测出一个漏洞并已修：Wine 的 `SetFileAttributesW` 只带 `SYNCHRONIZE` 打开，服务端看不出要改文件，属性经链接改到了仓库文件的权限和 xattr；改成和 Windows 一样带 `FILE_WRITE_ATTRIBUTES`。另外也说明"0444 兜底"挡不住 chmod 和 xattr（同一个 uid 总能 chmod）。
 
 ### 3.4 Q4 图形与兼容设置清单
 
@@ -223,9 +228,9 @@ files/
 
 ## 5. 下一步（按顺序）
 
-1. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。
-2. **里程碑 1 验证**：`experimental-11.0-20261027b` 的 Wine（`7b3ceaf8644b`）加我们的 Bionic / Android 补丁，构建成 aarch64 + arm64ec，带 `wineandroid.drv`，在 Y700 上跑通记事本和 GDI；同时做 §3.3 的写时复制测试。
-3. 之后按 §2.3 的顺序继续。
+1. **里程碑 1 收尾**（进度见 [`../TRACKING.md`](../TRACKING.md)；出画和写时复制已通过）：桌面尺寸和 DPI；Wine 分支推到 `amphora-dev/proton-wine`，构建进 imagefs / CI；薄前缀的模板和仓库。
+2. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。
+3. 之后按 §2.3 的顺序继续（M2：FEX）。
 
 ## 6. 注意事项
 
