@@ -1,7 +1,7 @@
 # 13 · 设置目录（图形与兼容）
 
 > 状态：草案（2026-11-08）。落实 [`12`](12-REWRITE-DESIGN.md) 的 D6：App 里要有详细的图形与兼容设置，每项有分组、说明、默认值和理由；默认配置保证开箱体验。
-> 默认值以 12 §3 的 P1（Proton Experimental tag）、P2（薄前缀）、P3（出画）为前提。标"待验证"的默认值要在对应里程碑用数据定。
+> 默认值以 12 的 D12（Proton Experimental tag）、D13（薄前缀）、D14（出画）为前提；覆盖层级已定（D15）。标"待验证"的默认值要在对应里程碑用数据定。
 
 ## 1. 原则
 
@@ -12,18 +12,28 @@
 - **分三级**：基础（默认展开）、高级（折叠）、开发者（打开开发者模式才显示）。三级都写说明和理由，区别只是默认是否可见。
 - **不做的选项也写出来**（§4），说明为什么不给选，免得用户以为漏了。
 
-## 2. 覆盖层级
+## 2. 覆盖层级（2026-11-08 已定，12 D15）
 
 从低到高，后面的覆盖前面的：
 
 1. **Recipe 默认**：随配方版本发布。
 2. **用户全局**：设置页里改的。
-3. **Recipe 按游戏修正**：我们维护的数据，按游戏身份（现在是 exe 哈希，以后是 Steam AppID）匹配，每条带原因和出处。格式参照 Proton 脚本里的按 appid 表（`default_compat_config`、`fex_application_profiles`）。
+3. **Recipe 按游戏修正**：我们维护的数据，按游戏身份匹配，每条带原因和出处。格式参照 Proton 脚本里的按 appid 表（`default_compat_config`、`fex_application_profiles`）。
 4. **用户按游戏**：游戏详情页里改的。
 
 按游戏修正放在用户全局之上，因为它更具体：比如某个游戏必须限 60 帧，否则物理出错，这条应该压过用户"全局不限帧"的偏好。界面上要明确提示"本游戏的内置修正覆盖了你的全局设置：原因 …"，用户仍可以在第 4 层再改回来。
 
-很多按游戏的图形修正不用我们维护：DXVK 和 vkd3d-proton 自带按 exe 名匹配的配置，Wine 里还有按 `SteamGameId` 打开的修正（旧仓库因为写死 `SteamGameId=0` 而全部失效）。我们的数据只需要覆盖 Android / Turnip / FEX 特有的问题。
+**按游戏修正从哪来**：
+
+| 来源 | 怎么匹配游戏 | 谁维护 | 生效方式 |
+|---|---|---|---|
+| DXVK 内置配置 | exe 名 | DXVK 上游 | 组件自带，不经我们的层级；用户在第 2、4 层设了同一项时以用户为准 |
+| vkd3d-proton 内置配置 | exe 名 | vkd3d-proton 上游 | 同上 |
+| Wine 里按游戏的修正 | `SteamGameId`（Steam AppID） | Valve | 需要知道 AppID；旧仓库写死 `SteamGameId=0`，全部失效 |
+| Proton 启动脚本里的表（`default_compat_config`、`fex_application_profiles` 等） | Steam AppID | Valve | 换 Recipe 时从对应 tag 的脚本导入，挑出和 Android 有关的条目，进第 3 层 |
+| 我们自己的条目 | exe 哈希或 AppID | 我们 | 测试中发现的 Android / Turnip / FEX 特有问题，进第 3 层，每条写原因和出处 |
+
+**游戏身份**：不接 Steam，就没有 AppID，后面三种来源里按 AppID 的条目都用不上。所以游戏身份 = 本地 exe 哈希 + 可选的 Steam AppID。AppID 由我们维护的"exe 名 / 哈希 → AppID"小表自动匹配（只收测过的游戏），匹配不上时用户可以在游戏详情页手动填。填了 AppID 才设 `SteamGameId`。
 
 每个游戏有一页**生效配置**：列出这次启动最终用到的环境变量、`dxvk.conf`、DLL 覆盖、FEX 配置，可以复制，用于反馈问题。
 
@@ -133,7 +143,7 @@ FEX 代码缓存见 §3.7。按游戏的 FEX 修正用 FEX 自己的按应用配
 | DXVK / vkd3d-proton 日志 | none / error / info / debug | none | 同上 | 游 | `DXVK_LOG_LEVEL`、`VKD3D_DEBUG` |
 | FEX 日志 | 关 / 开 | 关 | 同上 | 游 | FEX `SilentLog` |
 | Turnip 调试标志 | 文本 | 空 | 只用于排查驱动问题 | 游 | `TU_DEBUG` |
-| GPU 驱动 | Turnip / 系统驱动（对比用） | Turnip | 唯一支持的驱动；系统驱动只用来对比（`GpuDriver` 扩展点） | 游 | loader ICD |
+| GPU 驱动 | Turnip / 系统驱动（对比用） | Turnip | 唯一支持的驱动。系统驱动（高通官方）只用来对比：旧仓库的性能基线是在它上面测的（12 §2.3 M3），画面出错时切过去能判断是不是 Turnip 的问题。不是 SDK 扩展点，只是加载哪个 Vulkan 库 | 游 | 加载的 Vulkan 库 |
 
 ## 4. 不提供的选项（以及原因）
 
@@ -141,7 +151,7 @@ FEX 代码缓存见 §3.7。按游戏的 FEX 修正用 FEX 自己的按应用配
 |---|---|
 | DXVK async / gplasync | Turnip 支持 GPL（`graphicsPipelineLibrary` + `IndependentInterpolationDecoration`），DXVK 用快速链接编译管线，本来就不卡；gplasync 会在 GPL 之前截走新管线，在 Turnip 上反而用不上 GPL，还会跳过绘制造成画面错误（Cursor 对话结论） |
 | DXVK 版本 / Wine 版本 / 驱动版本切换 | 一套配方一套组合（D1）。换版本是换 Recipe，不是设置项 |
-| Box64 / 其他翻译器 | D5：只做 FEX，不留接口。Box64 的 `wowbox64.dll` 要不要做成 32 位的开发者对比项，见 12 §3.5（待讨论） |
+| Box64 / 其他翻译器 | D5：只做 FEX，不留接口。Box64 的 32 位 `wowbox64.dll` 也不做（12 §3.5） |
 | Mali / Xclipse 相关选项 | D4 只支持 Adreno 7xx/8xx |
 | `DXVK_STATE_CACHE_PATH` | DXVK 3.x 已没有这个状态缓存，设置了也不生效 |
 
