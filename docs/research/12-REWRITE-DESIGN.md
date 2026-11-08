@@ -14,11 +14,11 @@
 | D4  | 设备           | **只支持 Adreno 7xx/8xx**（6T / A630 不再支持；Mali、Xclipse 不做）。开发期只保证 Y700（8xx），7xx 等有设备再验证                                                                     | dsh 第 2 轮 |
 | D5  | Box64          | **彻底删掉，也不留接口**（2026-11-08 改：原来要留的 `Runtime` 扩展点去掉）。x86 翻译只做 FEX 这一条路；Box64 的 32 位 `wowbox64.dll` 也不做（§3.5） | dsh 第 2 轮；2026-11-08 |
 | D6  | 图形与兼容设置 | App 里**要有，而且要详细**。每个设置都要有分组和说明，写明默认值以及选它的理由，让用户敢改、能自定义；默认配置要保证开箱体验好。（这一条否决了第 2 轮"界面上没有图形/兼容设置"的提议） | dsh 第 3 轮 |
-| D7  | 仓库           | 用新仓库 `amphora-dev/amphora`，本地目录 `~/co/github/amphora-steam`。旧仓库已改名为 `amphora-dev/amphora_old`，只作参考；配套仓库 proton-wine、imagefs、content_manifest 继续用       | dsh 第 3 轮 |
+| D7  | 仓库           | 用新仓库 `amphora-dev/amphora`，本地目录 `~/co/github/amphora-steam`。旧仓库已改名为 `amphora-dev/amphora_old`，只作参考；配套仓库 proton-wine、content_manifest、buildstream-sdk 继续用。构建从 imagefs 分出到新仓库 `amphora-engine`，imagefs 冻结（2026-11-08 改：原为继续用 imagefs） | dsh 第 3 轮；2026-11-08 |
 | D8  | SDK 形式       | 先只出 **AAR**，暂不做 C ABI；内部协议头保持带版本号，方便以后加                                                                                                                       | dsh 第 3 轮 |
 | D9  | 测试设备       | 暂时就用现有设备：Y700 `HA262AAH`（A830）                                                                                                                                              | dsh 第 3 轮 |
 | D10 | 设计文档       | 写在新仓库（即本文）。旧仓库的文档改动只留在本地，不推送（2026-11-08 改）                                                                                                              | dsh 第 3 轮；2026-11-08 |
-| D11 | 旧代码         | **不再建设旧代码。** 配套的基础建设项目（proton-wine、imagefs、content_manifest、Turnip 构建）不用考虑对旧代码的兼容，全按新设计改；验证也在新实现上做，旧仓库只看记录、不再跑。旧 App 在线读 content_manifest main 上的清单，改了就会坏，这一点接受，不打快照 | 2026-11-08 |
+| D11 | 旧代码         | **不再建设旧代码。** 配套的基础建设项目（proton-wine、amphora-engine、content_manifest、Turnip 构建）不用考虑对旧代码的兼容，全按新设计改；验证也在新实现上做，旧仓库只看记录、不再跑。旧 App 在线读 content_manifest main 上的清单，改了就会坏，这一点接受，不打快照 | 2026-11-08 |
 | D12 | Wine 版本      | 跟 **Proton Experimental**，锁具体 tag，现在是 `experimental-11.0-20261027b`（原 P1，§3.2）                                                                                            | 2026-11-08 |
 | D13 | 前缀           | 每个游戏一个**薄前缀**：内容寻址只读仓库 + 符号链接 + wineserver 写时复制；M1 的写时复制测试不通过就退回 Proton 式整份复制（原 P2，§3.3） | 2026-11-08 |
 | D14 | 出画           | 保留每 HWND 一层；交换链**重写**进 `wineandroid.drv`，宿主用 ASurfaceTransaction 送显，不移植旧的 BufferQueue 代理（原 P3，§3.1） | 2026-11-08 |
@@ -228,7 +228,7 @@ files/
 
 ## 5. 下一步（按顺序）
 
-1. **里程碑 1 收尾**（进度见 [`../TRACKING.md`](../TRACKING.md)；出画和写时复制已通过）：桌面尺寸和 DPI；Wine 分支推到 `amphora-dev/proton-wine`，构建进 imagefs / CI；薄前缀的模板和仓库。
+1. **里程碑 1 收尾**（进度见 [`../TRACKING.md`](../TRACKING.md)；出画和写时复制已通过）：桌面尺寸和 DPI；薄前缀的模板和仓库。Wine 分支已推到 `amphora-dev/proton-wine`，构建已在 amphora-engine 的 CI 上（2026-11-08）。
 2. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。
 3. 之后按 §2.3 的顺序继续（M2：FEX）。
 

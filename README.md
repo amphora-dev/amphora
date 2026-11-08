@@ -38,8 +38,10 @@ App：只依赖 SDK 公开 API 的薄壳
 ## 仓库
 
 - 本仓库：SDK 与 App（APK 模块）、设计文档、设备上的测试工具（`tools/`）。现在的 `app/` 是里程碑 1 的宿主（Wine 自带的 `WineActivity`），里程碑 4 换成 SDK。
-- Wine：`amphora-dev/proton-wine` 的 `amphora/exp-11.0-20261027b` 分支（Valve Experimental + 我们的补丁，构建脚本在分支的 `amphora/` 下）。
-- 继续使用的配套仓库：[`proton-wine`](https://github.com/amphora-dev/proton-wine)（Wine 补丁）、[`imagefs`](https://github.com/amphora-dev/imagefs)（构建与发布）、[`content_manifest`](https://github.com/amphora-dev/content_manifest)（组件 pin 与 SHA）。它们按新设计改，不再兼容旧仓库。
+- Wine：`amphora-dev/proton-wine` 的 `amphora/exp-11.0-20261027b` 分支（Valve Experimental + 我们的补丁；构建在 amphora-engine）。
+- 构建：[`amphora-engine`](https://github.com/amphora-dev/amphora-engine)（本地 `~/co/github/amphora-engine`）。BuildStream 构建 Wine 和设备端原生库，产出 SDK 安装的 runtime 归档；2026-11-08 从 imagefs 分出。
+- 继续使用的配套仓库：[`proton-wine`](https://github.com/amphora-dev/proton-wine)（Wine 补丁）、[`content_manifest`](https://github.com/amphora-dev/content_manifest)（组件 pin 与 SHA）、[`buildstream-sdk`](https://github.com/amphora-dev/buildstream-sdk)（宿主 SDK、NDK、llvm-mingw）。它们按新设计改，不再兼容旧仓库。
+- [`imagefs`](https://github.com/amphora-dev/imagefs) 冻结：旧产品（x86_64 Wine + Box64、rootfs、WCP）的构建，不再开发；还要用的配方按里程碑搬进 amphora-engine（清单在那边的 `docs/FROM-IMAGEFS.md`）。
 - 测试设备：Y700 `HA262AAH`（Adreno 830）。开发期只保证这一台。
 
 ## 文档
