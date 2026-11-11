@@ -228,8 +228,8 @@ files/
 
 ## 5. 下一步（按顺序）
 
-1. **里程碑 1 收尾**（进度见 [`../TRACKING.md`](../TRACKING.md)；出画和写时复制已通过）：桌面尺寸和 DPI；薄前缀的模板和仓库。Wine 分支已推到 `amphora-dev/proton-wine`，构建已在 amphora-engine 的 CI 上（2026-11-08）。
-2. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。
+1. **里程碑 1 收尾**（进度见 [`../TRACKING.md`](../TRACKING.md)；出画和写时复制已通过）：桌面尺寸已解决（2026-11-12），DPI 只差在设备上验证 100% 以外的档位；剩下薄前缀的模板和仓库。Wine 分支已推到 `amphora-dev/proton-wine`，构建已在 amphora-engine 的 CI 上（2026-11-08）。
+2. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。数据模型和四层解析已在 `:sdk`（`SettingsCatalog`，2026-11-12）；App 也已提前改成只用 SDK 公开 API 的壳（§2.3 第 4 步的 App 部分），SDK 接口还没定型。
 3. 之后按 §2.3 的顺序继续（M2：FEX）。
 
 ## 6. 注意事项
