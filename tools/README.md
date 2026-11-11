@@ -1,6 +1,6 @@
 # 设备测试工具
 
-在 M1 宿主 App（`app.amphora.next`）的沙箱里跑。编译用 Wine 分支的构建镜像（`amphora/Dockerfile`，下称 `amphora-wine-build:1`）。
+在 M1 宿主 App（`app.amphora.next`）的沙箱里跑；宿主源码在提交 `4efaf0f` 的 `app/`，现在的 `app/` 没有 `amphora.exec` 钩子。编译用 Wine 分支的构建镜像（`amphora/Dockerfile`，下称 `amphora-wine-build:1`）。
 
 | 工具 | 测什么 | 编译 | 运行 |
 |---|---|---|---|
