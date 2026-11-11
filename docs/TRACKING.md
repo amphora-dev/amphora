@@ -31,7 +31,7 @@ WinNative 那个 Android/Arm64EC 大提交（`986479030a`）没有整体带入�
 
 **还没做 / 已知问题**：
 
-- 桌面尺寸已解决：桌面大小由 SDK 按设置定（默认 1280×720），再等比缩放到屏幕。DPI 设置（`display.dpi`）已接到 `wine_config_changed`，只在 100% 下看过，其他档位没在设备上验证。
+- 桌面尺寸已解决：桌面大小由 SDK 按设置定（默认 1280×720），再等比缩放到屏幕。DPI 设置（`display.dpi`）经 `wine_config_changed` 生效：150% 下文件管理器的标题栏、菜单和字体按 1.5 倍绘制；但任务栏在 DPI 送达之前已经建好，仍是 100% 的大小。
 - 软键盘只验证了能弹出、回车能到 Wine；用 adb 注入的字母会先进中文输入法的拼音候选，真实触摸软键盘打字还没测。
 - 前缀写时复制的残余缺口：Wine 不检查句柄权限，程序如果用没带 `FILE_WRITE_ATTRIBUTES` 的句柄改属性，仍会改到仓库文件（Windows 上这样调用会失败，正常程序不会这么做）。删除和改名现在会先复制再删 / 改，浪费一次复制，以后可以只删 / 改链接本身。
 - 只链了 FreeType：gnutls（`bcrypt` 报 no encryption support）、PulseAudio、Vulkan 等按里程碑加。
