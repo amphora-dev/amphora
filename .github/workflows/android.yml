@@ -1,0 +1,66 @@
+# Format, lint, unit tests and a debug APK for every change to the Android
+# code. Wine itself is built in amphora-dev/amphora-engine; this repository
+# only pins the release it downloads (sdk/src/main/assets/amphora/recipe.json).
+name: android
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md", "tools/**"]
+  pull_request:
+    paths-ignore: ["docs/**", "**/*.md", "tools/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          # Only main writes the cache; branches read it.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Format
+        run: ./gradlew --console=plain spotlessCheck
+
+      - name: Lint
+        run: ./gradlew --console=plain lint
+
+      - name: Unit tests
+        run: ./gradlew --console=plain testDebugUnitTest
+
+      - name: Debug APK
+        run: ./gradlew --console=plain assembleDebug
+
+      - name: Upload reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            */build/reports/
+            */build/test-results/
+          retention-days: 7
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: amphora-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

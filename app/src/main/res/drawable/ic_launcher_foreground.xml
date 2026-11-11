@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An amphora: rim, neck, two handles, a body banded like scanlines, a foot.
+     Drawn inside the adaptive icon's 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M49.5,35.5C42.5,35.5 40,40.5 42.8,46.5"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFF2784B"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M58.5,35.5C65.5,35.5 68,40.5 65.2,46.5"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FFF2784B"
+        android:strokeLineCap="round" />
+    <group>
+        <clip-path android:pathData="M47,30H61V33H58.5V41C58.5,43 70,46 70,56C70,66 60,71 57,76H60V79H48V76H51C48,71 38,66 38,56C38,46 49.5,43 49.5,41V33H47Z" />
+        <path
+            android:fillColor="#FFF2784B"
+            android:pathData="M30,28h48v54h-48z" />
+        <path
+            android:fillColor="#FF131518"
+            android:pathData="M30,52.2h48v1.6h-48zM30,57.2h48v1.6h-48z" />
+    </group>
+</vector>

@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "id": "2026.11-m1",
+  "runtime": {
+    "name": "amphora-wine-11.0-378407243a94",
+    "url": "https://github.com/amphora-dev/amphora-engine/releases/download/amphora-wine-11.0-378407243a94/amphora-wine-11.0-378407243a94.tar.gz",
+    "sha256": "8ffff4c893607e46be608bc072c055112000eb8018fa84cf6bdadc3d4087a6ff",
+    "size": 160218827,
+    "files": 1702,
+    "bytes": 885530947
+  },
+  "components": ["wine"],
+  "fixes": []
+}

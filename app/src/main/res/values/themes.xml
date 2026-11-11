@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Compose draws everything; the window theme only keeps the first frame
+         and the splash screen on the app's canvas instead of a white flash. -->
+    <style name="Theme.Amphora" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/amphora_canvas</item>
+        <item name="android:colorBackground">@color/amphora_canvas</item>
+        <item name="android:colorAccent">@color/amphora_accent</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/amphora_canvas</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

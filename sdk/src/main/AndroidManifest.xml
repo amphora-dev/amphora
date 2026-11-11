@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Runtime download. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <!-- The game window. Its own process because wineandroid's driver owns
+             the process: wine_init() binds the device socket for the process's
+             lifetime and the driver _exit()s the process when the desktop
+             goes away. Its own task so the session sits beside the app in
+             recents rather than on top of the library. Landscape is a hint:
+             Android 16 ignores it on large screens, and the surface letterboxes
+             the desktop into whatever size the window gets. -->
+        <activity
+            android:name="app.amphora.sdk.internal.session.SessionActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|touchscreen|mcc|mnc"
+            android:excludeFromRecents="false"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:process=":wine"
+            android:screenOrientation="sensorLandscape"
+            android:taskAffinity="${applicationId}.session"
+            android:theme="@style/Theme.Amphora.Session"
+            android:windowSoftInputMode="stateHidden|adjustNothing"
+            tools:ignore="DiscouragedApi" />
+
+        <!-- Shares session logs (LogStore.shareUri); read access is granted per share. -->
+        <provider
+            android:name="app.amphora.sdk.internal.logs.LogFileProvider"
+            android:authorities="${applicationId}.amphora.logs"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+    </application>
+</manifest>

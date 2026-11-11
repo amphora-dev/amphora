@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors :ui's canvas and accent, for the window before Compose draws. -->
+    <color name="amphora_canvas">#FF0B0C0E</color>
+    <color name="amphora_accent">#FFF2784B</color>
+    <color name="amphora_icon_background">#FF131518</color>
+</resources>
