@@ -101,9 +101,10 @@ class SessionPlannerTest {
         assertEquals(paths.home.path, env["HOME"])
         assertEquals("steamuser", env["USER"])
         assertEquals(paths.tmp.path, env["TMPDIR"])
+        assertEquals("copy-on-write guards the runtime the prefix links into", lib.path, env["WINE_COW_STORE"])
         assertEquals("fps", env["DXVK_HUD"])
         assertEquals(listOf("HOME", "WINEPREFIX"), plan.config.rejectedEnv.map { it.name })
-        assertTrue(plan.config.env.take(5).all { it.origin == ConfigEntry.ENGINE })
+        assertTrue(plan.config.env.take(6).all { it.origin == ConfigEntry.ENGINE })
         assertEquals("the spec carries exactly the effective environment", plan.config.envMap(), env)
     }
 

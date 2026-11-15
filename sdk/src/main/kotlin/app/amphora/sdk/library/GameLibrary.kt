@@ -36,7 +36,8 @@ public class GameLibrary internal constructor(
     private val paths: AmphoraPaths,
     private val io: CoroutineContext,
     scope: CoroutineScope,
-    private val onRemoved: suspend (Game) -> Unit,
+    /** Called with the removed game and the games that remain. */
+    private val onRemoved: suspend (Game, List<Game>) -> Unit,
 ) {
     private val mutex = Mutex()
     private val _games = MutableStateFlow<List<Game>?>(null)
@@ -63,8 +64,9 @@ public class GameLibrary internal constructor(
         return try {
             val game =
                 withContext(io) {
+                    val id = UUID.randomUUID().toString().replace("-", "").take(12)
                     Game(
-                        id = UUID.randomUUID().toString().replace("-", "").take(12),
+                        id = id,
                         title = suggestTitle(exe),
                         exePath = path,
                         exeSha256 = sha256(exe),
@@ -72,6 +74,8 @@ public class GameLibrary internal constructor(
                         arch = arch,
                         detectedAppId = detectAppId(exe.parentFile),
                         addedAt = System.currentTimeMillis(),
+                        // A prefix of its own (12 §3.3): thin prefixes make that cheap.
+                        prefixId = id,
                     )
                 }
             mutate { it + game }
@@ -101,12 +105,16 @@ public class GameLibrary internal constructor(
         }
     }
 
-    /** Removes the entry and its settings; the game's files are not touched. Returns why it failed, or null. */
+    /**
+     * Removes the entry with its settings, its prefix and `C:\users` (unless
+     * another game shares the prefix); the game's own files are not touched.
+     * Returns why it failed, or null.
+     */
     public suspend fun remove(id: String): String? {
         val game = find(id) ?: return null
         return guarded("remove $id") {
             mutate { games -> games.filterNot { it.id == id } }
-            onRemoved(game)
+            onRemoved(game, _games.value.orEmpty())
         }
     }
 

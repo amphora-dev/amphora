@@ -46,8 +46,6 @@ internal data class SessionUi(
     val title: String,
     val stage: Stage,
     val startedAt: Long,
-    /** The prefix has never been initialized: the first start takes a while. */
-    val newPrefix: Boolean,
     val desktop: Resolution,
     val scale: ScaleMode,
     val dpi: Int,
@@ -139,7 +137,6 @@ internal object SessionHost : WindowTree.Events {
                 title = spec.title,
                 stage = Stage.Driver,
                 startedAt = startedAt,
-                newPrefix = !File(spec.prefixDir, "system.reg").isFile,
                 desktop = desktop,
                 scale = scale,
                 dpi = spec.dpi,

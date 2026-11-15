@@ -5,6 +5,7 @@ import app.amphora.sdk.engine.Component
 import app.amphora.sdk.engine.InstalledRuntime
 import app.amphora.sdk.engine.Recipe
 import app.amphora.sdk.internal.AmphoraPaths
+import app.amphora.sdk.internal.engine.engineEnv
 import app.amphora.sdk.library.Game
 import app.amphora.sdk.session.LaunchTarget
 import app.amphora.sdk.settings.EffectiveConfig
@@ -34,7 +35,7 @@ internal class SessionPlanner(
         val resolved = settings.resolve(game)
         val prefixId = game?.prefixId ?: Game.DEFAULT_PREFIX
         val prefixDir = paths.prefix(prefixId)
-        val config = EffectiveConfig.build(resolved, engineEnv(runtime, prefixDir), game?.detectedAppId)
+        val config = EffectiveConfig.build(resolved, engineEnv(paths, runtime, prefixDir), game?.detectedAppId)
 
         val warnings = ArrayList<String>()
         val command: List<String>
@@ -83,16 +84,6 @@ internal class SessionPlanner(
             )
         return Plan(spec, config, warnings)
     }
-
-    /** Variables the engine owns; settings and user lines cannot override them. */
-    private fun engineEnv(runtime: InstalledRuntime, prefixDir: File): Map<String, String> = linkedMapOf(
-        "WINEPREFIX" to prefixDir.path,
-        "LD_LIBRARY_PATH" to runtime.libraryPath.joinToString(":") { it.path },
-        "HOME" to paths.home.path,
-        // Proton's user name, so save paths under drive_c/users match Proton's.
-        "USER" to "steamuser",
-        "TMPDIR" to paths.tmp.path,
-    )
 
     private fun sessionId(now: Long, title: String): String {
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date(now))

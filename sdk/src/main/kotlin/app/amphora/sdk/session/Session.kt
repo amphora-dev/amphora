@@ -27,13 +27,29 @@ public enum class SessionPhase(public val label: String) {
     Ending("正在结束"),
 }
 
+/** What a launch is doing before the session process takes over. */
+public enum class LaunchStep(
+    public val label: String,
+    /** Takes long enough to be worth explaining. */
+    public val slow: Boolean = false,
+) {
+    Planning("准备启动"),
+
+    /** Wine initializes the template prefix: once per installed runtime. */
+    Template("初始化 Windows 环境", slow = true),
+
+    /** A prefix is made from the template. */
+    Prefix("建立前缀"),
+    Starting("启动会话"),
+}
+
 /** Where sessions are. There is at most one: Wine's driver binds one socket per device. */
 public sealed interface SessionState {
     /** No session. [last] is the most recent one that ended. */
     public data class Idle(val last: EndedSession?) : SessionState
 
-    /** Settings resolved, prefix being prepared, session process starting. */
-    public data class Launching(val title: String) : SessionState
+    /** Between "launch" and the session process reporting in; [step] says what is being done. */
+    public data class Launching(val title: String, val step: LaunchStep = LaunchStep.Planning) : SessionState
 
     public data class Live(val session: LiveSession) : SessionState
 }

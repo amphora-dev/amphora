@@ -22,13 +22,17 @@ public data class Game(
     val addedAt: Long,
     val lastPlayedAt: Long? = null,
     val playSeconds: Long = 0,
-    /** Prefix the game runs in. Separate from [id] so games can share one (12 §3.3). */
+    /**
+     * Prefix the game runs in: its own, named after [id], when added. Separate
+     * from [id] so games can share one (12 §3.3).
+     */
     val prefixId: String = DEFAULT_PREFIX,
 ) {
     val exeName: String get() = File(exePath).name
     val directory: File get() = File(exePath).parentFile ?: File("/")
 
     public companion object {
+        /** The prefix built-in tools run in. */
         public const val DEFAULT_PREFIX: String = "default"
     }
 }

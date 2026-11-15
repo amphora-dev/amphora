@@ -111,7 +111,7 @@ fun LibraryScreen(onOpenGame: (String) -> Unit, onAddGame: () -> Unit, onOpenLog
                 }
             is SessionState.Launching ->
                 item(key = "session", contentType = "session") {
-                    LaunchingBanner(session.title, Modifier.animateItem())
+                    LaunchingBanner(session.title, session.step, Modifier.animateItem())
                 }
             is SessionState.Idle ->
                 ui.ended?.let { ended ->

@@ -1,5 +1,6 @@
 package app.amphora.sdk.internal.session
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -41,8 +42,14 @@ internal class SessionActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val spec = intent.getStringExtra(EXTRA_SPEC)?.let(::decode)
-        if (!SessionHost.active && spec == null) {
-            // A resume for a session that has ended: nothing to show.
+        // A spec starts one session, once. The system hands the same intent back when it
+        // recreates the activity after the session process died (from recents, or under a
+        // later launch into the same task): running it again would start a session nobody
+        // planned, in a prefix nobody prepared.
+        val replayed =
+            savedInstanceState != null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
+        if (!SessionHost.active && (spec == null || replayed)) {
+            // A resume or a replay for a session that has ended: nothing to show.
             finishAndRemoveTask()
             return
         }
@@ -152,8 +159,18 @@ internal class SessionActivity : ComponentActivity() {
     companion object {
         private const val EXTRA_SPEC = "app.amphora.sdk.session.SPEC"
 
-        fun launchIntent(context: Context, specJson: String): Intent =
-            Intent(context, SessionActivity::class.java).putExtra(EXTRA_SPEC, specJson)
+        /**
+         * Starts a session. Clears the task: what is left of an ended session
+         * (its process dies without finishing the activity) must not be
+         * brought back with its old spec.
+         */
+        fun launchIntent(context: Context, specJson: String): Intent = Intent(context, SessionActivity::class.java)
+            .putExtra(EXTRA_SPEC, specJson)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+
+        /** True for the task [SessionActivity] runs in. */
+        fun owns(task: ActivityManager.AppTask): Boolean =
+            task.taskInfo?.baseIntent?.component?.className == SessionActivity::class.java.name
 
         fun resumeIntent(context: Context): Intent = Intent(context, SessionActivity::class.java)
     }

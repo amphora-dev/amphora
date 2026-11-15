@@ -169,18 +169,6 @@ private fun BootStatus(ui: SessionUi, modifier: Modifier, actions: OverlayAction
             Spacer(Modifier.height(20.dp))
             AmphoraButton("关闭", onClick = actions::close, kind = ButtonKind.Primary, icon = Icons.Outlined.Close)
         } else {
-            if (ui.newPrefix) {
-                Panel(color = colors.surfaceSunken, contentPadding = PaddingValues(14.dp)) {
-                    Text("首次启动", style = MaterialTheme.typography.labelLarge, color = colors.warn)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Wine 正在创建前缀（注册表、系统目录、字体）。通常需要一到两分钟，之后的启动只要几秒。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.textMuted,
-                    )
-                }
-                Spacer(Modifier.height(20.dp))
-            }
             AmphoraButton("取消", onClick = actions::end, kind = ButtonKind.Ghost, icon = Icons.Outlined.Close)
         }
     }

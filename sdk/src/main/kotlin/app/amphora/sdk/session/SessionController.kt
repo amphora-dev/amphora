@@ -1,5 +1,6 @@
 package app.amphora.sdk.session
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import app.amphora.sdk.container.PrefixStore
@@ -7,6 +8,7 @@ import app.amphora.sdk.engine.RuntimeManager
 import app.amphora.sdk.internal.AmphoraJson
 import app.amphora.sdk.internal.AmphoraLog
 import app.amphora.sdk.internal.AmphoraPaths
+import app.amphora.sdk.internal.container.PrepareStep
 import app.amphora.sdk.internal.session.Plan
 import app.amphora.sdk.internal.session.SessionActivity
 import app.amphora.sdk.internal.session.SessionLog
@@ -32,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -57,7 +60,7 @@ public class SessionController internal constructor(
 ) {
     private val records = SessionRecords(paths.currentSession)
     private val lock = Mutex()
-    private val launching = MutableStateFlow<String?>(null)
+    private val launching = MutableStateFlow<SessionState.Launching?>(null)
     private val ending = MutableStateFlow(false)
     private val last = MutableStateFlow<EndedSession?>(null)
     private val live = MutableStateFlow<LiveSession?>(null)
@@ -72,11 +75,11 @@ public class SessionController internal constructor(
 
     /** Polls only while someone is watching. */
     public val state: StateFlow<SessionState> =
-        combine(polled, launching, ending, last) { session, title, isEnding, ended ->
+        combine(polled, launching, ending, last) { session, starting, isEnding, ended ->
             when {
                 session != null ->
                     SessionState.Live(if (isEnding) session.copy(phase = SessionPhase.Ending) else session)
-                title != null -> SessionState.Launching(title)
+                starting != null -> starting
                 else -> SessionState.Idle(ended)
             }
         }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), SessionState.Idle(null))
@@ -91,13 +94,14 @@ public class SessionController internal constructor(
     public suspend fun launch(target: LaunchTarget): LaunchResult {
         val installed = runtime.current ?: return LaunchResult.RuntimeNotReady
         observe()?.let { return LaunchResult.Busy(it) }
-        if (!launching.compareAndSet(null, target.title)) {
+        if (!launching.compareAndSet(null, SessionState.Launching(target.title))) {
             return LaunchResult.Failed("另一个会话正在启动")
         }
         return try {
             val plan = planner.plan(target, installed)
             logs.prune(LogStore.KEEP - 1)
-            withContext(io) { prepare(plan, target) }
+            prepare(plan, target)
+            step(LaunchStep.Starting)
             start(plan.spec)
             AmphoraLog.i("session ${plan.spec.id}: ${plan.spec.argv()}")
             // Stay "launching" until the session process reports in, so the UI does not flash idle.
@@ -174,28 +178,56 @@ public class SessionController internal constructor(
             library.recordPlay(spec.gameId, ended.startedAt, ended.seconds)
         }
         records.delete()
+        removeSessionTask()
         last.value = ended
     }
 
-    private fun prepare(plan: Plan, target: LaunchTarget) {
+    /**
+     * The session process dies without finishing its activity, so its task
+     * stays in recents showing a session that is gone. Remove it.
+     */
+    private fun removeSessionTask() {
+        try {
+            context.getSystemService(ActivityManager::class.java)
+                ?.appTasks
+                ?.filter(SessionActivity::owns)
+                ?.forEach { it.finishAndRemoveTask() }
+        } catch (e: RuntimeException) {
+            AmphoraLog.w("cannot remove the session task", e)
+        }
+    }
+
+    /** Gets the prefix and the session's files ready. The first launch on a runtime builds the template here. */
+    private suspend fun prepare(plan: Plan, target: LaunchTarget) {
         val spec = plan.spec
-        val gameDir = (target as? LaunchTarget.Play)?.game?.directory
+        val game = (target as? LaunchTarget.Play)?.game
         val installed = runtime.current ?: throw IOException("运行时已被移除")
-        prefixes.prepare((target as? LaunchTarget.Play)?.game?.prefixId ?: Game.DEFAULT_PREFIX, installed, gameDir)
-        paths.home.mkdirs()
-        paths.tmp.mkdirs()
-        paths.sessions.mkdirs()
-        val log = SessionLog(File(spec.logFile))
-        log.start()
-        log.header(spec, plan.config, plan.warnings)
+        prefixes.prepare(game?.prefixId ?: Game.DEFAULT_PREFIX, installed, game?.directory) {
+            step(
+                when (it) {
+                    PrepareStep.Template -> LaunchStep.Template
+                    PrepareStep.Prefix -> LaunchStep.Prefix
+                },
+            )
+        }
+        withContext(io) {
+            paths.home.mkdirs()
+            paths.tmp.mkdirs()
+            paths.sessions.mkdirs()
+            val log = SessionLog(File(spec.logFile))
+            log.start()
+            log.header(spec, plan.config, plan.warnings)
+        }
+    }
+
+    private fun step(step: LaunchStep) {
+        launching.update { it?.copy(step = step) }
     }
 
     private fun start(spec: SessionSpec) {
-        val intent =
-            SessionActivity
-                .launchIntent(context, AmphoraJson.encodeToString(SessionSpec.serializer(), spec))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
+        context.startActivity(
+            SessionActivity.launchIntent(context, AmphoraJson.encodeToString(SessionSpec.serializer(), spec)),
+        )
     }
 
     private suspend fun awaitRecord(id: String) {

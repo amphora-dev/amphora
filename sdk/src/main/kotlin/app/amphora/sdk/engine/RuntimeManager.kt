@@ -215,7 +215,7 @@ public class RuntimeManager internal constructor(
     }
 
     private companion object {
-        /** Room for a prefix to be created right after install. */
+        /** Room for the prefix template to be built on the first launch: Wine copies its system files once. */
         const val HEADROOM = 768L shl 20
     }
 }

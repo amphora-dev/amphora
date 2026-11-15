@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Icon
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.amphora.LocalAppGraph
+import app.amphora.sdk.container.PrefixInfo
 import app.amphora.sdk.engine.Component
 import app.amphora.sdk.library.Game
 import app.amphora.sdk.session.LaunchTarget
@@ -111,9 +113,11 @@ private fun GameContent(
     val session by model.session.collectAsStateWithLifecycle()
     val ready by model.runtimeReady.collectAsStateWithLifecycle()
     val preview by model.preview.collectAsStateWithLifecycle()
+    val prefix by model.prefix.collectAsStateWithLifecycle()
     val copy = rememberCopier()
     var renaming by rememberSaveable { mutableStateOf(false) }
     var confirmRemove by rememberSaveable { mutableStateOf(false) }
+    var prefixDanger by rememberSaveable { mutableStateOf<PrefixDanger?>(null) }
 
     Screen(
         title = game.title,
@@ -132,6 +136,16 @@ private fun GameContent(
         }
 
         item(key = "file") { FilePanel(game, onRefresh = model::refresh) }
+
+        item(key = "prefix") {
+            PrefixPanel(
+                game = game,
+                info = prefix,
+                idle = session is SessionState.Idle,
+                onReset = { prefixDanger = PrefixDanger.Reset },
+                onDelete = { prefixDanger = PrefixDanger.Delete },
+            )
+        }
 
         item(key = "config") {
             when (val p = preview) {
@@ -168,7 +182,7 @@ private fun GameContent(
                     Column(Modifier.weight(1f)) {
                         Text("从游戏库移除", style = MaterialTheme.typography.titleSmall, color = Amphora.colors.text)
                         Text(
-                            "删除条目、游戏时间和它的设置。游戏文件和存档不动。",
+                            "删除条目、游戏时间、设置，还有它的前缀和 C:\\users 里的存档。游戏目录里的文件不动。",
                             style = MaterialTheme.typography.bodySmall,
                             color = Amphora.colors.textMuted,
                         )
@@ -196,14 +210,38 @@ private fun GameContent(
     if (confirmRemove) {
         ConfirmDialog(
             title = "移除「${game.title}」？",
-            message = "游戏时间和这个游戏的设置会删除；${game.directory.path} 里的文件不动，随时可以再加回来。",
+            message =
+            "游戏时间、设置、前缀和 C:\\users 里的存档会删除，不能恢复；${game.directory.path} 里的文件不动，随时可以再加回来。",
             confirmLabel = "移除",
             danger = true,
             onConfirm = onRemove,
             onDismiss = { confirmRemove = false },
         )
     }
+    when (prefixDanger) {
+        PrefixDanger.Reset ->
+            ConfirmDialog(
+                title = "重建前缀？",
+                message = "注册表和 C: 盘里装过、改过的东西回到初始状态；C:\\users 里的存档保留，游戏目录（D:）不受影响。下次启动时从模板重建，只要一两秒。",
+                confirmLabel = "重建",
+                danger = true,
+                onConfirm = model::resetPrefix,
+                onDismiss = { prefixDanger = null },
+            )
+        PrefixDanger.Delete ->
+            ConfirmDialog(
+                title = "删除前缀和存档？",
+                message = "前缀和 C:\\users（存档、游戏写在那里的配置）一起删除，不能恢复。游戏目录（D:）不受影响。",
+                confirmLabel = "删除",
+                danger = true,
+                onConfirm = model::deletePrefixData,
+                onDismiss = { prefixDanger = null },
+            )
+        null -> Unit
+    }
 }
+
+private enum class PrefixDanger { Reset, Delete }
 
 @Composable
 private fun Hero(
@@ -340,7 +378,75 @@ private fun FilePanel(game: Game, onRefresh: () -> Unit) {
         KeyValueRow("大小", Formats.bytes(game.exeSize))
         KeyValueRow("SHA-256", game.exeSha256)
         KeyValueRow("Steam AppID", game.detectedAppId?.toString() ?: "没找到 steam_appid.txt")
-        KeyValueRow("前缀", game.prefixId)
         KeyValueRow("加入于", date.format(Date(game.addedAt)), mono = false)
+    }
+}
+
+/**
+ * The game's prefix (13 §3.7): what it takes on disk, and the two ways to
+ * start over. Rebuilding keeps `C:\\users`; deleting takes it too.
+ */
+@Composable
+private fun PrefixPanel(game: Game, info: PrefixInfo?, idle: Boolean, onReset: () -> Unit, onDelete: () -> Unit) {
+    val colors = Amphora.colors
+    val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+    val shared = game.prefixId != game.id
+    Panel(Modifier.fillMaxWidth()) {
+        SectionHeader("前缀", tag = "Prefix") {
+            when {
+                info == null -> Unit
+                info.stale -> StatusPill("rebuild", Tone.Warn)
+                info.initialized -> StatusPill("ready", Tone.Ok)
+                else -> StatusPill("not created", Tone.Neutral)
+            }
+        }
+        if (info == null) {
+            ProgressTrack(null, ticks = false, height = 4.dp)
+            return@Panel
+        }
+        Text(
+            when {
+                info.stale -> "为另一个配方或运行时建的：下次启动时自动重建，C:\\users 里的存档保留。"
+                info.initialized -> "这个游戏的注册表和 C: 盘。系统文件是指向运行时的链接，只有改过的才占空间。"
+                else -> "第一次启动时从模板建立，只要一两秒。"
+            } + if (shared) " 和别的程序共用（${game.prefixId}）。" else "",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (info.stale) colors.warn else colors.textMuted,
+        )
+        Spacer(Modifier.height(12.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Readout("占用", Formats.bytes(info.bytes))
+            Readout("文件", info.files.toString())
+            Readout("链接", info.links.toString())
+            Readout("C:\\users", Formats.bytes(info.userdataBytes))
+        }
+        Spacer(Modifier.height(12.dp))
+        KeyValueRow("前缀", info.id)
+        KeyValueRow("目录", info.dir.path)
+        KeyValueRow("C:\\users", info.userdata.path)
+        info.record?.let { record ->
+            KeyValueRow("配方", record.recipe)
+            KeyValueRow("建于", date.format(Date(record.createdAt)), mono = false)
+        }
+        Spacer(Modifier.height(14.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AmphoraButton(
+                "重建前缀",
+                onReset,
+                kind = ButtonKind.Secondary,
+                icon = Icons.Outlined.RestartAlt,
+                enabled = idle && info.record != null,
+            )
+            AmphoraButton(
+                "删除前缀和存档",
+                onDelete,
+                kind = ButtonKind.Danger,
+                icon = Icons.Outlined.DeleteOutline,
+                enabled = idle && (info.record != null || info.userdataFiles > 0),
+            )
+        }
     }
 }

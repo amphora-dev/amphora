@@ -45,11 +45,23 @@ internal class RuntimeInstaller(private val runtimes: File) {
             val target = File(runtimes, artifact.name)
             deleteTree(target)
             if (!staging.renameTo(target)) throw IOException("cannot move runtime into place")
+            // After the move: a directory without write permission cannot be renamed everywhere.
+            seal(target)
             return InstalledRuntime(manifest, target)
         } catch (e: Throwable) {
             runCatching { deleteTree(staging) }
             throw e
         }
+    }
+
+    /**
+     * Prefixes link into the runtime (12 §3.3): files are already read-only,
+     * and without write permission on the directories nothing in it can be
+     * deleted, renamed or added either, should a write ever get past the
+     * wineserver's copy-on-write. [deleteTree] restores it to delete.
+     */
+    private fun seal(root: File) {
+        root.walkBottomUp().filter { it.isDirectory }.forEach { it.setWritable(false, false) }
     }
 
     /** Cheap check of an installed runtime: its manifest parses and matches. */

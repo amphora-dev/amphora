@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.amphora.sdk.session.EndedSession
+import app.amphora.sdk.session.LaunchStep
 import app.amphora.sdk.session.LiveSession
 import app.amphora.sdk.session.SessionPhase
 import app.amphora.shell.rememberNow
@@ -100,14 +101,14 @@ fun LiveSessionBanner(session: LiveSession, onResume: () -> Unit, onEnd: () -> U
 
 /** Between "launch" and the session process reporting in. */
 @Composable
-fun LaunchingBanner(title: String, modifier: Modifier = Modifier) {
+fun LaunchingBanner(title: String, step: LaunchStep, modifier: Modifier = Modifier) {
     val colors = Amphora.colors
     Panel(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusDot(Tone.Accent, pulse = true)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text("SESSION · 准备中", style = Amphora.type.overline, color = colors.accent)
+                Text("SESSION · ${step.label}", style = Amphora.type.overline, color = colors.accent)
                 Text(
                     title,
                     style = MaterialTheme.typography.titleMedium,
@@ -116,6 +117,14 @@ fun LaunchingBanner(title: String, modifier: Modifier = Modifier) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+        if (step.slow) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "这个运行时第一次启动：Wine 先建一份 Windows 环境，约半分钟。之后每个游戏的前缀都从它复制，不用再等。",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textMuted,
+            )
         }
         Spacer(Modifier.height(12.dp))
         ProgressTrack(null, ticks = false, height = 4.dp)

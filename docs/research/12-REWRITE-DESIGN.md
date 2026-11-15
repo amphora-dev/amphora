@@ -193,6 +193,12 @@ files/
 - 加上 wineserver 写时复制（`WINE_COW_STORE`）后，8 种操作全部成功，仓库文件内容、权限、xattr 都不变，前缀里的结果符合 Windows 语义（覆盖写保留尾部、删除和改名作用在前缀自己的副本上），只读访问的文件仍是链接。
 - 测出一个漏洞并已修：Wine 的 `SetFileAttributesW` 只带 `SYNCHRONIZE` 打开，服务端看不出要改文件，属性经链接改到了仓库文件的权限和 xattr；改成和 Windows 一样带 `FILE_WRITE_ATTRIBUTES`。另外也说明"0444 兜底"挡不住 chmod 和 xattr（同一个 uid 总能 chmod）。
 
+**落地（2026-11-15，`:sdk` 的 `PrefixStore`）**：思路不变（链接 + wineserver 写时复制 + 只读兜底 + `userdata/` 在前缀外），有两处和上面的方案不同：
+
+- **没有单独的 `store/`，链接直接指向已安装的 runtime 目录**，`WINE_COW_STORE` 设成 runtime 目录。实测一个完整前缀 897 个文件里有 864 个（684.8 MiB / 687 MiB）和 runtime 里的文件逐字节相同；Android 上没有硬链接和 reflink，另建内容寻址仓库就得把这约 690 MiB 再存一份。代价是"跨 Recipe 版本共享"没有了：换 runtime 时前缀本来就要重建（D11），所以没有损失。runtime 文件 0444、目录装好后改成只读。
+- **模板在设备上生成，不在 CI 里。** BuildStream 的沙箱是 x86_64，跑不了 aarch64 Bionic 的 wineboot。每个装好的 runtime 第一次启动时在 App 进程里跑一次无界面的 `wineboot --init`（Y700 上 7.3 秒），把和 runtime 文件相同的文件换成相对链接，存成 `templates/<recipe>/`（目录树 + `template.json`）；之后每个前缀都是这棵树的副本，不再跑 wineboot。前缀记下 runtime 的 `wine.inf` 时间戳（Wine 自己拿它和 `.update-timestamp` 比），和模板不一致就在下次启动时重建。
+- 实测一个前缀 866 个链接 + 34 个实体文件，`du` 2.9 MiB（这批链接在 f2fs 上不占数据块，比上面按 4.6 KiB 估的小），主要是 2.4 MiB 的 `system.reg`。`ntdll.dll` 没有单独留实体副本：它也是链接，要改时由写时复制处理。
+
 ### 3.4 Q4 图形与兼容设置清单
 
 见 [`13-SETTINGS-CATALOG.md`](13-SETTINGS-CATALOG.md)。
@@ -228,9 +234,9 @@ files/
 
 ## 5. 下一步（按顺序）
 
-1. **里程碑 1 收尾**（进度见 [`../TRACKING.md`](../TRACKING.md)；出画和写时复制已通过）：桌面尺寸已解决、DPI 设置已生效（2026-11-12；非 100% 时任务栏不跟着变，见 TRACKING）；剩下薄前缀的模板和仓库。Wine 分支已推到 `amphora-dev/proton-wine`，构建已在 amphora-engine 的 CI 上（2026-11-08）。
+1. **里程碑 1 已完成**（进度见 [`../TRACKING.md`](../TRACKING.md)）：出画、写时复制、桌面尺寸、DPI 设置（非 100% 时任务栏不跟着变，见 TRACKING）、薄前缀（2026-11-15，落地时的两处改动见 §3.3 末尾）。Wine 分支已推到 `amphora-dev/proton-wine`，构建已在 amphora-engine 的 CI 上（2026-11-08）。
 2. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。数据模型和四层解析已在 `:sdk`（`SettingsCatalog`，2026-11-12）；App 也已提前改成只用 SDK 公开 API 的壳（§2.3 第 4 步的 App 部分），SDK 接口还没定型。
-3. 之后按 §2.3 的顺序继续（M2：FEX）。
+3. 接下来按 §2.3 的顺序做 M2：FEX。
 
 ## 6. 注意事项
 

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.amphora.AppGraph
 import app.amphora.Message
 import app.amphora.sdk.container.PrefixInfo
+import app.amphora.sdk.container.TemplateInfo
 import app.amphora.sdk.engine.DeviceInfo
 import app.amphora.sdk.engine.RuntimeState
 import app.amphora.sdk.engine.VerifyResult
@@ -28,9 +29,16 @@ sealed interface Load<out T> {
     data class Failed(val message: String) : Load<Nothing>
 }
 
+/** The template, and every prefix made from it. */
+data class PrefixOverview(val template: TemplateInfo?, val prefixes: List<PrefixInfo>) {
+    val bytes: Long get() = prefixes.sumOf { it.bytes }
+    val userdataBytes: Long get() = prefixes.sumOf { it.userdataBytes }
+    val default: PrefixInfo? get() = prefixes.firstOrNull { it.id == Game.DEFAULT_PREFIX }
+}
+
 data class SystemUi(
     val device: Load<DeviceInfo> = Load.Loading,
-    val prefix: Load<PrefixInfo> = Load.Loading,
+    val prefixes: Load<PrefixOverview> = Load.Loading,
     val logs: Load<List<LogFile>> = Load.Loading,
     val verify: Load<VerifyResult>? = null,
     val storageAccess: Boolean = false,
@@ -44,6 +52,7 @@ class SystemViewModel(private val graph: AppGraph) : ViewModel() {
     val ui: StateFlow<SystemUi> = _ui.asStateFlow()
 
     val runtime: StateFlow<RuntimeState> = sdk.runtime.state
+    val games: StateFlow<List<Game>?> = sdk.library.games
     val session: StateFlow<SessionState> = sdk.sessions.state
     val recipe = sdk.recipe
     val dataDir = sdk.dataDir
@@ -58,7 +67,7 @@ class SystemViewModel(private val graph: AppGraph) : ViewModel() {
     fun refresh() {
         sdk.runtime.refresh()
         _ui.update { it.copy(storageAccess = Environment.isExternalStorageManager()) }
-        viewModelScope.launch { _ui.update { it.copy(prefix = load { sdk.prefixes.info(Game.DEFAULT_PREFIX) }) } }
+        viewModelScope.launch { _ui.update { it.copy(prefixes = loadPrefixes()) } }
         viewModelScope.launch { _ui.update { it.copy(logs = load { sdk.logs.list() }) } }
     }
 
@@ -80,10 +89,13 @@ class SystemViewModel(private val graph: AppGraph) : ViewModel() {
         _ui.update { it.copy(verify = null) }
     }
 
-    fun resetPrefix() = busy("前缀已删除，下次启动会重建") {
+    fun resetPrefix() = busy("前缀已删除，下次启动时重建") {
         sdk.prefixes.reset(Game.DEFAULT_PREFIX)
-        _ui.update { it.copy(prefix = load { sdk.prefixes.info(Game.DEFAULT_PREFIX) }) }
+        _ui.update { it.copy(prefixes = loadPrefixes()) }
     }
+
+    private suspend fun loadPrefixes(): Load<PrefixOverview> =
+        load { PrefixOverview(sdk.prefixes.template(), sdk.prefixes.list()) }
 
     fun clearLogs() = busy("日志已清空") {
         sdk.logs.clear()

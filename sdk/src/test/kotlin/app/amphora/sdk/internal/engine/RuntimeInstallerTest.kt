@@ -6,6 +6,7 @@ import app.amphora.sdk.engine.WineInfo
 import app.amphora.sdk.internal.AmphoraJson
 import app.amphora.sdk.internal.engine.TarWriter.Companion.MODE_EXEC
 import app.amphora.sdk.internal.engine.TarWriter.Companion.MODE_FILE
+import app.amphora.sdk.internal.io.deleteTree
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -69,6 +70,22 @@ class RuntimeInstallerTest {
             assertTrue(path, permissions.none { it in write })
             assertEquals(path, path in EXECUTABLES, PosixFilePermission.OWNER_EXECUTE in permissions)
         }
+    }
+
+    @Test
+    fun `installed directories are read-only, and the tree can still be replaced and deleted`() = runTest {
+        installer.install(archive(), artifact()) {}
+        val dir = File(runtimes, NAME)
+        val directories = dir.walkTopDown().filter { it.isDirectory }.toList()
+        assertTrue(directories.size > 3)
+        for (directory in directories) assertFalse(directory.path, directory.canWrite())
+        assertFalse("nothing can be added", runCatching { File(dir, "lib/new.so").createNewFile() }.getOrDefault(false))
+        assertFalse("nothing can be removed", File(dir, "bin/wineserver").delete())
+
+        installer.install(archive(), artifact()) {}
+        assertEquals("server", File(dir, "bin/wineserver").readText())
+        deleteTree(dir)
+        assertFalse(dir.exists())
     }
 
     @Test
@@ -208,6 +225,8 @@ class RuntimeInstallerTest {
         installer.install(archive(), artifact()) {}
         val dir = File(runtimes, NAME)
 
+        // Directories are sealed; a damaged install is one where something got through anyway.
+        assertTrue(File(dir, "bin").setWritable(true))
         assertTrue(File(dir, "bin/wineserver").delete())
         assertNull(installer.installed(artifact()))
     }

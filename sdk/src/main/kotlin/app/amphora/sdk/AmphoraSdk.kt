@@ -17,6 +17,7 @@ import app.amphora.sdk.internal.engine.RuntimeInstaller
 import app.amphora.sdk.internal.io.emptyTrash
 import app.amphora.sdk.internal.session.ScreenSize
 import app.amphora.sdk.internal.session.SessionPlanner
+import app.amphora.sdk.library.Game
 import app.amphora.sdk.library.GameLibrary
 import app.amphora.sdk.logs.LogStore
 import app.amphora.sdk.session.SessionController
@@ -50,9 +51,14 @@ public class AmphoraSdk private constructor(context: Context) {
 
     public val settings: SettingsRepository = SettingsRepository(SettingsStore(paths, io), recipe)
 
-    public val library: GameLibrary = GameLibrary(paths, io, scope) { game -> settings.forget(game.id) }
-
     public val prefixes: PrefixStore = PrefixStore(paths, recipe, io)
+
+    public val library: GameLibrary =
+        GameLibrary(paths, io, scope) { game, remaining ->
+            settings.forget(game.id)
+            val shared = game.prefixId == Game.DEFAULT_PREFIX || remaining.any { it.prefixId == game.prefixId }
+            if (!shared) prefixes.delete(game.prefixId)
+        }
 
     public val logs: LogStore = LogStore(app, paths, io)
 

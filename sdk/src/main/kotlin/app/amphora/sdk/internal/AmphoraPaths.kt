@@ -9,7 +9,9 @@ import java.io.File
  * ```
  * files/amphora/
  * ├── runtimes/<name>/            installed runtime (read-only once installed)
- * ├── prefixes/<id>/              Wine prefixes
+ * ├── templates/<recipe>/         the prefix every prefix is made from, built once per runtime
+ * ├── prefixes/<id>/              Wine prefixes: links into the runtime, own registry
+ * ├── userdata/<prefix-id>/       C:\users of a prefix, kept when the prefix is rebuilt
  * ├── settings/global.json        user's global settings
  * ├── settings/games/<id>.json    user's per-game settings
  * ├── library.json                games the user added
@@ -36,7 +38,9 @@ internal class AmphoraPaths(
 
     val root: File = File(files, "amphora")
     val runtimes: File = File(root, "runtimes")
+    val templates: File = File(root, "templates")
     val prefixes: File = File(root, "prefixes")
+    val userdata: File = File(root, "userdata")
     val settings: File = File(root, "settings")
     val globalSettings: File = File(settings, "global.json")
     val gameSettings: File = File(settings, "games")
@@ -53,7 +57,11 @@ internal class AmphoraPaths(
 
     fun runtime(name: String): File = File(runtimes, name)
 
+    fun template(recipeId: String): File = File(templates, recipeId)
+
     fun prefix(id: String): File = File(prefixes, id)
+
+    fun userdata(prefixId: String): File = File(userdata, prefixId)
 
     fun gameSettings(gameId: String): File = File(gameSettings, "$gameId.json")
 

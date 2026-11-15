@@ -30,12 +30,14 @@ import app.amphora.BuildConfig
 import app.amphora.LocalAppGraph
 import app.amphora.runtime.RuntimePanel
 import app.amphora.sdk.container.PrefixInfo
+import app.amphora.sdk.container.TemplateInfo
 import app.amphora.sdk.engine.Component
 import app.amphora.sdk.engine.DeviceInfo
 import app.amphora.sdk.engine.InstalledRuntime
 import app.amphora.sdk.engine.RuntimeState
 import app.amphora.sdk.engine.Support
 import app.amphora.sdk.engine.VerifyResult
+import app.amphora.sdk.library.Game
 import app.amphora.sdk.logs.LogFile
 import app.amphora.sdk.session.SessionState
 import app.amphora.shell.ConfirmDialog
@@ -43,7 +45,9 @@ import app.amphora.shell.Screen
 import app.amphora.ui.components.AmphoraButton
 import app.amphora.ui.components.ButtonKind
 import app.amphora.ui.components.ButtonSize
+import app.amphora.ui.components.Hairline
 import app.amphora.ui.components.KeyValueRow
+import app.amphora.ui.components.ListRow
 import app.amphora.ui.components.Panel
 import app.amphora.ui.components.ProgressTrack
 import app.amphora.ui.components.Readout
@@ -64,6 +68,7 @@ fun SystemScreen(onOpenLogs: () -> Unit) {
     val ui by model.ui.collectAsStateWithLifecycle()
     val runtime by model.runtime.collectAsStateWithLifecycle()
     val session by model.session.collectAsStateWithLifecycle()
+    val games by model.games.collectAsStateWithLifecycle()
     var confirm by rememberSaveable { mutableStateOf<Danger?>(null) }
     LifecycleResumeEffect(model) {
         model.refresh()
@@ -88,7 +93,9 @@ fun SystemScreen(onOpenLogs: () -> Unit) {
                 else -> RuntimePanel(state, model.sideloadDir, model::install, model::cancelInstall)
             }
         }
-        val prefixPanel: @Composable () -> Unit = { PrefixPanel(ui.prefix, idle) { confirm = Danger.ResetPrefix } }
+        val prefixPanel: @Composable () -> Unit = {
+            PrefixPanel(ui.prefixes, games.orEmpty(), idle) { confirm = Danger.ResetPrefix }
+        }
         val logsPanel: @Composable () -> Unit = { LogsPanel(ui.logs, onOpenLogs) { confirm = Danger.ClearLogs } }
         val devicePanel: @Composable () -> Unit = { DevicePanel(ui.device) }
         val storagePanel: @Composable () -> Unit = { StoragePanel(ui.storageAccess) }
@@ -123,7 +130,9 @@ fun SystemScreen(onOpenLogs: () -> Unit) {
         Danger.Uninstall ->
             ConfirmDialog(
                 title = "卸载运行时？",
-                message = "删除已安装的 Wine 运行时和下载缓存（约 ${Formats.bytes(model.recipe.runtime.bytes)}）。前缀、游戏和设置都保留；再次使用要重新安装。",
+                message = "删除已安装的 Wine 运行时和下载缓存（约 ${Formats.bytes(
+                    model.recipe.runtime.bytes,
+                )}）。游戏、设置和存档都保留；前缀链接着运行时，重新安装后第一次启动时重建。",
                 confirmLabel = "卸载",
                 danger = true,
                 onConfirm = model::uninstall,
@@ -131,9 +140,9 @@ fun SystemScreen(onOpenLogs: () -> Unit) {
             )
         Danger.ResetPrefix ->
             ConfirmDialog(
-                title = "重建前缀？",
-                message = "删除默认前缀：注册表、drive_c 里的安装内容和游戏存在 C: 里的存档都会消失。游戏目录（D:）不受影响。下次启动会重新初始化。",
-                confirmLabel = "删除前缀",
+                title = "重建内置程序的前缀？",
+                message = "注册表和 C: 盘里装过、改过的东西回到初始状态；C:\\users 里的文件保留。下次启动时从模板重建，只要一两秒。",
+                confirmLabel = "重建",
                 danger = true,
                 onConfirm = model::resetPrefix,
                 onDismiss = { confirm = null },
@@ -293,69 +302,107 @@ private fun DevicePanel(device: Load<DeviceInfo>) {
 }
 
 @Composable
-private fun PrefixPanel(prefix: Load<PrefixInfo>, idle: Boolean, onReset: () -> Unit) {
+private fun PrefixPanel(prefixes: Load<PrefixOverview>, games: List<Game>, idle: Boolean, onReset: () -> Unit) {
     val colors = Amphora.colors
     Panel(Modifier.fillMaxWidth()) {
-        when (prefix) {
+        when (prefixes) {
             Load.Loading -> {
-                SectionHeader("前缀", tag = "Prefix")
+                SectionHeader("前缀", tag = "Prefixes")
                 ProgressTrack(null, ticks = false, height = 4.dp)
             }
             is Load.Failed -> {
-                SectionHeader("前缀", tag = "Prefix")
-                Text(prefix.message, style = MaterialTheme.typography.bodyMedium, color = colors.danger)
+                SectionHeader("前缀", tag = "Prefixes")
+                Text(prefixes.message, style = MaterialTheme.typography.bodyMedium, color = colors.danger)
             }
             is Load.Done -> {
-                val info = prefix.value
-                SectionHeader("前缀 ${info.id}", tag = "Prefix") {
-                    when {
-                        info.stale -> StatusPill("stale", Tone.Warn)
-                        info.initialized -> StatusPill("ready", Tone.Ok)
-                        else -> StatusPill("empty", Tone.Neutral)
+                val overview = prefixes.value
+                val template = overview.template
+                SectionHeader("前缀", tag = "Prefixes") {
+                    if (template !=
+                        null
+                    ) {
+                        StatusPill("template ready", Tone.Ok)
+                    } else {
+                        StatusPill("no template", Tone.Neutral)
                     }
                 }
                 Text(
-                    when {
-                        info.stale -> "前缀是旧配方（${info.record?.recipe}）建的。配方之间不做迁移，建议重建。"
-                        info.initialized -> "Windows 的 C: 盘和注册表。所有游戏现在共用这一个。"
-                        else -> "还没初始化：第一次启动任何程序时 Wine 会建好它，要多花几十秒。"
-                    },
+                    "每个游戏一个前缀：自己的注册表和 C: 盘。系统文件是指向运行时的链接，只有改过的才占空间。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (info.stale) colors.warn else colors.textMuted,
+                    color = colors.textMuted,
                 )
                 Spacer(Modifier.height(12.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(28.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Readout("大小", Formats.bytes(info.bytes))
-                    Readout("文件", info.files.toString())
-                    Readout("链接", info.links.toString())
+                    Readout("前缀", overview.prefixes.count { it.initialized }.toString())
+                    Readout("占用", Formats.bytes(overview.bytes))
+                    Readout("C:\\users", Formats.bytes(overview.userdataBytes))
                 }
                 Spacer(Modifier.height(12.dp))
-                KeyValueRow("目录", info.dir.path)
-                info.record?.let { record ->
-                    KeyValueRow(
-                        "创建于",
-                        DateFormat.getDateTimeInstance(
-                            DateFormat.MEDIUM,
-                            DateFormat.SHORT,
-                        ).format(Date(record.createdAt)),
-                        mono = false,
-                    )
-                    KeyValueRow("配方", record.recipe)
+                TemplateRows(template)
+                if (overview.prefixes.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Hairline()
+                    overview.prefixes.forEach { info -> PrefixRow(info, games) }
                 }
                 Spacer(Modifier.height(14.dp))
                 AmphoraButton(
-                    "重建前缀",
+                    "重建内置程序的前缀",
                     onReset,
-                    kind = ButtonKind.Danger,
+                    kind = ButtonKind.Secondary,
                     icon = Icons.Outlined.RestartAlt,
-                    enabled = idle && info.record != null,
+                    enabled = idle && overview.default?.record != null,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun TemplateRows(template: TemplateInfo?) {
+    if (template == null) {
+        KeyValueRow("模板", "第一次启动时由 Wine 生成，约半分钟", mono = false)
+        return
+    }
+    KeyValueRow("模板", "${template.links} 链接 · ${template.files} 文件 · ${Formats.bytes(template.bytes)}")
+    KeyValueRow(
+        "生成于",
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(template.builtAt)) +
+            " · 用时 ${template.buildMillis / 1000} 秒",
+        mono = false,
+    )
+}
+
+/** One prefix: whose it is, what it takes, and whether the next launch rebuilds it. */
+@Composable
+private fun PrefixRow(info: PrefixInfo, games: List<Game>) {
+    val owners = games.filter { it.prefixId == info.id }.map { it.title }
+    val title =
+        when {
+            info.id == Game.DEFAULT_PREFIX && owners.isEmpty() -> "内置程序"
+            info.id == Game.DEFAULT_PREFIX -> "内置程序、" + owners.joinToString("、")
+            owners.isEmpty() -> "不在游戏库里"
+            else -> owners.joinToString("、")
+        }
+    val detail =
+        buildString {
+            append(info.id)
+            if (info.initialized) append(" · ${Formats.bytes(info.bytes)} · ${info.files} 文件 · ${info.links} 链接")
+            if (info.userdataFiles > 0) append(" · users ${Formats.bytes(info.userdataBytes)}")
+        }
+    ListRow(
+        title,
+        detail = detail,
+        detailMono = true,
+        trailing = {
+            when {
+                info.stale -> StatusPill("rebuild", Tone.Warn)
+                !info.initialized -> StatusPill("not built", Tone.Neutral)
+            }
+        },
+    )
 }
 
 @Composable

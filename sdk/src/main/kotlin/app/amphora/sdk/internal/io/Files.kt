@@ -3,6 +3,7 @@ package app.amphora.sdk.internal.io
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -37,8 +38,14 @@ internal fun File.readTextOrNull(): String? = try {
     null
 }
 
-/** Size and entry count of a tree, without following symbolic links. */
-internal data class TreeSize(val bytes: Long, val files: Int, val links: Int)
+/** Size and entry count of a tree, without following symbolic links. [bytes] counts regular files only. */
+internal data class TreeSize(val bytes: Long, val files: Int, val links: Int) {
+    operator fun plus(other: TreeSize): TreeSize = TreeSize(
+        bytes + other.bytes,
+        files + other.files,
+        links + other.links,
+    )
+}
 
 internal fun measureTree(root: File): TreeSize {
     val path = root.toPath()
@@ -118,3 +125,52 @@ internal fun moveToTrashAndDelete(dir: File, trash: File) {
 internal fun emptyTrash(trash: File) {
     trash.listFiles()?.forEach { runCatching { deleteTree(it) } }
 }
+
+/** True when both files hold the same bytes. */
+internal fun sameContent(a: File, b: File): Boolean {
+    if (a.length() != b.length()) return false
+    val left = ByteArray(COPY_BUFFER)
+    val right = ByteArray(COPY_BUFFER)
+    a.inputStream().use { x ->
+        b.inputStream().use { y ->
+            while (true) {
+                val n = x.readFully(left)
+                if (n != y.readFully(right)) return false
+                if (n == 0) return true
+                for (i in 0 until n) if (left[i] != right[i]) return false
+            }
+        }
+    }
+}
+
+/** Fills [buffer] unless the stream ends first; returns how many bytes were read. */
+private fun InputStream.readFully(buffer: ByteArray): Int {
+    var filled = 0
+    while (filled < buffer.size) {
+        val n = read(buffer, filled, buffer.size - filled)
+        if (n < 0) break
+        filled += n
+    }
+    return filled
+}
+
+/**
+ * Makes [link] a symbolic link to [target], written relative to the link's
+ * directory when [relative]: such a link keeps working if the app's data
+ * directory is reached through another path (`/data/user/0` and `/data/data`).
+ * Replaces whatever non-directory is at [link].
+ */
+internal fun linkTo(link: File, target: File, relative: Boolean = true) {
+    val path = link.absoluteFile.toPath()
+    val to = target.absoluteFile.toPath().normalize()
+    Files.deleteIfExists(path)
+    Files.createSymbolicLink(path, if (relative) path.parent.relativize(to) else to)
+}
+
+/** Where [link] points, resolved against its own directory; not followed further. */
+internal fun linkTarget(link: Path): Path {
+    val target = Files.readSymbolicLink(link)
+    return if (target.isAbsolute) target else link.parent.resolve(target).normalize()
+}
+
+private const val COPY_BUFFER = 256 * 1024
