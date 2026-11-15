@@ -14,6 +14,8 @@ public data class RuntimeManifest(
     val abi: String,
     val minSdk: Int,
     val wine: WineInfo,
+    /** The x86 translator next to Wine's modules; null in runtimes without one. */
+    val fex: FexInfo? = null,
     /** Paths relative to the runtime root. */
     val loader: String,
     val server: String,
@@ -30,3 +32,16 @@ public data class RuntimeManifest(
 
 @Serializable
 public data class WineInfo(val version: String, val commit: String, val upstreamTag: String, val archs: List<String>)
+
+/**
+ * FEX as amphora-engine built it: `libarm64ecfex.dll` (x86_64) and
+ * `libwow64fex.dll` (32-bit x86) in `lib/wine/aarch64-windows`, their unix
+ * libraries, and FEX's defaults in [CONFIG_DIR].
+ */
+@Serializable
+public data class FexInfo(val version: String, val commit: String) {
+    public companion object {
+        /** Holds `Config.json`, relative to the runtime root. */
+        public const val CONFIG_DIR: String = "share/fex-emu"
+    }
+}

@@ -2,6 +2,7 @@ package app.amphora.sdk.internal.session
 
 import app.amphora.sdk.container.PrefixStore
 import app.amphora.sdk.engine.Component
+import app.amphora.sdk.engine.FexInfo
 import app.amphora.sdk.engine.InstalledRuntime
 import app.amphora.sdk.engine.Recipe
 import app.amphora.sdk.engine.RuntimeArtifact
@@ -106,6 +107,20 @@ class SessionPlannerTest {
         assertEquals(listOf("HOME", "WINEPREFIX"), plan.config.rejectedEnv.map { it.name })
         assertTrue(plan.config.env.take(6).all { it.origin == ConfigEntry.ENGINE })
         assertEquals("the spec carries exactly the effective environment", plan.config.envMap(), env)
+        assertNull("no FEX in this runtime", env["FEX_APP_CONFIG_LOCATION"])
+    }
+
+    @Test
+    fun `a runtime with FEX points FEX at its defaults through drive Z`() = runTest {
+        val lib = paths.runtime(RUNTIME)
+        val withFex = InstalledRuntime(manifest().copy(fex = FexInfo("FEX-2610", "1c4f04b")), lib)
+        settings.setGame(game(), SettingsCatalog.ENV, "FEX_APP_CONFIG_LOCATION=/sdcard/fex/")
+
+        val plan = planner(recipe(Component.Wine, Component.Fex)).plan(LaunchTarget.Play(game()), withFex, NOW)
+
+        val want = "Z:" + File(lib, "share/fex-emu").path.replace('/', '\\') + "\\"
+        assertEquals(want, plan.spec.env["FEX_APP_CONFIG_LOCATION"])
+        assertEquals(listOf("FEX_APP_CONFIG_LOCATION"), plan.config.rejectedEnv.map { it.name })
     }
 
     @Test

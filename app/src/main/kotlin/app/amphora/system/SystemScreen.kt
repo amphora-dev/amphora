@@ -189,6 +189,7 @@ private fun RuntimeReady(
         KeyValueRow("提交", Formats.shortHash(manifest.wine.commit))
         KeyValueRow("上游", manifest.wine.upstreamTag)
         KeyValueRow("架构", manifest.wine.archs.joinToString(" "))
+        manifest.fex?.let { KeyValueRow("FEX", "${it.version} · ${Formats.shortHash(it.commit)}") }
         KeyValueRow("ABI", "${manifest.abi} · API ${manifest.minSdk}+")
         KeyValueRow("配方", recipeId)
         Spacer(Modifier.height(10.dp))

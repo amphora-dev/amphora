@@ -38,9 +38,25 @@ WinNative 那个 Android/Arm64EC 大提交（`986479030a`）没有整体带入�
 - 只链了 FreeType：gnutls（`bcrypt` 报 no encryption support）、PulseAudio、Vulkan 等按里程碑加。
 - 构建在 [`amphora-engine`](https://github.com/amphora-dev/amphora-engine)（BuildStream；CI 构建 `runtime.bst`，main 上发 Release）。Wine 分支已推到 `amphora-dev/proton-wine`（2026-11-08）。
 - runtime 归档下载 153 MiB，解包 845 MiB、1702 个文件（PE 只部分 strip），还没瘦身。
-- 薄前缀没做的部分：`syswow64` 还没有内容（等 FEX）；游戏自己装进前缀的相同文件不去重；重建前缀会丢游戏写进注册表的东西（12 §3.3"Recipe 升级"）。
+- 薄前缀没做的部分：游戏自己装进前缀的相同文件不去重；重建前缀会丢游戏写进注册表的东西（12 §3.3"Recipe 升级"）。
 - 模拟器（API 35 arm64）上会话到了 `desktop 1280x720` 但画面是黑的，没查；真机正常。
+
+## 里程碑 2：FEX（进行中，2026-11-15）
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| 构建 | amphora-engine `fex/fex.bst`：FEX `1c4f04b`（FEX-2610-101，Proton tag 里的子模块）照 Proton 的 CMake 参数构建 `libarm64ecfex.dll`、`libwow64fex.dll` 和两个 unix 库；unix 库在 Bionic 上打一个补丁（没有 librt、没有 `shm_open`，后者只给 FEXTop 统计用）。runtime 改名 `amphora-wine-11.0-280718371b09-fex-1c4f04b`，带 Proton 的 `share/fex-emu/Config.json`，manifest 多一个 `fex` 段 | 本地 BuildStream 构建通过（FEX 2 分 44 秒） |
+| 64 位 x86（ARM64EC） | 通过：`tools/fextest` 的 hello64 经 App 作为游戏启动（自己的前缀，D: 是游戏目录），CPUID、SSE 双精度、4 线程原子加、VEH 异常恢复都对，消息框正常绘制 | Y700 截图 |
+| 32 位 x86（WoW64） | 通过：同一套检查，进程 i386 / 原生 arm64，消息框由翻译后的 i386 user32 绘制。模板首次生成时 wineboot 跑 32 位 rundll32 填好 `syswow64`（795 个文件）：模板 1699 个链接 + 46 个实体文件 3.9 MiB，生成 10.9 秒；每个前缀 `du` 约 4.5 MiB | Y700 截图 |
+| FEX 配置 | SDK 设 `FEX_APP_CONFIG_LOCATION` 为 runtime 的 `share/fex-emu`（`Z:` 形式：游戏的当前盘是 D:，裸 unix 路径会解析到 D: 上）；TSO、Multiblock、FEX 日志、代码缓存几项设置走 `FEX_*` 环境变量 | 单元测试；FEX 是否真读到了这个文件还没在设备上确认 |
+| 磁盘缓存 | 没做（§2.3 第 2 步第三项） | |
+
+**已知问题**：
+
+- 本地 VM（OrbStack `bst-amd64`）这次重建的 `wine/wine.bst` 里有 481 个 i386 PE 文件整份是 0（大小正常，内容全零；ccache 全部命中）。CI 发布的 `amphora-wine-11.0-280718371b09`（sha256 `ebfe7803…`）里同样的文件是好的。所以设备上测的 runtime 是 CI 的 Wine 文件 + 本地构建的 FEX 文件拼出来的（sha256 `b13accec…`，`recipe.json` 暂时钉的是它）；正式的 runtime 要等 amphora-engine 的改动推上去、由 CI 构建发布后重新钉。原因还没查。
+- FEX 版本：社区（GameNative、Winlator-Ludashi）已经用 FEX-2611 / 2611.1；`1c4f04b` 之后有 Windows 下相关的修复（进程退出卡死 `71444c9`、Wine 下缓存指令判断 `7d0cf9b`、Steam Frame 上 CPUID 崩溃 `b9fc587`）。打算升到 2611.1 再挑这两个提交。
+- Android 内核没有 `PR_SET_MEM_MODEL`（硬件 TSO）和 `PR_ARM64_SET_UNALIGN_ATOMIC`，FEX 回退到软件 TSO，TSO 开关是实打实的性能开关。
 
 ## 设备上的测试状态
 
-- Y700 `HA262AAH`：装的是本仓库的 `app.amphora`（debug 包），runtime `amphora-wine-11.0-280718371b09`，一个薄的 `default` 前缀（配方 `2026.11-m1.1`），游戏库是空的。M1 宿主 `app.amphora.next` 已不在设备上，`tools/` 里依赖它的两个工具要重新跑得先装回提交 `4efaf0f` 的宿主。
+- Y700 `HA262AAH`：装的是本仓库的 `app.amphora`（debug 包），runtime `amphora-wine-11.0-280718371b09-fex-1c4f04b`（拼出来的测试包，见 M2 已知问题），配方 `2026.11-m2`；游戏库里有 `hello64`、`hello32` 两个测试程序（`/sdcard/Download/amphora-test/x86/`）。M1 宿主 `app.amphora.next` 已不在设备上，`tools/` 里依赖它的两个工具要重新跑得先装回提交 `4efaf0f` 的宿主。
