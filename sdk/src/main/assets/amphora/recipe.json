@@ -2,12 +2,12 @@
   "format": 1,
   "id": "2026.11-m2",
   "runtime": {
-    "name": "amphora-wine-11.0-280718371b09-fex-1c4f04b",
-    "url": "https://github.com/amphora-dev/amphora-engine/releases/download/amphora-wine-11.0-280718371b09-fex-1c4f04b/amphora-wine-11.0-280718371b09-fex-1c4f04b.tar.gz",
-    "sha256": "b13accecbe87aefcf6bce57374aa240c3e9ab7d846dec799a8dacb843626f66c",
-    "size": 162754348,
+    "name": "amphora-wine-11.0-280718371b09-fex-4f9c1f1",
+    "url": "https://github.com/amphora-dev/amphora-engine/releases/download/amphora-wine-11.0-280718371b09-fex-4f9c1f1/amphora-wine-11.0-280718371b09-fex-4f9c1f1.tar.gz",
+    "sha256": "2446a3149e15de03ab18f233dfa1dda22fcc805a823cb99936c171c953959d26",
+    "size": 162746556,
     "files": 1707,
-    "bytes": 896086999
+    "bytes": 896058567
   },
   "components": ["wine", "fex"],
   "fixes": []

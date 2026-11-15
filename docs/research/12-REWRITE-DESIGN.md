@@ -236,7 +236,7 @@ files/
 
 1. **里程碑 1 已完成**（进度见 [`../TRACKING.md`](../TRACKING.md)）：出画、写时复制、桌面尺寸、DPI 设置（非 100% 时任务栏不跟着变，见 TRACKING）、薄前缀（2026-11-15，落地时的两处改动见 §3.3 末尾）。Wine 分支已推到 `amphora-dev/proton-wine`，构建已在 amphora-engine 的 CI 上（2026-11-08）。
 2. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。数据模型和四层解析已在 `:sdk`（`SettingsCatalog`，2026-11-12）；App 也已提前改成只用 SDK 公开 API 的壳（§2.3 第 4 步的 App 部分），SDK 接口还没定型。
-3. **M2：FEX**（进度见 TRACKING）：64 位和 32 位 x86 已在 Y700 上跑通（2026-11-15）；接下来升到 FEX-2611.1，由 CI 构建正式 runtime，再打开 FEX 磁盘缓存（缓存目录按 FEX 版本区分，换版本就清空）。
+3. **M2：FEX**（进度见 TRACKING）：64 位和 32 位 x86 已在 Y700 上跑通（2026-11-15）；FEX 升到 2611.1，正式 runtime 由 CI 发布（`…-fex-4f9c1f1`）。接下来打开 FEX 磁盘缓存（缓存目录按 FEX 版本区分，换版本就清空）。
 
 ## 6. 注意事项
 
