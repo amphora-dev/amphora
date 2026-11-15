@@ -41,15 +41,15 @@ WinNative 那个 Android/Arm64EC 大提交（`986479030a`）没有整体带入�
 - 薄前缀没做的部分：游戏自己装进前缀的相同文件不去重；重建前缀会丢游戏写进注册表的东西（12 §3.3"Recipe 升级"）。
 - 模拟器（API 35 arm64）上会话到了 `desktop 1280x720` 但画面是黑的，没查；真机正常。
 
-## 里程碑 2：FEX（进行中，2026-11-15）
+## 里程碑 2：FEX（完成，2026-11-15）
 
 | 项 | 状态 | 证据 |
 |---|---|---|
 | 构建 | amphora-engine `fex/fex.bst`：FEX-2611.1（`4f9c1f1`）+ 上游 main 的 `71444c9`（进程退出时卡死）。Proton tag 里钉的是 `1c4f04b`（FEX-2610-101），2611.1 在它之上多了几处 Windows 修复，GameNative、Winlator-Ludashi 用的也是 2611。照 Proton 的 CMake 参数构建 `libarm64ecfex.dll`、`libwow64fex.dll` 和两个 unix 库；unix 库在 Bionic 上打一个补丁（没有 librt、没有 `shm_open`，后者只给 FEXTop 统计用）。runtime 改名 `amphora-wine-11.0-280718371b09-fex-4f9c1f1`，带 Proton 的 `share/fex-emu/Config.json`，manifest 多一个 `fex` 段 | CI 发布（amphora-engine PR #1，`ead6815`），sha256 `2446a314…`，下载 155 MiB、解包 855 MiB、1707 个文件；PR 和 main 两次构建的归档逐字节相同 |
-| 64 位 x86（ARM64EC） | 通过（FEX `1c4f04b`；2611.1 还没上设备）：`tools/fextest` 的 hello64 经 App 作为游戏启动（自己的前缀，D: 是游戏目录），CPUID、SSE 双精度、4 线程原子加、VEH 异常恢复都对，消息框正常绘制 | Y700 截图 |
+| 64 位 x86（ARM64EC） | 通过（FEX-2611.1，App 从 CI Release 下载安装的 runtime；之前 `1c4f04b` 也通过）：`tools/fextest` 的 hello64 经 App 作为游戏启动（自己的前缀，D: 是游戏目录），CPUID、SSE 双精度、4 线程原子加、VEH 异常恢复都对，消息框正常绘制 | Y700 截图 |
 | 32 位 x86（WoW64） | 通过（同上）：同一套检查，进程 i386 / 原生 arm64，消息框由翻译后的 i386 user32 绘制。模板首次生成时 wineboot 跑 32 位 rundll32 填好 `syswow64`（795 个文件）：模板 1699 个链接 + 46 个实体文件 3.9 MiB，生成 10.9 秒；每个前缀 `du` 约 4.5 MiB | Y700 截图 |
-| FEX 配置 | SDK 设 `FEX_APP_CONFIG_LOCATION` 为 runtime 的 `share/fex-emu`（`Z:` 形式：游戏的当前盘是 D:，裸 unix 路径会解析到 D: 上）；TSO、Multiblock、FEX 日志、代码缓存几项设置走 `FEX_*` 环境变量 | 单元测试；FEX 是否真读到了这个文件还没在设备上确认 |
-| 磁盘缓存 | 没做（§2.3 第 2 步第三项） | |
+| FEX 配置 | SDK 设 `FEX_APP_CONFIG_LOCATION` 为 runtime 的 `share/fex-emu`（`Z:` 形式：游戏的当前盘是 D:，裸 unix 路径会解析到 D: 上）；TSO、Multiblock、FEX 日志、代码缓存几项设置走 `FEX_*` 环境变量 | 单元测试；Y700 上确认 FEX 读到了这个文件：只在 Config.json 里加 `DiskCachePath`，缓存就写到了那个目录。环境变量层优先级比文件高，所以两边重复的几项以设置为准 |
+| 磁盘缓存 | 设置 `cache.fex`（默认开，`FEX_DISKCACHE=1`，同 Proton）。FEX 写到前缀的 `%LOCALAPPDATA%\fex-emu\DiskCache\<构建哈希>\`，也就是 `userdata/<前缀>/steamuser/AppData/Local/fex-emu`，跟着前缀删；子目录按 FEX 构建区分，换了 FEX 后旧构建的目录在下次启动时被 FEX 自己清掉，不用我们管 | Y700：hello64 约 86 KiB，hello32 约 2.8 MiB（WoW64 的 i386 系统库也翻译了）；从 `1c4f04b` 换到 2611.1 后 hello32 的旧目录 `cae46…` 没了，只剩新目录 `dc522…` |
 
 **已知问题**：
 
@@ -58,4 +58,4 @@ WinNative 那个 Android/Arm64EC 大提交（`986479030a`）没有整体带入�
 
 ## 设备上的测试状态
 
-- Y700 `HA262AAH`：装的是本仓库的 `app.amphora`（debug 包），runtime 是 FEX `1c4f04b` 的测试包（CI 的 Wine 文件 + 本地构建的 FEX），配方 `2026.11-m2` 已改钉 CI 发布的 `…-fex-4f9c1f1`，下次打开 App 会提示重新安装；游戏库里有 `hello64`、`hello32` 两个测试程序（`/sdcard/Download/amphora-test/x86/`）。M1 宿主 `app.amphora.next` 已不在设备上，`tools/` 里依赖它的两个工具要重新跑得先装回提交 `4efaf0f` 的宿主。
+- Y700 `HA262AAH`：装的是本仓库的 `app.amphora`（debug 包），runtime 是 App 从 CI Release 下载安装的 `…-fex-4f9c1f1`（配方 `2026.11-m2`）；游戏库里有 `hello64`、`hello32` 两个测试程序（`/sdcard/Download/amphora-test/x86/`）。M1 宿主 `app.amphora.next` 已不在设备上，`tools/` 里依赖它的两个工具要重新跑得先装回提交 `4efaf0f` 的宿主。
