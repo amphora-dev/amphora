@@ -11,6 +11,7 @@ android {
         applicationId = "app.amphora"
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -19,6 +20,9 @@ android {
 }
 
 dependencies {
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.junit4)
+    androidTestImplementation(libs.kotlinx.coroutines.android)
     implementation(project(":sdk"))
     implementation(project(":ui"))
     implementation(libs.androidx.core.ktx)
