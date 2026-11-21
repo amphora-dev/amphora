@@ -9,6 +9,7 @@ navigationCompose = "2.9.8"
 coroutines = "1.11.0"
 serialization = "1.11.0"
 junit4 = "4.13.2"
+testRunner = "1.6.2"
 spotless = "8.0.0"
 # Used by Spotless in the root build script.
 ktlint = "1.7.1"
@@ -42,6 +43,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 
 junit4 = { group = "junit", name = "junit", version.ref = "junit4" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "testRunner" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

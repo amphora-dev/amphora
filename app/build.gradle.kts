@@ -20,7 +20,7 @@ android {
 }
 
 dependencies {
-    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.junit4)
     androidTestImplementation(libs.kotlinx.coroutines.android)
     implementation(project(":sdk"))
