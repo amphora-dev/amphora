@@ -1,6 +1,6 @@
 # Amphora
 
-> 状态：里程碑 1 完成（2026-11-15）：Valve Experimental 的 Wine 在 Bionic 上构建，Y700 上经 App 出画、能输入，每个游戏一个约 3 MiB 的薄前缀。下一步是里程碑 2（FEX）。进度见 [`docs/TRACKING.md`](docs/TRACKING.md)。
+> 状态：里程碑 1（Bionic 构建、出画、薄前缀）和 2（FEX，64 位和 32 位 x86）完成（2026-11-15）。里程碑 3 进行中（2026-11-22）：Wine 带 Vulkan，`wineandroid.drv` 自己的交换链在 Y700 上出画，层由 HWC 直接叠加；DXVK、vkd3d-proton、Turnip 还没开始。进度见 [`docs/TRACKING.md`](docs/TRACKING.md)。
 > 设计依据：[`docs/research/12-REWRITE-DESIGN.md`](docs/research/12-REWRITE-DESIGN.md)（已定决策 D1–D15）；设置清单：[`docs/research/13-SETTINGS-CATALOG.md`](docs/research/13-SETTINGS-CATALOG.md)。
 > 旧实现（x86_64 Wine + Box64）在 [`amphora-dev/amphora_old`](https://github.com/amphora-dev/amphora_old)，不再开发，只作参考。
 

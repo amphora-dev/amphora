@@ -120,6 +120,18 @@ dsh 第 3 轮在助手回复前被中断，之后的 Claude Code 接续会话 `1
 
 保留不动的：每 HWND 一层、宿主显式层序、按层几何做铺满缩放（HWC 缩放不花 GPU）、切后台 park、Frame rate 设置的语义。
 
+**落地（2026-11-22，Y700 实测见 TRACKING 里程碑 3）。** 上面第 1、2 条按原样做了，具体做法和几处当时没想到的：
+
+- **接在哪。** win32u 和 winevulkan 的每个宿主函数都是经 `vkGetInstanceProcAddr` / `vkGetDeviceProcAddr` 取的。驱动在这两个指针被用之前把它们包起来（`vulkan_driver_funcs` 多一个可选回调 `p_wrap_host_proc_addr`，win32u 只改这一处），按名字回答 surface、交换链、扩展枚举、建 device 这些入口，其余转给宿主。驱动因此是进程内的一层 WSI，宿主有没有自己的 `VK_KHR_swapchain` 都一样；以后直接加载 Turnip 的 ICD（它不带交换链）不用再改。
+- **不用平台的交换链。** 试算过"先用 `VK_KHR_android_surface` 加现有的 ANativeWindow 代理出画"：Android 16 的平台交换链会对窗口做十来种代理没实现的 perform（带输出指针的也有），失败就报 surface lost；每帧的 dequeue / queue 还要经宿主主线程。补完也是要扔的，所以没走。
+- **通道。** 每个 Vulkan surface 一对 SEQPACKET socket（经原有的 `\Device\WineAndroid` 通道建立），宿主里一个线程读它。消息四种：建交换链（后面跟每张 AHB）、一帧（下标 + 渲染完成的 sync fd）、销毁、释放（宿主发回，带合成器的 release fence）。帧不经宿主主线程，也不经 Java。
+- **渲染完成的 fence。** present 时在程序的队列上做一次空提交：等程序交来的信号量，signal 一个可导出的信号量，导出成 sync fd，交给 `ASurfaceTransaction_setBuffer`。CPU 不等 GPU。
+- **acquire。** 取一张宿主还回来的图像，把它带的 release fence 导入程序给的信号量 / fence（`SYNC_FD`、`TEMPORARY`；-1 就是已经可用）。没有空闲图像就等 socket。
+- **FIFO 和不限帧。** 事务默认不排队：前一张还没上屏就交新的，前一张会被丢掉。FIFO 用 `ASurfaceTransaction_setEnableBackPressure`（API 31）让合成器每张都显示，图像用完时程序自然被挡住。MAILBOX / IMMEDIATE 由宿主把关：合成器手里最多一个事务，等它的时候新帧覆盖旧帧，被覆盖的图像带着自己的渲染 fence 立刻还给程序，所以帧率不受刷新率限制，也不会每秒向合成器发几千个事务。
+- **宿主的层。** client 视图从 TextureView 换成 SurfaceView，原生端用 `ASurfaceControl_createFromWindow` 在它里面建子层（API 29，不需要 Kotlin 侧的 `setBuffer`，那个要 API 33 而且没法从 fd 造 `SyncFence`）。SurfaceView 跟着桌面视图一起被缩放，子层继承，实测位置和大小都对。SurfaceView 靠在 App 窗口上"打洞"显示，所以 client 组提到窗口整体视图之上；它不收输入，触摸落到下面的整体视图。`:sdk` 仍然没有 native 代码，宿主端的原生逻辑在 `wineandroid.so` 里。
+- **没有层的时候**（切后台、视图还没有 Surface）：帧先扣在宿主，每 100 ms 还一帧，程序不会空转；层回来时把最新的一帧放上去。
+- **还没做的**：第 2 条里的 present wait / present id、`setFrameTimeline` 的固定帧率、GDI 窗口走同一条路；第 3 条（只给需要的窗口分配层）现在是原样沿用上游的视图树；第 4 条里 HWC 已确认是 `DEVICE` 合成，UBWC 和电流没量。
+
 ### 3.2 Q2 DXVK 跟哪个版本：Steam 现在发的是什么
 
 Y700 上 DroidDeck 存着 Steam 下载的两套 Valve ARM64 Proton 原包，外加 DroidDeck 自己的构建。从包里读出的版本：
@@ -237,6 +249,7 @@ files/
 1. **里程碑 1 已完成**（进度见 [`../TRACKING.md`](../TRACKING.md)）：出画、写时复制、桌面尺寸、DPI 设置（非 100% 时任务栏不跟着变，见 TRACKING）、薄前缀（2026-11-15，落地时的两处改动见 §3.3 末尾）。Wine 分支已推到 `amphora-dev/proton-wine`，构建已在 amphora-engine 的 CI 上（2026-11-08）。
 2. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。数据模型和四层解析已在 `:sdk`（`SettingsCatalog`，2026-11-12）；App 也已提前改成只用 SDK 公开 API 的壳（§2.3 第 4 步的 App 部分），SDK 接口还没定型。
 3. **M2：FEX**（进度见 TRACKING）：64 位和 32 位 x86 已在 Y700 上跑通（2026-11-15）；FEX 升到 2611.1，正式 runtime 由 CI 发布（`…-fex-4f9c1f1`），在设备上从 Release 下载安装后两个都通过；FEX 磁盘缓存默认开，按 FEX 构建分目录，旧构建的由 FEX 自己清掉。M2 完成。
+4. **M3：图形栈**（进度见 TRACKING）：Wine 带 Vulkan、交换链（§3.1 末尾"落地"）已在 Y700 上出画（2026-11-22），Wine 的提交还在本地。接下来按顺序：推送并出 CI 发布的 runtime、更新配方；Turnip 按普通 ICD 构建并让 win32u 可以选它（32 位程序的前提，见 TRACKING）；DXVK、vkd3d-proton 进 amphora-engine；AIO 图形矩阵和基线对比（dx9-32 只能在 Turnip 上比）；帧率设置接到交换链。
 
 ## 6. 注意事项
 
