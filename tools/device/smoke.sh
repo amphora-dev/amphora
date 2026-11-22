@@ -53,7 +53,7 @@ program() {
   "$RUN" end
 }
 
-# One AIO back end: it must create a swapchain, draw the cube, and write a result.
+# One AIO back end: it must create a swapchain, draw the cube, write a result, and exit.
 aio() {
   local name="$1" bits="$2" api="$3" t0 out shot result drawn=""
   t0="$(now)"
@@ -75,7 +75,11 @@ aio() {
     sleep 0.3
   done
   if result="$("$RUN" wait-any "$AIO_RESULTS" '*.txt' $((BENCH + 20)))"; then
-    report "$name" "$t0" ok "${result##*: } fps avg|min|max, $drawn"
+    # --autoclose dismisses the result box and the program exits with its render threads
+    # still there: the session must end with it
+    if "$RUN" wait-exit 15; then report "$name" "$t0" ok "${result##*: } fps avg|min|max, $drawn, exited by itself"
+    else report "$name" "$t0" fail "${result##*: } fps, but the process did not exit within 15 s"
+    fi
   else
     report "$name" "$t0" fail "no result file"
   fi
