@@ -40,6 +40,7 @@ tools/device/aio.sh 64 dx11      # 一个后端的跑分（8 秒）；其余脚�
 - 新设置要进 `SettingsCatalog`，带分组、说明、默认值和选它的理由（D6）；覆盖层级是 配方默认 < 用户全局 < 按游戏修正 < 用户按游戏（D15）。
 - 不兼容旧实现（`amphora_old`、`imagefs`），只作参考（D11）。
 - GPU 驱动只有 runtime 里的 Turnip，不走系统的 Vulkan 驱动，也不加切换开关（D4，13 §4）。
+- runtime 里组件的版本跟 Proton tag。要偏离（更新的版本、额外的上游修复），先在设备上测到它修的问题并记进 TRACKING（12 §5 第 3 条）。
 - 提交信息风格：`<范围>: <小写开头的说明>`，范围如 `sdk`、`app`、`ui`、`docs`、`recipe 2026.11-m2`、`M2`。
 - 文档用中文，句子短、直说结论；`TRACKING.md` 只记状态和可复现的证据，决策和理由写进 `12`。
 - `docs/conversations/` 是本地的 AI 对话存档，已在 `.gitignore`，不提交。

@@ -255,7 +255,7 @@ files/
 
 1. **里程碑 1 已完成**（进度见 [`../TRACKING.md`](../TRACKING.md)）：出画、写时复制、桌面尺寸、DPI 设置（非 100% 时任务栏不跟着变，见 TRACKING）、薄前缀（2026-11-15，落地时的两处改动见 §3.3 末尾）。Wine 分支已推到 `amphora-dev/proton-wine`，构建已在 amphora-engine 的 CI 上（2026-11-08）。
 2. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。数据模型和四层解析已在 `:sdk`（`SettingsCatalog`，2026-11-12）；App 也已提前改成只用 SDK 公开 API 的壳（§2.3 第 4 步的 App 部分），SDK 接口还没定型。
-3. **M2：FEX**（进度见 TRACKING）：64 位和 32 位 x86 已在 Y700 上跑通（2026-11-15）；FEX 升到 2611.1，正式 runtime 由 CI 发布（`…-fex-4f9c1f1`），在设备上从 Release 下载安装后两个都通过；FEX 磁盘缓存默认开，按 FEX 构建分目录，旧构建的由 FEX 自己清掉。M2 完成。
+3. **M2：FEX**（进度见 TRACKING）：64 位和 32 位 x86 已在 Y700 上跑通（2026-11-15）；FEX 用 Proton tag 里钉的提交（`1c4f04b`，FEX-2610-101），正式 runtime 由 CI 发布（`…-fex-1c4f04b`），在设备上从 Release 下载安装后两个都通过。中间（2026-11-15 到 11-22）用过 FEX-2611.1 加一个上游修复：那是预防性的升级，没有设备上测到的问题作依据，tag 的版本当时就是通过的，所以改了回来。**规则：组件的版本跟 tag；要偏离（更新的版本、额外的上游修复），得先在设备上测到它修的问题，并把这个问题记进 TRACKING。**这样出了问题才能直接和 Steam 上的表现对照。FEX 磁盘缓存默认开，按 FEX 构建分目录，旧构建的由 FEX 自己清掉。M2 完成。
 4. **M3：图形栈**（进度见 TRACKING）：Wine 带 Vulkan、交换链、Turnip、DXVK、vkd3d-proton、帧率设置都已在 Y700 上跑通，runtime 由 CI 发布（2026-11-22，§3.1 末尾两段"落地"）。还没做的：OpenGL（Zink）、DXVK 和 vkd3d-proton 的 ARM64X 构建（要 Valve 的 llvm-mingw）、present wait、HUD、UBWC 和电流的测量，见 TRACKING。
 
 ## 6. 注意事项
