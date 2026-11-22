@@ -38,7 +38,7 @@
 | x86 翻译    | FEX 作为 Wine 里的 DLL：`libarm64ecfex`（64 位）、`libwow64fex`（32 位）                           |
 | D3D8–11     | DXVK，版本按 tag 的 pin；打开 GPL、不用 async；不带 gplasync，也不带 Sarek                          |
 | D3D12       | vkd3d-proton，版本按 tag 的 pin                                                                    |
-| Vulkan 驱动 | Turnip（固定 Mesa 版本，KGSL 后端）；改按普通 Vulkan ICD 构建，由 loader 直接加载，不再经 wrapper / adrenotools（M3 确认） |
+| Vulkan 驱动 | Turnip（固定 Mesa 版本，KGSL 后端）；按 Android 的 Vulkan HAL 模块构建，由 `wineandroid.drv` 直接打开，不经系统 loader、wrapper 或 adrenotools（M3 已做，§3.1 末尾） |
 | OpenGL      | Zink 跑在 Turnip 上（沿用已经接上的 Mesa WGL）                                                     |
 | 出画        | 每个 HWND 一个 SurfaceControl；交换链收进 `wineandroid.drv`，宿主用 ASurfaceTransaction 送显（§3.1） |
 | 前缀        | 每个游戏一个"薄前缀"：内容寻址只读仓库 + 符号链接 + wineserver 写时复制（§3.3）                    |
@@ -67,15 +67,13 @@ app = 只依赖 SDK 公开 API 的薄壳（用 Gradle 模块可见性强制）
 | 内容来源            | 我们 pin 的内容清单 | 接 Steam depot（部分下载）时                   |
 | 游戏库              | 用户手动添加 exe    | 接 Steam 游戏库时                              |
 
-GPU 驱动也不是扩展点：高通系统驱动只是开发者模式里的一个对比开关（13 §3.8），用来在同一个驱动上对比新旧实现，以及判断画面问题是不是 Turnip 的。新架构里 Wine 的 unix 侧是原生 Bionic，推断可以直接加载系统的 `libvulkan.so`，开关只是"加载哪个库"（M3 确认）。
+GPU 驱动也不是扩展点：只有 Turnip，随 runtime 一起发。M3 前半段先用系统的 `libvulkan.so`（高通驱动）把交换链做通，之后换成 Turnip，系统驱动不再用，也不留开关（2026-11-22，原因见 13 §4）。
 
 ### 2.3 里程碑顺序
 
 1. 风险最大的先做：Proton tag（§3.2）用 Bionic 构建成 aarch64 + arm64ec，带上 `wineandroid.drv`，在 Y700 上跑通记事本和 GDI 窗口。
 2. 把 FEX 接进 Wine：先 64 位 hello，再 32 位（WoW64），再打开 FEX 磁盘缓存。
-3. DXVK、vkd3d、Turnip、交换链（§3.1）：AIO 图形矩阵和旧仓库记录的结果一致。性能分两步比，只拿记录对比，不再跑旧 App（D11）：
-   - 新旧实现比：旧仓库记录的 Y700 基线（vk 832 / dx11 926 / dx12 1140 / dx9-32 431 fps，不锁帧）是在**高通系统驱动**上测的，所以先用开发者开关切到系统驱动，在同一个驱动上比，变慢要能解释原因。
-   - 驱动比：同一个新实现，Turnip 对比系统驱动。旧仓库只测过 Turnip 锁帧（144 fps 都能跑满），没有不锁帧的数据；这一步回答"只用 Turnip"（D4）值不值。
+3. DXVK、vkd3d、Turnip、交换链（§3.1）：AIO 图形矩阵和旧仓库记录的结果一致，只拿记录对比，不再跑旧 App（D11）。旧仓库记录的 Y700 基线（vk 832 / dx11 926 / dx12 1140 / dx9-32 431 fps，不锁帧）是在**高通系统驱动**上测的。原计划先在系统驱动上比新旧实现、再比两个驱动；实际只有 vk 一项做了同驱动对比（M3 前半段），之后 runtime 只用 Turnip（2026-11-22），其余几项是新实现加 Turnip 对旧实现加系统驱动，数字见 TRACKING。
 4. 定下 SDK 接口，App 改成薄壳。
 5. 按游戏的缓存目录，加上 Fossilize 本地录制和回放。
 6. 之后再做 Steam。
@@ -131,6 +129,15 @@ dsh 第 3 轮在助手回复前被中断，之后的 Claude Code 接续会话 `1
 - **宿主的层。** client 视图从 TextureView 换成 SurfaceView，原生端用 `ASurfaceControl_createFromWindow` 在它里面建子层（API 29，不需要 Kotlin 侧的 `setBuffer`，那个要 API 33 而且没法从 fd 造 `SyncFence`）。SurfaceView 跟着桌面视图一起被缩放，子层继承，实测位置和大小都对。SurfaceView 靠在 App 窗口上"打洞"显示，所以 client 组提到窗口整体视图之上；它不收输入，触摸落到下面的整体视图。`:sdk` 仍然没有 native 代码，宿主端的原生逻辑在 `wineandroid.so` 里。
 - **没有层的时候**（切后台、视图还没有 Surface）：帧先扣在宿主，每 100 ms 还一帧，程序不会空转；层回来时把最新的一帧放上去。
 - **还没做的**：第 2 条里的 present wait / present id、`setFrameTimeline` 的固定帧率、GDI 窗口走同一条路；第 3 条（只给需要的窗口分配层）现在是原样沿用上游的视图树；第 4 条里 HWC 已确认是 `DEVICE` 合成，UBWC 和电流没量。
+
+**驱动和 Direct3D 的落地（2026-11-22，同一天稍后）。**
+
+- **Turnip 怎么加载。** Mesa 按 Android 构建（`-Dplatforms=android`，只带 KGSL），才有 `VK_ANDROID_external_memory_android_hardware_buffer`，交换链要靠它导入 AHB。这样构建出来的是 Android 的 Vulkan HAL 模块：唯一导出的符号是 `HMI`，打开它的 `vk0` 设备得到 `vkGetInstanceProcAddr`。`wineandroid.drv` 在包装宿主入口的那个回调里（上面"接在哪"）直接 `dlopen` 它，把它的入口换给 win32u；路径由 `WINE_ANDROID_VULKAN_HAL` 给，SDK 每次启动都设成 runtime 里的 `lib/libvulkan_freedreno.so`。中间没有 loader：系统的 `libvulkan.so` 只会加载系统镜像里的驱动，Khronos 的 loader 在 Android 上不是受支持的用法，而我们只有一个驱动、不用层，loader 做的事（找驱动、层、它自己的 WSI）一件也用不上。打不开时不回退到系统驱动，直接没有 Vulkan，免得测的不是想测的那个驱动。
+- **没有 loader 要自己补的两处。** 一是实例级的 `VK_KHR_surface`、`VK_KHR_get_surface_capabilities2` 本来由 loader 提供，现在由驱动自己报（设备级的 `VK_KHR_swapchain` 本来就是）。二是 loader 对 Vulkan 1.0 的实例也返回 1.1 才进核心的函数名，Mesa 自己不返回：win32u 有一处用了不带 KHR 后缀的 `vkGetPhysicalDeviceProperties2`，32 位程序建 1.0 实例时调到空指针（AIO 的 32 位 vk 和 dx12 就这样崩），改成带 KHR 的名字。
+- **32 位。** Turnip 有 `VK_EXT_map_memory_placed`，win32u 能把映射放到 4 GiB 以下，高通驱动上做不了的 32 位 Vulkan / DXVK / vkd3d-proton 都能跑了。
+- **DXVK、vkd3d-proton。** 按 Proton tag 的子模块提交、照它的 `Makefile.in` 构建，放在 runtime 的 `lib/wine/dxvk`、`lib/wine/vkd3d-proton`（布局同 Proton）。Proton 每次启动把它们复制进前缀的 `system32` / `syswow64` 并设 `WINEDLLOVERRIDES=…=n`；我们在建模板时把这几个名字的链接指过去（薄前缀里它们和别的系统文件一样是链接），引擎每次启动设同样的覆盖。选 WineD3D 时设成 `b`，Wine 从 runtime 加载自己的那份，不看前缀里是什么。
+- **和 tag 的一处差别：ARM64EC，不是 ARM64X。** tag 里 64 位的 DXVK / vkd3d-proton 用 `-marm64x` 链成 ARM64X。那需要 Valve 自己构建的 llvm-mingw：同一个版本加 13 个 LLVM 补丁，C 运行库也按 ARM64X 重编（Proton 的 `docker/`）；上游发布版的 C 运行库只有 ARM64EC 一半，链接时报缺原生的 `DllMainCRTStartup`。所以我们的是 ARM64EC，和 Proton 11.0 稳定版的 ARM64 构建一样。x86_64 游戏两种都按原生代码加载；只有本身是 ARM64 的 Windows 程序加载不了这几个 DLL。要对齐就得在 buildstream-sdk 里照 Proton 的 Dockerfile 从源码构建那套工具链。
+- **帧率设置。** `WINE_ANDROID_FRAME_RATE`：`screen` 时不管程序要什么呈现模式都按 FIFO（每帧都显示），`unlimited` 时都按只显示最新一帧，数字是 FIFO 再加 present 之间至少隔 1/N 秒，`game` 按程序要的。数字的节拍现在是驱动里按单调时钟睡到下一拍（DXVK 和 vkd3d-proton 自己的限帧器拿到同一个数，轮到驱动时基本不用睡）；第 2 条设想的 `setFrameTimeline` 还没做。宿主对层的刷新率投票：数字时投这个数，否则投最高。
 
 ### 3.2 Q2 DXVK 跟哪个版本：Steam 现在发的是什么
 
@@ -249,7 +256,7 @@ files/
 1. **里程碑 1 已完成**（进度见 [`../TRACKING.md`](../TRACKING.md)）：出画、写时复制、桌面尺寸、DPI 设置（非 100% 时任务栏不跟着变，见 TRACKING）、薄前缀（2026-11-15，落地时的两处改动见 §3.3 末尾）。Wine 分支已推到 `amphora-dev/proton-wine`，构建已在 amphora-engine 的 CI 上（2026-11-08）。
 2. **设置清单**：按 [`13`](13-SETTINGS-CATALOG.md) 的结构定稿，先把"默认值来自 Recipe、四层覆盖（D15）"的数据模型落进 SDK。数据模型和四层解析已在 `:sdk`（`SettingsCatalog`，2026-11-12）；App 也已提前改成只用 SDK 公开 API 的壳（§2.3 第 4 步的 App 部分），SDK 接口还没定型。
 3. **M2：FEX**（进度见 TRACKING）：64 位和 32 位 x86 已在 Y700 上跑通（2026-11-15）；FEX 升到 2611.1，正式 runtime 由 CI 发布（`…-fex-4f9c1f1`），在设备上从 Release 下载安装后两个都通过；FEX 磁盘缓存默认开，按 FEX 构建分目录，旧构建的由 FEX 自己清掉。M2 完成。
-4. **M3：图形栈**（进度见 TRACKING）：Wine 带 Vulkan、交换链（§3.1 末尾"落地"）已在 Y700 上出画（2026-11-22），Wine 的提交还在本地。接下来按顺序：推送并出 CI 发布的 runtime、更新配方；Turnip 按普通 ICD 构建并让 win32u 可以选它（32 位程序的前提，见 TRACKING）；DXVK、vkd3d-proton 进 amphora-engine；AIO 图形矩阵和基线对比（dx9-32 只能在 Turnip 上比）；帧率设置接到交换链。
+4. **M3：图形栈**（进度见 TRACKING）：Wine 带 Vulkan、交换链、Turnip、DXVK、vkd3d-proton、帧率设置都已在 Y700 上跑通，runtime 由 CI 发布（2026-11-22，§3.1 末尾两段"落地"）。还没做的：OpenGL（Zink）、DXVK 和 vkd3d-proton 的 ARM64X 构建（要 Valve 的 llvm-mingw）、present wait、HUD、UBWC 和电流的测量，见 TRACKING。
 
 ## 6. 注意事项
 

@@ -58,7 +58,7 @@ data class SettingSpec<T>(
 
 | 设置 | 选项 | 默认 | 默认值理由 | 范围 | 落到 |
 |---|---|---|---|---|---|
-| 帧率 | 跟随屏幕 / 跟随游戏 / 不限 / 30、45、60、90、120 | 跟随屏幕 | SurfaceFlinger 只锁存整帧，开不开垂直同步都不撕裂；跟随屏幕不会渲染看不到的帧，省电、少发热、节奏稳。"不限"只用于跑分，多出的帧会被丢掉 | 全 / 游 | 交换链呈现方式与节奏（12 §3.1）；`DXVK_FRAME_RATE`（DXVK 与 vkd3d-proton 的限帧器）；按层 `setFrameRate` |
+| 帧率 | 跟随屏幕 / 跟随游戏 / 不限 / 30、45、60、90、120 | 跟随屏幕 | SurfaceFlinger 只锁存整帧，开不开垂直同步都不撕裂；跟随屏幕不会渲染看不到的帧，省电、少发热、节奏稳。"不限"只用于跑分，多出的帧会被丢掉 | 全 / 游 | `WINE_ANDROID_FRAME_RATE`（`screen` / `game` / `unlimited` / 数字），驱动的交换链据此决定每帧都显示还是只显示最新一帧，数字再把 present 间隔拉到 1/N 秒（12 §3.1）；数字时另设 `DXVK_FRAME_RATE`（DXVK 与 vkd3d-proton 的限帧器）；宿主按层 `setFrameRate`：数字时投这个数，否则投屏幕最高刷新率（系统的"最高刷新率"设置会再压一道） |
 | 游戏看到的分辨率 | 1280×720 / 1600×900 / 1920×1080 / 按屏幕比例 / 自定义 | 1280×720 | 旧仓库的默认，7xx 到 8xx 性能跨度大，720p 是稳妥的起点；放大由 HWC 做，不花 GPU；性能有余的机器按游戏调高。M3 用实测帧率复核 | 全 / 游 | Wine 显示模式列表 |
 | 缩放 | 等比（留黑边）/ 拉伸 / 整数倍 | 等比 | 不变形；缩放走层几何，HWC 完成 | 全 / 游 | 宿主层几何 |
 | 性能浮层 | 关 / 帧率 / 详细 | 关 | 默认不遮挡画面。"帧率"由宿主按真实上屏帧计数（12 §3.1 的事务统计），所有 API 都有；"详细"再加 CPU、GPU 负载、内存、温度（旧仓库宿主浮层的内容），D3D9–11 另开 DXVK HUD | 全 / 游 | 宿主浮层；`DXVK_HUD` |
@@ -143,7 +143,6 @@ FEX 代码缓存见 §3.7。按游戏的 FEX 修正用 FEX 自己的按应用配
 | DXVK / vkd3d-proton 日志 | none / error / info / debug | none | 同上 | 游 | `DXVK_LOG_LEVEL`、`VKD3D_DEBUG` |
 | FEX 日志 | 关 / 开 | 关 | 同上 | 游 | FEX `SilentLog` |
 | Turnip 调试标志 | 文本 | 空 | 只用于排查驱动问题 | 游 | `TU_DEBUG` |
-| GPU 驱动 | Turnip / 系统驱动（对比用） | Turnip | 唯一支持的驱动。系统驱动（高通官方）只用来对比：旧仓库的性能基线是在它上面测的（12 §2.3 M3），画面出错时切过去能判断是不是 Turnip 的问题。不是 SDK 扩展点，只是加载哪个 Vulkan 库 | 游 | 加载的 Vulkan 库 |
 
 ## 4. 不提供的选项（以及原因）
 
@@ -151,6 +150,7 @@ FEX 代码缓存见 §3.7。按游戏的 FEX 修正用 FEX 自己的按应用配
 |---|---|
 | DXVK async / gplasync | Turnip 支持 GPL（`graphicsPipelineLibrary` + `IndependentInterpolationDecoration`），DXVK 用快速链接编译管线，本来就不卡；gplasync 会在 GPL 之前截走新管线，在 Turnip 上反而用不上 GPL，还会跳过绘制造成画面错误（Cursor 对话结论） |
 | DXVK 版本 / Wine 版本 / 驱动版本切换 | 一套配方一套组合（D1）。换版本是换 Recipe，不是设置项 |
+| GPU 驱动（Turnip / 高通系统驱动） | 只用 Turnip（D4），runtime 里自带，引擎每次启动都让 Wine 打开它（`WINE_ANDROID_VULKAN_HAL`）。原来留过一个开发者对比开关，2026-11-22 去掉：32 位程序在系统驱动上映射不了 Vulkan 内存，DXVK 的 D3D8 / D3D9 在它上面画不出固定功能管线，留着也只有一半能比；M3 前半段在系统驱动上测到的数字记在 TRACKING 里 |
 | Box64 / 其他翻译器 | D5：只做 FEX，不留接口。Box64 的 32 位 `wowbox64.dll` 也不做（12 §3.5） |
 | Mali / Xclipse 相关选项 | D4 只支持 Adreno 7xx/8xx |
 | `DXVK_STATE_CACHE_PATH` | DXVK 3.x 已没有这个状态缓存，设置了也不生效 |
@@ -170,7 +170,7 @@ FEX 代码缓存见 §3.7。按游戏的 FEX 修正用 FEX 自己的按应用配
 | 旧设置（键） | 处理 | 新位置 / 原因 |
 |---|---|---|
 | 分辨率（`display_resolution`，默认 1280×720） | 保留 | §3.1，加按游戏 |
-| GPU 驱动（`adrenotools_driver_id`：wrapper / Turnip / Leegao / System） | 删 | 只用 Turnip（D4）；系统驱动留成开发者对比项（§3.8） |
+| GPU 驱动（`adrenotools_driver_id`：wrapper / Turnip / Leegao / System） | 删 | 只用 Turnip（D4），不留系统驱动的开关（§4） |
 | D3D8–11 翻译（`dxvk_flavor`：自动 / DXVK 3.0.2 / Sarek），及其 guest 探针和 D3D8/9 拆到 DXVK 2.6.2 | 删 | 版本由 Recipe 定；Sarek 和拆分都是为 6T 和高通系统驱动准备的。"重新检测 GPU 能力"按钮随探针一起删，改成启动时的设备检查 |
 | Windows 语言（`wine_locale`） | 保留 | §3.5 |
 | DirectDraw 层（`directdraw_wrapper_id`，默认 DxWrapper） | 保留，默认值待定 | §3.2，M3 定 |

@@ -1,6 +1,6 @@
 # Amphora
 
-> 状态：里程碑 1（Bionic 构建、出画、薄前缀）和 2（FEX，64 位和 32 位 x86）完成（2026-11-15）。里程碑 3 进行中（2026-11-22）：Wine 带 Vulkan，`wineandroid.drv` 自己的交换链在 Y700 上出画，层由 HWC 直接叠加；DXVK、vkd3d-proton、Turnip 还没开始。进度见 [`docs/TRACKING.md`](docs/TRACKING.md)。
+> 状态：里程碑 1（Bionic 构建、出画、薄前缀）和 2（FEX，64 位和 32 位 x86）完成（2026-11-15）。里程碑 3 的 Vulkan 和 Direct3D 部分完成（2026-11-22）：`wineandroid.drv` 自己的交换链、Turnip、DXVK、vkd3d-proton 都在 runtime 里，AIO 图形测试的 vk / dx8–dx12 在 Y700 上 64 位和 32 位都出画；OpenGL（Zink）还没做。进度见 [`docs/TRACKING.md`](docs/TRACKING.md)。
 > 设计依据：[`docs/research/12-REWRITE-DESIGN.md`](docs/research/12-REWRITE-DESIGN.md)（已定决策 D1–D15）；设置清单：[`docs/research/13-SETTINGS-CATALOG.md`](docs/research/13-SETTINGS-CATALOG.md)。
 > 旧实现（x86_64 Wine + Box64）在 [`amphora-dev/amphora_old`](https://github.com/amphora-dev/amphora_old)，不再开发，只作参考。
 
@@ -30,7 +30,7 @@ App：只依赖 SDK 公开 API 的薄壳
 |---|---|---|
 | 1 | Proton tag 用 Bionic 构建成 aarch64 + arm64ec，带 `wineandroid.drv` | Y700 上记事本和 GDI 窗口出画 |
 | 2 | FEX 接进 Wine | 64 位、32 位（WoW64）hello；FEX 磁盘缓存生效 |
-| 3 | DXVK、vkd3d-proton、Turnip、交换链 | AIO 图形矩阵与旧仓库记录的结果一致；同在高通系统驱动上对比 Y700 基线 vk 832 / dx11 926 / dx12 1140 / dx9-32 431 fps，变慢要能解释；再比 Turnip 和系统驱动 |
+| 3 | DXVK、vkd3d-proton、Turnip、交换链 | AIO 图形矩阵与旧仓库记录的结果一致；对比旧仓库的 Y700 基线 vk 832 / dx11 926 / dx12 1140 / dx9-32 431 fps（在高通系统驱动上测的），变慢要能解释 |
 | 4 | SDK 接口定型，App 改成薄壳 | App 只用公开 API |
 | 5 | 按游戏缓存目录、Fossilize 本地录制与回放 | — |
 | 6 | Steam 相关接口（只下载需要的部分） | — |
