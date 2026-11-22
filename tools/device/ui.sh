@@ -10,7 +10,10 @@
 #   ui.sh add <dir> <file.exe> add /sdcard/Download/amphora-test/<dir>/<file.exe> to the library
 #   ui.sh play <title> [wait]  open the game and start it, then wait (default 12 s)
 #   ui.sh end                  end the running session from its menu
-#   ui.sh args <title> <args>  set the game's launch arguments (stops the app)
+#   ui.sh args <title> <args> [id=value ...]
+#                              set the game's launch arguments and, optionally, other
+#                              per-game settings (display.frameRate=game); replaces
+#                              all of the game's settings and stops the app
 #   ui.sh log [lines]          tail of the newest session log
 #
 # Texts are the app's Chinese labels, so this follows the UI and breaks with it.
@@ -79,8 +82,11 @@ import json, sys
 print(next((g["id"] for g in json.load(sys.stdin)["games"] if g["title"] == sys.argv[1]), ""))' "$2")"
     [ -n "$id" ] || { echo "ui.sh: no game \"$2\" in the library" >&2; exit 1; }
     # the user's per-game settings file, as the app writes it (the app must not be running)
-    python3 -c 'import json, sys; print(json.dumps({"format": 1, "values": {"wine.args": sys.argv[1]}}))' "$3" |
+    python3 -c 'import json, sys
+values = {"wine.args": sys.argv[1]}
+values.update(pair.split("=", 1) for pair in sys.argv[2:])
+print(json.dumps({"format": 1, "values": values}))' "${@:3}" |
       sh "am force-stop $PKG; run-as $PKG sh -c 'mkdir -p files/amphora/settings/games; cat > files/amphora/settings/games/$id.json'" ;;
   log) sh "run-as $PKG sh -c 'cd files/amphora/logs; f=\$(ls | tail -1); echo \$f; grep -v \"amphora: env\" \$f | tail -${2:-40}'" ;;
-  *) sed -n '2,17p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,20p' "$0" >&2; exit 2 ;;
 esac
