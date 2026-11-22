@@ -1,6 +1,13 @@
 package app.amphora.sdk.library
 
+import app.amphora.sdk.internal.AmphoraPaths
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.file.Files
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -71,6 +78,40 @@ class GameLibraryTest {
         File(dir, "steam_appid.txt").mkdir()
         assertNull(GameLibrary.detectAppId(dir))
         assertNull(GameLibrary.detectAppId(File(temp.root, "missing")))
+    }
+
+    @Test
+    fun `the same file under another spelling of its path is the same game`() = runTest {
+        val dir = temp.newFolder("storage", "Games")
+        val exe = File(dir, "Game.exe").apply { writeBytes(pe()) }
+        val link = File(temp.root, "sdcard")
+        Files.createSymbolicLink(link.toPath(), dir.parentFile.toPath())
+        val library = library(backgroundScope)
+
+        val added = library.add(exe) as AddResult.Added
+        assertEquals(exe.canonicalPath, added.game.exePath)
+        for (other in listOf(File(link, "Games/Game.exe"), File(dir, "../Games/./Game.exe"))) {
+            assertEquals(AddResult.AlreadyAdded(added.game), library.add(other))
+        }
+        assertEquals(1, library.games.value?.size)
+    }
+
+    private fun library(scope: CoroutineScope) = GameLibrary(
+        AmphoraPaths(temp.newFolder("files"), temp.newFolder("cache"), null),
+        EmptyCoroutineContext,
+        scope,
+    ) {
+            _,
+            _,
+        ->
+    }
+
+    /** The least PeInfo takes for an x86_64 executable. */
+    private fun pe(): ByteArray {
+        val buffer = ByteBuffer.allocate(0x200).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.put(0, 'M'.code.toByte()).put(1, 'Z'.code.toByte()).putInt(0x3c, 0x80)
+        buffer.put(0x80, 'P'.code.toByte()).put(0x81, 'E'.code.toByte()).putShort(0x84, 0x8664.toShort())
+        return buffer.array()
     }
 
     private fun title(path: String) = GameLibrary.suggestTitle(File(path))

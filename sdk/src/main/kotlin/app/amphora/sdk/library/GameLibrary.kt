@@ -54,10 +54,14 @@ public class GameLibrary internal constructor(
     /** The machine type of [exe], or null when it is not a Windows executable. Reads only the header. */
     public suspend fun inspect(exe: File): PeArch? = withContext(io) { PeInfo.arch(exe) }
 
-    /** Adds [exe]: checks it is a PE executable, hashes it, picks a title. */
+    /**
+     * Adds [exe]: checks it is a PE executable, hashes it, picks a title. A
+     * game is its file, however the path to it is spelled: `/sdcard/…` and
+     * `/storage/emulated/0/…` are the same game.
+     */
     public suspend fun add(exe: File): AddResult {
         load()
-        val path = exe.absolutePath
+        val path = withContext(io) { canonicalPath(exe) }
         _games.value?.firstOrNull { it.exePath == path }?.let { return AddResult.AlreadyAdded(it) }
         if (!exe.isFile) return AddResult.Rejected("找不到文件，或没有读取权限")
         val arch = withContext(io) { PeInfo.arch(exe) } ?: return AddResult.Rejected("不是 Windows 可执行文件")
@@ -142,6 +146,12 @@ public class GameLibrary internal constructor(
                 }
             }
         }
+    }
+
+    private fun canonicalPath(file: File): String = try {
+        file.canonicalPath
+    } catch (e: IOException) {
+        file.absolutePath
     }
 
     private suspend fun guarded(what: String, block: suspend () -> Unit): String? = try {

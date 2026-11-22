@@ -81,7 +81,7 @@ class RunActivity : ComponentActivity() {
     }
 
     private suspend fun remove(sdk: AmphoraSdk): String {
-        val path = File(intent.getStringExtra("remove").orEmpty()).absolutePath
+        val path = File(intent.getStringExtra("remove").orEmpty()).canonicalPath
         val game = sdk.library.games.filterNotNull().first().firstOrNull { it.exePath == path }
             ?: error("$path is not in the library")
         sdk.library.remove(game.id)?.let { error(it) }

@@ -8,8 +8,7 @@
 #                              start <exe> as a game (added to the library when it is not
 #                              there) with exactly these per-game settings; ends a session
 #                              that is still running first. <exe> is a path on the device;
-#                              a relative one is under Download/amphora-test/ on shared
-#                              storage.
+#                              a relative one is under /sdcard/Download/amphora-test/.
 #   run.sh end                 end the running session
 #   run.sh remove <exe>        take the game out of the library, with its prefix and settings
 #   run.sh wait-line <file> <regex> [seconds]
@@ -33,18 +32,11 @@
 set -uo pipefail
 S="${ANDROID_SERIAL:-HA262AAH}"
 PKG=app.amphora
-# The path the app's file picker gives, not /sdcard: the library goes by the path, and
-# the same exe under two spellings would be two games.
-ROOT=/storage/emulated/0/Download/amphora-test
+ROOT=/sdcard/Download/amphora-test
 sh() { adb -s "$S" shell "$@"; }
-# exe_path <exe>: absolute, in the picker's spelling
-exe_path() {
-  case "$1" in
-    /sdcard/*) echo "/storage/emulated/0/${1#/sdcard/}" ;;
-    /*) echo "$1" ;;
-    *) echo "$ROOT/$1" ;;
-  esac
-}
+# exe_path <exe>: absolute. /sdcard or /storage/emulated/0 does not matter: the library
+# goes by the file, not by how its path is spelled.
+exe_path() { case "$1" in /*) echo "$1" ;; *) echo "$ROOT/$1" ;; esac; }
 
 # poll <seconds> <device command that succeeds when done>
 poll() {
@@ -136,5 +128,5 @@ print(f"the cube covers {share:.0f}% of AIO's window")
 sys.exit(0 if share >= 10.0 else 1)
 PY
     status=$?; rm -f "$bmp"; exit $status ;;
-  *) sed -n '2,32p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,31p' "$0" >&2; exit 2 ;;
 esac
