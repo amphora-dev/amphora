@@ -58,7 +58,7 @@ WinNative 那个 Android/Arm64EC 大提交（`986479030a`）没有整体带入�
 
 ## 里程碑 3：图形栈（进行中，2026-11-22）
 
-做完的是 Vulkan 和交换链（12 §3.1）；DXVK、vkd3d-proton、Turnip 还没开始。Wine 的改动在本地分支 `amphora/exp-11.0-20261027b` 的 4 个新提交（`e27c134e58`…`b10583d4a3`），**还没推送**，所以没有 CI 发布的 runtime：设备上是 `…-fex-4f9c1f1` 加上 `dev/push.sh` 换进去的 4 个文件（`win32u.so`、`wineandroid.so`、`winevulkan.so`、`winevulkan.dll`），配方没动。
+做完的是 Vulkan 和交换链（12 §3.1）；DXVK、vkd3d-proton、Turnip 还没开始。Wine 的改动在本地分支 `amphora/exp-11.0-20261027b` 的 5 个新提交（`e27c134e58`…`2472d1f753`），**还没推送**，所以没有 CI 发布的 runtime：设备上是 `…-fex-4f9c1f1` 加上 `dev/push.sh` 换进去的 4 个文件（`win32u.so`、`wineandroid.so`、`winevulkan.so`、`winevulkan.dll`），配方没动。
 
 | 项 | 状态 | 证据 |
 |---|---|---|
@@ -67,6 +67,7 @@ WinNative 那个 Android/Arm64EC 大提交（`986479030a`）没有整体带入�
 | 离屏渲染 | `tools/vktest` 不带参数：真正的图形管线画三角形、回读、逐像素核对。aarch64 通过，x86_64（FEX）通过；**i386（WoW64）在 `vkMapMemory` 失败**，见下面"32 位" | Y700 截图（经 App 启动） |
 | 交换链 | `wineandroid.drv` 自己提供 `VK_KHR_surface` / `VK_KHR_swapchain`：图像是 Wine 进程分配的 AHB，建链时一次发给宿主；每帧只发下标和渲染完成的 sync fd；宿主在窗口 client 视图（SurfaceView）里的一个子层上用 `ASurfaceTransaction_setBuffer` 送显，被替换下来的图像连同合成器的 release fence 发回。`vktest --window` 在 aarch64、x86_64、i386 上都出画，窗口有标题栏和边框，client 区上的点击能到程序 | Y700 截图；Wine `2421d241e4`、`b10583d4a3`，本仓库 `2d103b3` |
 | 帧率（640×480 三角形） | FIFO：120.5 fps（面板 120 Hz，每帧都显示）。MAILBOX：aarch64 8810、x86_64 9329 fps；IMMEDIATE：8402 fps（不受刷新率限制，多出的帧在宿主里就还给程序，不进合成器） | `tools/device/vkrun.sh vktest-arm64 "--window --frames 20000 --mode mailbox"` |
+| AIO 图形测试（Vulkan） | `AIO-Graphics-Test-64bit.exe --cube vk --no-menu --bench 8`（x86_64，经 FEX；500×500，程序要的是不限帧）：平均 3005 fps，最低 294，最高 3611。旧仓库记录的 Y700 基线是 vk 832 fps，同样在高通系统驱动上。这只是 vk 一项，dx11 / dx12 / dx9-32 要等 DXVK 和 vkd3d-proton | 设备上 `AIO Results/Benchmark/AIO-Graphics-Test_bench_Vulkan.txt`：`3005\|294\|3611`；截图。非 FIFO 的交换链最少 4 张图像：3 张时同一测试只有 126 fps（程序还是得等合成器还图） |
 | HWC | 交换链的层由 HWC 直接叠加（`DEVICE`），640×480 放大到 1520×1141 也是 HWC 做的；整屏没有 GPU 合成（`usesClientComposition=false`） | `dumpsys SurfaceFlinger`：`wine-vulkan#… DEVICE ROT_90 500 152 1641 1672 / 0.0 0.0 640.0 480.0` |
 | 尺寸变化 | 最大化（640×480 → 1280×694）和还原：win32u 报 `VK_SUBOPTIMAL_KHR`，程序重建交换链，旧交换链的最后一帧留在屏幕上直到新的第一帧 | Y700 截图 |
 | 切后台 | Home 再回来：继续转动。后台期间没有层，宿主每 100 ms 还一帧，程序 10 秒里只画了约 650 帧（前台是每秒 120 帧） | 标题栏帧号 489 → 1145 |
@@ -98,5 +99,5 @@ WinNative 那个 Android/Arm64EC 大提交（`986479030a`）没有整体带入�
 ## 设备上的测试状态
 
 - Y700 `HA262AAH`：装的是本仓库的 `app.amphora`（debug 包，`2d103b3`）。runtime 是 `…-fex-4f9c1f1`（配方 `2026.11-m2`），2026-11-22 从 CI Release 的归档侧载重装（当天发现 `files/amphora/runtimes` 目录不在了，最后一次正常会话是 11-20 08:59，原因不明），之后用 `dev/push.sh` 换进了本地构建的 `win32u.so`、`wineandroid.so`、`winevulkan.so`、`opengl32.so`、`wineps.so` 和两个 `winevulkan.dll`：**不再是发布版**，要回到发布版在系统页重装 runtime。侧载用的归档还在 `/sdcard/Android/data/app.amphora/files/`（155 MiB）。
-- 游戏库：`hello64`、`hello32`（`/sdcard/Download/amphora-test/x86/`），`vktest-arm64`、`vktest64`、`vktest32`（`…/amphora-test/vk/`，启动参数被测试脚本改过）。
+- 游戏库：`hello64`、`hello32`（`/sdcard/Download/amphora-test/x86/`），`vktest-arm64`、`vktest64`、`vktest32`（`…/amphora-test/vk/`），`AIO-Graphics-Test-64bit`（`…/amphora-test/aio/`，旧仓库 fork 的 2.1.0 构建）；后四个的启动参数被测试脚本改过。
 - M1 宿主 `app.amphora.next` 已不在设备上，`tools/` 里依赖它的两个工具要重新跑得先装回提交 `4efaf0f` 的宿主。

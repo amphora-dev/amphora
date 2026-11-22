@@ -67,7 +67,11 @@ case "${1:-}" in
     [ -n "${y:-}" ] || { echo "ui.sh: no $3 in $2" >&2; exit 1; }
     read -r x _ < <(dump | awk -F' (true|false) ' '$1 == "@添加" { print $2; exit }')
     sh input tap "${x:-1749}" $((y + 21)); sleep 2 ;;
-  play) home; tap "$2" && sleep 2 && tap 开始游戏 && sleep "${3:-12}" ;;
+  play)
+    home
+    # a title below the fold: scroll the library once
+    if [ -z "$(position "$2")" ]; then sh input swipe 1500 1500 1500 600 300; sleep 1.5; fi
+    tap "$2" && sleep 2 && tap 开始游戏 && sleep "${3:-12}" ;;
   end) sh input keyevent KEYCODE_BACK; sleep 1.5; tap 结束会话 && sleep 2 ;;
   args)
     id="$(sh "run-as $PKG cat files/amphora/library.json" | python3 -c '
