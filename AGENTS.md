@@ -24,11 +24,14 @@ Amphora：在 Android 上跑 Windows 游戏的引擎，按 SDK 设计。本仓�
 ./gradlew :sdk:testDebugUnitTest # 只跑 SDK 的测试
 adb -s HA262AAH install -r app/build/outputs/apk/debug/app-debug.apk
 adb -s HA262AAH logcat           # 包名 app.amphora
-tools/device/ui.sh play hello64  # 从命令行启动游戏库里的游戏（会话必须由 App 启动），用法见 tools/README.md
-tools/device/aio.sh AIO-Graphics-Test-64bit dx11   # AIO 图形测试的一个后端：帧率、截图、驱动和 DXVK 版本
+tools/device/smoke.sh            # 设备上的快测，约 20 秒：FEX、三个架构的 Vulkan、64 位 dx11、32 位 dx9
+tools/device/smoke.sh full       # 再加 AIO 的 vk、dx8–dx12 × 64 / 32 位，约 75 秒
+tools/device/aio.sh 64 dx11      # 一个后端的跑分（8 秒）；其余脚本见 tools/README.md
 ```
 
 改完 Kotlin 至少跑 `spotlessCheck` 和相关模块的 `testDebugUnitTest`；改了界面或会话，要在 Y700 上实测。
+
+设备测试的顺序：改了 runtime 里的东西（Wine、FEX、DXVK、Turnip），先把本地构建的文件用 amphora-engine 的 `dev/push.sh` 换进设备、跑 `smoke.sh`，通过了再推送让 CI 出 runtime；CI 只跑最后一次，不拿它试错。脚本不经界面（调试包的 `RunActivity`），也不等固定时间；新写的测试照这个做法，不要加 `sleep N` 等程序跑完。
 
 ## 约定
 

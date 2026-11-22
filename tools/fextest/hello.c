@@ -7,6 +7,8 @@
  * exception raised and resumed through the dispatcher. Exit code 0 = all passed.
  * Ends with a message box carrying the same report (a GDI window drawn by the
  * translated user32 in the 32-bit build); `-q` skips it for headless runs.
+ * `--log <file>` also writes the report there: a session started by the app
+ * has no stdout (tools/device/run.sh reads it back).
  */
 #include <windows.h>
 #include <intrin.h>
@@ -101,7 +103,18 @@ int main(int argc, char **argv)
     check("exception", resumed == 1, buf);
 
     printf("%s\n", failures ? "FAILED" : "PASSED");
-    if (!(argc > 1 && !strcmp(argv[1], "-q"))) {
+    int quiet = 0;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-q")) quiet = 1;
+        else if (!strcmp(argv[i], "--log") && i + 1 < argc) {
+            FILE *f = fopen(argv[++i], "w");
+            if (f) {
+                fprintf(f, "hello from %d-bit x86\n%s%s\n", (int)sizeof(void *) * 8, report, failures ? "FAILED" : "PASSED");
+                fclose(f);
+            }
+        }
+    }
+    if (!quiet) {
         char title[64];
         snprintf(title, sizeof(title), "x86 %d-bit: %s", (int)sizeof(void *) * 8, failures ? "FAILED" : "PASSED");
         MessageBoxA(NULL, report, title, failures ? MB_ICONERROR : MB_ICONINFORMATION);
