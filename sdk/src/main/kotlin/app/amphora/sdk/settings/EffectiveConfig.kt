@@ -15,6 +15,8 @@ public data class EffectiveConfig(
     val customResolution: String,
     val scale: String,
     val dpi: Int,
+    /** The frame rate setting's value: `screen`, `game`, `unlimited` or a number. */
+    val frameRate: String,
     val args: List<String>,
     val steamAppId: Long?,
     /** Settings changed from the default that the current recipe cannot apply. */
@@ -39,12 +41,20 @@ public data class EffectiveConfig(
 
     internal companion object {
         /**
-         * Applies [resolved] on top of [engineEnv]. Engine variables and every
-         * variable a setting generates are protected: user environment lines
-         * cannot override them (13 §6.2).
+         * Applies [resolved] on top of [engineEnv] and [engineDlls]. Engine
+         * variables and every variable a setting generates are protected: user
+         * environment lines cannot override them (13 §6.2). A setting may
+         * replace an engine DLL override.
          */
-        fun build(resolved: ResolvedSettings, engineEnv: Map<String, String>, detectedAppId: Long?): EffectiveConfig {
+        fun build(
+            resolved: ResolvedSettings,
+            engineEnv: Map<String, String>,
+            detectedAppId: Long?,
+            engineDlls: Map<String, String> = emptyMap(),
+        ): EffectiveConfig {
             val builder = ConfigBuilder()
+            builder.origin = ConfigEntry.ENGINE
+            engineDlls.forEach { (name, mode) -> builder.dll(name, mode) }
             val inactive = ArrayList<ResolvedSetting>()
             // Fields that parameterize another setting ("custom" values) apply first.
             val ordered = resolved.items.sortedBy { if (it.spec.visibleWhen != null) 0 else 1 }
@@ -86,6 +96,7 @@ public data class EffectiveConfig(
                 customResolution = builder.customResolution,
                 scale = builder.scale,
                 dpi = builder.dpi,
+                frameRate = builder.frameRate,
                 args = builder.args.toList(),
                 steamAppId = appId,
                 inactive = inactive,

@@ -70,8 +70,15 @@ public object SettingsCatalog {
                         "「不限」只用于跑分，多出的帧会被丢掉。",
                     verify = "性能浮层的帧率读数。",
                 ),
-                targets = listOf("交换链呈现方式与节奏", "DXVK_FRAME_RATE", "按层 setFrameRate"),
-                planned = "M3：新交换链（12 §3.1）",
+                targets = listOf("WINE_ANDROID_FRAME_RATE（交换链呈现方式与节奏）", "DXVK_FRAME_RATE", "按层 setFrameRate"),
+                effect = {
+                    frameRate = it
+                    // The driver's swapchain: every frame shown, only the newest, or spaced by the limit;
+                    // "game" leaves it to the present mode the program asks for.
+                    env("WINE_ANDROID_FRAME_RATE", it)
+                    // DXVK's and vkd3d-proton's own limiter, so they do not render frames the swapchain would hold back.
+                    if (it.toIntOrNull() != null) env("DXVK_FRAME_RATE", it)
+                },
             ),
         )
         add(
@@ -202,11 +209,7 @@ public object SettingsCatalog {
                 targets = listOf("DLL 覆盖 d3d9、d3d10core、d3d11、dxgi"),
                 requires = Component.Dxvk,
                 effect = {
-                    if (it ==
-                        "wined3d"
-                    ) {
-                        listOf("d3d9", "d3d10core", "d3d11", "dxgi").forEach { name -> dll(name, "b") }
-                    }
+                    if (it == "wined3d") listOf("d3d9", "d3d10core", "d3d11", "dxgi").forEach { name -> dll(name, "b") }
                 },
             ),
         )
@@ -1012,25 +1015,6 @@ public object SettingsCatalog {
                 targets = listOf("TU_DEBUG"),
                 requires = Component.Mesa,
                 effect = { if (it.isNotEmpty()) env("TU_DEBUG", it) },
-            ),
-        )
-        add(
-            SettingSpec(
-                id = "debug.gpuDriver",
-                group = g,
-                level = SettingLevel.Developer,
-                type = choice("turnip" to "Turnip", "system" to "系统驱动（对比用）"),
-                default = "turnip",
-                scope = SettingScope.Game,
-                doc =
-                SettingDoc(
-                    title = "GPU 驱动",
-                    summary = "加载哪个 Vulkan 驱动。",
-                    rationale =
-                    "Turnip 是唯一支持的驱动。系统驱动只用来对比：旧仓库的性能基线是在它上面测的，画面出错时切过去能判断是不是 Turnip 的问题。",
-                ),
-                targets = listOf("加载的 Vulkan 库"),
-                requires = Component.Mesa,
             ),
         )
     }

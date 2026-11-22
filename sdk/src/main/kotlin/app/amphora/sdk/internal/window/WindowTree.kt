@@ -43,6 +43,8 @@ internal class WindowTree(
     private val desktopWidth: Int,
     private val desktopHeight: Int,
     private val events: Events,
+    /** The frame rate setting when it is a limit in frames per second, else null. */
+    val frameRateLimit: Int? = null,
 ) : WineDriver.Listener {
     interface Events {
         /** Wine created its desktop; [view] should be shown, sized [desktopWidth]×[desktopHeight]. */
@@ -432,23 +434,27 @@ internal class ClientView(context: Context, val window: WineWindow) :
     override fun surfaceCreated(holder: SurfaceHolder) = Unit // surfaceChanged always follows
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        voteForFastestRefresh()
+        voteForRefreshRate()
         window.tree.surfaceChanged(window.hwnd, holder.surface, true)
     }
 
     /**
-     * Tells the compositor this layer wants the display's fastest refresh
-     * rate; the swapchain's layer under it inherits the vote. Without one a
-     * variable refresh panel runs at what the system guesses from the frames
-     * it sees: the Y700 settled on 60 Hz under a swapchain that shows every
-     * frame, so the program was held to 60. The frame rate setting will choose
-     * the rate once it is wired.
+     * Tells the compositor what refresh rate this layer wants; the
+     * swapchain's layer under it inherits the vote. Under a frame rate limit
+     * that is the limit, so the panel can run at it or a multiple of it;
+     * otherwise the display's fastest. Without a vote a variable refresh
+     * panel runs at what the system guesses from the frames it sees: the Y700
+     * settled on 60 Hz under a swapchain that shows every frame, so the
+     * program was held to 60.
      */
-    private fun voteForFastestRefresh() {
-        val fastest = display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: return
+    private fun voteForRefreshRate() {
+        val rate =
+            window.tree.frameRateLimit?.toFloat()
+                ?: display?.supportedModes?.maxOfOrNull { it.refreshRate }
+                ?: return
         val layer = surfaceControl?.takeIf { it.isValid } ?: return
         SurfaceControl.Transaction().use {
-            it.setFrameRate(layer, fastest, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT).apply()
+            it.setFrameRate(layer, rate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT).apply()
         }
     }
 

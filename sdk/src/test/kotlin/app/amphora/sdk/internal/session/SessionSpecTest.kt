@@ -73,6 +73,7 @@ internal fun sampleSpec(command: List<String> = listOf("notepad.exe"), gameId: S
     desktopHeight = 720,
     scale = "fit",
     dpi = 96,
+    frameRate = "screen",
     logFile = "/data/logs/20261109-103000-test.log",
     recordFile = "/data/sessions/current.json",
     createdAt = 1_762_655_400_000,

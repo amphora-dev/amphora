@@ -14,6 +14,7 @@ internal class ConfigBuilder {
     internal var customResolution: String = ""
     internal var scale: String = "fit"
     internal var dpi: Int = 96
+    internal var frameRate: String = "screen"
     internal var wineDebugCustom: String = ""
     internal var steamAppId: String = ""
 

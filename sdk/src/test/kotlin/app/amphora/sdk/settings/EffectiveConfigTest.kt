@@ -92,6 +92,51 @@ class EffectiveConfigTest {
     }
 
     @Test
+    fun `engine DLL overrides come first, and a setting replaces one of the same name`() {
+        val engine = mapOf("d3d11" to "n", "d3d12" to "n")
+        val config =
+            build(
+                global = mapOf("d3d.d3d11" to "wined3d"),
+                components = setOf(Component.Wine, Component.Dxvk),
+                engineDlls = engine,
+            )
+        assertEquals(
+            listOf(
+                ConfigEntry("d3d11", "b", "d3d.d3d11"),
+                ConfigEntry("d3d12", "n", ConfigEntry.ENGINE),
+                ConfigEntry("d3d9", "b", "d3d.d3d11"),
+                ConfigEntry("d3d10core", "b", "d3d.d3d11"),
+                ConfigEntry("dxgi", "b", "d3d.d3d11"),
+            ),
+            config.dllOverrides,
+        )
+        assertEquals("d3d11=n;d3d12=n", build(engineDlls = engine).envMap()["WINEDLLOVERRIDES"])
+    }
+
+    @Test
+    fun `the frame rate reaches the swapchain, and a limit also reaches DXVK's limiter`() {
+        val default = build()
+        assertEquals("screen", default.frameRate)
+        assertEquals("screen", default.envMap()["WINE_ANDROID_FRAME_RATE"])
+        assertNull(default.envMap()["DXVK_FRAME_RATE"])
+
+        val limited = build(game = mapOf("display.frameRate" to "45"))
+        assertEquals("45", limited.frameRate)
+        assertEquals("45", limited.envMap()["WINE_ANDROID_FRAME_RATE"])
+        assertEquals(
+            ConfigEntry("DXVK_FRAME_RATE", "45", "display.frameRate"),
+            limited.env.single {
+                it.name ==
+                    "DXVK_FRAME_RATE"
+            },
+        )
+
+        val unlimited = build(global = mapOf("display.frameRate" to "unlimited"))
+        assertEquals("unlimited", unlimited.envMap()["WINE_ANDROID_FRAME_RATE"])
+        assertNull(unlimited.envMap()["DXVK_FRAME_RATE"])
+    }
+
+    @Test
     fun `without DLL overrides there is no WINEDLLOVERRIDES`() {
         val config = build()
         assertEquals(emptyList<ConfigEntry>(), config.dllOverrides)
@@ -107,8 +152,8 @@ class EffectiveConfigTest {
 
     @Test
     fun `settings the recipe cannot apply are listed as inactive when changed`() {
-        val withoutDxvk = build(global = mapOf("d3d.d3d11" to "wined3d", "display.frameRate" to "60"))
-        assertEquals(listOf("display.frameRate", "d3d.d3d11"), withoutDxvk.inactive.map { it.spec.id })
+        val withoutDxvk = build(global = mapOf("d3d.d3d11" to "wined3d", "display.hud" to "fps"))
+        assertEquals(listOf("display.hud", "d3d.d3d11"), withoutDxvk.inactive.map { it.spec.id })
         assertEquals(emptyList<ConfigEntry>(), withoutDxvk.dllOverrides)
 
         val withDxvk =
@@ -259,12 +304,13 @@ class EffectiveConfigTest {
         game: Map<String, String> = emptyMap(),
         components: Set<Component> = setOf(Component.Wine),
         detectedAppId: Long? = null,
+        engineDlls: Map<String, String> = emptyMap(),
     ): EffectiveConfig {
         // An explicit locale keeps the result independent of the JVM's default locale.
         val withLocale = if ("wine.locale" in global) global else global + ("wine.locale" to "en_US")
         val resolved =
             SettingsResolver.resolve(SettingsCatalog.all, components, withLocale, GameLayer("g1", game, emptyList()))
-        return EffectiveConfig.build(resolved, ENGINE_ENV, detectedAppId)
+        return EffectiveConfig.build(resolved, ENGINE_ENV, detectedAppId, engineDlls)
     }
 
     private companion object {

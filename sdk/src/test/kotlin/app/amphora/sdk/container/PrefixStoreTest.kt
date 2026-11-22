@@ -1,6 +1,7 @@
 package app.amphora.sdk.container
 
 import app.amphora.sdk.engine.Component
+import app.amphora.sdk.engine.D3dInfo
 import app.amphora.sdk.engine.InstalledRuntime
 import app.amphora.sdk.engine.Recipe
 import app.amphora.sdk.engine.RuntimeArtifact
@@ -10,6 +11,7 @@ import app.amphora.sdk.internal.AmphoraJson
 import app.amphora.sdk.internal.AmphoraPaths
 import app.amphora.sdk.internal.container.PrefixInitializer
 import app.amphora.sdk.internal.container.PrepareStep
+import app.amphora.sdk.internal.container.linkDirect3d
 import app.amphora.sdk.internal.container.linkIdenticalFiles
 import java.io.File
 import java.io.IOException
@@ -349,6 +351,47 @@ class PrefixStoreTest {
             assertFalse(kept, Files.isSymbolicLink(File(tree, kept).toPath()))
         }
         assertEquals("same bytes", File(storeDir, "a/wanted.dll").readText())
+    }
+
+    @Test
+    fun `Direct3D DLLs of the runtime take the place of Wine's in system32 and syswow64`() {
+        val dxvk = D3dInfo("v3.1.1", "a78a467", "lib/wine/dxvk", listOf("d3d11", "dxgi"))
+        val vkd3d = D3dInfo("v3.0.1", "cae2e00", "lib/wine/vkd3d-proton", listOf("d3d12"))
+        val with = runtime.copy(manifest = runtime.manifest.copy(dxvk = dxvk, vkd3d = vkd3d))
+        for (info in listOf(dxvk, vkd3d)) {
+            for (arch in listOf("aarch64-windows", "i386-windows")) {
+                for (name in info.dlls) {
+                    File(with.dir, "${info.dir}/$arch/$name.dll").apply {
+                        parentFile!!.mkdirs()
+                    }.writeText("$arch $name")
+                }
+            }
+        }
+        val tree = temp.newFolder("tree")
+        File(tree, "drive_c/windows/system32").mkdirs()
+        File(tree, "drive_c/windows/syswow64").mkdirs()
+        File(tree, "drive_c/windows/system32/d3d11.dll").writeText("Wine's")
+        File(tree, "drive_c/windows/system32/user32.dll").writeText("Wine's")
+
+        assertEquals(6, linkDirect3d(tree, with))
+
+        assertEquals("aarch64-windows d3d11", File(tree, "drive_c/windows/system32/d3d11.dll").readText())
+        assertEquals("i386-windows dxgi", File(tree, "drive_c/windows/syswow64/dxgi.dll").readText())
+        assertEquals("i386-windows d3d12", File(tree, "drive_c/windows/syswow64/d3d12.dll").readText())
+        val link = File(tree, "drive_c/windows/system32/d3d12.dll").toPath()
+        assertFalse("a relative link", Files.readSymbolicLink(link).isAbsolute)
+        assertEquals("Wine's", File(tree, "drive_c/windows/system32/user32.dll").readText())
+    }
+
+    @Test
+    fun `a runtime without Direct3D implementations links none, and one that lacks a file it names fails`() {
+        val tree = temp.newFolder("tree")
+        File(tree, "drive_c/windows/system32").mkdirs()
+        assertEquals(0, linkDirect3d(tree, runtime))
+
+        val dxvk = D3dInfo("v3.1.1", "a78a467", "lib/wine/dxvk", listOf("d3d11"))
+        val broken = runtime.copy(manifest = runtime.manifest.copy(dxvk = dxvk))
+        assertThrows(IOException::class.java) { linkDirect3d(tree, broken) }
     }
 
     private fun runBlockingPrepare(store: PrefixStore, id: String = "default") {

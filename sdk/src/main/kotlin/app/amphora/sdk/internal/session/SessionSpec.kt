@@ -30,6 +30,8 @@ internal data class SessionSpec(
     val desktopHeight: Int,
     val scale: String,
     val dpi: Int,
+    /** The frame rate setting (`screen`, `game`, `unlimited` or a number), for the host's refresh rate vote. */
+    val frameRate: String,
     val logFile: String,
     val recordFile: String,
     val createdAt: Long,

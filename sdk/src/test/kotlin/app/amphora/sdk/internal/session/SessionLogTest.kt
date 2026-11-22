@@ -76,6 +76,7 @@ class SessionLogTest {
                 customResolution = "",
                 scale = "fit",
                 dpi = 96,
+                frameRate = "screen",
                 args = listOf("-windowed", "My Arg"),
                 steamAppId = null,
                 inactive =
@@ -101,7 +102,7 @@ class SessionLogTest {
                 "amphora: runtime amphora-wine-11.0-test",
                 "amphora: prefix /data/prefixes/default",
                 "amphora: cwd /sdcard/Games/Test",
-                "amphora: desktop 1280x720 scale=fit dpi=96",
+                "amphora: desktop 1280x720 scale=fit dpi=96 frameRate=screen",
                 "amphora: env WINEPREFIX=/data/prefixes/default  [engine]",
                 "amphora: env WINEDEBUG=-all  [debug.wineLog]",
                 "amphora: env refused HOME (engine-owned)",

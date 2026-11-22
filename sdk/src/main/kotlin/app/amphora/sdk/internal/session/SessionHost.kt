@@ -169,6 +169,7 @@ internal object SessionHost : WindowTree.Events {
                     desktop.width,
                     desktop.height,
                     this@SessionHost,
+                    spec.frameRate.toIntOrNull(),
                 )
             this@SessionHost.tree = tree
             WineDriver.start(tree)

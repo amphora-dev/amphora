@@ -5,6 +5,7 @@ import app.amphora.sdk.engine.Component
 import app.amphora.sdk.engine.InstalledRuntime
 import app.amphora.sdk.engine.Recipe
 import app.amphora.sdk.internal.AmphoraPaths
+import app.amphora.sdk.internal.engine.engineDllOverrides
 import app.amphora.sdk.internal.engine.engineEnv
 import app.amphora.sdk.library.Game
 import app.amphora.sdk.session.LaunchTarget
@@ -35,7 +36,13 @@ internal class SessionPlanner(
         val resolved = settings.resolve(game)
         val prefixId = game?.prefixId ?: Game.DEFAULT_PREFIX
         val prefixDir = paths.prefix(prefixId)
-        val config = EffectiveConfig.build(resolved, engineEnv(paths, runtime, prefixDir), game?.detectedAppId)
+        val config =
+            EffectiveConfig.build(
+                resolved,
+                engineEnv(paths, runtime, prefixDir),
+                game?.detectedAppId,
+                engineDllOverrides(runtime),
+            )
 
         val warnings = ArrayList<String>()
         val command: List<String>
@@ -78,6 +85,7 @@ internal class SessionPlanner(
                 desktopHeight = desktop.height,
                 scale = config.scale,
                 dpi = config.dpi,
+                frameRate = config.frameRate,
                 logFile = paths.log(id).path,
                 recordFile = paths.currentSession.path,
                 createdAt = now,

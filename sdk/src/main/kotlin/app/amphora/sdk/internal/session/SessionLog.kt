@@ -27,7 +27,9 @@ internal class SessionLog(private val file: File) {
                 appendLine("${PREFIX}runtime ${spec.runtimeName}")
                 appendLine("${PREFIX}prefix ${spec.prefixDir}")
                 appendLine("${PREFIX}cwd ${spec.workingDir}")
-                appendLine("${PREFIX}desktop ${spec.desktop} scale=${spec.scale} dpi=${spec.dpi}")
+                appendLine(
+                    "${PREFIX}desktop ${spec.desktop} scale=${spec.scale} dpi=${spec.dpi} frameRate=${spec.frameRate}",
+                )
                 config.env.forEach { appendLine("${PREFIX}env ${it.name}=${it.value}  [${it.origin}]") }
                 config.rejectedEnv.forEach { appendLine("${PREFIX}env refused ${it.name} (engine-owned)") }
                 config.inactive.forEach { appendLine("${PREFIX}inactive ${it.spec.id}=${it.value}") }

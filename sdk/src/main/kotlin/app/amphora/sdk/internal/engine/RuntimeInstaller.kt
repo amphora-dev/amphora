@@ -160,7 +160,10 @@ internal class RuntimeInstaller(private val runtimes: File) {
         if (manifest.files != artifact.files) fail("file count ${manifest.files}")
         if (manifest.bytes != artifact.bytes) fail("size ${manifest.bytes}")
         if (manifest.abi != "arm64-v8a") fail("abi ${manifest.abi}")
-        for (path in listOf(manifest.loader, manifest.server) + manifest.libraryPath) {
+        val paths =
+            listOf(manifest.loader, manifest.server) + manifest.libraryPath +
+                listOfNotNull(manifest.dxvk?.dir, manifest.vkd3d?.dir, manifest.mesa?.vulkanDriver)
+        for (path in paths) {
             try {
                 TarReader.normalize(path, TarEntryType.File)
             } catch (_: TarFormatException) {

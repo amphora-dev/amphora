@@ -190,6 +190,9 @@ private fun RuntimeReady(
         KeyValueRow("上游", manifest.wine.upstreamTag)
         KeyValueRow("架构", manifest.wine.archs.joinToString(" "))
         manifest.fex?.let { KeyValueRow("FEX", "${it.version} · ${Formats.shortHash(it.commit)}") }
+        manifest.dxvk?.let { KeyValueRow("DXVK", "${it.version} · ${Formats.shortHash(it.commit)}") }
+        manifest.vkd3d?.let { KeyValueRow("vkd3d-proton", "${it.version} · ${Formats.shortHash(it.commit)}") }
+        manifest.mesa?.let { KeyValueRow("GPU 驱动", "Turnip · Mesa ${it.version}") }
         KeyValueRow("ABI", "${manifest.abi} · API ${manifest.minSdk}+")
         KeyValueRow("配方", recipeId)
         Spacer(Modifier.height(10.dp))

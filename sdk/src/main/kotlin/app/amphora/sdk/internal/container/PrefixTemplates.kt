@@ -54,8 +54,9 @@ internal fun runtimeStamp(runtime: InstalledRuntime): Long =
 /**
  * The template every prefix is made from (12 §3.3): a prefix Wine initialized
  * once, in which each file that is byte-for-byte a runtime file has been
- * replaced by a link to that file. What stays real is the registry and a few
- * small generated files.
+ * replaced by a link to that file, and Wine's Direct3D DLLs by links to the
+ * runtime's DXVK and vkd3d-proton ([linkDirect3d]). What stays real is the
+ * registry and a few small generated files.
  *
  * It is built on the device, once per installed runtime: only the target can
  * run the target's wineboot.
@@ -121,7 +122,7 @@ internal class PrefixTemplates(
         try {
             initializer.initialize(stagingTree, runtime, log)
             deleteTree(File(stagingTree, SERVER_DIR))
-            val linked = linkIdenticalFiles(stagingTree, runtime.dir)
+            val linked = linkIdenticalFiles(stagingTree, runtime.dir) + linkDirect3d(stagingTree, runtime)
             val size = measureTree(stagingTree)
             val record =
                 TemplateRecord(
@@ -195,6 +196,34 @@ internal suspend fun linkIdenticalFiles(tree: File, store: File): Int {
     }
     return linked
 }
+
+/**
+ * Puts the runtime's DXVK and vkd3d-proton into the prefix at [tree], where
+ * Proton copies them at every launch: in place of Wine's DLLs of the same
+ * names in `system32` (the files x86_64 programs load) and `syswow64`
+ * (32-bit). Here they are links like every other system file. Wine's own
+ * stay reachable: a DLL override of `builtin` loads them from the runtime
+ * whatever is in the prefix. Returns how many were linked.
+ */
+internal fun linkDirect3d(tree: File, runtime: InstalledRuntime): Int {
+    var linked = 0
+    for (info in listOfNotNull(runtime.manifest.dxvk, runtime.manifest.vkd3d)) {
+        for ((arch, system) in D3D_DIRS) {
+            // A prefix has no syswow64 when the runtime has no 32-bit side.
+            val dir = File(tree, "drive_c/windows/$system").takeIf { it.isDirectory } ?: continue
+            for (name in info.dlls) {
+                val source = File(runtime.dir, "${info.dir}/$arch/$name.dll")
+                if (!source.isFile) throw IOException("runtime 里没有 ${info.dir}/$arch/$name.dll")
+                linkTo(File(dir, "$name.dll"), source)
+                linked++
+            }
+        }
+    }
+    return linked
+}
+
+/** Where a runtime's PE directory goes in a prefix. */
+private val D3D_DIRS = listOf("aarch64-windows" to "system32", "i386-windows" to "syswow64")
 
 /** Visits everything that is not a directory under [root], without following links. */
 private fun walkFiles(root: Path, visit: (Path, BasicFileAttributes) -> Unit) {

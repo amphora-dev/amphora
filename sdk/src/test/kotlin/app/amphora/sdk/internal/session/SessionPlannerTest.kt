@@ -2,8 +2,10 @@ package app.amphora.sdk.internal.session
 
 import app.amphora.sdk.container.PrefixStore
 import app.amphora.sdk.engine.Component
+import app.amphora.sdk.engine.D3dInfo
 import app.amphora.sdk.engine.FexInfo
 import app.amphora.sdk.engine.InstalledRuntime
+import app.amphora.sdk.engine.MesaInfo
 import app.amphora.sdk.engine.Recipe
 import app.amphora.sdk.engine.RuntimeArtifact
 import app.amphora.sdk.engine.RuntimeManifest
@@ -191,6 +193,27 @@ class SessionPlannerTest {
         assertEquals(emptyList<String>(), warnings(PeArch.Arm64))
         assertEquals(emptyList<String>(), warnings(PeArch.Arm64ec))
         assertEquals(emptyList<String>(), warnings(PeArch.X64, recipe(Component.Wine, Component.Fex)))
+    }
+
+    @Test
+    fun `a runtime with Turnip and Direct3D implementations gets its driver and native overrides`() = runTest {
+        val graphics =
+            InstalledRuntime(
+                manifest().copy(
+                    dxvk = D3dInfo("v3.1.1", "a78a467", "lib/wine/dxvk", listOf("d3d11", "dxgi")),
+                    vkd3d = D3dInfo("v3.0.1", "cae2e00", "lib/wine/vkd3d-proton", listOf("d3d12")),
+                    mesa = MesaInfo("26.3.1", "lib/libvulkan_freedreno.so"),
+                ),
+                runtime.dir,
+            )
+
+        val env = planner().plan(LaunchTarget.Tool(BuiltinTool.Notepad), graphics, NOW).spec.env
+        assertEquals(File(runtime.dir, "lib/libvulkan_freedreno.so").path, env["WINE_ANDROID_VULKAN_HAL"])
+        assertEquals("d3d11=n;dxgi=n;d3d12=n", env["WINEDLLOVERRIDES"])
+
+        val plain = planner().plan(LaunchTarget.Tool(BuiltinTool.Notepad), runtime, NOW).spec.env
+        assertNull(plain["WINE_ANDROID_VULKAN_HAL"])
+        assertNull(plain["WINEDLLOVERRIDES"])
     }
 
     /** A planner over the same stored settings as [settings], for [recipe]. */
