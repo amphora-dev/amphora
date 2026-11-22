@@ -144,5 +144,4 @@ WinNative 那个 Android/Arm64EC 大提交（`986479030a`）没有整体带入�
 
 - Y700 `HA262AAH`：装的是本仓库的 `app.amphora`（debug 包，配方 `2026.11-m3.1`）。runtime 是 **CI 发布版** `amphora-wine-11.0-770268ec7af9-fex-1c4f04b-gfx-400b6f9e`，2026-11-22 16:16 在 App 里从 Release 下载安装（sha256 `0a824070…`），之后没用 `dev/push.sh` 换过文件。里程碑 3 的 AIO 表、快测、里程碑 2 的"进程退出"都是在它上面跑的。帧率设置、切后台是在更早的开发构建上测的（同一份 Wine 源码），没在它上面重测。
 - 游戏库 7 个：`hello64`、`hello32`（`/storage/emulated/0/Download/amphora-test/x86/`），`vktest-arm64`、`vktest64`、`vktest32`（`…/amphora-test/vk/`），`AIO-Graphics-Test-64bit`、`AIO-Graphics-Test-32bit`（`…/amphora-test/aio/`，`amphora-dev` fork 的 2.1.0 构建）。测试脚本每次启动都把这个游戏的按游戏设置整个换掉，所以它们的设置是最后一次测试留下的。
-- `/sdcard/Android/data/app.amphora/files/` 里还留着两个旧 runtime 的侧载归档（155 MiB、153 MiB），可以删。
 - M1 宿主 `app.amphora.next` 已不在设备上，`tools/` 里依赖它的两个工具要重新跑得先装回提交 `4efaf0f` 的宿主。
