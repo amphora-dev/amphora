@@ -25,13 +25,15 @@ import kotlinx.coroutines.launch
  * am start -n app.amphora/.debug.RunActivity --es exe /sdcard/…/Game.exe \
  *     [--es args "--bench 8"] [--es set "display.frameRate=game|debug.dxvkLog=info"]
  * am start -n app.amphora/.debug.RunActivity --es end 1
+ * am start -n app.amphora/.debug.RunActivity --es remove /sdcard/…/Game.exe
  * ```
  *
  * `exe` is added to the library when it is not there. `args` and `set`
  * replace all of the game's own settings, so a run does not depend on what an
  * earlier one left behind. A session that is still running is ended first.
- * The outcome is one line in the system log under [TAG]: `started <id>`,
- * `ended`, or `failed: <why>`.
+ * `remove` takes the game out of the library again, with its prefix and
+ * settings (the exe stays). The outcome is one line in the system log under
+ * [TAG]: `started <id>`, `ended`, `removed`, or `failed: <why>`.
  */
 class RunActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,7 +44,11 @@ class RunActivity : ComponentActivity() {
             val outcome =
                 try {
                     sdk.sessions.end()
-                    if (intent.hasExtra("end")) "ended" else run(sdk)
+                    when {
+                        intent.hasExtra("end") -> "ended"
+                        intent.hasExtra("remove") -> remove(sdk)
+                        else -> run(sdk)
+                    }
                 } catch (e: IllegalStateException) {
                     "failed: ${e.message}"
                 }
@@ -72,6 +78,14 @@ class RunActivity : ComponentActivity() {
             LaunchResult.RuntimeNotReady -> "failed: the runtime is not installed"
             is LaunchResult.Failed -> "failed: ${result.message}"
         }
+    }
+
+    private suspend fun remove(sdk: AmphoraSdk): String {
+        val path = File(intent.getStringExtra("remove").orEmpty()).absolutePath
+        val game = sdk.library.games.filterNotNull().first().firstOrNull { it.exePath == path }
+            ?: error("$path is not in the library")
+        sdk.library.remove(game.id)?.let { error(it) }
+        return "removed"
     }
 
     private suspend fun applySettings(sdk: AmphoraSdk, game: Game) {

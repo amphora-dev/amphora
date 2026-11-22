@@ -8,8 +8,10 @@
 #                              start <exe> as a game (added to the library when it is not
 #                              there) with exactly these per-game settings; ends a session
 #                              that is still running first. <exe> is a path on the device;
-#                              a relative one is under /sdcard/Download/amphora-test/.
+#                              a relative one is under Download/amphora-test/ on shared
+#                              storage.
 #   run.sh end                 end the running session
+#   run.sh remove <exe>        take the game out of the library, with its prefix and settings
 #   run.sh wait-line <file> <regex> [seconds]
 #                              wait until a file in the app's data directory has a line
 #                              matching <regex> (default 30 s); fails when it does not
@@ -22,16 +24,27 @@
 #   run.sh cat <file>          print a file in the app's data directory
 #   run.sh log [lines]         tail of the newest session log (without the environment)
 #   run.sh shot <file.png>     screenshot
-#   run.sh drawn <file.png>    whether a screenshot shows AIO's cube: prints the share of
-#                              the screen in the saturated colors of its faces; fails below 3%
+#   run.sh drawn <file.png>    whether a screenshot shows AIO's cube: it must be of the
+#                              session's desktop, with AIO's window on it, and something
+#                              drawn over at least 10% of the window's clear color
 #
 # A session needs the screen: `start` wakes the device and leaves the lock screen
 # (no PIN). ANDROID_SERIAL picks the device (default: the Y700).
 set -uo pipefail
 S="${ANDROID_SERIAL:-HA262AAH}"
 PKG=app.amphora
-ROOT=/sdcard/Download/amphora-test
+# The path the app's file picker gives, not /sdcard: the library goes by the path, and
+# the same exe under two spellings would be two games.
+ROOT=/storage/emulated/0/Download/amphora-test
 sh() { adb -s "$S" shell "$@"; }
+# exe_path <exe>: absolute, in the picker's spelling
+exe_path() {
+  case "$1" in
+    /sdcard/*) echo "/storage/emulated/0/${1#/sdcard/}" ;;
+    /*) echo "$1" ;;
+    *) echo "$ROOT/$1" ;;
+  esac
+}
 
 # poll <seconds> <device command that succeeds when done>
 poll() {
@@ -40,8 +53,7 @@ poll() {
 
 case "${1:-}" in
   start)
-    exe="${2:?run.sh start <exe>}"
-    case "$exe" in /*) ;; *) exe="$ROOT/$exe" ;; esac
+    exe="$(exe_path "${2:?run.sh start <exe>}")"
     set_extra="$(IFS='|'; echo "${*:4}")"
     sh 'input keyevent KEYCODE_WAKEUP
         if dumpsys window | grep -q "isKeyguardShowing=true"; then
@@ -61,6 +73,13 @@ case "${1:-}" in
     adb -s "$S" logcat -c
     sh "am start -n $PKG/.debug.RunActivity --es end 1" >/dev/null
     poll 20 "logcat -d -s AmphoraRun | grep -q ended" || { echo "run.sh: the session did not end" >&2; exit 1; } ;;
+  remove)
+    adb -s "$S" logcat -c
+    sh "am start -n $PKG/.debug.RunActivity --es remove '$(exe_path "${2:?run.sh remove <exe>}")'" >/dev/null
+    poll 20 "logcat -d -s AmphoraRun | grep -q -e removed -e failed" || { echo "run.sh: the app did not answer" >&2; exit 1; }
+    line="$(sh "logcat -d -s AmphoraRun" | grep -e removed -e failed | tail -n 1 | sed 's/.*AmphoraRun: //')"
+    echo "$line"
+    case "$line" in removed*) ;; *) exit 1 ;; esac ;;
   wait-line)
     poll "${4:-30}" "run-as $PKG grep -q -E '${3:?regex}' '${2:?file}' 2>/dev/null" ;;
   wait-any)
@@ -84,19 +103,38 @@ offset, = struct.unpack_from("<I", data, 10)
 width, height, _, bits = struct.unpack_from("<iiHH", data, 18)
 step, height = bits // 8, abs(height)
 row = (width * step + 3) & ~3
-vivid = 0
-for y in range(height):
-    line = data[offset + y * row: offset + y * row + width * step]
-    for x in range(0, len(line), step):
-        b, g, r = line[x], line[x + 1], line[x + 2]
-        # The cube's faces are saturated colors. The desktop is a dull teal and the window's
-        # background near black; the active title bar, (51, 153, 255), is the one other vivid thing.
-        if max(r, g, b) > 180 and max(r, g, b) - min(r, g, b) > 100:
-            vivid += not (abs(r - 51) < 30 and abs(g - 153) < 30 and b > 225)
-share = 100.0 * vivid / (width * height)
-print(f"the cube covers {share:.1f}% of the screen")
-sys.exit(0 if share >= 3.0 else 1)
+pixels = [
+    [(line[x + 2], line[x + 1], line[x]) for x in range(0, width * step, step)]
+    for line in (data[offset + y * row: offset + (y + 1) * row] for y in range(height))
+]
+near = lambda p, q, by: all(abs(a - b) <= by for a, b in zip(p, q))
+# Wine's desktop color: a lot of it says this is the session, not one of the app's screens
+# or the launcher's wallpaper (which is colorful enough to pass for anything).
+desktop = sum(near(p, (37, 111, 149), 9) for line in pixels for p in line)
+if 100.0 * desktop / (width * height) < 30.0:
+    print(f"not the session's desktop (its color covers {100.0 * desktop / (width * height):.1f}% of the screen)")
+    sys.exit(1)
+# AIO's window is where its clear color is: (26, 26, 31) behind the Direct3D cubes,
+# (51, 51, 51) behind the Vulkan one.
+clear = [[near(p, (26, 26, 31), 4) or near(p, (51, 51, 51), 4) for p in line] for line in pixels]
+rows = [y for y in range(height) if sum(clear[y]) >= width // 20]
+columns = [x for x in range(width) if sum(clear[y][x] for y in range(height)) >= height // 20]
+if not rows or not columns:
+    print("no AIO window on the desktop")
+    sys.exit(1)
+# The cube is what is in there besides the clear color: saturated faces (Direct3D) or gray
+# ones with a teal logo (Vulkan). Not the frame rate's black box, nor the light result
+# dialog and its blue title bar when the run is already over.
+cube = area = 0
+for y in range(rows[0], rows[-1] + 1):
+    for x in range(columns[0], columns[-1] + 1):
+        area += 1
+        r, g, b = pixels[y][x]
+        cube += not (clear[y][x] or max(r, g, b) < 60 or min(r, g, b) > 190 or near((r, g, b), (51, 153, 255), 30))
+share = 100.0 * cube / area
+print(f"the cube covers {share:.0f}% of AIO's window")
+sys.exit(0 if share >= 10.0 else 1)
 PY
     status=$?; rm -f "$bmp"; exit $status ;;
-  *) sed -n '2,28p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,32p' "$0" >&2; exit 2 ;;
 esac

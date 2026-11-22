@@ -12,6 +12,11 @@
 # vkd3d-proton's log is on (debug.dxvkLog=info) to show their versions and the
 # driver; that costs nothing per frame. A number says frames were presented,
 # not that the cube was drawn: the script checks the screenshot for it.
+# The CPU limits in force mid-run are printed with the number, because the number
+# depends on them: the Y700 holds a full-screen game's CPUs at 1996800 and 2246400 kHz
+# (of 3532800 and 4320000), and after a few minutes of tests, with its case near 40 C,
+# the second limit drops to 1958400 and the Direct3D numbers with it, by some 20%.
+# Compare numbers taken at the same limits; let the device cool down otherwise.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RUN="$HERE/run.sh"
@@ -29,6 +34,8 @@ echo "== $bits-bit $api (${settings[*]})"
 if "$RUN" wait-log 'wineandroid.drv: handle_create' 30; then
   sleep $((bench / 2))
   "$RUN" shot "$shot"
+  echo "CPU limits: $(adb -s "$S" shell 'for p in /sys/devices/system/cpu/cpufreq/policy*; do
+    printf "%s of %s kHz  " "$(cat $p/scaling_max_freq)" "$(cat $p/cpuinfo_max_freq)"; done')"
   "$RUN" drawn "$shot" || echo "THE CUBE IS NOT DRAWN: $shot"
   "$RUN" wait-any "$results" '*.txt' $((bench + 20)) | sed 's/$/  (average|lowest|highest fps)/' || echo "no benchmark result"
 else
