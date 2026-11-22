@@ -21,6 +21,10 @@ internal fun engineEnv(paths: AmphoraPaths, runtime: InstalledRuntime, prefixDir
         // Prefix files are links into the runtime; the wineserver gives the prefix
         // its own copy before one is modified (12 §3.3).
         "WINE_COW_STORE" to runtime.dir.path,
+        // Proton's fullscreen hack renders at the game's resolution and scales to the screen
+        // inside the swapchain. Here the desktop has the game's size and the host scales the
+        // layer (12 §3.1), so the swapchain must stay the one the driver made.
+        "WINE_DISABLE_FULLSCREEN_HACK" to "1",
     ).apply {
         if (runtime.manifest.fex != null) {
             // FEX's defaults (Valve's, shipped in the runtime), as Proton sets it. FEX opens

@@ -10,6 +10,7 @@
     <application
         android:name=".AmphoraApp"
         android:allowBackup="false"
+        android:appCategory="game"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="false"

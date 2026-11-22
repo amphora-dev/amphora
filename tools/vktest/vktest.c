@@ -13,6 +13,8 @@
  *                                    on screen: a window, a surface, a swapchain,
  *                                    N frames (default 600, 0 = until closed) of a
  *                                    spinning triangle, then the frame rate.
+ *   --log FILE                       also append the report to FILE (a session
+ *                                    started by the app has no stdout to read).
  *
  * Every step prints a line; exit code 0 = all passed.
  */
@@ -401,8 +403,8 @@ static int create_pipeline(VkFormat format, VkImageLayout final_layout, VkRender
     return 1;
 }
 
-static void record_frame(VkRenderPass pass, VkPipeline pipeline, VkFramebuffer framebuffer, uint32_t width,
-                         uint32_t height, const VkClearValue *clear, const struct push *push)
+static void record_frame(VkCommandBuffer cmd, VkRenderPass pass, VkPipeline pipeline, VkFramebuffer framebuffer,
+                         uint32_t width, uint32_t height, const VkClearValue *clear, const struct push *push)
 {
     VkCommandBufferBeginInfo begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     VkRenderPassBeginInfo pass_begin = {.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -504,7 +506,7 @@ static int run_offscreen(void)
 
     VkClearValue clear = {.color = {.float32 = {0.0f, 0.0f, 1.0f, 1.0f}}};
     struct push push = {0.0f, 1.0f, 0.0f};
-    record_frame(pass, pipeline, framebuffer, SIZE, SIZE, &clear, &push);
+    record_frame(cmd, pass, pipeline, framebuffer, SIZE, SIZE, &clear, &push);
     VkBufferImageCopy copy = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
                               .imageExtent = {SIZE, SIZE, 1}};
     vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &copy);
@@ -549,6 +551,7 @@ out:
 /* On screen. */
 
 static int closed;
+static unsigned clicks;
 
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -560,6 +563,10 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         return 0;
     case WM_KEYDOWN:
         if (wparam == VK_ESCAPE) closed = 1;
+        return 0;
+    case WM_LBUTTONDOWN:
+        /* shown in the title: does input over the client area, which the swapchain covers, arrive? */
+        clicks++;
         return 0;
     }
     return DefWindowProcA(hwnd, msg, wparam, lparam);
@@ -645,9 +652,10 @@ static int create_swapchain(VkSurfaceKHR surface, VkSurfaceFormatKHR format, VkP
 
     sc->format = format.format;
     sc->extent = caps.currentExtent;
-    sc->count = 16;
+    /* VK_INCOMPLETE would mean more images than the arrays hold; the frames drawn into the rest would be lost. */
+    sc->count = sizeof(sc->images) / sizeof(sc->images[0]);
     res = vkGetSwapchainImagesKHR(device, sc->handle, &sc->count, sc->images);
-    if (res < 0) { sc->count = 0; check(0, "vkGetSwapchainImagesKHR res %d", res); return 0; }
+    if (res) { sc->count = 0; check(0, "vkGetSwapchainImagesKHR res %d", res); return 0; }
 
     for (uint32_t i = 0; i < sc->count; i++)
     {
@@ -685,8 +693,15 @@ static int run_window(uint32_t frames, const char *want_mode, int width, int hei
     VkPresentModeKHR modes[16], mode = VK_PRESENT_MODE_FIFO_KHR;
     VkRenderPass pass = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
-    VkSemaphore acquired = VK_NULL_HANDLE, rendered = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    /* Frames in flight: the CPU records frame N+1 while the GPU draws frame N, as a game does. */
+    enum { SLOTS = 3 };
+    struct
+    {
+        VkCommandBuffer cmd;
+        VkSemaphore acquired, rendered;
+        VkFence fence;
+        int pending;
+    } slots[SLOTS] = {{0}}, *slot;
     struct swapchain sc = {0};
     uint32_t count, done = 0, recreated = 0;
     LARGE_INTEGER freq, start, now, last;
@@ -743,9 +758,18 @@ static int run_window(uint32_t frames, const char *want_mode, int width, int hei
 
     VkSemaphoreCreateInfo semaphore_info = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     VkFenceCreateInfo fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    vkCreateSemaphore(device, &semaphore_info, NULL, &acquired);
-    vkCreateSemaphore(device, &semaphore_info, NULL, &rendered);
-    vkCreateFence(device, &fence_info, NULL, &fence);
+    VkCommandBufferAllocateInfo cmd_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                                            .commandPool = pool,
+                                            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                                            .commandBufferCount = 1};
+    for (int i = 0; i < SLOTS; i++)
+    {
+        res = vkAllocateCommandBuffers(device, &cmd_info, &slots[i].cmd);
+        if (!res) res = vkCreateSemaphore(device, &semaphore_info, NULL, &slots[i].acquired);
+        if (!res) res = vkCreateSemaphore(device, &semaphore_info, NULL, &slots[i].rendered);
+        if (!res) res = vkCreateFence(device, &fence_info, NULL, &slots[i].fence);
+        if (res) { check(0, "frame slot %d res %d", i, res); goto out; }
+    }
 
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&start);
@@ -770,7 +794,16 @@ static int run_window(uint32_t frames, const char *want_mode, int width, int hei
             continue;
         }
 
-        res = vkAcquireNextImageKHR(device, sc.handle, 2000000000ull, acquired, VK_NULL_HANDLE, &index);
+        /* The slot's previous frame must be off the GPU before its command buffer and semaphores are reused. */
+        slot = &slots[done % SLOTS];
+        if (slot->pending)
+        {
+            vkWaitForFences(device, 1, &slot->fence, VK_TRUE, 5000000000ull);
+            vkResetFences(device, 1, &slot->fence);
+            slot->pending = 0;
+        }
+
+        res = vkAcquireNextImageKHR(device, sc.handle, 2000000000ull, slot->acquired, VK_NULL_HANDLE, &index);
         if (res == VK_ERROR_OUT_OF_DATE_KHR)
         {
             recreated++;
@@ -787,31 +820,30 @@ static int run_window(uint32_t frames, const char *want_mode, int width, int hei
         double t = (double)(now.QuadPart - start.QuadPart) / (double)freq.QuadPart;
         VkClearValue clear = {.color = {.float32 = {0.05f, 0.05f, 0.12f, 1.0f}}};
         struct push push = {(float)t * 1.5f, (float)sc.extent.height / (float)sc.extent.width, 1.0f};
-        record_frame(pass, pipeline, sc.framebuffers[index], sc.extent.width, sc.extent.height, &clear, &push);
-        vkEndCommandBuffer(cmd);
+        record_frame(slot->cmd, pass, pipeline, sc.framebuffers[index], sc.extent.width, sc.extent.height, &clear,
+                     &push);
+        vkEndCommandBuffer(slot->cmd);
 
         VkPipelineStageFlags stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         VkSubmitInfo submit = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                                .waitSemaphoreCount = 1,
-                               .pWaitSemaphores = &acquired,
+                               .pWaitSemaphores = &slot->acquired,
                                .pWaitDstStageMask = &stage,
                                .commandBufferCount = 1,
-                               .pCommandBuffers = &cmd,
+                               .pCommandBuffers = &slot->cmd,
                                .signalSemaphoreCount = 1,
-                               .pSignalSemaphores = &rendered};
-        res = vkQueueSubmit(queue, 1, &submit, fence);
+                               .pSignalSemaphores = &slot->rendered};
+        res = vkQueueSubmit(queue, 1, &submit, slot->fence);
         if (res) { check(0, "vkQueueSubmit res %d at frame %u", res, done); break; }
+        slot->pending = 1;
 
         VkPresentInfoKHR present = {.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                                     .waitSemaphoreCount = 1,
-                                    .pWaitSemaphores = &rendered,
+                                    .pWaitSemaphores = &slot->rendered,
                                     .swapchainCount = 1,
                                     .pSwapchains = &sc.handle,
                                     .pImageIndices = &index};
         res = vkQueuePresentKHR(queue, &present);
-        /* The command buffer is reused next frame. */
-        vkWaitForFences(device, 1, &fence, VK_TRUE, 5000000000ull);
-        vkResetFences(device, 1, &fence);
         if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
         {
             recreated++;
@@ -827,8 +859,8 @@ static int run_window(uint32_t frames, const char *want_mode, int width, int hei
         since = (uint32_t)((now.QuadPart - last.QuadPart) * 1000 / freq.QuadPart);
         if (since >= 1000)
         {
-            snprintf(title, sizeof(title), "vktest (%s) %ux%u %s frame %u", arch(), sc.extent.width,
-                     sc.extent.height, mode_name(mode), done);
+            snprintf(title, sizeof(title), "vktest (%s) %ux%u %s frame %u clicks %u", arch(), sc.extent.width,
+                     sc.extent.height, mode_name(mode), done, clicks);
             SetWindowTextA(hwnd, title);
             last = now;
         }
@@ -843,9 +875,12 @@ static int run_window(uint32_t frames, const char *want_mode, int width, int hei
 
 out:
     if (device) vkDeviceWaitIdle(device);
-    if (fence) vkDestroyFence(device, fence, NULL);
-    if (acquired) vkDestroySemaphore(device, acquired, NULL);
-    if (rendered) vkDestroySemaphore(device, rendered, NULL);
+    for (int i = 0; i < SLOTS; i++)
+    {
+        if (slots[i].fence) vkDestroyFence(device, slots[i].fence, NULL);
+        if (slots[i].acquired) vkDestroySemaphore(device, slots[i].acquired, NULL);
+        if (slots[i].rendered) vkDestroySemaphore(device, slots[i].rendered, NULL);
+    }
     destroy_swapchain_views(&sc);
     if (sc.handle) vkDestroySwapchainKHR(device, sc.handle, NULL);
     if (pipeline) vkDestroyPipeline(device, pipeline, NULL);
@@ -859,7 +894,7 @@ int main(int argc, char **argv)
 {
     int quiet = 0, window = 0, width = 640, height = 480;
     uint32_t frames = 600;
-    const char *mode = NULL;
+    const char *mode = NULL, *log = NULL;
 
     for (int i = 1; i < argc; i++)
     {
@@ -868,6 +903,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--frames") && i + 1 < argc) frames = (uint32_t)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--mode") && i + 1 < argc) mode = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) sscanf(argv[++i], "%dx%d", &width, &height);
+        else if (!strcmp(argv[i], "--log") && i + 1 < argc) log = argv[++i];
     }
 
     note("vktest %s, %s", arch(), window ? "on screen" : "off screen");
@@ -889,6 +925,15 @@ int main(int argc, char **argv)
     if (instance) vkDestroyInstance(instance, NULL);
 
     note("%s (%d failed)", failures ? "FAIL" : "PASS", failures);
+    if (log)
+    {
+        FILE *file = fopen(log, "a");
+        if (file)
+        {
+            fputs(report, file);
+            fclose(file);
+        }
+    }
     if (!quiet && !window)
         MessageBoxA(NULL, report, failures ? "vktest: FAIL" : "vktest: PASS", MB_OK | (failures ? MB_ICONERROR : MB_ICONINFORMATION));
     return failures ? 1 : 0;

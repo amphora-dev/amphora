@@ -11,6 +11,9 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.Surface
+import android.view.SurfaceControl
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
@@ -27,9 +30,12 @@ import app.amphora.sdk.internal.driver.WineDriver
  * Every Wine window gets two [WindowGroup]s: the whole window (positioned at
  * its visible rect inside the parent's client group) and its client area.
  * Top-level windows and the desktop draw into a [WineView] (a TextureView)
- * whose surface Wine renders to; OpenGL windows get a second view for the
- * client area. Views are created with the application context, so the tree
- * can move to a new activity instance without being rebuilt.
+ * whose surface Wine renders to. A window that Vulkan or OpenGL draws into
+ * gets a [ClientView] (a SurfaceView) over its client area: the driver puts
+ * swapchain images straight onto a layer in it (12 §3.1), so a game's frames
+ * go to the compositor without passing through the app's own drawing. Views
+ * are created with the application context, so the tree can move to a new
+ * activity instance without being rebuilt.
  */
 internal class WindowTree(
     private val context: Context,
@@ -149,6 +155,9 @@ internal class WindowTree(
     internal fun surfaceChanged(hwnd: Int, surface: Surface, opengl: Boolean) =
         port.surfaceChanged(hwnd, surface, opengl)
 
+    /** A client view's surface is gone (the activity stopped, the view left the tree). */
+    internal fun clientSurfaceLost(hwnd: Int) = port.surfaceChanged(hwnd, null, true)
+
     internal fun motion(hwnd: Int, action: Int, x: Int, y: Int, buttons: Int, vscroll: Int): Boolean =
         port.motion(hwnd, action, x, y, buttons, vscroll)
 
@@ -180,9 +189,7 @@ internal class WineWindow(val tree: WindowTree, val hwnd: Int, parent: WineWindo
     var clientGroup: WindowGroup? = null
         private set
     private var windowSurface: Surface? = null
-    private var clientSurface: Surface? = null
     private var windowTexture: SurfaceTexture? = null
-    private var clientTexture: SurfaceTexture? = null
 
     init {
         tree.register(this)
@@ -233,13 +240,25 @@ internal class WineWindow(val tree: WindowTree, val hwnd: Int, parent: WineWindo
             createWindowGroups()
             windowGroup!!
         }
-        whole.createView(isClient = false).layout(0, 0, visibleRect.width(), visibleRect.height())
+        whole.createView().layout(0, 0, visibleRect.width(), visibleRect.height())
+        raiseClientView()
         return whole
     }
 
     fun createClientView() {
         val client = clientGroup ?: createWindowGroups()
-        client.createView(isClient = true).layout(0, 0, clientRect.width(), clientRect.height())
+        client.createClientView().layout(0, 0, clientRect.width(), clientRect.height())
+        raiseClientView()
+    }
+
+    /**
+     * A SurfaceView shows through a hole it makes in what the app window drew
+     * below it, so the client view goes above the window's own picture: where
+     * Vulkan draws, the window surface has nothing to add.
+     */
+    private fun raiseClientView() {
+        val client = clientGroup ?: return
+        if (client.contentView is ClientView && windowGroup?.contentView != null) client.bringToFront()
     }
 
     private fun addViewToParent() {
@@ -332,24 +351,14 @@ internal class WineWindow(val tree: WindowTree, val hwnd: Int, parent: WineWindo
         if (visible && windowGroup != null) addViewToParent()
     }
 
-    fun setSurface(texture: SurfaceTexture?, isClient: Boolean) {
-        if (isClient) {
-            if (texture == null) {
-                clientSurface = null
-            } else if (texture !== clientTexture) {
-                clientTexture = texture
-                clientSurface = Surface(texture)
-            }
-            clientSurface?.let { tree.surfaceChanged(hwnd, it, true) }
-        } else {
-            if (texture == null) {
-                windowSurface = null
-            } else if (texture !== windowTexture) {
-                windowTexture = texture
-                windowSurface = Surface(texture)
-            }
-            windowSurface?.let { tree.surfaceChanged(hwnd, it, false) }
+    fun setSurface(texture: SurfaceTexture?) {
+        if (texture == null) {
+            windowSurface = null
+        } else if (texture !== windowTexture) {
+            windowTexture = texture
+            windowSurface = Surface(texture)
         }
+        windowSurface?.let { tree.surfaceChanged(hwnd, it, false) }
     }
 
     /** Event position in the parent's client coordinates (desktop coordinates for top-level windows). */
@@ -364,7 +373,8 @@ internal class WineWindow(val tree: WindowTree, val hwnd: Int, parent: WineWindo
 /** A Wine window's whole or client area, optionally holding its [WineView]. */
 @SuppressLint("ViewConstructor")
 internal class WindowGroup(context: Context, val window: WineWindow) : ViewGroup(context) {
-    var contentView: WineView? = null
+    /** A [WineView] for a whole window, a [ClientView] for a client area. */
+    var contentView: View? = null
         private set
 
     init {
@@ -380,9 +390,17 @@ internal class WindowGroup(context: Context, val window: WineWindow) : ViewGroup
         contentView?.layout(0, 0, right - left, bottom - top)
     }
 
-    fun createView(isClient: Boolean): WineView {
+    fun createView(): View {
         contentView?.let { return it }
-        val view = WineView(context, window, isClient)
+        val view = WineView(context, window)
+        addView(view)
+        contentView = view
+        return view
+    }
+
+    fun createClientView(): View {
+        contentView?.let { return it }
+        val view = ClientView(context, window)
         addView(view)
         contentView = view
         return view
@@ -394,9 +412,54 @@ internal class WindowGroup(context: Context, val window: WineWindow) : ViewGroup
     }
 }
 
-/** A surface Wine draws one window (or its OpenGL client area) into. */
+/**
+ * The client area of a window that Vulkan (or OpenGL) draws into. Its surface
+ * goes to the driver, which adds a layer to it for the swapchain's images; the
+ * view itself draws nothing and takes no input, which goes to the window's
+ * [WineView] underneath.
+ */
 @SuppressLint("ViewConstructor")
-internal class WineView(context: Context, val window: WineWindow, private val isClient: Boolean) :
+internal class ClientView(context: Context, val window: WineWindow) :
+    SurfaceView(context),
+    SurfaceHolder.Callback {
+    init {
+        holder.addCallback(this)
+        visibility = VISIBLE
+        isFocusable = false
+        isFocusableInTouchMode = false
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) = Unit // surfaceChanged always follows
+
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        voteForFastestRefresh()
+        window.tree.surfaceChanged(window.hwnd, holder.surface, true)
+    }
+
+    /**
+     * Tells the compositor this layer wants the display's fastest refresh
+     * rate; the swapchain's layer under it inherits the vote. Without one a
+     * variable refresh panel runs at what the system guesses from the frames
+     * it sees: the Y700 settled on 60 Hz under a swapchain that shows every
+     * frame, so the program was held to 60. The frame rate setting will choose
+     * the rate once it is wired.
+     */
+    private fun voteForFastestRefresh() {
+        val fastest = display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: return
+        val layer = surfaceControl?.takeIf { it.isValid } ?: return
+        SurfaceControl.Transaction().use {
+            it.setFrameRate(layer, fastest, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT).apply()
+        }
+    }
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        window.tree.clientSurfaceLost(window.hwnd)
+    }
+}
+
+/** A surface Wine draws one window into. */
+@SuppressLint("ViewConstructor")
+internal class WineView(context: Context, val window: WineWindow) :
     TextureView(context),
     TextureView.SurfaceTextureListener {
     private val tree: WindowTree get() = window.tree
@@ -405,20 +468,20 @@ internal class WineView(context: Context, val window: WineWindow, private val is
         surfaceTextureListener = this
         visibility = VISIBLE
         isOpaque = false
-        isFocusable = !isClient
-        isFocusableInTouchMode = !isClient
+        isFocusable = true
+        isFocusableInTouchMode = true
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-        window.setSurface(surface, isClient)
+        window.setSurface(surface)
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-        window.setSurface(surface, isClient)
+        window.setSurface(surface)
     }
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-        window.setSurface(null, isClient)
+        window.setSurface(null)
         // Keep the texture: Wine may still be drawing into it.
         return false
     }
@@ -429,7 +492,7 @@ internal class WineView(context: Context, val window: WineWindow, private val is
         tree.cursor ?: super.onResolvePointerIcon(event, pointerIndex)
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        if (isClient || !window.takesInput) return false
+        if (!window.takesInput) return false
         if (event.source and InputDevice.SOURCE_CLASS_POINTER == 0) return super.onGenericMotionEvent(event)
         // Some devices also report the primary button through touch down/up;
         // passing both gives Wine duplicate clicks and a confused button state.
@@ -451,7 +514,7 @@ internal class WineView(context: Context, val window: WineWindow, private val is
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (isClient || !window.takesInput) return false
+        if (!window.takesInput) return false
         return tree.motion(window.hwnd, event.action, window.eventX(event), window.eventY(event), event.buttonState, 0)
     }
 
@@ -461,7 +524,7 @@ internal class WineView(context: Context, val window: WineWindow, private val is
     }
 
     /** The desktop's view is where the soft keyboard types, while it is asked for. */
-    override fun onCheckIsTextEditor(): Boolean = !isClient && window === tree.desktop && tree.softKeyboard
+    override fun onCheckIsTextEditor(): Boolean = window === tree.desktop && tree.softKeyboard
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
         if (!onCheckIsTextEditor()) return null
