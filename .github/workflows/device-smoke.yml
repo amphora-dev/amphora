@@ -1,0 +1,112 @@
+# End-to-end Android 15 + Wine + FEX + Vulkan/DXVK/vkd3d-proton smoke tests
+# on the OCI Arm cloud test node (isolated redroid-ci container + Mesa 26.3.1
+# Lavapipe). Turnip and real-device performance remain verified on the Y700.
+#
+# Security: never runs on untrusted fork pull requests (secrets stay protected).
+name: device-smoke
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
+  pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Test suite: cloud (13 tests), quick (8 tests), or space-separated test names"
+        type: string
+        default: "cloud"
+      bench:
+        description: "AIO benchmark seconds per test"
+        type: string
+        default: "4"
+
+# Only one run may drive redroid-ci at a time; queue instead of canceling.
+concurrency:
+  group: oci-redroid-ci
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # Block external fork PRs from accessing OCI SSH secrets.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Build debug APK
+        run: ./gradlew --console=plain assembleDebug
+
+      - name: Configure OCI SSH key
+        env:
+          OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+          OCI_HOST: ${{ secrets.OCI_HOST }}
+        run: |
+          if [ -z "$OCI_HOST" ] || [ -z "$OCI_SSH_KEY" ]; then
+            echo "OCI_HOST / OCI_SSH_KEY secrets are not configured" >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$OCI_SSH_KEY" > ~/.ssh/oci_ci_ed25519
+          chmod 600 ~/.ssh/oci_ci_ed25519
+          ssh-keyscan -H "$OCI_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          cat > ~/.ssh/config <<EOF
+          Host oci-ci
+            HostName $OCI_HOST
+            User ${{ secrets.OCI_USER || 'ubuntu' }}
+            IdentityFile ~/.ssh/oci_ci_ed25519
+            StrictHostKeyChecking accept-new
+            ServerAliveInterval 30
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Run cloud device smoke tests
+        id: smoke
+        env:
+          SUITE: ${{ inputs.suite || 'cloud' }}
+          BENCH: ${{ inputs.bench || '4' }}
+        run: |
+          mkdir -p cloud-out
+          chmod +x tools/device/cloud-smoke.sh
+          # Intentional word splitting so SUITE can be "cloud", "quick", or "hello64 vk-x64".
+          # shellcheck disable=SC2086
+          rc=0
+          tools/device/cloud-smoke.sh \
+            --ssh oci-ci \
+            --apk app/build/outputs/apk/debug/app-debug.apk \
+            --out cloud-out \
+            $SUITE || rc=$?
+          if [ -f cloud-out/smoke.txt ]; then
+            {
+              echo "### Cloud Device Smoke Results (\`redroid-ci\` · Mesa 26.3.1 Lavapipe)"
+              echo '```text'
+              cat cloud-out/smoke.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
+
+      - name: Upload device smoke logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cloud-out/
+          if-no-files-found: ignore
+          retention-days: 7

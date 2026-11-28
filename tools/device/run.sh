@@ -85,32 +85,85 @@ case "${1:-}" in
   log) sh "run-as $PKG sh -c 'cd files/amphora/logs; f=\$(ls | tail -1); echo \$f; grep -v \"amphora: env\" \$f | tail -${2:-40}'" ;;
   shot) adb -s "$S" exec-out screencap -p > "${2:?file.png}" ;;
   drawn)
-    # sips ships with macOS; a BMP is the simplest thing to read without an image library
-    bmp="$(mktemp -t amphora-shot).bmp"
-    sips -Z 400 -s format bmp "${2:?file.png}" --out "$bmp" >/dev/null || exit 1
-    python3 - "$bmp" <<'PY'
-import struct, sys
-data = open(sys.argv[1], "rb").read()
-offset, = struct.unpack_from("<I", data, 10)
-width, height, _, bits = struct.unpack_from("<iiHH", data, 18)
-step, height = bits // 8, abs(height)
-row = (width * step + 3) & ~3
-pixels = [
-    [(line[x + 2], line[x + 1], line[x]) for x in range(0, width * step, step)]
-    for line in (data[offset + y * row: offset + (y + 1) * row] for y in range(height))
-]
+    # Pure Python stdlib PNG decoder (works on both macOS and Linux, no sips/Pillow needed).
+    python3 - "${2:?file.png}" <<'PY'
+import struct, sys, zlib
+
+raw = open(sys.argv[1], "rb").read()
+if raw[:8] != b"\x89PNG\r\n\x1a\n":
+    print("not a PNG screenshot")
+    sys.exit(1)
+
+pos = 8
+width = height = bit_depth = color_type = 0
+idat = bytearray()
+while pos < len(raw):
+    length, ctype = struct.unpack_from(">I4s", raw, pos)
+    data = raw[pos + 8: pos + 8 + length]
+    pos += 12 + length
+    if ctype == b"IHDR":
+        width, height, bit_depth, color_type, comp, filt, interlace = struct.unpack(">IIBBBBB", data)
+        if bit_depth != 8 or color_type not in (2, 6) or comp != 0 or filt != 0 or interlace != 0:
+            print(f"unsupported PNG format depth={bit_depth} color={color_type} interlace={interlace}")
+            sys.exit(1)
+    elif ctype == b"IDAT":
+        idat.extend(data)
+    elif ctype == b"IEND":
+        break
+
+bpp = 3 if color_type == 2 else 4
+stride = width * bpp
+decompressed = zlib.decompress(bytes(idat))
+
+# Reconstruct scanlines (PNG filters 0..4) and downsample to <= 400 px max dimension.
+sample = max(1, max(width, height) // 400)
+pixels = []
+prev = bytearray(stride)
+mv = memoryview(decompressed)
+off = 0
+for y in range(height):
+    ftype = mv[off]
+    row = bytearray(mv[off + 1: off + 1 + stride])
+    off += 1 + stride
+    if ftype == 1:  # Sub
+        for i in range(bpp, stride):
+            row[i] = (row[i] + row[i - bpp]) & 0xFF
+    elif ftype == 2:  # Up
+        for i in range(stride):
+            row[i] = (row[i] + prev[i]) & 0xFF
+    elif ftype == 3:  # Average
+        for i in range(stride):
+            a = row[i - bpp] if i >= bpp else 0
+            row[i] = (row[i] + ((a + prev[i]) >> 1)) & 0xFF
+    elif ftype == 4:  # Paeth
+        for i in range(stride):
+            a = row[i - bpp] if i >= bpp else 0
+            b = prev[i]
+            c = prev[i - bpp] if i >= bpp else 0
+            p = a + b - c
+            pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+            pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+            row[i] = (row[i] + pr) & 0xFF
+    elif ftype != 0:
+        print(f"unsupported PNG filter {ftype}")
+        sys.exit(1)
+    if y % sample == 0:
+        pixels.append([(row[x], row[x + 1], row[x + 2]) for x in range(0, stride, bpp * sample)])
+    prev = row
+
+h, w = len(pixels), len(pixels[0])
 near = lambda p, q, by: all(abs(a - b) <= by for a, b in zip(p, q))
 # Wine's desktop color: a lot of it says this is the session, not one of the app's screens
 # or the launcher's wallpaper (which is colorful enough to pass for anything).
 desktop = sum(near(p, (37, 111, 149), 9) for line in pixels for p in line)
-if 100.0 * desktop / (width * height) < 30.0:
-    print(f"not the session's desktop (its color covers {100.0 * desktop / (width * height):.1f}% of the screen)")
+if 100.0 * desktop / (w * h) < 30.0:
+    print(f"not the session's desktop (its color covers {100.0 * desktop / (w * h):.1f}% of the screen)")
     sys.exit(1)
 # AIO's window is where its clear color is: (26, 26, 31) behind the Direct3D cubes,
 # (51, 51, 51) behind the Vulkan one.
 clear = [[near(p, (26, 26, 31), 4) or near(p, (51, 51, 51), 4) for p in line] for line in pixels]
-rows = [y for y in range(height) if sum(clear[y]) >= width // 20]
-columns = [x for x in range(width) if sum(clear[y][x] for y in range(height)) >= height // 20]
+rows = [y for y in range(h) if sum(clear[y]) >= w // 20]
+columns = [x for x in range(w) if sum(clear[y][x] for y in range(h)) >= h // 20]
 if not rows or not columns:
     print("no AIO window on the desktop")
     sys.exit(1)
@@ -127,6 +180,6 @@ share = 100.0 * cube / area
 print(f"the cube covers {share:.0f}% of AIO's window")
 sys.exit(0 if share >= 10.0 else 1)
 PY
-    status=$?; rm -f "$bmp"; exit $status ;;
+    ;;
   *) sed -n '2,31p' "$0" >&2; exit 2 ;;
 esac

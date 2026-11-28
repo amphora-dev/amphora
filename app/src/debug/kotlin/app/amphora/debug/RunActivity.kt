@@ -3,6 +3,7 @@ package app.amphora.debug
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import app.amphora.sdk.AmphoraSdk
 import app.amphora.sdk.engine.RuntimeState
@@ -36,6 +37,8 @@ import kotlinx.coroutines.launch
  * [TAG]: `started <id>`, `ended`, `removed`, or `failed: <why>`.
  */
 class RunActivity : ComponentActivity() {
+    private var finishOnStop = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sdk = AmphoraSdk.get(this)
@@ -53,6 +56,20 @@ class RunActivity : ComponentActivity() {
                     "failed: ${e.message}"
                 }
             Log.i(TAG, outcome)
+            // Finishing while SessionActivity's new-task transition is still in flight can
+            // hand focus back to the launcher on Android 15; wait until we are stopped.
+            if (outcome.startsWith("started ") && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                finishOnStop = true
+            } else {
+                finish()
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (finishOnStop) {
+            finishOnStop = false
             finish()
         }
     }
